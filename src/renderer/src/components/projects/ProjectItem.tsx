@@ -117,11 +117,13 @@ export function ProjectItem({
   const isExpanded = expandedProjectIds.has(project.id)
   const isEditing = editingProjectId === project.id
 
-  // Focus input when editing starts
+  // Focus input when editing starts (deferred to run after menu closes)
   useEffect(() => {
-    if (isEditing && inputRef.current) {
-      inputRef.current.focus()
-      inputRef.current.select()
+    if (isEditing) {
+      requestAnimationFrame(() => {
+        inputRef.current?.focus()
+        inputRef.current?.select()
+      })
     }
   }, [isEditing])
 
@@ -274,6 +276,7 @@ export function ProjectItem({
             {isEditing ? (
               <Input
                 ref={inputRef}
+                autoFocus
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
                 onBlur={handleSaveEdit}

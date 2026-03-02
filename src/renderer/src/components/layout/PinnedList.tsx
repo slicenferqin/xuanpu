@@ -174,10 +174,13 @@ function PinnedWorktreeItem({ worktreeId }: { worktreeId: string }): React.JSX.E
   const [branchNameInput, setBranchNameInput] = useState('')
   const renameInputRef = useRef<HTMLInputElement>(null)
 
+  // Focus rename input when it appears (deferred to run after menu closes)
   useEffect(() => {
-    if (isRenamingBranch && renameInputRef.current) {
-      renameInputRef.current.focus()
-      renameInputRef.current.select()
+    if (isRenamingBranch) {
+      requestAnimationFrame(() => {
+        renameInputRef.current?.focus()
+        renameInputRef.current?.select()
+      })
     }
   }, [isRenamingBranch])
 
@@ -524,6 +527,7 @@ function PinnedWorktreeItem({ worktreeId }: { worktreeId: string }): React.JSX.E
             {isRenamingBranch ? (
               <input
                 ref={renameInputRef}
+                autoFocus
                 value={branchNameInput}
                 onChange={(e) => setBranchNameInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -650,10 +654,13 @@ function PinnedConnectionItem({
   // Manage worktrees dialog state
   const [manageConnectionId, setManageConnectionId] = useState<string | null>(null)
 
+  // Focus rename input when it appears (deferred to run after menu closes)
   useEffect(() => {
-    if (isRenaming && renameInputRef.current) {
-      renameInputRef.current.focus()
-      renameInputRef.current.select()
+    if (isRenaming) {
+      requestAnimationFrame(() => {
+        renameInputRef.current?.focus()
+        renameInputRef.current?.select()
+      })
     }
   }, [isRenaming])
 
@@ -845,6 +852,7 @@ function PinnedConnectionItem({
             {isRenaming ? (
               <input
                 ref={renameInputRef}
+                autoFocus
                 value={nameInput}
                 onChange={(e) => setNameInput(e.target.value)}
                 onKeyDown={handleRenameKeyDown}

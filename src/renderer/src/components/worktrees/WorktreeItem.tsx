@@ -217,11 +217,13 @@ export function WorktreeItem({
   const [branchNameInput, setBranchNameInput] = useState('')
   const renameInputRef = useRef<HTMLInputElement>(null)
 
-  // Auto-focus the rename input when it appears
+  // Auto-focus the rename input when it appears (deferred to run after menu closes)
   useEffect(() => {
-    if (isRenamingBranch && renameInputRef.current) {
-      renameInputRef.current.focus()
-      renameInputRef.current.select()
+    if (isRenamingBranch) {
+      requestAnimationFrame(() => {
+        renameInputRef.current?.focus()
+        renameInputRef.current?.select()
+      })
     }
   }, [isRenamingBranch])
 
@@ -499,6 +501,7 @@ export function WorktreeItem({
             {isRenamingBranch ? (
               <input
                 ref={renameInputRef}
+                autoFocus
                 value={branchNameInput}
                 onChange={(e) => setBranchNameInput(e.target.value)}
                 onKeyDown={(e) => {

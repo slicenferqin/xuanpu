@@ -121,10 +121,13 @@ export function ConnectionItem({
   const [nameInput, setNameInput] = useState('')
   const renameInputRef = useRef<HTMLInputElement>(null)
 
+  // Focus rename input when it appears (deferred to run after menu closes)
   useEffect(() => {
-    if (isRenaming && renameInputRef.current) {
-      renameInputRef.current.focus()
-      renameInputRef.current.select()
+    if (isRenaming) {
+      requestAnimationFrame(() => {
+        renameInputRef.current?.focus()
+        renameInputRef.current?.select()
+      })
     }
   }, [isRenaming])
 
@@ -307,6 +310,7 @@ export function ConnectionItem({
             {isRenaming ? (
               <input
                 ref={renameInputRef}
+                autoFocus
                 value={nameInput}
                 onChange={(e) => setNameInput(e.target.value)}
                 onKeyDown={handleRenameKeyDown}
