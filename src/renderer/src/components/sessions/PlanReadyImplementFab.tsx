@@ -49,7 +49,7 @@ export function PlanReadyImplementFab({
           className={cn(
             'h-8 rounded-full px-3',
             'text-xs font-medium',
-            'border border-violet-600 text-violet-600 bg-background hover:bg-violet-600/10',
+            'border border-violet-600 text-violet-600 bg-background hover:bg-violet-100 dark:hover:bg-violet-950',
             'shadow-md transition-colors duration-200',
             'cursor-pointer',
             visible ? 'opacity-100' : 'opacity-0'
