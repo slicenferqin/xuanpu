@@ -12,10 +12,7 @@ import { generateSessionTitle } from './claude-session-title'
 import { autoRenameWorktreeBranch } from './git-service'
 import { getEventBus } from '../../server/event-bus'
 import { Options, PermissionMode } from '@anthropic-ai/claude-agent-sdk'
-import {
-  CommandFilterService,
-  type CommandFilterSettings
-} from './command-filter-service'
+import { CommandFilterService, type CommandFilterSettings } from './command-filter-service'
 import { createLspMcpServerConfig, LspService } from './lsp'
 import { APP_SETTINGS_DB_KEY } from '@shared/types/settings'
 
@@ -116,6 +113,9 @@ export interface ClaudeSessionState {
   /** SDK assistant UUID to pass as resumeSessionAt on the forked prompt.
    *  Ensures the fork's context excludes undone messages and throwaway entries. */
   pendingResumeSessionAt: string | null
+  /** Title generation was skipped for the first prompt (e.g. /using-superpowers);
+   *  fire on the next real user message instead. */
+  titleDeferred: boolean
 }
 
 export class ClaudeCodeImplementer implements AgentSdkImplementer {
@@ -201,7 +201,8 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
       revertCheckpointUuid: null,
       revertDiff: null,
       pendingFork: false,
-      pendingResumeSessionAt: null
+      pendingResumeSessionAt: null,
+      titleDeferred: false
     }
     this.sessions.set(key, state)
 
@@ -251,7 +252,8 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
       revertCheckpointUuid: null,
       revertDiff: null,
       pendingFork: false,
-      pendingResumeSessionAt: null
+      pendingResumeSessionAt: null,
+      titleDeferred: false
     }
     this.sessions.set(key, state)
 
@@ -294,9 +296,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
     this.cachedSlashCommands.delete(worktreePath)
 
     // Shut down LSP service if no remaining sessions use this worktree
-    const stillUsed = [...this.sessions.values()].some(
-      (s) => s.worktreePath === worktreePath
-    )
+    const stillUsed = [...this.sessions.values()].some((s) => s.worktreePath === worktreePath)
     if (!stillUsed) {
       const lsp = this.lspServices.get(worktreePath)
       if (lsp) {
@@ -405,6 +405,21 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
         promptLength: prompt.length,
         promptPreview: prompt.slice(0, 100)
       })
+
+      // If title generation was deferred (e.g. first prompt was /using-superpowers),
+      // fire it now on the first real user message.
+      if (
+        session.materialized &&
+        session.titleDeferred &&
+        !prompt.trimStart().startsWith('/using-superpowers')
+      ) {
+        session.titleDeferred = false
+        this.handleTitleGeneration(session, prompt).catch(() => {})
+        log.info('Prompt: firing deferred title generation', {
+          hiveSessionId: session.hiveSessionId,
+          promptPreview: prompt.slice(0, 80)
+        })
+      }
 
       // After undo, the fork creates a new session branch.  Clear the
       // in-memory messages so the new branch starts fresh — the SDK will
@@ -733,9 +748,16 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
           // Fire-and-forget: generate a title for brand-new sessions only.
           // wasPending is only true on initial materialization, not forks.
           if (wasPending) {
-            this.handleTitleGeneration(session, prompt).catch(() => {
-              // Swallowed — handleTitleGeneration already logs internally
-            })
+            if (prompt.trimStart().startsWith('/using-superpowers')) {
+              session.titleDeferred = true
+              log.info('Prompt: deferring title generation (superpowers hook)', {
+                hiveSessionId: session.hiveSessionId
+              })
+            } else {
+              this.handleTitleGeneration(session, prompt).catch(() => {
+                // Swallowed — handleTitleGeneration already logs internally
+              })
+            }
           }
         }
 
@@ -1465,11 +1487,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
 
   // ── Commands ─────────────────────────────────────────────────────
 
-  private toHiveCommandFormat(cmd: {
-    name: string
-    description: string
-    argumentHint: string
-  }) {
+  private toHiveCommandFormat(cmd: { name: string; description: string; argumentHint: string }) {
     return {
       name: cmd.name,
       description: cmd.description || undefined,
@@ -1513,10 +1531,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
     return []
   }
 
-  private persistCommandsToDb(
-    worktreePath: string,
-    commands?: unknown[]
-  ): void {
+  private persistCommandsToDb(worktreePath: string, commands?: unknown[]): void {
     if (!this.dbService) return
 
     // If no pre-mapped commands provided, map from the in-memory cache
@@ -1987,10 +2002,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
       hiveSessionId: session.hiveSessionId
     })
 
-    const patternSuggestions = this.commandFilterService.generatePatternSuggestions(
-      toolName,
-      input
-    )
+    const patternSuggestions = this.commandFilterService.generatePatternSuggestions(toolName, input)
     const subCommandPatterns = this.commandFilterService.generateSubCommandSuggestions(
       toolName,
       input
@@ -2130,10 +2142,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
   /**
    * Update command filter settings by adding a pattern to allowlist or blocklist
    */
-  private async updateCommandFilter(
-    pattern: string,
-    action: 'allow' | 'block'
-  ): Promise<void> {
+  private async updateCommandFilter(pattern: string, action: 'allow' | 'block'): Promise<void> {
     if (!this.dbService) {
       log.error('updateCommandFilter: no database service available')
       return
@@ -2152,7 +2161,8 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
         }
       }
 
-      const list = action === 'allow' ? settings.commandFilter.allowlist : settings.commandFilter.blocklist
+      const list =
+        action === 'allow' ? settings.commandFilter.allowlist : settings.commandFilter.blocklist
 
       if (!list.includes(pattern)) {
         list.push(pattern)

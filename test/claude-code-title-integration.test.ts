@@ -75,6 +75,7 @@ function createMockSession(overrides: Partial<ClaudeSessionState> = {}): ClaudeS
     revertDiff: null,
     pendingFork: false,
     pendingResumeSessionAt: null,
+    titleDeferred: false,
     ...overrides
   }
 }
@@ -263,9 +264,7 @@ describe('handleTitleGeneration', () => {
     ;(impl as any).dbService = null
 
     // Should not throw
-    await expect(
-      (impl as any).handleTitleGeneration(session, 'message')
-    ).resolves.toBeUndefined()
+    await expect((impl as any).handleTitleGeneration(session, 'message')).resolves.toBeUndefined()
   })
 
   it('handles missing mainWindow gracefully', async () => {
@@ -273,9 +272,7 @@ describe('handleTitleGeneration', () => {
     ;(impl as any).mainWindow = null
 
     // Should not throw — DB still gets updated
-    await expect(
-      (impl as any).handleTitleGeneration(session, 'message')
-    ).resolves.toBeUndefined()
+    await expect((impl as any).handleTitleGeneration(session, 'message')).resolves.toBeUndefined()
     expect(mockDb.updateSession).toHaveBeenCalledWith('hive-session-456', { name: 'Some title' })
   })
 
@@ -283,9 +280,7 @@ describe('handleTitleGeneration', () => {
     mockGenerateSessionTitle.mockRejectedValue(new Error('Unexpected error'))
 
     // Should not throw
-    await expect(
-      (impl as any).handleTitleGeneration(session, 'message')
-    ).resolves.toBeUndefined()
+    await expect((impl as any).handleTitleGeneration(session, 'message')).resolves.toBeUndefined()
   })
 
   // ── Branch rename failure handling ───────────────────────────────
