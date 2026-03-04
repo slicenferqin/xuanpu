@@ -62,6 +62,11 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
 fi
 ok "Clean working tree"
 
+# Pull latest from remote
+info "Pulling latest changes..."
+git pull || fatal "git pull failed"
+ok "Up to date with remote"
+
 # Check we're on main
 CURRENT_BRANCH=$(git branch --show-current)
 if [[ "$CURRENT_BRANCH" != "main" ]]; then
@@ -203,9 +208,53 @@ read -rp "Proceed? [Y/n] " confirm
 
 # Arm EXIT trap AFTER user confirmation (so aborting doesn't trigger shutdown/notification)
 RELEASE_SUCCEEDED=false
+PHASE2_STARTED=false
+
+rollback() {
+  warn "Rolling back failed release v${NEW_VERSION}..."
+
+  # 1. Delete local tag
+  if git tag -l "v${NEW_VERSION}" | grep -q .; then
+    git tag -d "v${NEW_VERSION}" && ok "Deleted local tag v${NEW_VERSION}" || true
+  fi
+
+  # 2. Delete remote tag
+  git push origin ":refs/tags/v${NEW_VERSION}" 2>/dev/null \
+    && ok "Deleted remote tag v${NEW_VERSION}" || true
+
+  # 3. Delete GitHub release if electron-builder created one
+  gh release delete "v${NEW_VERSION}" --repo "$REPO" --yes 2>/dev/null \
+    && ok "Deleted GitHub release v${NEW_VERSION}" || true
+
+  # 4. Revert package.json version if it was bumped
+  CURRENT_PKG_VERSION=$(node -p "require('./package.json').version" 2>/dev/null || echo "")
+  if [[ "$CURRENT_PKG_VERSION" == "$NEW_VERSION" ]]; then
+    node -e "
+      const fs = require('fs');
+      const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+      pkg.version = '${CURRENT_VERSION}';
+      fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+    "
+    git add package.json
+    git commit -m "rollback: revert version bump for failed v${NEW_VERSION} release"
+    git push origin "$CURRENT_BRANCH" \
+      && ok "Reverted package.json to ${CURRENT_VERSION} and pushed" \
+      || warn "Failed to push rollback commit"
+  else
+    ok "package.json already at ${CURRENT_PKG_VERSION}, no revert needed"
+  fi
+
+  ok "Rollback complete"
+  tg "🔄 Hive release v${NEW_VERSION} — rolled back"
+}
+
 on_exit() {
   if ! $RELEASE_SUCCEEDED; then
-    tg "❌ Hive release v${NEW_VERSION} — release failed"
+    if $PHASE2_STARTED; then
+      rollback
+    else
+      tg "❌ Hive release v${NEW_VERSION} — release failed (pre-phase-2, no rollback needed)"
+    fi
   fi
   if $SHUTDOWN_AFTER; then
     kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
@@ -223,6 +272,7 @@ trap on_exit EXIT
 tg "🚀 Hive release v${NEW_VERSION} — starting release"
 
 # ── Phase 2: Version bump + git ──────────────────────────────────
+PHASE2_STARTED=true
 info "Bumping version to ${NEW_VERSION}..."
 
 node -e "
