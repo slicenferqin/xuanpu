@@ -75,6 +75,11 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
 fi
 ok "Clean working tree"
 
+# Pull latest from remote
+info "Pulling latest changes..."
+git pull || fatal "git pull failed"
+ok "Up to date with remote"
+
 # NO branch restriction — canary can be released from any branch
 CURRENT_BRANCH=$(git branch --show-current)
 info "Current branch: ${YELLOW}${CURRENT_BRANCH}${NC}"
@@ -224,9 +229,69 @@ read -rp "Proceed? [Y/n] " confirm
 
 # Arm EXIT trap AFTER user confirmation (so aborting doesn't trigger shutdown/notification)
 RELEASE_SUCCEEDED=false
+PHASE2_STARTED=false
+
+rollback() {
+  warn "Rolling back failed canary release v${NEW_VERSION}..."
+
+  # 0. If in detached HEAD (building from tag), return to the working branch
+  CURRENT_HEAD=$(git branch --show-current)
+  if [[ -z "$CURRENT_HEAD" ]]; then
+    git checkout "$CURRENT_BRANCH" \
+      && ok "Returned to branch ${CURRENT_BRANCH} from detached HEAD" \
+      || warn "Failed to checkout ${CURRENT_BRANCH}"
+  fi
+
+  # 1. Delete local tag
+  if git tag -l "v${NEW_VERSION}" | grep -q .; then
+    git tag -d "v${NEW_VERSION}" && ok "Deleted local tag v${NEW_VERSION}" || true
+  fi
+
+  # 2. Delete remote tag
+  if ! $DRY_RUN; then
+    git push origin ":refs/tags/v${NEW_VERSION}" 2>/dev/null \
+      && ok "Deleted remote tag v${NEW_VERSION}" || true
+  fi
+
+  # 3. Delete GitHub release if electron-builder created one
+  if ! $DRY_RUN; then
+    gh release delete "v${NEW_VERSION}" --repo "$REPO" --yes 2>/dev/null \
+      && ok "Deleted GitHub release v${NEW_VERSION}" || true
+  fi
+
+  # 4. Revert package.json version if needed
+  CURRENT_PKG_VERSION=$(node -p "require('./package.json').version" 2>/dev/null || echo "")
+  if [[ "$CURRENT_PKG_VERSION" == "$NEW_VERSION" ]]; then
+    node -e "
+      const fs = require('fs');
+      const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+      pkg.version = '${BASE_VERSION}';
+      fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+    "
+    git add package.json
+    git commit -m "rollback: revert version bump for failed canary v${NEW_VERSION} release"
+    if ! $DRY_RUN; then
+      git push origin "$CURRENT_BRANCH" \
+        && ok "Reverted package.json to ${BASE_VERSION} and pushed" \
+        || warn "Failed to push rollback commit"
+    else
+      ok "Reverted package.json to ${BASE_VERSION} (dry run, not pushed)"
+    fi
+  else
+    ok "package.json already at ${CURRENT_PKG_VERSION}, no revert needed"
+  fi
+
+  ok "Rollback complete"
+  tg "🔄 Hive canary v${NEW_VERSION} — rolled back"
+}
+
 on_exit() {
   if ! $RELEASE_SUCCEEDED; then
-    tg "❌ Hive canary v${NEW_VERSION} — release failed"
+    if $PHASE2_STARTED; then
+      rollback
+    else
+      tg "❌ Hive canary v${NEW_VERSION} — release failed (pre-phase-2, no rollback needed)"
+    fi
   fi
   if $SHUTDOWN_AFTER; then
     kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
@@ -244,6 +309,7 @@ trap on_exit EXIT
 tg "🚀 Hive canary v${NEW_VERSION} — starting release"
 
 # ── Phase 2: Version bump + git ──────────────────────────────────
+PHASE2_STARTED=true
 info "Bumping version to ${NEW_VERSION}..."
 
 node -e "
