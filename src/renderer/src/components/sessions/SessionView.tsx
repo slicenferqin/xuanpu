@@ -4055,7 +4055,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                 </span>
               </div>
               <div className="flex items-center gap-1.5">
-                {isStreaming && <IndeterminateProgressBar mode={mode} />}
+                {isStreaming && <IndeterminateProgressBar mode={mode} isAsking={!!activeQuestion} />}
                 {isStreaming && !inputValue.trim() ? (
                   <Button
                     onClick={handleAbort}
