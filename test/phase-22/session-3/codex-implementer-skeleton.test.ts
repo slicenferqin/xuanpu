@@ -59,10 +59,10 @@ describe('CodexImplementer skeleton', () => {
       expect(result[0].id).toBe('codex')
     })
 
-    it('provider contains all 5 models', async () => {
+    it('provider contains all 4 models', async () => {
       const result = (await impl.getAvailableModels()) as any[]
       const models = result[0].models
-      expect(Object.keys(models)).toHaveLength(5)
+      expect(Object.keys(models)).toHaveLength(4)
     })
   })
 
@@ -170,17 +170,17 @@ describe('CodexImplementer skeleton', () => {
 
   // ── Unimplemented session info methods throw ───────────────────
 
-  describe('unimplemented session info methods throw descriptive errors', () => {
-    it('getSessionInfo throws', async () => {
-      await expect(impl.getSessionInfo('/path', 'session-1')).rejects.toThrow(
-        'CodexImplementer.getSessionInfo() not yet implemented'
-      )
+  describe('implemented session info methods', () => {
+    it('getSessionInfo returns null/null for unknown session', async () => {
+      const result = await impl.getSessionInfo('/path', 'session-1')
+      expect(result.revertMessageID).toBeNull()
+      expect(result.revertDiff).toBeNull()
     })
 
-    it('renameSession throws', async () => {
-      await expect(impl.renameSession('/path', 'session-1', 'new name')).rejects.toThrow(
-        'CodexImplementer.renameSession() not yet implemented'
-      )
+    it('renameSession does not throw without dbService', async () => {
+      await expect(
+        impl.renameSession('/path', 'session-1', 'new name')
+      ).resolves.not.toThrow()
     })
   })
 
@@ -213,16 +213,16 @@ describe('CodexImplementer skeleton', () => {
 
   // ── Unimplemented undo/redo methods throw ──────────────────────
 
-  describe('unimplemented undo/redo methods throw descriptive errors', () => {
-    it('undo throws', async () => {
+  describe('undo/redo methods', () => {
+    it('undo throws for unknown session', async () => {
       await expect(impl.undo('/path', 'session-1', 'hive-1')).rejects.toThrow(
-        'CodexImplementer.undo() not yet implemented'
+        'session not found'
       )
     })
 
-    it('redo throws', async () => {
+    it('redo throws unsupported', async () => {
       await expect(impl.redo('/path', 'session-1', 'hive-1')).rejects.toThrow(
-        'CodexImplementer.redo() not yet implemented'
+        'Redo is not supported for Codex sessions'
       )
     })
   })

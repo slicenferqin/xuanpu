@@ -74,6 +74,7 @@ export async function headlessBootstrap(opts: HeadlessBootstrapOpts): Promise<vo
 
   // Registry of SDK implementers
   const codexImpl = new CodexImplementer()
+  codexImpl.setDatabaseService(db)
   const sdkManager = new AgentSdkManager([openCodePlaceholder, claudeImpl, codexImpl])
 
   // EventBus singleton

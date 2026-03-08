@@ -12,8 +12,8 @@ describe('codex-models', () => {
   // ── CODEX_MODELS constant ──────────────────────────────────────
 
   describe('CODEX_MODELS', () => {
-    it('contains exactly 5 models', () => {
-      expect(CODEX_MODELS).toHaveLength(5)
+    it('contains exactly 4 models', () => {
+      expect(CODEX_MODELS).toHaveLength(4)
     })
 
     it('includes gpt-5.4', () => {
@@ -38,12 +38,6 @@ describe('codex-models', () => {
       const model = CODEX_MODELS.find((m) => m.id === 'gpt-5.2-codex')
       expect(model).toBeDefined()
       expect(model!.name).toBe('GPT-5.2 Codex')
-    })
-
-    it('includes gpt-5.2', () => {
-      const model = CODEX_MODELS.find((m) => m.id === 'gpt-5.2')
-      expect(model).toBeDefined()
-      expect(model!.name).toBe('GPT-5.2')
     })
 
     it('all models have context limits', () => {
@@ -101,15 +95,14 @@ describe('codex-models', () => {
       expect(result[0].name).toBe('Codex')
     })
 
-    it('provider entry contains all 5 models keyed by id', () => {
+    it('provider entry contains all 4 models keyed by id', () => {
       const result = getAvailableCodexModels()
       const models = result[0].models
-      expect(Object.keys(models)).toHaveLength(5)
+      expect(Object.keys(models)).toHaveLength(4)
       expect(models['gpt-5.4']).toBeDefined()
       expect(models['gpt-5.3-codex']).toBeDefined()
       expect(models['gpt-5.3-codex-spark']).toBeDefined()
       expect(models['gpt-5.2-codex']).toBeDefined()
-      expect(models['gpt-5.2']).toBeDefined()
     })
 
     it('each model in the result has id, name, limit, and variants', () => {
@@ -153,11 +146,12 @@ describe('codex-models', () => {
       expect(info!.name).toBe('GPT-5.3 Codex')
     })
 
-    it('returns model info for gpt-5.2', () => {
+    it('returns model info for gpt-5.2 (resolves alias to gpt-5.2-codex)', () => {
       const info = getCodexModelInfo('gpt-5.2')
       expect(info).not.toBeNull()
-      expect(info!.id).toBe('gpt-5.2')
-      expect(info!.name).toBe('GPT-5.2')
+      // gpt-5.2 is an alias for gpt-5.2-codex via CODEX_MODEL_ALIASES
+      expect(info!.id).toBe('gpt-5.2-codex')
+      expect(info!.name).toBe('GPT-5.2 Codex')
     })
 
     it('returns null for unknown model', () => {

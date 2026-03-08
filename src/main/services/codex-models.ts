@@ -44,13 +44,6 @@ export const CODEX_MODELS: CodexModelInfo[] = [
     limit: { context: 200000, output: 16000 },
     variants: CODEX_EFFORT_VARIANTS,
     defaultVariant: 'high'
-  },
-  {
-    id: 'gpt-5.2',
-    name: 'GPT-5.2',
-    limit: { context: 200000, output: 16000 },
-    variants: CODEX_EFFORT_VARIANTS,
-    defaultVariant: 'high'
   }
 ]
 
@@ -94,7 +87,34 @@ export function getAvailableCodexModels(): Array<{
 export function getCodexModelInfo(
   modelId: string
 ): { id: string; name: string; limit: { context: number; output: number } } | null {
-  const model = CODEX_MODELS.find((m) => m.id === modelId)
+  const normalized = normalizeCodexModelSlug(modelId) ?? modelId
+  const model = CODEX_MODELS.find((m) => m.id === normalized)
   if (!model) return null
   return { id: model.id, name: model.name, limit: model.limit }
+}
+
+// ── Model slug normalization ──────────────────────────────────────
+
+export const CODEX_MODEL_ALIASES: Record<string, string> = {
+  '5.4': 'gpt-5.4',
+  '5.3': 'gpt-5.3-codex',
+  'gpt-5.3': 'gpt-5.3-codex',
+  '5.3-spark': 'gpt-5.3-codex-spark',
+  'gpt-5.3-spark': 'gpt-5.3-codex-spark',
+  '5.2': 'gpt-5.2-codex',
+  'gpt-5.2': 'gpt-5.2-codex'
+}
+
+export function normalizeCodexModelSlug(model: string | null | undefined): string | null {
+  if (typeof model !== 'string') return null
+  const trimmed = model.trim()
+  if (!trimmed) return null
+  return CODEX_MODEL_ALIASES[trimmed] ?? trimmed
+}
+
+export function resolveCodexModelSlug(model: string | null | undefined): string {
+  const normalized = normalizeCodexModelSlug(model)
+  if (!normalized) return CODEX_DEFAULT_MODEL
+  const valid = CODEX_MODELS.find((m) => m.id === normalized)
+  return valid ? normalized : CODEX_DEFAULT_MODEL
 }

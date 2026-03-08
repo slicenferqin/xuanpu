@@ -655,6 +655,27 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     })
   }
 
+  async rollbackThread(threadId: string, numTurns: number): Promise<unknown> {
+    const context = this.sessions.get(threadId)
+    if (!context) {
+      throw new Error(`rollbackThread: no session for threadId=${threadId}`)
+    }
+
+    if (!Number.isInteger(numTurns) || numTurns < 1) {
+      throw new Error('numTurns must be an integer >= 1')
+    }
+
+    const response = await this.sendRequest(context, 'thread/rollback', {
+      threadId: context.session.threadId,
+      numTurns
+    })
+
+    this.updateSession(context, { status: 'ready', activeTurnId: null })
+    this.emitLifecycleEvent(context, 'thread/rolledBack', `Rolled back ${numTurns} turn(s)`)
+
+    return response
+  }
+
   getPendingApprovals(threadId: string): PendingApprovalRequest[] {
     const context = this.sessions.get(threadId)
     if (!context) {

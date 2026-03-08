@@ -845,6 +845,16 @@ export function registerOpenCodeHandlers(
     ) => {
       log.info('IPC: opencode:renameSession', { opencodeSessionId, title })
       try {
+        // SDK-aware dispatch: route non-OpenCode sessions to their implementer
+        if (sdkManager && dbService) {
+          const sdkId = dbService.getAgentSdkForSession(opencodeSessionId)
+          if (sdkId && sdkId !== 'opencode' && sdkId !== 'terminal') {
+            const impl = sdkManager.getImplementer(sdkId)
+            await impl.renameSession(worktreePath ?? '', opencodeSessionId, title)
+            return { success: true }
+          }
+        }
+        // Fall through to existing OpenCode path
         await openCodeService.renameSession(opencodeSessionId, title, worktreePath)
         return { success: true }
       } catch (error) {

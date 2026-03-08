@@ -2,7 +2,12 @@ import type { BrowserWindow } from 'electron'
 
 import type { AgentSdkCapabilities, AgentSdkImplementer } from './agent-sdk-types'
 import { CODEX_CAPABILITIES } from './agent-sdk-types'
-import { getAvailableCodexModels, getCodexModelInfo, CODEX_DEFAULT_MODEL } from './codex-models'
+import {
+  getAvailableCodexModels,
+  getCodexModelInfo,
+  CODEX_DEFAULT_MODEL,
+  resolveCodexModelSlug
+} from './codex-models'
 import { createLogger } from './logger'
 import {
   CodexAppServerManager,
@@ -10,6 +15,7 @@ import {
 } from './codex-app-server-manager'
 import { mapCodexEventToStreamEvents } from './codex-event-mapper'
 import { asObject, asString } from './codex-utils'
+import type { DatabaseService } from '../db/database'
 
 const log = createLogger({ component: 'CodexImplementer' })
 
@@ -21,6 +27,8 @@ export interface CodexSessionState {
   worktreePath: string
   status: 'connecting' | 'ready' | 'running' | 'error' | 'closed'
   messages: unknown[]
+  revertMessageID: string | null
+  revertDiff: string | null
 }
 
 // ── Pending HITL entry (shared by questions and approvals) ────────
@@ -36,6 +44,7 @@ export class CodexImplementer implements AgentSdkImplementer {
   readonly capabilities: AgentSdkCapabilities = CODEX_CAPABILITIES
 
   private mainWindow: BrowserWindow | null = null
+  private dbService: DatabaseService | null = null
   private selectedModel: string = CODEX_DEFAULT_MODEL
   private selectedVariant: string | undefined
   private manager: CodexAppServerManager = new CodexAppServerManager()
@@ -47,6 +56,10 @@ export class CodexImplementer implements AgentSdkImplementer {
 
   setMainWindow(window: BrowserWindow): void {
     this.mainWindow = window
+  }
+
+  setDatabaseService(db: DatabaseService): void {
+    this.dbService = db
   }
 
   // ── Manager event listener (handles approval/question routing) ──
@@ -141,14 +154,15 @@ export class CodexImplementer implements AgentSdkImplementer {
   // ── Lifecycle ────────────────────────────────────────────────────
 
   async connect(worktreePath: string, hiveSessionId: string): Promise<{ sessionId: string }> {
-    log.info('Connecting', { worktreePath, hiveSessionId, model: this.selectedModel })
+    const resolvedModel = resolveCodexModelSlug(this.selectedModel)
+    log.info('Connecting', { worktreePath, hiveSessionId, model: resolvedModel })
 
     // Ensure the manager event listener is attached for HITL flows
     this.attachManagerListener()
 
     const providerSession = await this.manager.startSession({
       cwd: worktreePath,
-      model: this.selectedModel
+      model: resolvedModel
     })
 
     const threadId = providerSession.threadId
@@ -162,7 +176,9 @@ export class CodexImplementer implements AgentSdkImplementer {
       hiveSessionId,
       worktreePath,
       status: this.mapProviderStatus(providerSession.status),
-      messages: []
+      messages: [],
+      revertMessageID: null,
+      revertDiff: null
     }
     this.sessions.set(key, state)
 
@@ -204,9 +220,10 @@ export class CodexImplementer implements AgentSdkImplementer {
 
     // Otherwise, start a new session with thread resume
     try {
+      const resolvedModel = resolveCodexModelSlug(this.selectedModel)
       const providerSession = await this.manager.startSession({
         cwd: worktreePath,
-        model: this.selectedModel,
+        model: resolvedModel,
         resumeThreadId: agentSessionId
       })
 
@@ -221,7 +238,9 @@ export class CodexImplementer implements AgentSdkImplementer {
         hiveSessionId,
         worktreePath,
         status: this.mapProviderStatus(providerSession.status),
-        messages: []
+        messages: [],
+        revertMessageID: null,
+        revertDiff: null
       }
       this.sessions.set(newKey, state)
 
@@ -377,7 +396,7 @@ export class CodexImplementer implements AgentSdkImplementer {
     this.manager.on('event', handleEvent)
 
     try {
-      const model = modelOverride?.modelID ?? this.selectedModel
+      const model = resolveCodexModelSlug(modelOverride?.modelID ?? this.selectedModel)
 
       await this.manager.sendTurn(session.threadId, {
         text,
@@ -520,21 +539,30 @@ export class CodexImplementer implements AgentSdkImplementer {
   }
 
   setSelectedModel(model: { providerID: string; modelID: string; variant?: string }): void {
-    this.selectedModel = model.modelID
+    this.selectedModel = resolveCodexModelSlug(model.modelID)
     this.selectedVariant = model.variant
-    log.info('Selected model set', { model: model.modelID, variant: model.variant })
+    log.info('Selected model set', {
+      raw: model.modelID,
+      resolved: this.selectedModel,
+      variant: model.variant
+    })
   }
 
   // ── Session info ─────────────────────────────────────────────────
 
   async getSessionInfo(
-    _worktreePath: string,
-    _agentSessionId: string
+    worktreePath: string,
+    agentSessionId: string
   ): Promise<{
     revertMessageID: string | null
     revertDiff: string | null
   }> {
-    throw new Error('CodexImplementer.getSessionInfo() not yet implemented')
+    const sessionKey = this.getSessionKey(worktreePath, agentSessionId)
+    const session = this.sessions.get(sessionKey)
+    return {
+      revertMessageID: session?.revertMessageID ?? null,
+      revertDiff: session?.revertDiff ?? null
+    }
   }
 
   // ── Human-in-the-loop ────────────────────────────────────────────
@@ -649,11 +677,50 @@ export class CodexImplementer implements AgentSdkImplementer {
   // ── Undo/Redo ────────────────────────────────────────────────────
 
   async undo(
-    _worktreePath: string,
-    _agentSessionId: string,
+    worktreePath: string,
+    agentSessionId: string,
     _hiveSessionId: string
-  ): Promise<unknown> {
-    throw new Error('CodexImplementer.undo() not yet implemented')
+  ): Promise<{ revertMessageID: string; restoredPrompt: string; revertDiff: string | null }> {
+    const sessionKey = this.getSessionKey(worktreePath, agentSessionId)
+    const session = this.sessions.get(sessionKey)
+    if (!session) {
+      throw new Error(`Undo failed: session not found for ${worktreePath} / ${agentSessionId}`)
+    }
+
+    if (session.messages.length === 0) {
+      throw new Error('Nothing to undo')
+    }
+
+    // Rollback 1 turn via the Codex server
+    const snapshot = await this.manager.rollbackThread(session.threadId, 1)
+
+    // Try to extract the last user prompt from in-memory messages
+    const restoredPrompt = this.extractLastUserPrompt(session)
+
+    // Pop the last exchange (assistant + user) from in-memory messages
+    // Find the last user message boundary
+    const revertMessageID = this.popLastExchange(session)
+
+    // Store revert state
+    session.revertMessageID = revertMessageID
+    session.revertDiff = null
+
+    // Emit session info update to renderer
+    this.sendToRenderer('opencode:stream', {
+      type: 'session.updated',
+      sessionId: session.hiveSessionId,
+      data: { revertMessageID }
+    })
+
+    log.info('Undo completed', {
+      worktreePath,
+      agentSessionId,
+      revertMessageID,
+      restoredPrompt: restoredPrompt.slice(0, 50),
+      snapshotReceived: !!snapshot
+    })
+
+    return { revertMessageID, restoredPrompt, revertDiff: null }
   }
 
   async redo(
@@ -661,7 +728,7 @@ export class CodexImplementer implements AgentSdkImplementer {
     _agentSessionId: string,
     _hiveSessionId: string
   ): Promise<unknown> {
-    throw new Error('CodexImplementer.redo() not yet implemented')
+    throw new Error('Redo is not supported for Codex sessions')
   }
 
   // ── Commands ─────────────────────────────────────────────────────
@@ -683,10 +750,36 @@ export class CodexImplementer implements AgentSdkImplementer {
 
   async renameSession(
     _worktreePath: string,
-    _agentSessionId: string,
-    _name: string
+    agentSessionId: string,
+    name: string
   ): Promise<void> {
-    throw new Error('CodexImplementer.renameSession() not yet implemented')
+    // Codex has no server-side rename — just update Hive's local DB
+    if (!this.dbService) {
+      log.warn('renameSession: no dbService available', { agentSessionId })
+      return
+    }
+
+    // Find hive session by matching agentSessionId (threadId)
+    const sessionKey = this.findSessionKeyByAgentId(agentSessionId)
+    if (sessionKey) {
+      const session = this.sessions.get(sessionKey)
+      if (session?.hiveSessionId) {
+        try {
+          this.dbService.updateSession(session.hiveSessionId, { name })
+          log.info('renameSession: updated title in DB', {
+            hiveSessionId: session.hiveSessionId,
+            name
+          })
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err))
+          log.error('renameSession: failed to update title', error, {
+            hiveSessionId: session.hiveSessionId
+          })
+        }
+      }
+    } else {
+      log.warn('renameSession: session not found in active map', { agentSessionId })
+    }
   }
 
   // ── Internal helpers (exposed for testing) ───────────────────────
@@ -839,6 +932,70 @@ export class CodexImplementer implements AgentSdkImplementer {
         resolve()
       }
     })
+  }
+
+  /** Find a session key by its agentSessionId (threadId) */
+  private findSessionKeyByAgentId(agentSessionId: string): string | null {
+    for (const [key, session] of this.sessions.entries()) {
+      if (session.threadId === agentSessionId) {
+        return key
+      }
+    }
+    return null
+  }
+
+  /** Extract the last user prompt text from in-memory messages */
+  private extractLastUserPrompt(session: CodexSessionState): string {
+    for (let i = session.messages.length - 1; i >= 0; i--) {
+      const msg = asObject(session.messages[i])
+      if (msg?.role === 'user') {
+        const parts = msg.parts as unknown[] | undefined
+        if (Array.isArray(parts)) {
+          for (const part of parts) {
+            const partObj = asObject(part)
+            if (partObj?.type === 'text' && typeof partObj.text === 'string') {
+              return partObj.text
+            }
+          }
+        }
+      }
+    }
+    return ''
+  }
+
+  /**
+   * Pop the last user+assistant exchange from in-memory messages.
+   * Returns the ID/timestamp of the new last message (the revert boundary),
+   * or a synthetic boundary ID if no messages remain.
+   */
+  private popLastExchange(session: CodexSessionState): string {
+    // Remove trailing assistant message(s)
+    while (session.messages.length > 0) {
+      const last = asObject(session.messages[session.messages.length - 1])
+      if (last?.role === 'assistant') {
+        session.messages.pop()
+      } else {
+        break
+      }
+    }
+
+    // Remove the trailing user message
+    if (session.messages.length > 0) {
+      const last = asObject(session.messages[session.messages.length - 1])
+      if (last?.role === 'user') {
+        session.messages.pop()
+      }
+    }
+
+    // Return the ID of what's now the last message, or a synthetic boundary
+    if (session.messages.length > 0) {
+      const last = asObject(session.messages[session.messages.length - 1])
+      return asString(last?.id)
+        ?? asString(last?.timestamp)
+        ?? `revert-${session.messages.length}`
+    }
+
+    return 'revert-0'
   }
 
   /** Parse a thread/read snapshot into a message array for getMessages() */

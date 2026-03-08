@@ -514,6 +514,7 @@ app.whenReady().then(async () => {
       setMainWindow: () => {}
     } satisfies AgentSdkImplementer
     const codexImpl = new CodexImplementer()
+    codexImpl.setDatabaseService(getDatabase())
     const sdkManager = new AgentSdkManager([openCodePlaceholder, claudeImpl, codexImpl])
     sdkManager.setMainWindow(mainWindow)
 
