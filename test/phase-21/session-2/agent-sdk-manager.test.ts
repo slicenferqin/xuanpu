@@ -3,7 +3,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { AgentSdkImplementer, AgentSdkId } from '../../../src/main/services/agent-sdk-types'
 import {
   OPENCODE_CAPABILITIES,
-  CLAUDE_CODE_CAPABILITIES
+  CLAUDE_CODE_CAPABILITIES,
+  CODEX_CAPABILITIES
 } from '../../../src/main/services/agent-sdk-types'
 
 // Mock logger
@@ -20,7 +21,12 @@ import { AgentSdkManager } from '../../../src/main/services/agent-sdk-manager'
 
 // Minimal mock implementers
 function createMockImplementer(id: AgentSdkId): AgentSdkImplementer {
-  const caps = id === 'opencode' ? OPENCODE_CAPABILITIES : CLAUDE_CODE_CAPABILITIES
+  const caps =
+    id === 'opencode'
+      ? OPENCODE_CAPABILITIES
+      : id === 'claude-code'
+        ? CLAUDE_CODE_CAPABILITIES
+        : CODEX_CAPABILITIES
   return {
     id,
     capabilities: caps,
@@ -52,11 +58,13 @@ describe('AgentSdkManager', () => {
   let manager: AgentSdkManager
   let mockOpencode: AgentSdkImplementer
   let mockClaudeCode: AgentSdkImplementer
+  let mockCodex: AgentSdkImplementer
 
   beforeEach(() => {
     mockOpencode = createMockImplementer('opencode')
     mockClaudeCode = createMockImplementer('claude-code')
-    manager = new AgentSdkManager(mockOpencode, mockClaudeCode)
+    mockCodex = createMockImplementer('codex')
+    manager = new AgentSdkManager(mockOpencode, mockClaudeCode, mockCodex)
   })
 
   describe('getImplementer', () => {
@@ -66,6 +74,10 @@ describe('AgentSdkManager', () => {
 
     it('returns claude-code implementer for "claude-code"', () => {
       expect(manager.getImplementer('claude-code')).toBe(mockClaudeCode)
+    })
+
+    it('returns codex implementer for "codex"', () => {
+      expect(manager.getImplementer('codex')).toBe(mockCodex)
     })
 
     it('throws for unknown SDK id', () => {
@@ -83,6 +95,10 @@ describe('AgentSdkManager', () => {
     it('returns claude-code capabilities', () => {
       expect(manager.getCapabilities('claude-code')).toEqual(CLAUDE_CODE_CAPABILITIES)
     })
+
+    it('returns codex capabilities', () => {
+      expect(manager.getCapabilities('codex')).toEqual(CODEX_CAPABILITIES)
+    })
   })
 
   describe('defaultSdkId', () => {
@@ -98,6 +114,7 @@ describe('AgentSdkManager', () => {
 
       expect(mockOpencode.setMainWindow).toHaveBeenCalledWith(mockWindow)
       expect(mockClaudeCode.setMainWindow).toHaveBeenCalledWith(mockWindow)
+      expect(mockCodex.setMainWindow).toHaveBeenCalledWith(mockWindow)
     })
 
     it('calls each implementer exactly once', () => {
@@ -106,6 +123,7 @@ describe('AgentSdkManager', () => {
 
       expect(mockOpencode.setMainWindow).toHaveBeenCalledTimes(1)
       expect(mockClaudeCode.setMainWindow).toHaveBeenCalledTimes(1)
+      expect(mockCodex.setMainWindow).toHaveBeenCalledTimes(1)
     })
   })
 
@@ -115,6 +133,7 @@ describe('AgentSdkManager', () => {
 
       expect(mockOpencode.cleanup).toHaveBeenCalledTimes(1)
       expect(mockClaudeCode.cleanup).toHaveBeenCalledTimes(1)
+      expect(mockCodex.cleanup).toHaveBeenCalledTimes(1)
     })
 
     it('continues cleanup even if one implementer fails', async () => {
@@ -124,6 +143,7 @@ describe('AgentSdkManager', () => {
 
       expect(mockOpencode.cleanup).toHaveBeenCalledTimes(1)
       expect(mockClaudeCode.cleanup).toHaveBeenCalledTimes(1)
+      expect(mockCodex.cleanup).toHaveBeenCalledTimes(1)
     })
 
     it('does not throw when an implementer cleanup fails', async () => {

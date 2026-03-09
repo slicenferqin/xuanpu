@@ -6,7 +6,8 @@ import openaiIcon from '@/assets/model-icons/openai.svg'
 
 const MODEL_ICON_MATCHERS = [
   { pattern: /^claude/i, icon: claudeIcon, label: 'Claude' },
-  { pattern: /^gpt/i, icon: openaiIcon, label: 'OpenAI' }
+  { pattern: /^gpt/i, icon: openaiIcon, label: 'OpenAI' },
+  { pattern: /^(codex|o3|o4)/i, icon: openaiIcon, label: 'OpenAI' }
 ] as const
 
 function getModelIcon(
@@ -42,11 +43,25 @@ export function ModelIcon({ worktreeId, className }: ModelIconProps): React.JSX.
     return latest.agent_sdk === 'claude-code'
   })
 
+  const isCodexSdk = useSessionStore((s) => {
+    const sessions = s.sessionsByWorktree.get(worktreeId)
+    if (!sessions?.length) return false
+    const latest = sessions[sessions.length - 1]
+    return latest.agent_sdk === 'codex'
+  })
+
   if (!showModelIcons) return null
 
   // Claude Agent SDK always uses Claude models
   if (isClaudeCodeSdk) {
     return <img src={claudeIcon} alt="Claude" className={cn(className)} draggable={false} />
+  }
+
+  // Codex SDK always uses OpenAI models
+  if (isCodexSdk) {
+    return (
+      <img src={openaiIcon} alt="OpenAI" className={cn(className)} draggable={false} />
+    )
   }
 
   const matched = getModelIcon(lastModelId)

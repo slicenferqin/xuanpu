@@ -75,7 +75,7 @@ interface Session {
   name: string | null
   status: 'active' | 'completed' | 'error'
   opencode_session_id: string | null
-  agent_sdk: 'opencode' | 'claude-code' | 'terminal'
+  agent_sdk: 'opencode' | 'claude-code' | 'terminal' | 'codex'
   mode: 'build' | 'plan'
   model_provider_id: string | null
   model_id: string | null
@@ -226,7 +226,7 @@ declare global {
           connection_id?: string | null
           name?: string | null
           opencode_session_id?: string | null
-          agent_sdk?: 'opencode' | 'claude-code' | 'terminal'
+          agent_sdk?: 'opencode' | 'claude-code' | 'terminal' | 'codex'
           model_provider_id?: string | null
           model_id?: string | null
           model_variant?: string | null
@@ -241,7 +241,7 @@ declare global {
             name?: string | null
             status?: 'active' | 'completed' | 'error'
             opencode_session_id?: string | null
-            agent_sdk?: 'opencode' | 'claude-code' | 'terminal'
+            agent_sdk?: 'opencode' | 'claude-code' | 'terminal' | 'codex'
             mode?: 'build' | 'plan'
             model_provider_id?: string | null
             model_id?: string | null
@@ -395,7 +395,7 @@ declare global {
         logs: string
       }>
       isLogMode: () => Promise<boolean>
-      detectAgentSdks: () => Promise<{ opencode: boolean; claude: boolean }>
+      detectAgentSdks: () => Promise<{ opencode: boolean; claude: boolean; codex: boolean }>
       quitApp: () => Promise<void>
       openInApp: (appName: string, path: string) => Promise<{ success: boolean; error?: string }>
       openInChrome: (
@@ -464,7 +464,7 @@ declare global {
         opencodeSessionId: string
       ) => Promise<{ success: boolean; messages: unknown[]; error?: string }>
       // List available models from all configured providers
-      listModels: (opts?: { agentSdk?: 'opencode' | 'claude-code' | 'terminal' }) => Promise<{
+      listModels: (opts?: { agentSdk?: 'opencode' | 'claude-code' | 'terminal' | 'codex' }) => Promise<{
         success: boolean
         providers: Record<string, unknown>
         error?: string
@@ -474,13 +474,13 @@ declare global {
         providerID: string
         modelID: string
         variant?: string
-        agentSdk?: 'opencode' | 'claude-code' | 'terminal'
+        agentSdk?: 'opencode' | 'claude-code' | 'terminal' | 'codex'
       }) => Promise<{ success: boolean; error?: string }>
       // Get model info (name, context limit)
       modelInfo: (
         worktreePath: string,
         modelId: string,
-        agentSdk?: 'opencode' | 'claude-code' | 'terminal'
+        agentSdk?: 'opencode' | 'claude-code' | 'terminal' | 'codex'
       ) => Promise<{
         success: boolean
         model?: { id: string; name: string; limit: { context: number } }

@@ -4,6 +4,7 @@ import { AgentNotFoundDialog } from './AgentNotFoundDialog'
 import { AgentPickerDialog } from './AgentPickerDialog'
 
 type SetupStatus = 'detecting' | 'none-found' | 'choose' | 'done'
+type AvailableSdk = 'opencode' | 'claude-code' | 'codex'
 
 export function AgentSetupGuard(): React.JSX.Element | null {
   const initialSetupComplete = useSettingsStore((s) => s.initialSetupComplete)
@@ -11,6 +12,7 @@ export function AgentSetupGuard(): React.JSX.Element | null {
   const updateSetting = useSettingsStore((s) => s.updateSetting)
 
   const [status, setStatus] = useState<SetupStatus>('detecting')
+  const [detected, setDetected] = useState<AvailableSdk[]>([])
 
   useEffect(() => {
     if (isLoading || initialSetupComplete) return
@@ -22,21 +24,28 @@ export function AgentSetupGuard(): React.JSX.Element | null {
       .then((result) => {
         if (cancelled) return
 
-        const { opencode, claude } = result
+        const { opencode, claude, codex } = result
+        const found = [
+          opencode && ('opencode' as const),
+          claude && ('claude-code' as const),
+          codex && ('codex' as const)
+        ].filter(Boolean) as AvailableSdk[]
 
-        if (!opencode && !claude) {
+        if (found.length === 0) {
           setStatus('none-found')
-        } else if (opencode && claude) {
-          setStatus('choose')
-        } else {
-          // Exactly one found — auto-select it
-          updateSetting('defaultAgentSdk', opencode ? 'opencode' : 'claude-code')
+        } else if (found.length === 1) {
+          // Auto-select the single found provider
+          updateSetting('defaultAgentSdk', found[0])
           updateSetting('initialSetupComplete', true)
           window.analyticsOps.track('onboarding_completed', {
-            sdk: opencode ? 'opencode' : 'claude-code',
+            sdk: found[0],
             auto_selected: true
           })
           setStatus('done')
+        } else {
+          // Multiple found — show picker
+          setDetected(found)
+          setStatus('choose')
         }
       })
       .catch((error) => {
@@ -63,6 +72,7 @@ export function AgentSetupGuard(): React.JSX.Element | null {
   if (status === 'choose') {
     return (
       <AgentPickerDialog
+        available={detected}
         onSelect={(sdk) => {
           updateSetting('defaultAgentSdk', sdk)
           updateSetting('initialSetupComplete', true)

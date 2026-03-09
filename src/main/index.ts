@@ -34,6 +34,7 @@ import { createResponseLog, appendResponseLog } from './services/response-logger
 import { notificationService } from './services/notification-service'
 import { updaterService } from './services/updater'
 import { ClaudeCodeImplementer } from './services/claude-code-implementer'
+import { CodexImplementer } from './services/codex-implementer'
 import { AgentSdkManager } from './services/agent-sdk-manager'
 import { resolveClaudeBinaryPath } from './services/claude-binary-resolver'
 import type { AgentSdkImplementer } from './services/agent-sdk-types'
@@ -493,6 +494,8 @@ app.whenReady().then(async () => {
     const claudeImpl = new ClaudeCodeImplementer()
     claudeImpl.setDatabaseService(getDatabase())
     claudeImpl.setClaudeBinaryPath(claudeBinaryPath)
+    const codexImpl = new CodexImplementer()
+    codexImpl.setDatabaseService(getDatabase())
     const openCodePlaceholder = {
       id: 'opencode' as const,
       capabilities: {
@@ -527,7 +530,7 @@ app.whenReady().then(async () => {
       renameSession: async () => {},
       setMainWindow: () => {}
     } satisfies AgentSdkImplementer
-    const sdkManager = new AgentSdkManager(openCodePlaceholder, claudeImpl)
+    const sdkManager = new AgentSdkManager(openCodePlaceholder, claudeImpl, codexImpl)
     sdkManager.setMainWindow(mainWindow)
 
     const databaseService = getDatabase()
