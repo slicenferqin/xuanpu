@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Bug, Copy, Check } from 'lucide-react'
+import { Bug, Copy } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   ContextMenu,
@@ -17,7 +17,6 @@ interface ToolCallContextMenuProps {
 
 export function ToolCallContextMenu({ children, toolUse }: ToolCallContextMenuProps) {
   const [debugOpen, setDebugOpen] = useState(false)
-  const [copied, setCopied] = useState(false)
 
   const handleCopyCommand = async () => {
     let textToCopy = ''
@@ -46,9 +45,7 @@ export function ToolCallContextMenu({ children, toolUse }: ToolCallContextMenuPr
 
     try {
       await navigator.clipboard.writeText(textToCopy)
-      setCopied(true)
       toast.success('Copied to clipboard')
-      setTimeout(() => setCopied(false), 2000)
     } catch {
       toast.error('Failed to copy')
     }
@@ -60,17 +57,8 @@ export function ToolCallContextMenu({ children, toolUse }: ToolCallContextMenuPr
         <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
         <ContextMenuContent>
           <ContextMenuItem onClick={handleCopyCommand} className="gap-2">
-            {copied ? (
-              <>
-                <Check className="h-3.5 w-3.5 text-green-500" />
-                Copied!
-              </>
-            ) : (
-              <>
-                <Copy className="h-3.5 w-3.5" />
-                Copy Command
-              </>
-            )}
+            <Copy className="h-3.5 w-3.5" />
+            Copy Command
           </ContextMenuItem>
           <ContextMenuItem onClick={() => setDebugOpen(true)} className="gap-2">
             <Bug className="h-3.5 w-3.5" />
