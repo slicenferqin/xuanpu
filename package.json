@@ -1,10 +1,31 @@
 {
   "name": "hive",
   "version": "1.0.54",
-  "description": "Electron app for managing git projects and worktrees with OpenCode AI sessions",
+  "description": "Native macOS app for managing git worktrees and AI-powered coding sessions",
   "main": "./out/main/index.js",
-  "author": "",
+  "author": "morapelker",
   "license": "MIT",
+  "homepage": "https://github.com/morapelker/hive#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/morapelker/hive.git"
+  },
+  "bugs": {
+    "url": "https://github.com/morapelker/hive/issues"
+  },
+  "keywords": [
+    "git",
+    "worktrees",
+    "electron",
+    "macos",
+    "developer-tools",
+    "ai",
+    "opencode",
+    "claude",
+    "coding-assistant",
+    "git-management",
+    "productivity"
+  ],
   "pnpm": {
     "onlyBuiltDependencies": [
       "better-sqlite3",
