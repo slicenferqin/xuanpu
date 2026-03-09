@@ -145,8 +145,7 @@ function getToolIcon(name: string): React.JSX.Element {
   if (
     lowerName.includes('bash') ||
     lowerName.includes('shell') ||
-    lowerName.includes('exec') ||
-    lowerName.includes('command')
+    lowerName.includes('exec')
   ) {
     return <Terminal className={iconClass} />
   }
@@ -341,8 +340,7 @@ function getToolRenderer(name: string): React.FC<ToolViewProps> {
   if (
     lower.includes('bash') ||
     lower.includes('shell') ||
-    lower.includes('exec') ||
-    lower.includes('command')
+    lower.includes('exec')
   )
     return BashToolView
   if (lower.includes('grep') || lower.includes('search') || lower.includes('rg'))
@@ -385,8 +383,7 @@ function CollapsedContent({
   if (
     lowerName.includes('bash') ||
     lowerName.includes('shell') ||
-    lowerName.includes('exec') ||
-    lowerName.includes('command')
+    lowerName.includes('exec')
   ) {
     const command = (input.command || input.cmd || '') as string
     const truncCmd = command.length > 60 ? command.slice(0, 60) + '...' : command
@@ -860,8 +857,11 @@ export const ToolCard = memo(function ToolCard({
     return null
   }, [toolUse.startTime, toolUse.endTime])
 
-  const hasOutput = !!(toolUse.output || toolUse.error)
-  const isExitPlanMode = toolUse.name.toLowerCase() === 'exitplanmode'
+  const lowerName = toolUse.name.toLowerCase()
+  const isBash = lowerName.includes('bash') || lowerName.includes('shell') || lowerName.includes('exec')
+  const command = (toolUse.input.command || toolUse.input.cmd || '') as string
+  const hasOutput = !!(toolUse.output || toolUse.error || (isBash && command))
+  const isExitPlanMode = lowerName === 'exitplanmode'
 
   // Fallback: if toolUse.input.plan is missing, check the pending plan store.
   // This handles the race where plan.ready sets pendingPlan but the streaming
