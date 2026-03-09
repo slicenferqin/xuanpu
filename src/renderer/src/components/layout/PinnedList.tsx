@@ -241,9 +241,10 @@ function PinnedWorktreeItem({ worktreeId }: { worktreeId: string }): React.JSX.E
 
   const handleBranchRename = useCallback(async (): Promise<void> => {
     if (!worktree) return
+    intentionalCloseRef.current = true
+    if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
     const trimmed = branchNameInput.trim()
     if (!trimmed || trimmed === worktree.branch_name) {
-      if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
       setIsRenamingBranch(false)
       return
     }
@@ -259,7 +260,6 @@ function PinnedWorktreeItem({ worktreeId }: { worktreeId: string }): React.JSX.E
 
     if (!newBranch) {
       toast.error('Invalid branch name')
-      if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
       setIsRenamingBranch(false)
       return
     }
@@ -277,7 +277,6 @@ function PinnedWorktreeItem({ worktreeId }: { worktreeId: string }): React.JSX.E
     } else {
       toast.error(result.error || 'Failed to rename branch')
     }
-    if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
     setIsRenamingBranch(false)
   }, [branchNameInput, worktree])
 
@@ -555,8 +554,6 @@ function PinnedWorktreeItem({ worktreeId }: { worktreeId: string }): React.JSX.E
                 onChange={(e) => setBranchNameInput(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
-                    intentionalCloseRef.current = true
-                    if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
                     handleBranchRename()
                   }
                   if (e.key === 'Escape') {

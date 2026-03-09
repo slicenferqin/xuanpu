@@ -253,9 +253,10 @@ export function WorktreeItem({
   }, [worktree.branch_name])
 
   const handleBranchRename = useCallback(async (): Promise<void> => {
+    intentionalCloseRef.current = true
+    if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
     const trimmed = branchNameInput.trim()
     if (!trimmed || trimmed === worktree.branch_name) {
-      if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
       setIsRenamingBranch(false)
       return
     }
@@ -272,7 +273,6 @@ export function WorktreeItem({
 
     if (!newBranch) {
       toast.error('Invalid branch name')
-      if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
       setIsRenamingBranch(false)
       return
     }
@@ -290,7 +290,6 @@ export function WorktreeItem({
     } else {
       toast.error(result.error || 'Failed to rename branch')
     }
-    if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
     setIsRenamingBranch(false)
   }, [branchNameInput, worktree.id, worktree.path, worktree.branch_name])
 
@@ -529,8 +528,6 @@ export function WorktreeItem({
                 onChange={(e) => setBranchNameInput(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
-                    intentionalCloseRef.current = true
-                    if (blurTimerRef.current) clearTimeout(blurTimerRef.current)
                     handleBranchRename()
                   }
                   if (e.key === 'Escape') {
