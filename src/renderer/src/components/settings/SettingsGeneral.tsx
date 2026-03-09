@@ -13,6 +13,7 @@ export function SettingsGeneral(): React.JSX.Element {
     autoStartSession,
     breedType,
     showModelIcons,
+    showModelProvider,
     showUsageIndicator,
     defaultAgentSdk,
     stripAtMentions,
@@ -84,6 +85,33 @@ export function SettingsGeneral(): React.JSX.Element {
             className={cn(
               'pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform',
               showModelIcons ? 'translate-x-4' : 'translate-x-0'
+            )}
+          />
+        </button>
+      </div>
+
+      {/* Show model provider */}
+      <div className="flex items-center justify-between">
+        <div>
+          <label className="text-sm font-medium">Show model provider</label>
+          <p className="text-xs text-muted-foreground">
+            Display the provider name (e.g. ANTHROPIC) next to the model in the selector pill
+          </p>
+        </div>
+        <button
+          role="switch"
+          aria-checked={showModelProvider}
+          onClick={() => updateSetting('showModelProvider', !showModelProvider)}
+          className={cn(
+            'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
+            showModelProvider ? 'bg-primary' : 'bg-muted'
+          )}
+          data-testid="show-model-provider-toggle"
+        >
+          <span
+            className={cn(
+              'pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform',
+              showModelProvider ? 'translate-x-4' : 'translate-x-0'
             )}
           />
         </button>
