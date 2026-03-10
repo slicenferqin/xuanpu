@@ -951,7 +951,8 @@ export class GitService {
       const refSpec = ref ? `${ref}:${filePath}` : `:${filePath}`
       const { stdout } = await execFileAsync('git', ['show', refSpec], {
         encoding: 'buffer',
-        cwd: this.repoPath
+        cwd: this.repoPath,
+        maxBuffer: 1024 * 1024 // 1MB limit, matching readFileAsBase64
       })
       const data = stdout.toString('base64')
       const mimeType = getImageMimeType(filePath) ?? undefined
