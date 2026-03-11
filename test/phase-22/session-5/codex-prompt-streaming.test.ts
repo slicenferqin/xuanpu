@@ -493,6 +493,93 @@ describe('CodexImplementer.prompt()', () => {
     })
   })
 
+  // ── plan mode interactionMode ───────────────────────────────
+
+  describe('plan mode interactionMode', () => {
+    it('passes interactionMode: plan when dbService returns a session with mode: plan', async () => {
+      seedSession()
+
+      const mockDbService = {
+        getSession: vi.fn().mockReturnValue({ id: 'hive-session-1', mode: 'plan' })
+      } as any
+      impl.setDatabaseService(mockDbService)
+
+      simulateManagerEvents([
+        {
+          id: 'e1',
+          kind: 'notification',
+          provider: 'codex',
+          threadId: 'thread-1',
+          createdAt: new Date().toISOString(),
+          method: 'turn/completed',
+          payload: { turn: { status: 'completed' } }
+        }
+      ])
+
+      await impl.prompt('/test/project', 'thread-1', 'Plan something')
+
+      expect(mockManager.sendTurn).toHaveBeenCalledWith('thread-1', {
+        text: 'Plan something',
+        model: expect.any(String),
+        interactionMode: 'plan'
+      })
+    })
+
+    it('passes interactionMode: default when dbService returns a session with mode: build', async () => {
+      seedSession()
+
+      const mockDbService = {
+        getSession: vi.fn().mockReturnValue({ id: 'hive-session-1', mode: 'build' })
+      } as any
+      impl.setDatabaseService(mockDbService)
+
+      simulateManagerEvents([
+        {
+          id: 'e1',
+          kind: 'notification',
+          provider: 'codex',
+          threadId: 'thread-1',
+          createdAt: new Date().toISOString(),
+          method: 'turn/completed',
+          payload: { turn: { status: 'completed' } }
+        }
+      ])
+
+      await impl.prompt('/test/project', 'thread-1', 'Build something')
+
+      expect(mockManager.sendTurn).toHaveBeenCalledWith('thread-1', {
+        text: 'Build something',
+        model: expect.any(String),
+        interactionMode: 'default'
+      })
+    })
+
+    it('passes interactionMode: default when no dbService is set', async () => {
+      seedSession()
+      // impl has no dbService set by default
+
+      simulateManagerEvents([
+        {
+          id: 'e1',
+          kind: 'notification',
+          provider: 'codex',
+          threadId: 'thread-1',
+          createdAt: new Date().toISOString(),
+          method: 'turn/completed',
+          payload: { turn: { status: 'completed' } }
+        }
+      ])
+
+      await impl.prompt('/test/project', 'thread-1', 'Do something')
+
+      expect(mockManager.sendTurn).toHaveBeenCalledWith('thread-1', {
+        text: 'Do something',
+        model: expect.any(String),
+        interactionMode: 'default'
+      })
+    })
+  })
+
   // ── getMessages ─────────────────────────────────────────────
 
   describe('getMessages', () => {
