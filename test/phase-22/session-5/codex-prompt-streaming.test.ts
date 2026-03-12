@@ -714,6 +714,7 @@ describe('CodexImplementer.prompt()', () => {
       const planReadyEvent = streamCalls.find((e: any) => e.type === 'plan.ready')
       expect(planReadyEvent).toBeDefined()
       expect(planReadyEvent.data.plan).toContain('1. Add the function')
+      expect(planReadyEvent.data.toolUseID).toBeTruthy()
     })
 
     it('does not emit plan.ready for a clarifying question in plan mode', async () => {
