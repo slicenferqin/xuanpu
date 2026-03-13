@@ -56,6 +56,7 @@
     "build:native": "cd src/native && npx node-gyp rebuild",
     "release": "bash scripts/release.sh",
     "release:canary": "bash scripts/release-canary.sh",
+    "install:mac": "bash scripts/install.sh",
     "codegen": "graphql-codegen --config src/shared/codegen.ts"
   },
   "dependencies": {
