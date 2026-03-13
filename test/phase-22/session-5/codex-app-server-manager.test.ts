@@ -251,6 +251,30 @@ describe('CodexAppServerManager — collaborationMode in sendTurn', () => {
     seedSession(context)
 
     const turnPromise = manager.sendTurn('thread-123', {
+      text: 'fast please',
+      model: 'gpt-5.4',
+      serviceTier: 'fast'
+    })
+
+    const messages = getWrittenMessages(stdin)
+    const turnStartMsg = messages.find((m: any) => m.method === 'turn/start')
+
+    manager.handleStdoutLine(
+      context,
+      JSON.stringify({ id: turnStartMsg.id, result: { turn: { id: 'turn-fast' } } })
+    )
+
+    await turnPromise
+
+    const params = getTurnStartParams(messages)
+    expect(params.serviceTier).toBe('fast')
+  })
+
+  it('includes custom developer instructions and multi-part input for title generation', async () => {
+    const { context, stdin } = createTestContext()
+    seedSession(context)
+
+    const turnPromise = manager.sendTurn('thread-123', {
       model: 'gpt-5.4',
       reasoningEffort: 'low',
       developerInstructions: 'Title only instructions',

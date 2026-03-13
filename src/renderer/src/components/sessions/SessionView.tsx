@@ -10,6 +10,7 @@ import { QueuedMessageBubble } from './QueuedMessageBubble'
 import { ContextIndicator } from './ContextIndicator'
 import { AttachmentButton } from './AttachmentButton'
 import { AttachmentPreview } from './AttachmentPreview'
+import { CodexFastToggle } from './CodexFastToggle'
 import type { Attachment } from './AttachmentPreview'
 import { SlashCommandPopover } from './SlashCommandPopover'
 import { FileMentionPopover } from './FileMentionPopover'
@@ -493,6 +494,13 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
 
   // stripAtMentions setting
   const stripAtMentions = useSettingsStore((state) => state.stripAtMentions)
+  const codexFastMode = useSettingsStore((state) => state.codexFastMode)
+  const updateSetting = useSettingsStore((state) => state.updateSetting)
+
+  const codexPromptOptions = useMemo(
+    () => (sessionAgentSdk === 'codex' ? { codexFastMode } : undefined),
+    [sessionAgentSdk, codexFastMode]
+  )
 
   // Streaming dedup refs
   const finalizedMessageIdsRef = useRef<Set<string>>(new Set())
@@ -2353,7 +2361,13 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             const parts: Array<{ type: 'text'; text: string }> = [
               { type: 'text' as const, text: promptMessage }
             ]
-            const result = await window.opencodeOps.prompt(path, opcId, parts, model)
+            const result = await window.opencodeOps.prompt(
+              path,
+              opcId,
+              parts,
+              model,
+              codexPromptOptions
+            )
             if (shouldAbortInit()) {
               if (!result.success) {
                 restorePendingAfterFailure()
@@ -2979,7 +2993,8 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               worktreePath,
               opencodeSessionId,
               parts,
-              selectedModel
+              selectedModel,
+              codexPromptOptions
             )
 
             if (!result.success) {
@@ -3172,7 +3187,8 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                 worktreePath,
                 opencodeSessionId,
                 parts,
-                requestModel
+                requestModel,
+                codexPromptOptions
               )
               if (!result.success) {
                 console.error('Failed to send prompt to OpenCode:', result.error)
@@ -3203,7 +3219,8 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               worktreePath,
               opencodeSessionId,
               parts,
-              requestModel
+              requestModel,
+              codexPromptOptions
             )
             if (!result.success) {
               console.error('Failed to send prompt to OpenCode:', result.error)
@@ -3242,6 +3259,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       sessionCapabilities,
       revertMessageID,
       skipPlanModePrefix,
+      codexPromptOptions,
       refreshMessagesFromOpenCode,
       getModelForRequests,
       fileMentions,
@@ -4371,6 +4389,12 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             <div className="flex items-center justify-between px-3 pb-2.5">
               <div className="flex items-center gap-2">
                 <ModelSelector sessionId={sessionId} />
+                {sessionAgentSdk === 'codex' && (
+                  <CodexFastToggle
+                    enabled={codexFastMode}
+                    onToggle={() => updateSetting('codexFastMode', !codexFastMode)}
+                  />
+                )}
                 <AttachmentButton onAttach={handleAttach} />
                 <ContextIndicator
                   sessionId={sessionId}

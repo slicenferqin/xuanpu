@@ -106,6 +106,7 @@ export interface CodexTurnInput {
   input?: Array<{ type: string; text: string }>
   model?: string
   reasoningEffort?: string
+  serviceTier?: string | null
   interactionMode?: 'default' | 'plan'
   developerInstructions?: string
 }
@@ -575,6 +576,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     if (input.interactionMode || input.developerInstructions) {
       const mode = input.interactionMode ?? 'default'
 
+    if (input.serviceTier !== undefined) {
+      params.serviceTier = input.serviceTier
+    }
+
+    if (input.interactionMode || input.developerInstructions) {
+      const mode = input.interactionMode ?? 'default'
       // collaborationMode is required for request_user_input availability;
       // its settings block independently specifies model/reasoning for this mode context
       params.collaborationMode = {
