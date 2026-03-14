@@ -12,7 +12,7 @@ import { createLogger } from './logger'
 import { CodexAppServerManager, type CodexManagerEvent } from './codex-app-server-manager'
 import { mapCodexManagerEventToActivity } from './codex-activity-mapper'
 import { mapCodexEventToStreamEvents, contentStreamKindFromMethod } from './codex-event-mapper'
-import { asObject, asString } from './codex-utils'
+import { asNumber, asObject, asString } from './codex-utils'
 import { generateCodexSessionTitle } from './codex-session-title'
 import type { DatabaseService } from '../db/database'
 import { autoRenameWorktreeBranch } from './git-service'
@@ -176,6 +176,56 @@ export class CodexImplementer implements AgentSdkImplementer {
     // Handle thread name updates from the Codex provider (title generation)
     if (event.kind === 'notification' && event.method === 'thread/name/updated') {
       this.handleProviderTitleUpdate(event).catch(() => {})
+      return
+    }
+
+    // Handle token usage updates from the Codex provider
+    if (event.kind === 'notification' && event.method === 'thread/tokenUsage/updated') {
+      const session = this.findSessionByThreadId(event.threadId)
+      if (!session) return
+
+      const payload = asObject(event.payload)
+      const tokenUsage = asObject(payload?.tokenUsage)
+      const total = asObject(tokenUsage?.total)
+      const contextWindow = asNumber(tokenUsage?.modelContextWindow) ?? 0
+
+      const inputTokens = asNumber(total?.inputTokens) ?? 0
+      const cachedInputTokens = asNumber(total?.cachedInputTokens) ?? 0
+      const outputTokens = asNumber(total?.outputTokens) ?? 0
+      const reasoningOutputTokens = asNumber(total?.reasoningOutputTokens) ?? 0
+
+      const modelID = resolveCodexModelSlug(
+        asString(payload?.model) ?? this.selectedModel
+      )
+
+      this.sendToRenderer('opencode:stream', {
+        type: 'session.context_usage',
+        sessionId: session.hiveSessionId,
+        data: {
+          tokens: {
+            input: inputTokens - cachedInputTokens,
+            cacheRead: cachedInputTokens,
+            cacheWrite: 0,
+            output: outputTokens,
+            reasoning: reasoningOutputTokens
+          },
+          model: { providerID: 'codex', modelID },
+          contextWindow
+        }
+      })
+      return
+    }
+
+    // Handle thread compaction notifications
+    if (event.kind === 'notification' && event.method === 'thread/compacted') {
+      const session = this.findSessionByThreadId(event.threadId)
+      if (!session) return
+
+      this.sendToRenderer('opencode:stream', {
+        type: 'session.context_compacted',
+        sessionId: session.hiveSessionId,
+        data: {}
+      })
       return
     }
 
