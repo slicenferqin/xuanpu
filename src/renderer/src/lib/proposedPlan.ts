@@ -2,12 +2,13 @@ export function looksLikeCodexProposedPlan(text: string): boolean {
   const trimmed = text.trim()
   if (!trimmed) return false
 
-  const firstLine = trimmed.split(/\r?\n/, 1)[0]?.trim() ?? ''
-  const hasPlanHeading = /^(plan(?:\s+[^\n]+)?|#{1,6}\s+[^\n]+)$/i.test(firstLine)
+  const nonEmptyLines = trimmed.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
   const hasSteps = /(^|\n)\s*(?:[-*]|\d+\.)\s+\S/m.test(trimmed)
   const startsWithQuestion = /^[^\n]*\?\s*(?:\n|$)/.test(trimmed)
+  const hasStructuredPlanBody =
+    hasSteps || (nonEmptyLines.length >= 2 && nonEmptyLines.some((line) => line.length > 24))
 
-  return hasPlanHeading && hasSteps && !startsWithQuestion
+  return hasStructuredPlanBody && !startsWithQuestion
 }
 
 export function buildPlanImplementationPrompt(planMarkdown: string): string {

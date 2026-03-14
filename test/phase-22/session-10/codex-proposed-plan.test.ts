@@ -18,6 +18,14 @@ describe('Codex proposed plan helpers', () => {
     ).toBe(false)
   })
 
+  it('detects actionable plan output without requiring a heading', () => {
+    expect(
+      looksLikeCodexProposedPlan(
+        '1. Inspect the session transcript merge path\n2. Persist the pending plan state\n3. Restore the plan card on remount'
+      )
+    ).toBe(true)
+  })
+
   it('builds the implementation prompt from a plan', () => {
     expect(buildPlanImplementationPrompt('Plan\n\n1. Ship it')).toBe(
       'PLEASE IMPLEMENT THIS PLAN:\nPlan\n\n1. Ship it'

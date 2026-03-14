@@ -95,6 +95,23 @@ function truncateForImmediateTitle(text: string): string {
   return trimmed.slice(0, IMMEDIATE_TITLE_LENGTH - 3) + '...'
 }
 
+export function normalizeCodexMessageTimestamps<T extends { created_at: string }>(rows: T[]): T[] {
+  let lastTimestampMs = Number.NEGATIVE_INFINITY
+
+  return rows.map((row) => {
+    const parsed = Date.parse(row.created_at)
+    const baseTimestampMs = Number.isFinite(parsed) ? parsed : Date.now()
+    const nextTimestampMs =
+      baseTimestampMs > lastTimestampMs ? baseTimestampMs : lastTimestampMs + 1
+    lastTimestampMs = nextTimestampMs
+
+    return {
+      ...row,
+      created_at: new Date(nextTimestampMs).toISOString()
+    }
+  })
+}
+
 export class CodexImplementer implements AgentSdkImplementer {
   readonly id = 'codex' as const
   readonly capabilities: AgentSdkCapabilities = CODEX_CAPABILITIES
@@ -1319,7 +1336,10 @@ export class CodexImplementer implements AgentSdkImplementer {
         ]
       })
 
-      this.dbService.replaceSessionMessages(session.hiveSessionId, rows)
+      this.dbService.replaceSessionMessages(
+        session.hiveSessionId,
+        normalizeCodexMessageTimestamps(rows)
+      )
     } catch (error) {
       log.warn('Failed to persist Codex canonical messages', {
         hiveSessionId: session.hiveSessionId,

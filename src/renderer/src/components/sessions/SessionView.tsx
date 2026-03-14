@@ -138,6 +138,53 @@ export interface StreamingPart {
   compactionAuto?: boolean
 }
 
+function derivePendingCodexPlan(
+  sessionId: string,
+  messages: OpenCodeMessage[]
+): { requestId: string; planContent: string; toolUseID: string } | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]
+    if (message.role !== 'assistant') continue
+
+    for (let j = (message.parts?.length ?? 0) - 1; j >= 0; j--) {
+      const part = message.parts?.[j]
+      if (part?.type !== 'tool_use' || part.toolUse?.name !== 'ExitPlanMode') continue
+
+      const planContent = String(part.toolUse.input?.plan ?? '').trim()
+      if (!looksLikeCodexProposedPlan(planContent)) continue
+
+      const toolUseID = part.toolUse.id ?? ''
+      return {
+        requestId: toolUseID || `codex-plan-${sessionId}`,
+        planContent,
+        toolUseID
+      }
+    }
+  }
+
+  return null
+}
+
+function hasSuspiciousCodexRoleGrouping(messages: OpenCodeMessage[]): boolean {
+  const userIndices: number[] = []
+  const assistantIndices: number[] = []
+
+  messages.forEach((message, index) => {
+    if (message.role === 'user') userIndices.push(index)
+    if (message.role === 'assistant') assistantIndices.push(index)
+  })
+
+  if (userIndices.length < 2 || assistantIndices.length < 2) return false
+
+  const lastUserIndex = userIndices[userIndices.length - 1]
+  const firstAssistantIndex = assistantIndices[0]
+  return lastUserIndex < firstAssistantIndex
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
 interface SessionViewProps {
   sessionId: string
 }
@@ -992,12 +1039,17 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       worktreePath: null,
       opencodeSessionId: null
     }
+    const isCodexSession = sessionRecord?.agent_sdk === 'codex'
 
-    const loadMessages = async (source?: {
-      worktreePath?: string | null
-      opencodeSessionId?: string | null
-    }): Promise<OpenCodeMessage[]> => {
-      const isCodexSession = sessionRecord?.agent_sdk === 'codex'
+    const loadMessages = async (
+      source?: {
+        worktreePath?: string | null
+        opencodeSessionId?: string | null
+      },
+      options?: {
+        preferDurableCodex?: boolean
+      }
+    ): Promise<OpenCodeMessage[]> => {
       const sourceWorktreePath = source?.worktreePath ?? transcriptSourceRef.current.worktreePath
       const sourceOpencodeSessionId =
         source?.opencodeSessionId ?? transcriptSourceRef.current.opencodeSessionId
@@ -1025,10 +1077,21 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         const durableState = await loadCodexDurableState(sessionId)
         loadedMessages = durableState.messages
         codexActivities = durableState.activities
+
+        if (options?.preferDurableCodex && hasSuspiciousCodexRoleGrouping(loadedMessages)) {
+          for (let attempt = 0; attempt < 4; attempt++) {
+            await delay(100 * (attempt + 1))
+            const retriedState = await loadCodexDurableState(sessionId)
+            loadedMessages = retriedState.messages
+            codexActivities = retriedState.activities
+            if (!hasSuspiciousCodexRoleGrouping(loadedMessages)) break
+          }
+        }
       }
 
       const preferLiveCodexSource =
         isCodexSession &&
+        !options?.preferDurableCodex &&
         canUseOpenCodeSource &&
         (currentStoredStatus?.status === 'working' ||
           currentStoredStatus?.status === 'planning' ||
@@ -1105,7 +1168,16 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
 
       // If there's a pending plan, override ExitPlanMode tool status to 'pending'
       // so the tool card shows as awaiting approval (transcript reports 'completed').
-      const pendingPlanForLoad = useSessionStore.getState().getPendingPlan(sessionId)
+      let pendingPlanForLoad = useSessionStore.getState().getPendingPlan(sessionId)
+      const sessionModeForLoad = useSessionStore.getState().getSessionMode(sessionId)
+      if (isCodexSession && !pendingPlanForLoad && sessionModeForLoad === 'plan') {
+        const derivedPendingPlan = derivePendingCodexPlan(sessionId, loadedMessages)
+        if (derivedPendingPlan) {
+          useSessionStore.getState().setPendingPlan(sessionId, derivedPendingPlan)
+          useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'plan_ready')
+          pendingPlanForLoad = derivedPendingPlan
+        }
+      }
       if (pendingPlanForLoad?.toolUseID) {
         for (const msg of loadedMessages) {
           if (msg.parts) {
@@ -1185,7 +1257,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       })
 
       try {
-        const refreshedMessages = await loadMessages()
+        const refreshedMessages = await loadMessages(undefined, { preferDurableCodex: true })
 
         console.debug('[TOOL_DEBUG] finalizeResponse LOADED', {
           loadedCount: refreshedMessages.length,
@@ -1540,6 +1612,9 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                 planContent: planText,
                 toolUseID: data.toolUseID ?? ''
               })
+              setIsStreaming(false)
+              setIsSending(false)
+              setQueuedMessages([])
               useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'plan_ready')
             }
             return
@@ -3362,7 +3437,11 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
 
       await useSessionStore.getState().setSessionMode(sessionId, 'build')
       lastSendMode.set(sessionId, 'build')
-      await handleSend(buildPlanImplementationPrompt(pendingBeforeAction.planContent))
+      await handleSend(
+        sessionRecord?.agent_sdk === 'codex'
+          ? 'Implement the plan.'
+          : buildPlanImplementationPrompt(pendingBeforeAction.planContent)
+      )
       return
     }
 

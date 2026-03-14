@@ -49,6 +49,7 @@ vi.mock('../../../src/main/services/codex-app-server-manager', () => {
 
 import {
   CodexImplementer,
+  normalizeCodexMessageTimestamps,
   type CodexSessionState
 } from '../../../src/main/services/codex-implementer'
 
@@ -1070,5 +1071,18 @@ describe('CodexImplementer.prompt()', () => {
       completeTurn?.()
       await promptPromise
     })
+  })
+})
+
+describe('normalizeCodexMessageTimestamps', () => {
+  it('preserves transcript order when raw timestamps regress', () => {
+    const rows = normalizeCodexMessageTimestamps([
+      { created_at: '2026-03-14T10:00:05.000Z', role: 'user' },
+      { created_at: '2026-03-14T10:00:01.000Z', role: 'assistant' },
+      { created_at: 'invalid-timestamp', role: 'user' }
+    ])
+
+    expect(Date.parse(rows[0]!.created_at)).toBeLessThan(Date.parse(rows[1]!.created_at))
+    expect(Date.parse(rows[1]!.created_at)).toBeLessThan(Date.parse(rows[2]!.created_at))
   })
 })

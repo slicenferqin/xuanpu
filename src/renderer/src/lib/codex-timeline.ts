@@ -62,6 +62,35 @@ function parseToolPart(activity: SessionActivity): StreamingPart | null {
   }
 }
 
+function parsePlanPart(activity: SessionActivity): StreamingPart | null {
+  if (activity.kind !== 'plan.ready') return null
+
+  const payload = parseJson<Record<string, unknown>>(activity.payload_json)
+  const plan =
+    (typeof payload?.plan === 'string' && payload.plan.trim()) ||
+    (typeof payload?.planContent === 'string' && payload.planContent.trim()) ||
+    ''
+
+  if (!plan) return null
+
+  const toolUseId =
+    (typeof payload?.toolUseID === 'string' && payload.toolUseID) ||
+    activity.item_id ||
+    activity.request_id ||
+    activity.id
+
+  return {
+    type: 'tool_use',
+    toolUse: {
+      id: toolUseId,
+      name: 'ExitPlanMode',
+      input: { plan },
+      status: 'pending',
+      startTime: Date.parse(activity.created_at) || Date.now()
+    }
+  }
+}
+
 export function mapDbSessionMessagesToOpenCodeMessages(messages: SessionMessage[]): OpenCodeMessage[] {
   return messages.map((message) => {
     const parsedParts = parseJson<unknown[]>(message.opencode_parts_json)
@@ -133,9 +162,10 @@ export function mergeCodexActivityMessages(
   })
 
   for (const activity of sortedActivities) {
-    if (!activity.kind.startsWith('tool.')) continue
-    const toolPart = parseToolPart(activity)
-    if (!toolPart?.toolUse) continue
+    const activityPart = activity.kind.startsWith('tool.')
+      ? parseToolPart(activity)
+      : parsePlanPart(activity)
+    if (!activityPart?.toolUse) continue
 
     const turnId = activity.turn_id
     const activityTime = Date.parse(activity.created_at)
@@ -146,12 +176,12 @@ export function mergeCodexActivityMessages(
       const target = mergedMessages[existingIndex]
       const existingParts = target.parts ? [...target.parts] : []
       const partIndex = existingParts.findIndex(
-        (part) => part.type === 'tool_use' && part.toolUse?.id === toolPart.toolUse?.id
+        (part) => part.type === 'tool_use' && part.toolUse?.id === activityPart.toolUse?.id
       )
       if (partIndex >= 0) {
-        existingParts[partIndex] = toolPart
+        existingParts[partIndex] = activityPart
       } else {
-        existingParts.push(toolPart)
+        existingParts.push(activityPart)
       }
       target.parts = existingParts
       continue
@@ -171,12 +201,12 @@ export function mergeCodexActivityMessages(
     }
     const existingParts = target.parts ? [...target.parts] : []
     const partIndex = existingParts.findIndex(
-      (part) => part.type === 'tool_use' && part.toolUse?.id === toolPart.toolUse?.id
+      (part) => part.type === 'tool_use' && part.toolUse?.id === activityPart.toolUse?.id
     )
     if (partIndex >= 0) {
-      existingParts[partIndex] = toolPart
+      existingParts[partIndex] = activityPart
     } else {
-      existingParts.push(toolPart)
+      existingParts.push(activityPart)
     }
     target.parts = existingParts
   }
