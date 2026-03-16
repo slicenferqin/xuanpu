@@ -118,10 +118,10 @@ export const DEFAULT_SHORTCUTS: ShortcutDefinition[] = [
     defaultBinding: { key: 'l', modifiers: ['meta', 'shift'] }
   },
   {
-    id: 'git:merge',
-    label: 'Merge',
-    description: 'Merge selected branch',
-    category: 'git',
+    id: 'nav:filter-projects',
+    label: 'Filter Projects',
+    description: 'Focus the project filter input',
+    category: 'navigation',
     defaultBinding: { key: 'g', modifiers: ['meta'] }
   },
 

@@ -342,6 +342,22 @@ function getShortcutHandlers(
         toast.info('Use the + button in the sidebar to create a new worktree')
       }
     },
+    {
+      id: 'nav:filter-projects',
+      binding: getEffectiveBinding('nav:filter-projects'),
+      allowInInput: true,
+      handler: () => {
+        // Open left sidebar if collapsed
+        const { leftSidebarCollapsed, setLeftSidebarCollapsed } = useLayoutStore.getState()
+        if (leftSidebarCollapsed) {
+          setLeftSidebarCollapsed(false)
+        }
+        // Dispatch focus event (allow a tick for sidebar to render)
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('hive:focus-project-filter'))
+        }, leftSidebarCollapsed ? 100 : 0)
+      }
+    },
 
     // =====================
     // Git shortcuts

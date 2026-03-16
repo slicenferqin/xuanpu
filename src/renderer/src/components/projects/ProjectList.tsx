@@ -2,16 +2,15 @@ import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Loader2, FolderPlus } from 'lucide-react'
 import { useProjectStore, useSpaceStore } from '@/stores'
 import { ProjectItem } from './ProjectItem'
-import { ProjectFilter } from './ProjectFilter'
 import { subsequenceMatch } from '@/lib/subsequence-match'
 
 interface ProjectListProps {
   onAddProject: () => void
+  filterQuery: string
 }
 
-export function ProjectList({ onAddProject }: ProjectListProps): React.JSX.Element {
+export function ProjectList({ onAddProject, filterQuery }: ProjectListProps): React.JSX.Element {
   const { projects, isLoading, error, loadProjects, reorderProjects } = useProjectStore()
-  const [filterQuery, setFilterQuery] = useState('')
 
   // Drag state for project reordering
   const [draggedProjectId, setDraggedProjectId] = useState<string | null>(null)
@@ -154,7 +153,6 @@ export function ProjectList({ onAddProject }: ProjectListProps): React.JSX.Eleme
   // Project list
   return (
     <div data-testid="project-list">
-      {projects.length > 1 && <ProjectFilter value={filterQuery} onChange={setFilterQuery} />}
       <div className="space-y-0.5">
         {filteredProjects.map((item) => (
           <ProjectItem
