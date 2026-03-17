@@ -4,7 +4,7 @@ import { Info } from 'lucide-react'
 
 export function SettingsModels(): React.JSX.Element {
   const defaultAgentSdk = useSettingsStore((s) => s.defaultAgentSdk) ?? 'opencode'
-  const supportsModes = defaultAgentSdk === 'claude-code'
+  const supportsModes = defaultAgentSdk === 'claude-code' || defaultAgentSdk === 'codex'
   // Show the effective model for the current SDK (what new sessions will actually use)
   const effectiveModel = useSettingsStore((s) =>
     resolveModelForSdk(defaultAgentSdk === 'terminal' ? 'opencode' : defaultAgentSdk, s)
