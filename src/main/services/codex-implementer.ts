@@ -923,6 +923,12 @@ export class CodexImplementer implements AgentSdkImplementer {
     })
   }
 
+  clearSelectedModel(): void {
+    this.selectedModel = CODEX_DEFAULT_MODEL
+    this.selectedVariant = undefined
+    log.info('Selected model cleared, reset to default', { model: this.selectedModel })
+  }
+
   // ── Session info ─────────────────────────────────────────────────
 
   async getSessionInfo(
