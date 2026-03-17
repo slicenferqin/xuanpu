@@ -45,3 +45,4 @@ export {
   resolveUsageProvider,
   normalizeUsage
 } from './useUsageStore'
+export { useHintStore } from './useHintStore'

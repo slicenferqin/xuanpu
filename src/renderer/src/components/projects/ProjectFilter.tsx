@@ -1,9 +1,24 @@
 import { useEffect, useRef } from 'react'
 import { Search, X } from 'lucide-react'
+import { useHintStore } from '@/stores'
+import { useWorktreeStore } from '@/stores'
+import { useProjectStore } from '@/stores'
 
 interface ProjectFilterProps {
   value: string
   onChange: (value: string) => void
+}
+
+function dispatchHintAction(key: string): void {
+  if (key.startsWith('plus:')) {
+    const projectId = key.slice('plus:'.length)
+    window.dispatchEvent(new CustomEvent('hive:hint-plus', { detail: { projectId } }))
+  } else {
+    const target = useHintStore.getState().hintTargetMap.get(key)
+    if (!target) return
+    useWorktreeStore.getState().selectWorktree(key)
+    useProjectStore.getState().selectProject(target.projectId)
+  }
 }
 
 export function ProjectFilter({ value, onChange }: ProjectFilterProps): React.JSX.Element {
@@ -24,7 +39,52 @@ export function ProjectFilter({ value, onChange }: ProjectFilterProps): React.JS
     if (e.key === 'Escape') {
       onChange('')
       inputRef.current?.blur()
+      return
     }
+
+    // Ignore key-repeat events — they would re-enter the pending branch with the
+    // same uppercase letter and immediately match the 'Aa'-style first hint.
+    if (e.repeat) return
+
+    if (!value) return
+
+    const { mode, pendingChar, hintMap, enterPending, exitPending } = useHintStore.getState()
+    const isUppercase = /^[A-Z]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey
+
+    if (mode === 'idle' && isUppercase) {
+      e.preventDefault()
+      enterPending(e.key)
+    } else if (mode === 'pending') {
+      // Find entry where code[0] === pendingChar and code[1] === e.key.toLowerCase()
+      const lowerKey = e.key.toLowerCase()
+      let matchedKey: string | null = null
+      for (const [k, code] of hintMap) {
+        if (code[0] === pendingChar && code[1] === lowerKey) {
+          matchedKey = k
+          break
+        }
+      }
+
+      if (matchedKey !== null) {
+        e.preventDefault()
+        dispatchHintAction(matchedKey)
+        exitPending()
+      } else if (isUppercase) {
+        e.preventDefault()
+        enterPending(e.key)
+      } else {
+        exitPending()
+      }
+    }
+  }
+
+  const handleFocus = (): void => {
+    useHintStore.getState().setInputFocused(true)
+  }
+
+  const handleBlur = (): void => {
+    useHintStore.getState().exitPending()
+    useHintStore.getState().setInputFocused(false)
   }
 
   return (
@@ -36,6 +96,8 @@ export function ProjectFilter({ value, onChange }: ProjectFilterProps): React.JS
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
         placeholder="Filter projects..."
         className="h-8 w-full text-sm px-2 pl-8 pr-12 rounded-md border border-input bg-transparent placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         data-testid="project-filter-input"
