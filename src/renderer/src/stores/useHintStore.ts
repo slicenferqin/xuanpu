@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { HintTarget } from '@/lib/hint-utils'
 
 export type HintMode = 'idle' | 'pending'
+export type HintActionMode = 'select' | 'pin' | 'archive'
 
 export type { HintTarget }
 
@@ -12,6 +13,7 @@ interface HintStoreState {
   sessionHintTargetMap: Map<string, string>
   mode: HintMode
   pendingChar: string | null
+  actionMode: HintActionMode
   filterActive: boolean
   inputFocused: boolean
 
@@ -21,6 +23,7 @@ interface HintStoreState {
   clearSessionHints: () => void
   enterPending: (char: string) => void
   exitPending: () => void
+  setActionMode: (mode: HintActionMode) => void
   setFilterActive: (active: boolean) => void
   setInputFocused: (focused: boolean) => void
 }
@@ -32,6 +35,7 @@ export const useHintStore = create<HintStoreState>()((set) => ({
   sessionHintTargetMap: new Map(),
   mode: 'idle',
   pendingChar: null,
+  actionMode: 'select',
   filterActive: false,
   inputFocused: false,
 
@@ -42,12 +46,14 @@ export const useHintStore = create<HintStoreState>()((set) => ({
     sessionHintMap: new Map(),
     sessionHintTargetMap: new Map(),
     mode: 'idle',
-    pendingChar: null
+    pendingChar: null,
+    actionMode: 'select'
   }),
   setSessionHints: (map, targetMap) => set({ sessionHintMap: map, sessionHintTargetMap: targetMap }),
   clearSessionHints: () => set({ sessionHintMap: new Map(), sessionHintTargetMap: new Map() }),
-  enterPending: (char) => set({ mode: 'pending', pendingChar: char }),
-  exitPending: () => set({ mode: 'idle', pendingChar: null }),
+  enterPending: (char) => set({ mode: 'pending', pendingChar: char, actionMode: 'select' }),
+  exitPending: () => set({ mode: 'idle', pendingChar: null, actionMode: 'select' }),
+  setActionMode: (mode) => set({ actionMode: mode }),
   setFilterActive: (active) => set({ filterActive: active }),
   setInputFocused: (focused) => set({ inputFocused: focused }),
 }))

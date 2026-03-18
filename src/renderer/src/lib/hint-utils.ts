@@ -1,6 +1,9 @@
 import { useHintStore } from '@/stores/useHintStore'
+import type { HintActionMode } from '@/stores/useHintStore'
 import { useWorktreeStore } from '@/stores/useWorktreeStore'
 import { useProjectStore } from '@/stores/useProjectStore'
+import { usePinnedStore } from '@/stores/usePinnedStore'
+import { gitToast } from '@/lib/toast'
 
 export const FIRST_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 export const SECOND_CHARS = 'abcdefghijklmnopqrstuvwxyz23456789'
@@ -115,7 +118,49 @@ export function shouldShowHintBadge(
   return !!hint && (inputFocused || vimMode === 'normal')
 }
 
-export function dispatchHintAction(key: string): void {
+export function dispatchHintAction(
+  key: string,
+  actionMode: HintActionMode = 'select'
+): void {
+  // Pin/archive only apply to worktree keys — ignore project/plus/session targets
+  if (actionMode === 'pin' || actionMode === 'archive') {
+    if (key.startsWith('plus:') || key.startsWith('project:')) return
+
+    const target = useHintStore.getState().hintTargetMap.get(key)
+    if (!target || target.kind !== 'worktree' || !target.worktreeId) return
+
+    if (actionMode === 'pin') {
+      const { pinnedWorktreeIds, pinWorktree, unpinWorktree } = usePinnedStore.getState()
+      if (pinnedWorktreeIds.has(target.worktreeId)) {
+        unpinWorktree(target.worktreeId)
+      } else {
+        pinWorktree(target.worktreeId)
+      }
+      return
+    }
+
+    // actionMode === 'archive'
+    const worktrees = Array.from(useWorktreeStore.getState().worktreesByProject.values()).flat()
+    const worktree = worktrees.find((w) => w.id === target.worktreeId)
+    if (!worktree || worktree.is_default) return
+
+    const project = useProjectStore.getState().projects.find((p) => p.id === target.projectId)
+    if (!project) return
+
+    useWorktreeStore
+      .getState()
+      .archiveWorktree(worktree.id, worktree.path, worktree.branch_name, project.path)
+      .then((result) => {
+        if (result.success) {
+          gitToast.worktreeArchived(worktree.name)
+        } else {
+          gitToast.operationFailed('archive', result.error)
+        }
+      })
+    return
+  }
+
+  // Default: select mode
   if (key.startsWith('plus:')) {
     const projectId = key.slice('plus:'.length)
     const { expandedProjectIds, toggleProjectExpanded } = useProjectStore.getState()
