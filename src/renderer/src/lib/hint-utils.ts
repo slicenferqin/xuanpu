@@ -135,7 +135,9 @@ export function buildPinnedAndConnectionTargets(
   }
 
   for (const connectionId of connectionIds) {
-    targets.push({ kind: 'connection', connectionId })
+    if (!pinnedConnectionIds.has(connectionId)) {
+      targets.push({ kind: 'connection', connectionId })
+    }
   }
 
   return targets
@@ -246,11 +248,10 @@ export function dispatchHintAction(key: string, actionMode: HintActionMode = 'se
         toggleProjectExpanded(target.projectId)
       }
     }
-  } else if (key.startsWith('pinned-conn:')) {
-    const connectionId = key.slice('pinned-conn:'.length)
-    useConnectionStore.getState().selectConnection(connectionId)
-  } else if (key.startsWith('conn:')) {
-    const connectionId = key.slice('conn:'.length)
+  } else if (key.startsWith('pinned-conn:') || key.startsWith('conn:')) {
+    const connectionId = key.startsWith('pinned-conn:')
+      ? key.slice('pinned-conn:'.length)
+      : key.slice('conn:'.length)
     useConnectionStore.getState().selectConnection(connectionId)
   } else if (key.startsWith('plus:')) {
     const projectId = key.slice('plus:'.length)
