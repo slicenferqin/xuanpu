@@ -35,14 +35,14 @@ export function ProjectFilter({ value, onChange }: ProjectFilterProps): React.JS
 
     if (!value) return
 
-    const { mode, pendingChar, hintMap, enterPending, exitPending } = useHintStore.getState()
+    const { mode, pendingChar, hintMap, enterPending, exitPending, actionMode, setActionMode } =
+      useHintStore.getState()
     const isUppercase = /^[A-Z]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey
 
     if (mode === 'idle' && isUppercase) {
       e.preventDefault()
       enterPending(e.key)
     } else if (mode === 'pending') {
-      const { actionMode, setActionMode } = useHintStore.getState()
 
       // Toggle pin/archive action mode (mirrors vim navigation P/D interception)
       if (e.key === 'P') {

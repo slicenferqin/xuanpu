@@ -1,5 +1,4 @@
-import { useHintStore } from '@/stores/useHintStore'
-import type { HintActionMode } from '@/stores/useHintStore'
+import { useHintStore, type HintActionMode } from '@/stores/useHintStore'
 import { useWorktreeStore } from '@/stores/useWorktreeStore'
 import { useProjectStore } from '@/stores/useProjectStore'
 import { usePinnedStore } from '@/stores/usePinnedStore'
@@ -156,6 +155,9 @@ export function dispatchHintAction(
         } else {
           gitToast.operationFailed('archive', result.error)
         }
+      })
+      .catch(() => {
+        gitToast.operationFailed('archive worktree')
       })
     return
   }
