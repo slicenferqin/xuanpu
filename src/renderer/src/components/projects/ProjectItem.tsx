@@ -37,7 +37,7 @@ import {
   ContextMenuSubContent,
   ContextMenuCheckboxItem
 } from '@/components/ui/context-menu'
-import { useProjectStore, useWorktreeStore, useSpaceStore, useConnectionStore, useHintStore } from '@/stores'
+import { useProjectStore, useWorktreeStore, useSpaceStore, useConnectionStore, useHintStore, useVimModeStore } from '@/stores'
 import { HintBadge } from '@/components/ui/HintBadge'
 import { WorktreeList, BranchPickerDialog } from '@/components/worktrees'
 import { LanguageIcon } from './LanguageIcon'
@@ -112,6 +112,9 @@ export function ProjectItem({
   const hintPendingChar = useHintStore((s) => s.pendingChar)
   const isSearchMode = useHintStore((s) => s.filterActive)
   const inputFocused = useHintStore((s) => s.inputFocused)
+
+  const vimMode = useVimModeStore((s) => s.mode)
+  const projectHint = useHintStore((s) => s.hintMap.get('project:' + project.id))
 
   const [editName, setEditName] = useState(project.name)
   const [branchPickerOpen, setBranchPickerOpen] = useState(false)
@@ -328,8 +331,13 @@ export function ProjectItem({
             )}
 
             {/* Hint Badge (visible when filter is active and search field is focused) */}
-            {!isEditing && plusHint && inputFocused && (
+            {!isEditing && plusHint && (inputFocused || vimMode === 'normal') && (
               <HintBadge code={plusHint} mode={hintMode} pendingChar={hintPendingChar} />
+            )}
+
+            {/* Project Hint Badge (visible in vim normal mode) */}
+            {!isEditing && projectHint && vimMode === 'normal' && (
+              <HintBadge code={projectHint} mode={hintMode} pendingChar={hintPendingChar} />
             )}
 
             {/* Create Worktree Button (hidden in connection mode) */}

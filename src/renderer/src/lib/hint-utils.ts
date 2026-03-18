@@ -79,6 +79,42 @@ export function assignSessionHints(sessionIds: string[]): {
   return { sessionHintMap, sessionHintTargetMap }
 }
 
+/**
+ * Build hint targets for vim normal mode (no filter active).
+ * Includes project targets for all projects and worktree targets
+ * only for expanded projects. Interleaves: project → its worktrees.
+ * Does NOT include 'plus' targets (those are filter-mode only).
+ */
+export function buildNormalModeTargets(
+  projects: Array<{ id: string; name: string }>,
+  expandedProjectIds: Set<string>,
+  worktreesByProject: Map<string, Array<{ id: string; project_id: string }>>
+): HintTarget[] {
+  const targets: HintTarget[] = []
+  for (const project of projects) {
+    targets.push({ kind: 'project', projectId: project.id })
+    if (expandedProjectIds.has(project.id)) {
+      const wts = worktreesByProject.get(project.id) ?? []
+      for (const wt of wts) {
+        targets.push({ kind: 'worktree', worktreeId: wt.id, projectId: project.id })
+      }
+    }
+  }
+  return targets
+}
+
+/**
+ * Determine whether a hint badge should be visible.
+ * Shows when: hint exists AND (filter input is focused OR vim mode is 'normal').
+ */
+export function shouldShowHintBadge(
+  hint: string | undefined,
+  inputFocused: boolean,
+  vimMode: string
+): boolean {
+  return !!hint && (inputFocused || vimMode === 'normal')
+}
+
 export function dispatchHintAction(key: string): void {
   if (key.startsWith('plus:')) {
     const projectId = key.slice('plus:'.length)
