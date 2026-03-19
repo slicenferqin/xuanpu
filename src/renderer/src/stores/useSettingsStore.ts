@@ -172,7 +172,10 @@ interface SettingsState extends AppSettings {
     model: SelectedModel | null,
     options?: { skipBackendPush?: boolean }
   ) => Promise<void>
-  setModeDefaultModel: (mode: 'build' | 'plan' | 'ask', model: SelectedModel | null) => Promise<void>
+  setModeDefaultModel: (
+    mode: 'build' | 'plan' | 'ask',
+    model: SelectedModel | null
+  ) => Promise<void>
   getModelForMode: (mode: 'build' | 'plan' | 'ask') => SelectedModel | null
   toggleFavoriteModel: (providerID: string, modelID: string) => void
   setModelVariantDefault: (providerID: string, modelID: string, variant: string) => void
@@ -303,7 +306,10 @@ export const useSettingsStore = create<SettingsState>()(
         }
       },
 
-      setSelectedModel: async (model: SelectedModel | null, agentSdk?: AppSettings['defaultAgentSdk']) => {
+      setSelectedModel: async (
+        model: SelectedModel | null,
+        agentSdk?: AppSettings['defaultAgentSdk']
+      ) => {
         if (agentSdk) {
           return get().setSelectedModelForSdk(agentSdk, model)
         }

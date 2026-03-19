@@ -23,7 +23,9 @@ export async function detectProjectLanguage(projectPath: string): Promise<string
     if (has('Package.swift') || has('Podfile')) return 'swift'
     try {
       if (readdirSync(projectPath).some((f) => f.endsWith('.podspec'))) return 'swift'
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     if (has('build.gradle.kts')) return 'kotlin'
     if (has('pom.xml') || has('build.gradle')) return 'java'
     if (has('composer.json')) return 'php'

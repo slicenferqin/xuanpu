@@ -56,7 +56,13 @@ export function FileSidebar({
           )}
           onClick={() => setActiveTab('changes')}
         >
-          {vimModeEnabled ? <><span className="text-primary">C</span>hanges</> : 'Changes'}
+          {vimModeEnabled ? (
+            <>
+              <span className="text-primary">C</span>hanges
+            </>
+          ) : (
+            'Changes'
+          )}
           {activeTab === 'changes' && (
             <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
           )}
@@ -70,7 +76,13 @@ export function FileSidebar({
           )}
           onClick={() => setActiveTab('files')}
         >
-          {vimModeEnabled ? <><span className="text-primary">F</span>iles</> : 'Files'}
+          {vimModeEnabled ? (
+            <>
+              <span className="text-primary">F</span>iles
+            </>
+          ) : (
+            'Files'
+          )}
           {activeTab === 'files' && (
             <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
           )}
@@ -84,7 +96,13 @@ export function FileSidebar({
           )}
           onClick={() => setActiveTab('diffs')}
         >
-          {vimModeEnabled ? <><span className="text-primary">D</span>iffs</> : 'Diffs'}
+          {vimModeEnabled ? (
+            <>
+              <span className="text-primary">D</span>iffs
+            </>
+          ) : (
+            'Diffs'
+          )}
           {activeTab === 'diffs' && (
             <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
           )}

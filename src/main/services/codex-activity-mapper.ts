@@ -20,7 +20,8 @@ function buildActivity(
   summary: string,
   payload: unknown = event.payload
 ): SessionActivityCreate {
-  const payloadRecord = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null
+  const payloadRecord =
+    payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null
   const payloadTurnId =
     (typeof payloadRecord?.turnId === 'string' && payloadRecord.turnId) ||
     (typeof payloadRecord?.turn_id === 'string' && payloadRecord.turn_id) ||
@@ -72,9 +73,7 @@ export function mapCodexManagerEventToActivity(
         asString(item?.type) ??
         asString(payload?.toolName) ??
         'unknown'
-      const isTool =
-        itemType === 'commandexecution' ||
-        itemType === 'filechange'
+      const isTool = itemType === 'commandexecution' || itemType === 'filechange'
       if (!isTool) return null
 
       if (event.method === 'item.started' || event.method === 'item/started') {

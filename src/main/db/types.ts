@@ -55,6 +55,8 @@ export interface Worktree {
   attachments: string // JSON array of Attachment objects
   pinned: number // 0 = not pinned, 1 = pinned
   context: string | null
+  github_pr_number: number | null
+  github_pr_url: string | null
   created_at: string
   last_accessed_at: string
 }
@@ -77,6 +79,8 @@ export interface WorktreeUpdate {
   last_model_id?: string | null
   last_model_variant?: string | null
   pinned?: number
+  github_pr_number?: number | null
+  github_pr_url?: string | null
   last_accessed_at?: string
 }
 

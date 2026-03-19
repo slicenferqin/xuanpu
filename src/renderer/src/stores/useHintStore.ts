@@ -40,20 +40,22 @@ export const useHintStore = create<HintStoreState>()((set) => ({
   inputFocused: false,
 
   setHints: (map, targetMap) => set({ hintMap: map, hintTargetMap: targetMap }),
-  clearHints: () => set({
-    hintMap: new Map(),
-    hintTargetMap: new Map(),
-    sessionHintMap: new Map(),
-    sessionHintTargetMap: new Map(),
-    mode: 'idle',
-    pendingChar: null,
-    actionMode: 'select'
-  }),
-  setSessionHints: (map, targetMap) => set({ sessionHintMap: map, sessionHintTargetMap: targetMap }),
+  clearHints: () =>
+    set({
+      hintMap: new Map(),
+      hintTargetMap: new Map(),
+      sessionHintMap: new Map(),
+      sessionHintTargetMap: new Map(),
+      mode: 'idle',
+      pendingChar: null,
+      actionMode: 'select'
+    }),
+  setSessionHints: (map, targetMap) =>
+    set({ sessionHintMap: map, sessionHintTargetMap: targetMap }),
   clearSessionHints: () => set({ sessionHintMap: new Map(), sessionHintTargetMap: new Map() }),
   enterPending: (char) => set({ mode: 'pending', pendingChar: char, actionMode: 'select' }),
   exitPending: () => set({ mode: 'idle', pendingChar: null, actionMode: 'select' }),
   setActionMode: (mode) => set({ actionMode: mode }),
   setFilterActive: (active) => set({ filterActive: active }),
-  setInputFocused: (focused) => set({ inputFocused: focused }),
+  setInputFocused: (focused) => set({ inputFocused: focused })
 }))

@@ -37,7 +37,15 @@ import {
   ContextMenuSubContent,
   ContextMenuCheckboxItem
 } from '@/components/ui/context-menu'
-import { useProjectStore, useWorktreeStore, useSpaceStore, useConnectionStore, useHintStore, useVimModeStore, useSettingsStore } from '@/stores'
+import {
+  useProjectStore,
+  useWorktreeStore,
+  useSpaceStore,
+  useConnectionStore,
+  useHintStore,
+  useVimModeStore,
+  useSettingsStore
+} from '@/stores'
 import { HintBadge } from '@/components/ui/HintBadge'
 import { WorktreeList, BranchPickerDialog } from '@/components/worktrees'
 import { LanguageIcon } from './LanguageIcon'
@@ -281,7 +289,12 @@ export function ProjectItem({
           >
             {/* Project Hint Badge (visible in vim normal mode, left of chevron) */}
             {!isEditing && projectHint && vimModeEnabled && vimMode === 'normal' && (
-              <HintBadge code={projectHint} mode={hintMode} pendingChar={hintPendingChar} actionMode={hintActionMode} />
+              <HintBadge
+                code={projectHint}
+                mode={hintMode}
+                pendingChar={hintPendingChar}
+                actionMode={hintActionMode}
+              />
             )}
 
             {/* Expand/Collapse Chevron */}
@@ -338,9 +351,16 @@ export function ProjectItem({
             )}
 
             {/* Plus Hint Badge (visible when filter is active and search field is focused) */}
-            {!isEditing && plusHint && (inputFocused || (vimModeEnabled && vimMode === 'normal')) && (
-              <HintBadge code={plusHint} mode={hintMode} pendingChar={hintPendingChar} actionMode={hintActionMode} />
-            )}
+            {!isEditing &&
+              plusHint &&
+              (inputFocused || (vimModeEnabled && vimMode === 'normal')) && (
+                <HintBadge
+                  code={plusHint}
+                  mode={hintMode}
+                  pendingChar={hintPendingChar}
+                  actionMode={hintActionMode}
+                />
+              )}
 
             {/* Create Worktree Button (hidden in connection mode) */}
             {!isEditing && !connectionModeActive && (

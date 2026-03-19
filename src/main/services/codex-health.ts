@@ -16,11 +16,7 @@ const EXEC_TIMEOUT_MS = 5000
 /**
  * Run a command and return stdout, or throw on error/timeout.
  */
-function execCommand(
-  cmd: string,
-  args: string[],
-  timeoutMs = EXEC_TIMEOUT_MS
-): Promise<string> {
+function execCommand(cmd: string, args: string[], timeoutMs = EXEC_TIMEOUT_MS): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(cmd, args, { timeout: timeoutMs, encoding: 'utf-8' }, (error, stdout) => {
       if (error) {
@@ -70,9 +66,7 @@ export function parseVersionOutput(output: string): string | null {
 /**
  * Parse the output of `codex login status` to determine authentication state.
  */
-export function parseAuthOutput(
-  output: string
-): 'authenticated' | 'unauthenticated' {
+export function parseAuthOutput(output: string): 'authenticated' | 'unauthenticated' {
   const lower = output.toLowerCase()
 
   // Unauthenticated indicators
@@ -92,18 +86,10 @@ export function parseAuthOutput(
   // Try parsing as JSON for structured output
   try {
     const json = JSON.parse(output.trim())
-    if (
-      json.authenticated === true ||
-      json.isAuthenticated === true ||
-      json.loggedIn === true
-    ) {
+    if (json.authenticated === true || json.isAuthenticated === true || json.loggedIn === true) {
       return 'authenticated'
     }
-    if (
-      json.authenticated === false ||
-      json.isAuthenticated === false ||
-      json.loggedIn === false
-    ) {
+    if (json.authenticated === false || json.isAuthenticated === false || json.loggedIn === false) {
       return 'unauthenticated'
     }
   } catch {

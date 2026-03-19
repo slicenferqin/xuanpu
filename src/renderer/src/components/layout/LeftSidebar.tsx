@@ -156,10 +156,7 @@ export function LeftSidebar(): React.JSX.Element {
           <PinnedList />
           <RecentList />
           <ConnectionList />
-          <ProjectList
-            onAddProject={handleAddProject}
-            filterQuery={filterQuery}
-          />
+          <ProjectList onAddProject={handleAddProject} filterQuery={filterQuery} />
         </div>
         {!connectionModeActive && (showUsageIndicator ? <UsageIndicator /> : <SpacesTabBar />)}
       </aside>

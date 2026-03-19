@@ -38,11 +38,9 @@ export function registerFileHandlers(): void {
     }> => {
       const result = readFileAsBase64(filePath)
       if (!result.success) {
-        log.error(
-          'Failed to read image as base64',
-          new Error(result.error ?? 'Unknown error'),
-          { filePath }
-        )
+        log.error('Failed to read image as base64', new Error(result.error ?? 'Unknown error'), {
+          filePath
+        })
       }
       return result
     }

@@ -93,7 +93,11 @@ interface SessionState {
   getSessionMode: (sessionId: string) => SessionMode
   toggleSessionMode: (sessionId: string) => Promise<void>
   setSessionMode: (sessionId: string, mode: SessionMode) => Promise<void>
-  setSessionModel: (sessionId: string, model: SelectedModel, options?: { skipGlobalUpdate?: boolean }) => Promise<void>
+  setSessionModel: (
+    sessionId: string,
+    model: SelectedModel,
+    options?: { skipGlobalUpdate?: boolean }
+  ) => Promise<void>
   setOpenCodeSessionId: (sessionId: string, opencodeSessionId: string | null) => void
   setPendingMessage: (sessionId: string, message: string) => void
   dequeuePendingMessage: (sessionId: string) => string | null
@@ -525,9 +529,9 @@ export const useSessionStore = create<SessionState>()(
 
           // If this session was a PR-creating session, cancel the PR flow
           const gitStore = useGitStore.getState()
-          for (const [worktreeId, prInfo] of gitStore.prInfo.entries()) {
-            if (prInfo.sessionId === sessionId && prInfo.state === 'creating') {
-              gitStore.setPrState(worktreeId, { state: 'none' })
+          for (const [worktreeId, creation] of gitStore.prCreation.entries()) {
+            if (creation.sessionId === sessionId && creation.creating) {
+              gitStore.setPrCreation(worktreeId, null)
               break
             }
           }
@@ -801,7 +805,11 @@ export const useSessionStore = create<SessionState>()(
       },
 
       // Set model for a specific session (per-session model selection, scope-agnostic)
-      setSessionModel: async (sessionId: string, model: SelectedModel, options?: { skipGlobalUpdate?: boolean }) => {
+      setSessionModel: async (
+        sessionId: string,
+        model: SelectedModel,
+        options?: { skipGlobalUpdate?: boolean }
+      ) => {
         // Update local state immediately (search both maps)
         set((state) => {
           const newWorktreeSessionsMap = new Map(state.sessionsByWorktree)
@@ -927,9 +935,8 @@ export const useSessionStore = create<SessionState>()(
 
         // Mode defaults are configured in the context of the default SDK.
         // Only apply them when the session SDK matches; otherwise fall back to per-SDK default.
-        const modeDefault = sessionSdk === configuredDefaultSdk
-          ? settings.getModelForMode(newMode)
-          : null
+        const modeDefault =
+          sessionSdk === configuredDefaultSdk ? settings.getModelForMode(newMode) : null
         const newModeDefault = modeDefault ?? resolveModelForSdk(sessionSdk, settings)
         if (!newModeDefault) {
           // No defaults configured, keep current model
@@ -1264,7 +1271,9 @@ export const useSessionStore = create<SessionState>()(
               // Priority 1: mode-specific default (only when session SDK matches the
               // configured default — mode defaults are set in that SDK's context)
               if (defaultAgentSdk === configuredDefaultSdk) {
-                const modeModel = useSettingsStore.getState().getModelForMode(initialMode ?? 'build')
+                const modeModel = useSettingsStore
+                  .getState()
+                  .getModelForMode(initialMode ?? 'build')
                 if (modeModel) {
                   defaultModel = modeModel
                 }

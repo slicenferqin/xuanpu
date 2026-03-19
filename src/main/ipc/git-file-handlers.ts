@@ -887,6 +887,32 @@ export function registerGitFileHandlers(window: BrowserWindow): void {
       }
     }
   )
+
+  // Get the state of a specific PR via gh CLI
+  ipcMain.handle(
+    'git:getPRState',
+    async (
+      _event,
+      { projectPath, prNumber }: { projectPath: string; prNumber: number }
+    ): Promise<{ success: boolean; state?: string; title?: string; error?: string }> => {
+      log.info('Getting PR state via gh CLI', { projectPath, prNumber })
+      try {
+        const { stdout } = await execAsync(
+          `gh pr view ${prNumber} --json state,title`,
+          { cwd: projectPath }
+        )
+        const data = JSON.parse(stdout) as { state: string; title: string }
+        return { success: true, state: data.state, title: data.title }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        log.error('Failed to get PR state', error instanceof Error ? error : new Error(message), {
+          projectPath,
+          prNumber
+        })
+        return { success: false, error: message }
+      }
+    }
+  )
 }
 
 // Re-export cleanup functions for app quit handler

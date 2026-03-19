@@ -63,6 +63,8 @@ interface Worktree {
   attachments: string // JSON array of Attachment objects
   pinned: number // 0 = not pinned, 1 = pinned
   context: string | null
+  github_pr_number: number | null
+  github_pr_url: string | null
   created_at: string
   last_accessed_at: string
 }
@@ -260,6 +262,14 @@ declare global {
         removeAttachment: (
           worktreeId: string,
           attachmentId: string
+        ) => Promise<{ success: boolean; error?: string }>
+        attachPR: (
+          worktreeId: string,
+          prNumber: number,
+          prUrl: string
+        ) => Promise<{ success: boolean; error?: string }>
+        detachPR: (
+          worktreeId: string
         ) => Promise<{ success: boolean; error?: string }>
         setPinned: (
           worktreeId: string,
@@ -521,7 +531,9 @@ declare global {
         opencodeSessionId: string
       ) => Promise<{ success: boolean; messages: unknown[]; error?: string }>
       // List available models from all configured providers
-      listModels: (opts?: { agentSdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' }) => Promise<{
+      listModels: (opts?: {
+        agentSdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+      }) => Promise<{
         success: boolean
         providers: Record<string, unknown>
         error?: string
@@ -1035,6 +1047,16 @@ declare global {
           author: string
           headRefName: string
         }>
+        error?: string
+      }>
+      // Get the state of a specific PR via gh CLI
+      getPRState: (
+        projectPath: string,
+        prNumber: number
+      ) => Promise<{
+        success: boolean
+        state?: string
+        title?: string
         error?: string
       }>
       // Get file content from a specific git ref (HEAD, index)

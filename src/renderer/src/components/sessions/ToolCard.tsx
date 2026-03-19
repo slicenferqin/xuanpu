@@ -200,9 +200,7 @@ function getToolLabel(name: string, input: Record<string, unknown>, cwd?: string
 
   // Show file path for fileChange (Codex) — must be before generic file ops check
   if (isFileChangeTool(lowerName)) {
-    const changes = Array.isArray(input.changes)
-      ? (input.changes as Array<{ path: string }>)
-      : []
+    const changes = Array.isArray(input.changes) ? (input.changes as Array<{ path: string }>) : []
     if (changes.length > 0) {
       const firstPath = changes[0]?.path || ''
       const label = shortenPath(firstPath, cwd)
@@ -845,8 +843,7 @@ const CompactFileToolCard = memo(function CompactFileToolCard({
         onClick={() => hasExpandableContent && setIsExpanded(!isExpanded)}
         className={cn(
           'flex items-center gap-1.5 w-full py-0.5 text-left text-xs',
-          hasExpandableContent &&
-            'cursor-pointer hover:bg-accent/50 transition-colors rounded-sm',
+          hasExpandableContent && 'cursor-pointer hover:bg-accent/50 transition-colors rounded-sm',
           !hasExpandableContent && !isRunning && 'cursor-default'
         )}
         disabled={!hasExpandableContent && !isRunning}

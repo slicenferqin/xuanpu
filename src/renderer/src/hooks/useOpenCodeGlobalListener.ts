@@ -211,9 +211,9 @@ export function useOpenCodeGlobalListener(): void {
             }
             useContextStore.getState().setSessionTokens(sessionId, tokens, model)
             if (contextWindow > 0 && model) {
-              useContextStore.getState().setModelLimit(
-                model.modelID, contextWindow, model.providerID
-              )
+              useContextStore
+                .getState()
+                .setModelLimit(model.modelID, contextWindow, model.providerID)
               useContextStore.getState().setModelLimit(model.modelID, contextWindow)
             }
             return
@@ -417,12 +417,18 @@ export function useOpenCodeGlobalListener(): void {
             } | null = null
             for (const sessions of sessionState.sessionsByWorktree.values()) {
               const found = sessions.find((s) => s.id === sessionId)
-              if (found) { idleSession = found; break }
+              if (found) {
+                idleSession = found
+                break
+              }
             }
             if (!idleSession) {
               for (const sessions of sessionState.sessionsByConnection.values()) {
                 const found = sessions.find((s) => s.id === sessionId)
-                if (found) { idleSession = found; break }
+                if (found) {
+                  idleSession = found
+                  break
+                }
               }
             }
             if (idleSession) {

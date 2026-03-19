@@ -41,9 +41,7 @@ export function AgentPickerDialog({
               )}
             >
               <div className="text-sm font-medium">OpenCode</div>
-              <div className="text-xs text-muted-foreground mt-1">
-                Open-source AI coding agent
-              </div>
+              <div className="text-xs text-muted-foreground mt-1">Open-source AI coding agent</div>
             </button>
           )}
           {availableSdks.claude && (
@@ -71,9 +69,7 @@ export function AgentPickerDialog({
               )}
             >
               <div className="text-sm font-medium">Codex</div>
-              <div className="text-xs text-muted-foreground mt-1">
-                OpenAI&apos;s coding agent
-              </div>
+              <div className="text-xs text-muted-foreground mt-1">OpenAI&apos;s coding agent</div>
             </button>
           )}
         </div>

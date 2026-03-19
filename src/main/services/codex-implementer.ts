@@ -197,9 +197,7 @@ export class CodexImplementer implements AgentSdkImplementer {
       const outputTokens = asNumber(last?.outputTokens) ?? 0
       const reasoningTokens = asNumber(last?.reasoningOutputTokens) ?? 0
 
-      const modelID = resolveCodexModelSlug(
-        asString(payload?.model) ?? this.selectedModel
-      )
+      const modelID = resolveCodexModelSlug(asString(payload?.model) ?? this.selectedModel)
 
       this.sendToRenderer('opencode:stream', {
         type: 'session.context_usage',
@@ -1361,8 +1359,7 @@ export class CodexImplementer implements AgentSdkImplementer {
       const cachedInputTokens = asNumber(lastUsage.cached_input_tokens) ?? 0
       const outputTokens = asNumber(lastUsage.output_tokens) ?? 0
       const reasoningTokens = asNumber(lastUsage.reasoning_output_tokens) ?? 0
-      const contextWindow =
-        asNumber(lastTokenCount.model_context_window) ?? 0
+      const contextWindow = asNumber(lastTokenCount.model_context_window) ?? 0
 
       if (inputTokens === 0 && outputTokens === 0) return
 

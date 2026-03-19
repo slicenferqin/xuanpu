@@ -6,11 +6,7 @@ import { useWorktreeStore } from '@/stores/useWorktreeStore'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useProjectStore } from '@/stores/useProjectStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
-import {
-  DEFAULT_SHORTCUTS,
-  formatBinding,
-  shortcutCategoryOrder
-} from '@/lib/keyboard-shortcuts'
+import { DEFAULT_SHORTCUTS, formatBinding, shortcutCategoryOrder } from '@/lib/keyboard-shortcuts'
 import { cn } from '@/lib/utils'
 
 // ---------------------------------------------------------------------------
@@ -23,7 +19,9 @@ function MnemonicLabel({ letter, label }: { letter: string; label: string }): Re
   return (
     <span>
       {label.slice(0, index)}
-      <span className="text-primary font-bold bg-primary/15 px-0.5 rounded-sm underline underline-offset-2 decoration-primary decoration-2">{label[index]}</span>
+      <span className="text-primary font-bold bg-primary/15 px-0.5 rounded-sm underline underline-offset-2 decoration-primary decoration-2">
+        {label[index]}
+      </span>
       {label.slice(index + 1)}
     </span>
   )
@@ -120,8 +118,7 @@ export function HelpOverlay(): React.JSX.Element | null {
   const connectionNameMap = useMemo(() => {
     const map = new Map<string, string>()
     for (const conn of connections) {
-      const projectNames =
-        [...new Set(conn.members?.map((m) => m.project_name) || [])].join(' + ')
+      const projectNames = [...new Set(conn.members?.map((m) => m.project_name) || [])].join(' + ')
       const name = conn.custom_name || projectNames || conn.name || 'Connection'
       map.set(conn.id, name)
     }
@@ -235,14 +232,8 @@ export function HelpOverlay(): React.JSX.Element | null {
                 keyContent={<KeyBadge>I</KeyBadge>}
                 label="Filter projects (insert mode)"
               />
-              <ShortcutRow
-                keyContent={<KeyBadge>Esc</KeyBadge>}
-                label="Return to normal mode"
-              />
-              <ShortcutRow
-                keyContent={<KeyBadge>?</KeyBadge>}
-                label="Toggle this help"
-              />
+              <ShortcutRow keyContent={<KeyBadge>Esc</KeyBadge>} label="Return to normal mode" />
+              <ShortcutRow keyContent={<KeyBadge>?</KeyBadge>} label="Toggle this help" />
             </div>
 
             {/* ---- Panel Shortcuts ---- */}
@@ -292,10 +283,22 @@ export function HelpOverlay(): React.JSX.Element | null {
             {/* ---- Action Shortcuts ---- */}
             <div>
               <SectionTitle>Action Shortcuts</SectionTitle>
-              <ShortcutRow keyContent={<KeyBadge>r</KeyBadge>} label={<MnemonicLabel letter="r" label="Review" />} />
-              <ShortcutRow keyContent={<KeyBadge>p</KeyBadge>} label={<MnemonicLabel letter="p" label="PR" />} />
-              <ShortcutRow keyContent={<KeyBadge>m</KeyBadge>} label={<MnemonicLabel letter="m" label="Merge PR" />} />
-              <ShortcutRow keyContent={<KeyBadge>a</KeyBadge>} label={<MnemonicLabel letter="a" label="Archive" />} />
+              <ShortcutRow
+                keyContent={<KeyBadge>r</KeyBadge>}
+                label={<MnemonicLabel letter="r" label="Review" />}
+              />
+              <ShortcutRow
+                keyContent={<KeyBadge>p</KeyBadge>}
+                label={<MnemonicLabel letter="p" label="PR" />}
+              />
+              <ShortcutRow
+                keyContent={<KeyBadge>m</KeyBadge>}
+                label={<MnemonicLabel letter="m" label="Merge PR" />}
+              />
+              <ShortcutRow
+                keyContent={<KeyBadge>a</KeyBadge>}
+                label={<MnemonicLabel letter="a" label="Archive" />}
+              />
             </div>
 
             {/* ---- Dynamic Sidebar Hints ---- */}

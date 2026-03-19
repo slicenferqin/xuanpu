@@ -1,9 +1,23 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Loader2, FolderPlus } from 'lucide-react'
-import { useProjectStore, useSpaceStore, useWorktreeStore, useHintStore, useVimModeStore, useSettingsStore, usePinnedStore, useConnectionStore } from '@/stores'
+import {
+  useProjectStore,
+  useSpaceStore,
+  useWorktreeStore,
+  useHintStore,
+  useVimModeStore,
+  useSettingsStore,
+  usePinnedStore,
+  useConnectionStore
+} from '@/stores'
 import { ProjectItem } from './ProjectItem'
 import { subsequenceMatch } from '@/lib/subsequence-match'
-import { assignHints, buildNormalModeTargets, buildPinnedAndConnectionTargets, type HintTarget } from '@/lib/hint-utils'
+import {
+  assignHints,
+  buildNormalModeTargets,
+  buildPinnedAndConnectionTargets,
+  type HintTarget
+} from '@/lib/hint-utils'
 
 interface ProjectListProps {
   onAddProject: () => void
@@ -150,7 +164,16 @@ export function ProjectList({ onAddProject, filterQuery }: ProjectListProps): Re
     }
 
     return { hintMap: new Map<string, string>(), hintTargetMap: new Map<string, HintTarget>() }
-  }, [filteredProjects, worktreesByProject, filterQuery, vimModeEnabled, vimMode, pinnedWorktreeIds, pinnedConnectionIds, connections])
+  }, [
+    filteredProjects,
+    worktreesByProject,
+    filterQuery,
+    vimModeEnabled,
+    vimMode,
+    pinnedWorktreeIds,
+    pinnedConnectionIds,
+    connections
+  ])
 
   // Immediately set filterActive when filter text changes — this drives project expansion
   // independently of worktree loading (breaking the circular dependency)
@@ -170,7 +193,15 @@ export function ProjectList({ onAddProject, filterQuery }: ProjectListProps): Re
     // No cleanup here: when computedHintMap changes (worktrees loading), setHints
     // immediately overwrites — running clearHints() in cleanup would reset mode:'idle'
     // mid-navigation and break the two-char hint flow.
-  }, [computedHintMap, computedHintTargetMap, filterQuery, vimModeEnabled, vimMode, setHints, clearHints])
+  }, [
+    computedHintMap,
+    computedHintTargetMap,
+    filterQuery,
+    vimModeEnabled,
+    vimMode,
+    setHints,
+    clearHints
+  ])
 
   // Clear all hint state on unmount only
   useEffect(() => {

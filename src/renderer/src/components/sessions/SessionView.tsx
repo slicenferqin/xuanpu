@@ -1109,7 +1109,10 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           currentStoredStatus?.status === 'planning' ||
           loadedMessages.length === 0)
 
-      if ((!isCodexSession || loadedMessages.length === 0 || preferLiveCodexSource) && canUseOpenCodeSource) {
+      if (
+        (!isCodexSession || loadedMessages.length === 0 || preferLiveCodexSource) &&
+        canUseOpenCodeSource
+      ) {
         const result = await window.opencodeOps.getMessages(
           sourceWorktreePath,
           sourceOpencodeSessionId
@@ -1575,7 +1578,9 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                 updateStreamingPartsRef((parts) =>
                   parts.map((p) => {
                     if (p.type !== 'text' || !p.text) return p
-                    const stripped = p.text.replace(/<proposed_plan>\s*[\s\S]*?\s*<\/proposed_plan>/gi, '').trim()
+                    const stripped = p.text
+                      .replace(/<proposed_plan>\s*[\s\S]*?\s*<\/proposed_plan>/gi, '')
+                      .trim()
                     if (!stripped) return { ...p, text: '' }
                     return { ...p, text: stripped }
                   })
@@ -2909,7 +2914,10 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     if (sessionRecord?.agent_sdk === 'codex') {
       const durableState = await loadCodexDurableState(sessionId)
       if (worktreePath && opencodeSessionId) {
-        const transcriptResult = await window.opencodeOps.getMessages(worktreePath, opencodeSessionId)
+        const transcriptResult = await window.opencodeOps.getMessages(
+          worktreePath,
+          opencodeSessionId
+        )
         if (transcriptResult.success) {
           const liveMessages = mergeCodexActivityMessages(
             mapOpencodeMessagesToSessionViewMessages(
@@ -4230,12 +4238,11 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   // 1. Claude Code sessions: ExitPlanMode is pending approval.
   // 2. Codex sessions: the pending plan content is a real <proposed_plan>.
   // 3. OpenCode sessions: legacy non-blocking plan mode completed.
-  const showPlanReadyImplementFab =
-    isClaudeCode
-      ? !!pendingPlan
-      : sessionRecord?.agent_sdk === 'codex'
-        ? !!pendingPlan && hasCodexProposedPlan
-        : lastSendMode.get(sessionId) === 'plan' && !isSending && !isStreaming && !pendingPlan
+  const showPlanReadyImplementFab = isClaudeCode
+    ? !!pendingPlan
+    : sessionRecord?.agent_sdk === 'codex'
+      ? !!pendingPlan && hasCodexProposedPlan
+      : lastSendMode.get(sessionId) === 'plan' && !isSending && !isStreaming && !pendingPlan
 
   const retrySecondsRemaining = useMemo(() => {
     if (!sessionRetry?.next) return null

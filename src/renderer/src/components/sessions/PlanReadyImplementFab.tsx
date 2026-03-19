@@ -74,7 +74,11 @@ export function PlanReadyImplementFab({
           aria-label="Supercharge plan locally"
           data-testid="plan-ready-supercharge-local-fab"
         >
-          {vimModeEnabled ? <MnemonicLabel letter="o" label="Supercharge locally" /> : 'Supercharge locally'}
+          {vimModeEnabled ? (
+            <MnemonicLabel letter="o" label="Supercharge locally" />
+          ) : (
+            'Supercharge locally'
+          )}
         </button>
       )}
       {superpowersAvailable && onSuperpowers && (

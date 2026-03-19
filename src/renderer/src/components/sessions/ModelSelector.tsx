@@ -44,7 +44,12 @@ interface ModelSelectorProps {
   agentSdkOverride?: 'opencode' | 'claude-code' | 'codex'
 }
 
-export function ModelSelector({ sessionId, value, onChange, agentSdkOverride }: ModelSelectorProps): React.JSX.Element {
+export function ModelSelector({
+  sessionId,
+  value,
+  onChange,
+  agentSdkOverride
+}: ModelSelectorProps): React.JSX.Element {
   // Read per-session model from session store (with global fallback)
   const session = useSessionStore((state) => {
     if (!sessionId) return null
@@ -73,7 +78,8 @@ export function ModelSelector({ sessionId, value, onChange, agentSdkOverride }: 
       : null
   // Controlled mode: non-null value overrides; null means "use global fallback."
   // SettingsModels passes null for cleared mode defaults — display the effective model, not empty.
-  const selectedModel = (value !== undefined && value !== null) ? value : (sessionModel ?? globalModel)
+  const selectedModel =
+    value !== undefined && value !== null ? value : (sessionModel ?? globalModel)
   const showModelProvider = useSettingsStore((s) => s.showModelProvider)
   const favoriteModels = useSettingsStore((s) => s.favoriteModels)
   const toggleFavoriteModel = useSettingsStore((s) => s.toggleFavoriteModel)
@@ -160,7 +166,7 @@ export function ModelSelector({ sessionId, value, onChange, agentSdkOverride }: 
           ? variantKeys[0]
           : undefined
     const newModel = { providerID: model.providerID, modelID: model.id, variant }
-    
+
     // Use controlled onChange if provided (for settings), otherwise update store
     if (onChange) {
       onChange(newModel)
@@ -213,9 +219,7 @@ export function ModelSelector({ sessionId, value, onChange, agentSdkOverride }: 
     if (!showModelProvider) return null
     if (agentSdk === 'claude-code') return 'ANTHROPIC'
     return (
-      currentModel?.providerID?.toUpperCase() ??
-      selectedModel?.providerID?.toUpperCase() ??
-      null
+      currentModel?.providerID?.toUpperCase() ?? selectedModel?.providerID?.toUpperCase() ?? null
     )
   }, [showModelProvider, agentSdk, currentModel, selectedModel])
 
@@ -328,117 +332,120 @@ export function ModelSelector({ sessionId, value, onChange, agentSdkOverride }: 
             data-testid="model-selector"
           >
             <span className="truncate max-w-[140px]">{isLoading ? 'Loading...' : displayName}</span>
-          {hasVariants && selectedModel?.variant && (
-            <span
-              className="text-[10px] font-semibold text-primary uppercase"
-              data-testid="variant-indicator"
-            >
-              {selectedModel.variant}
-            </span>
-          )}
-          <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-64 max-h-80 overflow-y-auto">
-        <div className="flex items-center gap-1.5 px-2 pb-1.5 pt-1">
-          <Search className="h-3 w-3 shrink-0 text-muted-foreground" />
-          <input
-            ref={filterInputRef}
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            onKeyDown={(e) => e.stopPropagation()}
-            placeholder="Filter models..."
-            className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground/60"
-          />
-        </div>
-        <DropdownMenuSeparator />
-        {favoriteModelObjects.length > 0 && (
-          <>
-            <DropdownMenuLabel className="text-xs text-muted-foreground flex items-center gap-1">
-              <Star className="h-3 w-3 fill-yellow-500 text-yellow-500" /> Favorites
-            </DropdownMenuLabel>
-            {favoriteModelObjects.map((model) => (
-              <DropdownMenuItem
-                key={`fav-${model.providerID}:${model.id}`}
-                onClick={() => handleSelectModel(model)}
-                onContextMenu={(e) => {
-                  e.preventDefault()
-                  toggleFavoriteModel(model.providerID, model.id)
-                }}
-                className="flex items-center justify-between gap-2 cursor-pointer"
+            {hasVariants && selectedModel?.variant && (
+              <span
+                className="text-[10px] font-semibold text-primary uppercase"
+                data-testid="variant-indicator"
               >
-                <span className="flex items-center gap-1.5">
-                  <Star className="h-3 w-3 text-yellow-500 fill-yellow-500 shrink-0" />
-                  <span className="truncate text-sm">{getDisplayName(model)}</span>
-                </span>
-                {isActiveModel(model) && <Check className="h-4 w-4 shrink-0 text-primary" />}
-              </DropdownMenuItem>
-            ))}
-            <DropdownMenuSeparator />
-          </>
-        )}
-        {filteredProviders.map((provider, index) => (
-          <div key={provider.providerID}>
-            {index > 0 && <DropdownMenuSeparator />}
-            <DropdownMenuLabel className="text-xs text-muted-foreground">
-              {provider.providerName}
-            </DropdownMenuLabel>
-            {provider.models.map((model) => {
-              const active = isActiveModel(model)
-              const variantKeys = getVariantKeys(model)
-              return (
-                <div key={`${model.providerID}:${model.id}`}>
-                  <DropdownMenuItem
-                    onClick={() => handleSelectModel(model)}
-                    onContextMenu={(e) => {
-                      e.preventDefault()
-                      toggleFavoriteModel(model.providerID, model.id)
-                    }}
-                    className="flex items-center justify-between gap-2 cursor-pointer"
-                    data-testid={`model-item-${model.id}`}
-                  >
-                    <span className="flex items-center gap-1.5">
-                      {isFavorite(model) && (
-                        <Star className="h-3 w-3 text-yellow-500 fill-yellow-500 shrink-0" />
-                      )}
-                      <span className="truncate text-sm">{getDisplayName(model)}</span>
-                    </span>
-                    {active && <Check className="h-4 w-4 shrink-0 text-primary" />}
-                  </DropdownMenuItem>
-                  {variantKeys.length > 0 && active && (
-                    <div className="flex gap-1 pl-6 pb-1" data-testid={`variant-chips-${model.id}`}>
-                      {variantKeys.map((variant) => (
-                        <button
-                          key={variant}
-                          className={cn(
-                            'text-[10px] px-1.5 py-0.5 rounded',
-                            selectedModel?.variant === variant
-                              ? 'bg-primary text-primary-foreground'
-                              : 'bg-muted text-muted-foreground hover:bg-accent'
-                          )}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleSelectVariant(model, variant)
-                          }}
-                          data-testid={`variant-chip-${variant}`}
-                        >
-                          {variant.toUpperCase()}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+                {selectedModel.variant}
+              </span>
+            )}
+            <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-64 max-h-80 overflow-y-auto">
+          <div className="flex items-center gap-1.5 px-2 pb-1.5 pt-1">
+            <Search className="h-3 w-3 shrink-0 text-muted-foreground" />
+            <input
+              ref={filterInputRef}
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              onKeyDown={(e) => e.stopPropagation()}
+              placeholder="Filter models..."
+              className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground/60"
+            />
           </div>
-        ))}
-        {filteredProviders.length === 0 && !isLoading && (
-          <div className="px-2 py-4 text-center text-sm text-muted-foreground">
-            {filter ? 'No matching models' : 'No models available'}
-          </div>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+          <DropdownMenuSeparator />
+          {favoriteModelObjects.length > 0 && (
+            <>
+              <DropdownMenuLabel className="text-xs text-muted-foreground flex items-center gap-1">
+                <Star className="h-3 w-3 fill-yellow-500 text-yellow-500" /> Favorites
+              </DropdownMenuLabel>
+              {favoriteModelObjects.map((model) => (
+                <DropdownMenuItem
+                  key={`fav-${model.providerID}:${model.id}`}
+                  onClick={() => handleSelectModel(model)}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    toggleFavoriteModel(model.providerID, model.id)
+                  }}
+                  className="flex items-center justify-between gap-2 cursor-pointer"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Star className="h-3 w-3 text-yellow-500 fill-yellow-500 shrink-0" />
+                    <span className="truncate text-sm">{getDisplayName(model)}</span>
+                  </span>
+                  {isActiveModel(model) && <Check className="h-4 w-4 shrink-0 text-primary" />}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+            </>
+          )}
+          {filteredProviders.map((provider, index) => (
+            <div key={provider.providerID}>
+              {index > 0 && <DropdownMenuSeparator />}
+              <DropdownMenuLabel className="text-xs text-muted-foreground">
+                {provider.providerName}
+              </DropdownMenuLabel>
+              {provider.models.map((model) => {
+                const active = isActiveModel(model)
+                const variantKeys = getVariantKeys(model)
+                return (
+                  <div key={`${model.providerID}:${model.id}`}>
+                    <DropdownMenuItem
+                      onClick={() => handleSelectModel(model)}
+                      onContextMenu={(e) => {
+                        e.preventDefault()
+                        toggleFavoriteModel(model.providerID, model.id)
+                      }}
+                      className="flex items-center justify-between gap-2 cursor-pointer"
+                      data-testid={`model-item-${model.id}`}
+                    >
+                      <span className="flex items-center gap-1.5">
+                        {isFavorite(model) && (
+                          <Star className="h-3 w-3 text-yellow-500 fill-yellow-500 shrink-0" />
+                        )}
+                        <span className="truncate text-sm">{getDisplayName(model)}</span>
+                      </span>
+                      {active && <Check className="h-4 w-4 shrink-0 text-primary" />}
+                    </DropdownMenuItem>
+                    {variantKeys.length > 0 && active && (
+                      <div
+                        className="flex gap-1 pl-6 pb-1"
+                        data-testid={`variant-chips-${model.id}`}
+                      >
+                        {variantKeys.map((variant) => (
+                          <button
+                            key={variant}
+                            className={cn(
+                              'text-[10px] px-1.5 py-0.5 rounded',
+                              selectedModel?.variant === variant
+                                ? 'bg-primary text-primary-foreground'
+                                : 'bg-muted text-muted-foreground hover:bg-accent'
+                            )}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleSelectVariant(model, variant)
+                            }}
+                            data-testid={`variant-chip-${variant}`}
+                          >
+                            {variant.toUpperCase()}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          ))}
+          {filteredProviders.length === 0 && !isLoading && (
+            <div className="px-2 py-4 text-center text-sm text-muted-foreground">
+              {filter ? 'No matching models' : 'No models available'}
+            </div>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   )
 }

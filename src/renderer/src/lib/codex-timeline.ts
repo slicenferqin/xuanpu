@@ -36,9 +36,7 @@ function parseToolPart(activity: SessionActivity): StreamingPart | null {
     item?.input && typeof item.input === 'object' && !Array.isArray(item.input)
       ? (item.input as Record<string, unknown>)
       : {}
-  const input = Array.isArray(item?.changes)
-    ? { ...rawInput, changes: item.changes }
-    : rawInput
+  const input = Array.isArray(item?.changes) ? { ...rawInput, changes: item.changes } : rawInput
   const output =
     item?.output ?? payload?.output ?? item?.aggregatedOutput ?? payload?.aggregatedOutput
 
@@ -190,7 +188,9 @@ function normalizeCodexMessageRows(
       return {
         ...message,
         opencode_message_id:
-          userCountWithinTurn === 1 ? `${currentTurnId}:user` : `${currentTurnId}:user:${userCountWithinTurn}`
+          userCountWithinTurn === 1
+            ? `${currentTurnId}:user`
+            : `${currentTurnId}:user:${userCountWithinTurn}`
       }
     }
 
@@ -258,7 +258,10 @@ function normalizeCodexOpenCodeMessages(
       userCountWithinTurn += 1
       return {
         ...message,
-        id: userCountWithinTurn === 1 ? `${currentTurnId}:user` : `${currentTurnId}:user:${userCountWithinTurn}`
+        id:
+          userCountWithinTurn === 1
+            ? `${currentTurnId}:user`
+            : `${currentTurnId}:user:${userCountWithinTurn}`
       }
     }
 

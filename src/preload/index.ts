@@ -73,6 +73,10 @@ const db = {
     ) => ipcRenderer.invoke('db:worktree:addAttachment', { worktreeId, attachment }),
     removeAttachment: (worktreeId: string, attachmentId: string) =>
       ipcRenderer.invoke('db:worktree:removeAttachment', { worktreeId, attachmentId }),
+    attachPR: (worktreeId: string, prNumber: number, prUrl: string) =>
+      ipcRenderer.invoke('db:worktree:attachPR', { worktreeId, prNumber, prUrl }),
+    detachPR: (worktreeId: string) =>
+      ipcRenderer.invoke('db:worktree:detachPR', { worktreeId }),
     setPinned: (worktreeId: string, pinned: boolean) =>
       ipcRenderer.invoke('db:worktree:setPinned', { worktreeId, pinned }),
     getPinned: () => ipcRenderer.invoke('db:worktree:getPinned')
@@ -949,6 +953,13 @@ const gitOps = {
     error?: string
   }> => ipcRenderer.invoke('git:listPRs', { projectPath }),
 
+  // Get the state of a specific PR
+  getPRState: (
+    projectPath: string,
+    prNumber: number
+  ): Promise<{ success: boolean; state?: string; title?: string; error?: string }> =>
+    ipcRenderer.invoke('git:getPRState', { projectPath, prNumber }),
+
   // Get file content from a specific git ref (HEAD, index)
   getRefContent: (
     worktreePath: string,
@@ -1098,12 +1109,14 @@ const opencodeOps = {
   }> => ipcRenderer.invoke('opencode:models', opts),
 
   // Set the selected model for prompts
-  setModel: (model: {
-    providerID: string
-    modelID: string
-    variant?: string
-    agentSdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
-  } | null): Promise<{ success: boolean; error?: string }> =>
+  setModel: (
+    model: {
+      providerID: string
+      modelID: string
+      variant?: string
+      agentSdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+    } | null
+  ): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('opencode:setModel', model),
 
   // Get model info (name, context limit)

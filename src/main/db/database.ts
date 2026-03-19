@@ -91,7 +91,9 @@ export class DatabaseService {
       last_model_variant: (row.last_model_variant as string) ?? null,
       attachments: (row.attachments as string) ?? '[]',
       pinned: (row.pinned as number) ?? 0,
-      context: (row.context as string) ?? null
+      context: (row.context as string) ?? null,
+      github_pr_number: (row.github_pr_number as number) ?? null,
+      github_pr_url: (row.github_pr_url as string) ?? null
     } as Worktree
   }
 
@@ -188,6 +190,8 @@ export class DatabaseService {
     this.safeAddColumn('worktrees', 'attachments', "TEXT DEFAULT '[]'")
     this.safeAddColumn('worktrees', 'pinned', 'INTEGER NOT NULL DEFAULT 0')
     this.safeAddColumn('worktrees', 'context', 'TEXT DEFAULT NULL')
+    this.safeAddColumn('worktrees', 'github_pr_number', 'INTEGER DEFAULT NULL')
+    this.safeAddColumn('worktrees', 'github_pr_url', 'TEXT DEFAULT NULL')
     this.safeAddColumn('connections', 'pinned', 'INTEGER NOT NULL DEFAULT 0')
 
     db.exec(`
@@ -439,8 +443,11 @@ export class DatabaseService {
       last_model_provider_id: null,
       last_model_id: null,
       last_model_variant: null,
+      attachments: '[]',
       pinned: 0,
       context: null,
+      github_pr_number: null,
+      github_pr_url: null,
       created_at: now,
       last_accessed_at: now
     }
@@ -685,6 +692,36 @@ export class DatabaseService {
       JSON.stringify(filtered),
       worktreeId
     )
+    return { success: true }
+  }
+
+  /**
+   * Attach a GitHub PR to a worktree.
+   */
+  attachPR(
+    worktreeId: string,
+    prNumber: number,
+    prUrl: string
+  ): { success: boolean; error?: string } {
+    const db = this.getDb()
+    const row = db.prepare('SELECT id FROM worktrees WHERE id = ?').get(worktreeId)
+    if (!row) return { success: false, error: 'Worktree not found' }
+    db.prepare(
+      'UPDATE worktrees SET github_pr_number = ?, github_pr_url = ? WHERE id = ?'
+    ).run(prNumber, prUrl, worktreeId)
+    return { success: true }
+  }
+
+  /**
+   * Detach a GitHub PR from a worktree.
+   */
+  detachPR(worktreeId: string): { success: boolean; error?: string } {
+    const db = this.getDb()
+    const row = db.prepare('SELECT id FROM worktrees WHERE id = ?').get(worktreeId)
+    if (!row) return { success: false, error: 'Worktree not found' }
+    db.prepare(
+      'UPDATE worktrees SET github_pr_number = NULL, github_pr_url = NULL WHERE id = ?'
+    ).run(worktreeId)
     return { success: true }
   }
 

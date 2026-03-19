@@ -201,6 +201,31 @@ export function registerDatabaseHandlers(): void {
   )
 
   ipcMain.handle(
+    'db:worktree:attachPR',
+    (
+      _event,
+      { worktreeId, prNumber, prUrl }: { worktreeId: string; prNumber: number; prUrl: string }
+    ) => {
+      try {
+        return getDatabase().attachPR(worktreeId, prNumber, prUrl)
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'db:worktree:detachPR',
+    (_event, { worktreeId }: { worktreeId: string }) => {
+      try {
+        return getDatabase().detachPR(worktreeId)
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    }
+  )
+
+  ipcMain.handle(
     'db:worktree:setPinned',
     (_event, { worktreeId, pinned }: { worktreeId: string; pinned: boolean }) => {
       try {

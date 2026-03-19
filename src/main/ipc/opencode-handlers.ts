@@ -306,7 +306,10 @@ export function registerOpenCodeHandlers(
         agentSdk?: 'opencode' | 'claude-code' | 'codex'
       } | null
     ) => {
-      log.info('IPC: opencode:setModel', { model: model ? model.modelID : null, agentSdk: model?.agentSdk })
+      log.info('IPC: opencode:setModel', {
+        model: model ? model.modelID : null,
+        agentSdk: model?.agentSdk
+      })
       try {
         // Handle null (clear global model only — per-SDK models are independent)
         if (model === null) {

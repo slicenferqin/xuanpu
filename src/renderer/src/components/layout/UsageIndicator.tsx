@@ -72,7 +72,11 @@ function UsageRow({ label, percent, resetTime }: UsageRowProps): React.JSX.Eleme
 
 function findSessionById(
   sessionId: string
-): { agent_sdk?: string | null; model_provider_id?: string | null; model_id?: string | null } | null {
+): {
+  agent_sdk?: string | null
+  model_provider_id?: string | null
+  model_id?: string | null
+} | null {
   const state = useSessionStore.getState()
   for (const sessions of state.sessionsByWorktree.values()) {
     const session = sessions.find((s) => s.id === sessionId)
@@ -121,8 +125,7 @@ export function UsageIndicator(): React.JSX.Element | null {
 
   const providerIcon = activeProvider === 'anthropic' ? claudeIcon : openaiIcon
   const providerLabel = activeProvider === 'anthropic' ? 'Claude' : 'OpenAI'
-  const tooltipTitle =
-    activeProvider === 'anthropic' ? 'Claude API Usage' : 'OpenAI API Usage'
+  const tooltipTitle = activeProvider === 'anthropic' ? 'Claude API Usage' : 'OpenAI API Usage'
 
   return (
     <TooltipProvider>
@@ -133,11 +136,7 @@ export function UsageIndicator(): React.JSX.Element | null {
             data-testid="usage-indicator"
           >
             <div className="flex items-center gap-1.5">
-              <img
-                src={providerIcon}
-                alt={providerLabel}
-                className="h-3 w-3 shrink-0 opacity-50"
-              />
+              <img src={providerIcon} alt={providerLabel} className="h-3 w-3 shrink-0 opacity-50" />
               <div className="flex-1 space-y-0.5">
                 <UsageRow label="5h" percent={fiveHourPercent} resetTime={fiveHourReset} />
                 <UsageRow label="7d" percent={sevenDayPercent} resetTime={sevenDayReset} />

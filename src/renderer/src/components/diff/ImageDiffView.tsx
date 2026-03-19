@@ -82,14 +82,10 @@ export function ImageDiffView({
             window.gitOps.getFileContent(worktreePath, filePath)
           ])
           setOriginalUri(
-            origResult.success && origResult.content
-              ? buildSvgDataUri(origResult.content)
-              : null
+            origResult.success && origResult.content ? buildSvgDataUri(origResult.content) : null
           )
           setModifiedUri(
-            modResult.success && modResult.content
-              ? buildSvgDataUri(modResult.content)
-              : null
+            modResult.success && modResult.content ? buildSvgDataUri(modResult.content) : null
           )
         } else {
           const [origResult, modResult] = await Promise.all([
@@ -115,14 +111,10 @@ export function ImageDiffView({
             window.gitOps.getRefContent(worktreePath, '', filePath)
           ])
           setOriginalUri(
-            origResult.success && origResult.content
-              ? buildSvgDataUri(origResult.content)
-              : null
+            origResult.success && origResult.content ? buildSvgDataUri(origResult.content) : null
           )
           setModifiedUri(
-            modResult.success && modResult.content
-              ? buildSvgDataUri(modResult.content)
-              : null
+            modResult.success && modResult.content ? buildSvgDataUri(modResult.content) : null
           )
         } else {
           const [origResult, modResult] = await Promise.all([
@@ -148,14 +140,10 @@ export function ImageDiffView({
             window.gitOps.getFileContent(worktreePath, filePath)
           ])
           setOriginalUri(
-            origResult.success && origResult.content
-              ? buildSvgDataUri(origResult.content)
-              : null
+            origResult.success && origResult.content ? buildSvgDataUri(origResult.content) : null
           )
           setModifiedUri(
-            modResult.success && modResult.content
-              ? buildSvgDataUri(modResult.content)
-              : null
+            modResult.success && modResult.content ? buildSvgDataUri(modResult.content) : null
           )
         } else {
           const [origResult, modResult] = await Promise.all([
@@ -241,9 +229,7 @@ export function ImageDiffView({
     return (
       <div className="flex-1 flex flex-col min-h-0">
         {toolbar}
-        <div className="flex-1 flex items-center justify-center text-destructive">
-          {error}
-        </div>
+        <div className="flex-1 flex items-center justify-center text-destructive">{error}</div>
       </div>
     )
   }

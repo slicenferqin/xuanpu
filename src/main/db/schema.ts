@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 9
+export const CURRENT_SCHEMA_VERSION = 10
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS worktrees (
   attachments TEXT DEFAULT '[]',
   pinned INTEGER NOT NULL DEFAULT 0,
   context TEXT DEFAULT NULL,
+  github_pr_number INTEGER DEFAULT NULL,
+  github_pr_url TEXT DEFAULT NULL,
   created_at TEXT NOT NULL,
   last_accessed_at TEXT NOT NULL
 );
@@ -280,5 +282,12 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_session_activities_session_created;
       DROP TABLE IF EXISTS session_activities;
     `
+  },
+  {
+    version: 10,
+    name: 'add_worktree_github_pr',
+    up: `ALTER TABLE worktrees ADD COLUMN github_pr_number INTEGER DEFAULT NULL;
+         ALTER TABLE worktrees ADD COLUMN github_pr_url TEXT DEFAULT NULL`,
+    down: `-- SQLite cannot drop columns; this is a no-op for safety`
   }
 ]

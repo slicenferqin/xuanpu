@@ -215,7 +215,12 @@ function SessionTab({
             <span className="truncate flex-1">{name || 'Untitled'}</span>
           )}
           {hintCode && vimModeEnabled && vimMode === 'normal' && (
-            <HintBadge code={hintCode} mode={hintMode} pendingChar={hintPendingChar} actionMode={hintActionMode} />
+            <HintBadge
+              code={hintCode}
+              mode={hintMode}
+              pendingChar={hintPendingChar}
+              actionMode={hintActionMode}
+            />
           )}
           <button
             onClick={onClose}
@@ -719,7 +724,9 @@ export function SessionTabs(): React.JSX.Element | null {
   }
 
   // Handle creating a new session with a specific agent SDK (from context menu)
-  const handleCreateSessionWithSdk = async (sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal') => {
+  const handleCreateSessionWithSdk = async (
+    sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+  ) => {
     if (isConnectionMode && selectedConnectionId) {
       const result = await createConnectionSession(selectedConnectionId, sdk)
       if (!result.success) {
@@ -956,9 +963,9 @@ export function SessionTabs(): React.JSX.Element | null {
               New Codex Session
             </ContextMenuItem>
           )}
-          {(availableAgentSdks?.opencode
-            || availableAgentSdks?.claude
-            || availableAgentSdks?.codex) && <ContextMenuSeparator />}
+          {(availableAgentSdks?.opencode ||
+            availableAgentSdks?.claude ||
+            availableAgentSdks?.codex) && <ContextMenuSeparator />}
           <ContextMenuItem onSelect={() => handleCreateSessionWithSdk('terminal')}>
             <TerminalSquare className="h-4 w-4 mr-2 text-emerald-500" />
             New Terminal

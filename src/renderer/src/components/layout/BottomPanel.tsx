@@ -91,7 +91,14 @@ export function BottomPanel({
             data-testid={`bottom-panel-tab-${tab.id}`}
             data-active={effectiveTab === tab.id}
           >
-            {vimModeEnabled ? <><span className="text-primary">{tab.keybind}</span>{tab.label.slice(1)}</> : tab.label}
+            {vimModeEnabled ? (
+              <>
+                <span className="text-primary">{tab.keybind}</span>
+                {tab.label.slice(1)}
+              </>
+            ) : (
+              tab.label
+            )}
             {effectiveTab === tab.id && (
               <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
             )}

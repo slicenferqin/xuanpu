@@ -37,10 +37,8 @@ export const useUsageStore = create<UsageState>()((set, get) => ({
 
     if (provider === 'anthropic') {
       if (state.anthropicIsLoading) return
-      if (
-        state.anthropicLastFetchedAt &&
-        Date.now() - state.anthropicLastFetchedAt < DEBOUNCE_MS
-      ) return
+      if (state.anthropicLastFetchedAt && Date.now() - state.anthropicLastFetchedAt < DEBOUNCE_MS)
+        return
 
       set({ anthropicIsLoading: true })
       try {
@@ -53,10 +51,7 @@ export const useUsageStore = create<UsageState>()((set, get) => ({
       }
     } else {
       if (state.openaiIsLoading) return
-      if (
-        state.openaiLastFetchedAt &&
-        Date.now() - state.openaiLastFetchedAt < DEBOUNCE_MS
-      ) return
+      if (state.openaiLastFetchedAt && Date.now() - state.openaiLastFetchedAt < DEBOUNCE_MS) return
 
       set({ openaiIsLoading: true })
       try {
@@ -75,9 +70,7 @@ export const useUsageStore = create<UsageState>()((set, get) => ({
 
     const state = get()
     const lastFetched =
-      provider === 'anthropic'
-        ? state.anthropicLastFetchedAt
-        : state.openaiLastFetchedAt
+      provider === 'anthropic' ? state.anthropicLastFetchedAt : state.openaiLastFetchedAt
     const isStale = !lastFetched || Date.now() - lastFetched >= DEBOUNCE_MS
 
     if (isStale) {
@@ -123,15 +116,11 @@ export function normalizeUsage(
   return {
     five_hour: {
       utilization: primary ? primary.used_percent : 0,
-      resets_at: primary
-        ? new Date(primary.reset_at * 1000).toISOString()
-        : ''
+      resets_at: primary ? new Date(primary.reset_at * 1000).toISOString() : ''
     },
     seven_day: {
       utilization: secondary ? secondary.used_percent : 0,
-      resets_at: secondary
-        ? new Date(secondary.reset_at * 1000).toISOString()
-        : ''
+      resets_at: secondary ? new Date(secondary.reset_at * 1000).toISOString() : ''
     }
   }
 }

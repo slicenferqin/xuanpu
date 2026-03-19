@@ -117,8 +117,12 @@ export function useVimNavigation(): void {
       if (hint.mode === 'pending' && hint.pendingChar) {
         // Ignore bare modifier keys (Shift, Control, etc.) so the user can
         // release the first-char key and then press Shift+P / Shift+D.
-        if (event.key === 'Shift' || event.key === 'Control' || event.key === 'Alt'
-          || event.key === 'Meta') {
+        if (
+          event.key === 'Shift' ||
+          event.key === 'Control' ||
+          event.key === 'Alt' ||
+          event.key === 'Meta'
+        ) {
           return
         }
 
@@ -189,9 +193,7 @@ export function useVimNavigation(): void {
 
       if (event.key === 'i' || event.key === 'I') {
         vim.enterInsertMode()
-        const messageInput = document.querySelector<HTMLElement>(
-          '[data-testid="message-input"]'
-        )
+        const messageInput = document.querySelector<HTMLElement>('[data-testid="message-input"]')
         messageInput?.focus()
         event.preventDefault()
         return
@@ -275,19 +277,35 @@ export function useVimNavigation(): void {
       // --- Header action shortcuts ---
       if (event.key === 'r') {
         const btn = document.querySelector<HTMLElement>('[data-testid="review-button"]')
-        if (btn) { btn.click(); event.preventDefault(); return }
+        if (btn) {
+          btn.click()
+          event.preventDefault()
+          return
+        }
       }
       if (event.key === 'p') {
         const btn = document.querySelector<HTMLElement>('[data-testid="pr-button"]')
-        if (btn) { btn.click(); event.preventDefault(); return }
+        if (btn) {
+          btn.click()
+          event.preventDefault()
+          return
+        }
       }
       if (event.key === 'm') {
         const btn = document.querySelector<HTMLElement>('[data-testid="pr-merge-button"]')
-        if (btn) { btn.click(); event.preventDefault(); return }
+        if (btn) {
+          btn.click()
+          event.preventDefault()
+          return
+        }
       }
       if (event.key === 'a') {
         const btn = document.querySelector<HTMLElement>('[data-testid="pr-archive-button"]')
-        if (btn) { btn.click(); event.preventDefault(); return }
+        if (btn) {
+          btn.click()
+          event.preventDefault()
+          return
+        }
       }
 
       // --- Hint dispatch: idle mode → uppercase starts pending ---

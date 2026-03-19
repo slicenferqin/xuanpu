@@ -46,7 +46,15 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuSubContent
 } from '@/components/ui/dropdown-menu'
-import { useWorktreeStore, useProjectStore, useConnectionStore, usePinnedStore, useHintStore, useVimModeStore, useSettingsStore } from '@/stores'
+import {
+  useWorktreeStore,
+  useProjectStore,
+  useConnectionStore,
+  usePinnedStore,
+  useHintStore,
+  useVimModeStore,
+  useSettingsStore
+} from '@/stores'
 import { HintBadge } from '@/components/ui/HintBadge'
 import { useGitStore } from '@/stores/useGitStore'
 import { useScriptStore } from '@/stores/useScriptStore'
@@ -638,7 +646,14 @@ export function WorktreeItem({
           </div>
 
           {/* Hint Badge (visible when filter is active and search field is focused) */}
-          {hint && (inputFocused || (vimModeEnabled && vimMode === 'normal')) && <HintBadge code={hint} mode={hintMode} pendingChar={hintPendingChar} actionMode={hintActionMode} />}
+          {hint && (inputFocused || (vimModeEnabled && vimMode === 'normal')) && (
+            <HintBadge
+              code={hint}
+              mode={hintMode}
+              pendingChar={hintPendingChar}
+              actionMode={hintActionMode}
+            />
+          )}
 
           {/* Unread dot badge */}
           {worktreeStatus === 'unread' && (

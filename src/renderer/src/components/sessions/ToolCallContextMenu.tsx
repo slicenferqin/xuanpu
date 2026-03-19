@@ -28,11 +28,20 @@ export function ToolCallContextMenu({ children, toolUse }: ToolCallContextMenuPr
     if (lowerName.includes('bash') || lowerName.includes('shell') || lowerName.includes('exec')) {
       textToCopy = (toolUse.input.command || toolUse.input.cmd || '') as string
     } else if (lowerName.includes('grep') || lowerName.includes('search')) {
-      textToCopy = (toolUse.input.pattern || toolUse.input.query || toolUse.input.regex || '') as string
+      textToCopy = (toolUse.input.pattern ||
+        toolUse.input.query ||
+        toolUse.input.regex ||
+        '') as string
     } else if (lowerName.includes('glob') || lowerName.includes('find')) {
       textToCopy = (toolUse.input.pattern || toolUse.input.glob || '') as string
-    } else if (!isTodoWrite && (lowerName.includes('read') || lowerName.includes('write') || lowerName.includes('edit'))) {
-      textToCopy = (toolUse.input.filePath || toolUse.input.file_path || toolUse.input.path || '') as string
+    } else if (
+      !isTodoWrite &&
+      (lowerName.includes('read') || lowerName.includes('write') || lowerName.includes('edit'))
+    ) {
+      textToCopy = (toolUse.input.filePath ||
+        toolUse.input.file_path ||
+        toolUse.input.path ||
+        '') as string
     } else if (lowerName === 'webfetch' || lowerName === 'web_fetch') {
       textToCopy = (toolUse.input.url || '') as string
     } else {

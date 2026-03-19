@@ -2,7 +2,10 @@ export function looksLikeCodexProposedPlan(text: string): boolean {
   const trimmed = text.trim()
   if (!trimmed) return false
 
-  const nonEmptyLines = trimmed.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  const nonEmptyLines = trimmed
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
   const hasSteps = /(^|\n)\s*(?:[-*]|\d+\.)\s+\S/m.test(trimmed)
   const startsWithQuestion = /^[^\n]*\?\s*(?:\n|$)/.test(trimmed)
   const hasStructuredPlanBody =

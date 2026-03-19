@@ -353,9 +353,12 @@ function getShortcutHandlers(
           setLeftSidebarCollapsed(false)
         }
         // Dispatch focus event (allow a tick for sidebar to render)
-        setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('hive:focus-project-filter'))
-        }, leftSidebarCollapsed ? 100 : 0)
+        setTimeout(
+          () => {
+            window.dispatchEvent(new CustomEvent('hive:focus-project-filter'))
+          },
+          leftSidebarCollapsed ? 100 : 0
+        )
       }
     },
 
