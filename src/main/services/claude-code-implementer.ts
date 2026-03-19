@@ -1,5 +1,7 @@
 import type { BrowserWindow } from 'electron'
+import { app } from 'electron'
 import { randomUUID } from 'node:crypto'
+import { join } from 'node:path'
 
 import { createLogger } from './logger'
 import { notificationService } from './notification-service'
@@ -520,13 +522,14 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
         extraArgs: { 'replay-user-messages': null },
         thinking: { type: 'adaptive' },
         effort: effortLevel,
+        debugFile: join(app.getPath('home'), '.hive', 'logs', 'claude-debug.log'),
         env: {
           ...process.env,
           CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING: '1'
         },
         stderr: (data: string) => {
           session.stderrBuffer.push(data)
-          log.debug('Claude Code stderr', {
+          log.warn('Claude Code stderr', {
             worktreePath,
             agentSessionId,
             stderr: data.trim()
@@ -940,6 +943,17 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
       const stderrOutput = session.stderrBuffer.join('').trim() || undefined
+
+      // Capture any extra properties the SDK may attach to the error
+      const errorExtras: Record<string, unknown> = {}
+      if (error && typeof error === 'object') {
+        for (const key of Object.getOwnPropertyNames(error)) {
+          if (!['name', 'message', 'stack'].includes(key)) {
+            errorExtras[key] = (error as Record<string, unknown>)[key]
+          }
+        }
+      }
+
       log.error(
         'Prompt streaming error',
         error instanceof Error ? error : new Error(errorMessage),
@@ -947,7 +961,8 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
           worktreePath,
           agentSessionId,
           error: errorMessage,
-          stderr: stderrOutput
+          stderr: stderrOutput,
+          ...(Object.keys(errorExtras).length > 0 ? { errorExtras } : {})
         }
       )
 
