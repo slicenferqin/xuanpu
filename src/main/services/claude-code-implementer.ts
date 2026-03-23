@@ -165,6 +165,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
       toolName: string
       input: Record<string, unknown>
       commandStr: string
+      hiveSessionId: string
     }
   >()
 
@@ -2169,63 +2170,42 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
     log.info('APPROVAL FLOW: Waiting for user response', {
       requestId,
       commandStr,
-      waitStartTime: new Date().toISOString(),
-      maxWaitTime: '60 seconds'
+      waitStartTime: new Date().toISOString()
     })
 
-    // Block execution with a Promise that waits for user response OR timeout
+    // Block execution with a Promise that waits for user response (no timeout, like questions)
     const userResponse = await new Promise<{
       approved: boolean
       remember?: 'allow' | 'block'
       pattern?: string
       patterns?: string[]
-      timeout?: boolean
     }>((resolve) => {
-      // Set up timeout (60 seconds) - likely means approval dialog didn't appear
-      const timeoutId = setTimeout(() => {
-        if (this.pendingApprovals.has(requestId)) {
-          log.error('APPROVAL FLOW: Timeout - approval dialog likely did not appear', {
-            requestId,
-            commandStr,
-            elapsed: '60 seconds'
-          })
-          this.pendingApprovals.delete(requestId)
-
-          // Send notification about security system issue with helpful suggestion
-          const suggestedPattern = this.generateSaferPatternSuggestion(commandStr)
-          this.sendToRenderer('opencode:stream', {
-            type: 'command.approval_problem',
-            sessionId: session.hiveSessionId,
-            data: {
-              requestId,
-              commandStr,
-              message: `Security approval did not complete after 60 seconds. The approval dialog may not have appeared. Try temporarily disabling security in Settings > Security, or add "${suggestedPattern}" to your allowlist.`,
-              suggestion: 'disable_security_temporarily'
-            }
-          })
-
-          resolve({ approved: false, timeout: true })
-        }
-      }, 60000)  // 60 second timeout
-
       this.pendingApprovals.set(requestId, {
         resolve: (response) => {
-          clearTimeout(timeoutId)  // Clear timeout if user responds
           log.info('APPROVAL FLOW: User response received', { requestId, approved: response.approved })
           resolve(response)
         },
         toolName,
         input,
-        commandStr
+        commandStr,
+        hiveSessionId: session.hiveSessionId
       })
 
       // If the session is aborted while waiting, auto-deny
       const onAbort = (): void => {
-        if (this.pendingApprovals.has(requestId)) {
+        const pending = this.pendingApprovals.get(requestId)
+        if (pending) {
           log.info('APPROVAL FLOW: Session aborted while approval pending, auto-denying', {
             requestId
           })
-          clearTimeout(timeoutId)
+
+          // Send command.approval_replied event to clear the UI state
+          this.sendToRenderer('opencode:stream', {
+            type: 'command.approval_replied',
+            sessionId: pending.hiveSessionId,
+            data: { requestId, id: requestId, approved: false }
+          })
+
           this.pendingApprovals.delete(requestId)
           resolve({ approved: false })
         }
@@ -2235,16 +2215,6 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
 
     // Clean up tracking state
     this.pendingApprovals.delete(requestId)
-
-    // Check if request timed out
-    if (userResponse.timeout) {
-      log.warn('APPROVAL FLOW: Command denied - approval dialog likely did not appear', { requestId, commandStr })
-      const suggestedPattern = this.generateSaferPatternSuggestion(commandStr)
-      return {
-        behavior: 'deny' as const,
-        message: `Security approval failed after 60 seconds - the approval dialog may not have appeared. To fix this: (1) Try disabling security temporarily in Settings > Security, or (2) Add "${suggestedPattern}" to your allowlist. Command not executed: ${commandStr}`
-      }
-    }
 
     // Handle "remember" choice - update settings with user-selected pattern(s)
     if (userResponse.remember) {
@@ -2406,6 +2376,15 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
       pattern,
       patterns
     })
+
+    // Send command.approval_replied event to renderer so it can clear the pending approval
+    // We know which session this approval belongs to from the stored data
+    this.sendToRenderer('opencode:stream', {
+      type: 'command.approval_replied',
+      sessionId: pendingApproval.hiveSessionId,
+      data: { requestId, id: requestId, approved }
+    })
+
     pendingApproval.resolve({ approved, remember, pattern, patterns })
   }
 

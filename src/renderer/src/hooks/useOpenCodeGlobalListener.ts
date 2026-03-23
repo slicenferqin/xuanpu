@@ -5,6 +5,7 @@ import { useWorktreeStatusStore } from '@/stores/useWorktreeStatusStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { useQuestionStore } from '@/stores/useQuestionStore'
 import { usePermissionStore } from '@/stores/usePermissionStore'
+import { useCommandApprovalStore, type CommandApprovalRequest } from '@/stores/useCommandApprovalStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useContextStore, type TokenInfo, type SessionModelRef } from '@/stores/useContextStore'
 import { useRecentStore } from '@/stores/useRecentStore'
@@ -13,7 +14,6 @@ import { extractTokens, extractCost, extractModelRef, extractModelUsage } from '
 import { COMPLETION_WORDS } from '@/lib/format-utils'
 import { messageSendTimes } from '@/lib/message-send-times'
 import { checkAutoApprove } from '@/lib/permissionUtils'
-import { toast } from '@/lib/toast'
 
 interface PromptDispatchContext {
   worktreePath: string
@@ -344,40 +344,50 @@ export function useOpenCodeGlobalListener(): void {
             return
           }
 
-          // Handle command approval timeout/problem - when approval dialog doesn't appear
-          if (event.type === 'command.approval_problem') {
-            const data = event.data as {
-              requestId?: string
-              commandStr?: string
-              message?: string
-              suggestion?: string
-            } | undefined
+          // Handle command approval events for background sessions (command filter system)
+          if (event.type === 'command.approval_needed' && sessionId !== activeId) {
+            const request = event.data
+            if (request?.id && request?.toolName) {
+              // Check if we should auto-approve based on allowlist
+              const { commandFilter } = useSettingsStore.getState()
 
-            const message = data?.message ||
-              `Security approval failed after 60 seconds. The approval dialog may not have appeared. Try disabling security temporarily in Settings > Security.`
+              // For command approvals, we check if security is disabled
+              // Note: Command approvals don't have the same auto-approve pattern matching as permissions
+              if (!commandFilter.enabled) {
+                // Auto-approve if security is disabled
+                window.opencodeOps
+                  .commandApprovalReply(request.id, true)
+                  .catch((err: unknown) => {
+                    console.warn('Auto-approve commandApprovalReply (background) failed:', err)
+                  })
+                return
+              }
 
-            const commandStr = data?.commandStr
-
-            // Show warning toast with action to open security settings
-            toast.warning(message, {
-              duration: 10000,  // Show for 10 seconds since it's an important issue
-              action: {
-                label: 'Open Settings',
-                onClick: () => {
-                  // Navigate directly to security settings
-                  useSettingsStore.getState().openSettings('Security')
-                }
-              },
-              description: commandStr ? `Command: ${commandStr}` : undefined
-            })
-
-            console.warn('Command approval problem:', {
-              sessionId,
-              requestId: data?.requestId,
-              commandStr: data?.commandStr
-            })
+              // Add to approval store so dialog appears
+              useCommandApprovalStore.getState().addApproval(sessionId, request)
+              // Update status to show command approval needed
+              useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'command_approval')
+            }
             return
           }
+
+          // Handle command approval replies for background sessions
+          if (event.type === 'command.approval_replied' && sessionId !== activeId) {
+            const requestId = event.data?.requestID || event.data?.requestId || event.data?.id
+            if (requestId) {
+              useCommandApprovalStore.getState().removeApproval(sessionId, requestId)
+              // Revert to working/planning if no more pending approvals
+              const remaining = useCommandApprovalStore.getState().getApprovals(sessionId)
+              if (remaining.length === 0) {
+                const mode = useSessionStore.getState().getSessionMode(sessionId)
+                useWorktreeStatusStore
+                  .getState()
+                  .setSessionStatus(sessionId, mode === 'plan' ? 'planning' : 'working')
+              }
+            }
+            return
+          }
+
 
           // Handle plan approval events globally so pending state survives tab switches.
           if (event.type === 'plan.ready') {
@@ -415,6 +425,10 @@ export function useOpenCodeGlobalListener(): void {
           if (status?.type === 'busy') {
             // Don't overwrite plan_ready — session is blocked waiting for plan approval
             if (useSessionStore.getState().getPendingPlan(sessionId)) return
+
+            // Don't overwrite command_approval — session is blocked waiting for command approval
+            const currentStatus = useWorktreeStatusStore.getState().sessionStatuses[sessionId]
+            if (currentStatus?.status === 'command_approval') return
 
             if (sessionId !== activeId) {
               const currentMode = useSessionStore.getState().getSessionMode(sessionId)
@@ -478,6 +492,10 @@ export function useOpenCodeGlobalListener(): void {
           // Don't overwrite plan_ready — session is blocked waiting for plan approval
           if (useSessionStore.getState().getPendingPlan(sessionId)) return
 
+          // Don't overwrite command_approval — session is blocked waiting for command approval
+          const statusForIdle = useWorktreeStatusStore.getState().sessionStatuses[sessionId]
+          if (statusForIdle?.status === 'command_approval') return
+
           // Active session is handled by SessionView.
           if (sessionId === activeId) return
 
@@ -535,6 +553,10 @@ export function useOpenCodeGlobalListener(): void {
 
                 // Don't overwrite plan_ready — session is blocked waiting for plan approval
                 if (useSessionStore.getState().getPendingPlan(sessionId)) return
+
+                // Don't overwrite command_approval — session is blocked waiting for command approval
+                const followUpStatus = useWorktreeStatusStore.getState().sessionStatuses[sessionId]
+                if (followUpStatus?.status === 'command_approval') return
 
                 const nextFollowUp = useSessionStore.getState().dequeueFollowUpMessage(sessionId)
                 if (nextFollowUp) {
