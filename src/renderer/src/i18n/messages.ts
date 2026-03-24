@@ -361,6 +361,20 @@ export const messages: Record<AppLocale, MessageTree> = {
         connect: 'Connect',
         connecting: 'Connecting...'
       },
+      addAttachment: {
+        title: 'Add Attachment',
+        placeholder: 'Paste a Jira or Figma URL',
+        detected: {
+          jira: 'Jira ticket',
+          figma: 'Figma file'
+        },
+        unsupportedUrl: 'Unsupported URL',
+        confirm: 'Add',
+        toasts: {
+          added: 'Attached {type}: {label}',
+          addError: 'Failed to add attachment'
+        }
+      },
       projectSettings: {
         title: 'Project Settings',
         icon: {
@@ -457,9 +471,12 @@ export const messages: Record<AppLocale, MessageTree> = {
         open: 'Open',
         detach: 'Detach',
         addAttachment: 'Add Attachment',
+        editContext: 'Edit Context',
         openInTerminal: 'Open in Terminal',
         openInEditor: 'Open in Editor',
+        openInFileManager: 'Open in {manager}',
         copyPath: 'Copy Path',
+        pin: 'Pin',
         unpin: 'Unpin',
         connectTo: 'Connect to...',
         renameBranch: 'Rename Branch',
@@ -475,6 +492,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         delete: 'Delete'
       },
       status: {
+        archiving: 'Archiving',
         answering: 'Answer questions',
         permission: 'Permission',
         planning: 'Planning',
@@ -490,12 +508,14 @@ export const messages: Record<AppLocale, MessageTree> = {
         branchRenameError: 'Failed to rename branch',
         detachedCannotDuplicate: 'Detached HEAD worktrees cannot be duplicated',
         duplicatedTo: 'Duplicated to {name}',
+        newBranch: 'new branch',
         duplicateError: 'Failed to duplicate worktree',
         archiveSuccess: 'Worktree "{name}" archived and branch deleted',
         archiveError: 'Failed to archive worktree: {error}',
         unbranchSuccess: 'Worktree "{name}" removed (branch preserved)',
         removeWorktreeSuccess: 'Worktree "{name}" removed',
         unbranchError: 'Failed to unbranch worktree: {error}',
+        unknownError: 'Unknown error',
         openedInTerminal: 'Opened in Terminal',
         openInTerminalError: 'Failed to open in terminal',
         openInTerminalDescription: 'Make sure the worktree directory exists',
@@ -885,6 +905,20 @@ export const messages: Record<AppLocale, MessageTree> = {
         connect: '连接',
         connecting: '连接中...'
       },
+      addAttachment: {
+        title: '添加附件',
+        placeholder: '粘贴 Jira 或 Figma 链接',
+        detected: {
+          jira: 'Jira 工单',
+          figma: 'Figma 文件'
+        },
+        unsupportedUrl: '不支持的链接',
+        confirm: '添加',
+        toasts: {
+          added: '已附加{type}：{label}',
+          addError: '添加附件失败'
+        }
+      },
       projectSettings: {
         title: '项目设置',
         icon: {
@@ -980,9 +1014,12 @@ export const messages: Record<AppLocale, MessageTree> = {
         open: '打开',
         detach: '解除关联',
         addAttachment: '添加附件',
+        editContext: '编辑上下文',
         openInTerminal: '在终端中打开',
         openInEditor: '在编辑器中打开',
+        openInFileManager: '在 {manager} 中打开',
         copyPath: '复制路径',
+        pin: '固定',
         unpin: '取消固定',
         connectTo: '连接到...',
         renameBranch: '重命名分支',
@@ -998,6 +1035,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         delete: '删除'
       },
       status: {
+        archiving: '归档中',
         answering: '等待回答',
         permission: '等待授权',
         planning: '规划中',
@@ -1013,12 +1051,14 @@ export const messages: Record<AppLocale, MessageTree> = {
         branchRenameError: '分支重命名失败',
         detachedCannotDuplicate: 'Detached HEAD 状态下的 worktree 不能复制',
         duplicatedTo: '已复制到 {name}',
+        newBranch: '新分支',
         duplicateError: '复制 worktree 失败',
         archiveSuccess: 'Worktree “{name}” 已归档并删除分支',
         archiveError: '归档 worktree 失败：{error}',
         unbranchSuccess: 'Worktree “{name}” 已移除（保留分支）',
         removeWorktreeSuccess: 'Worktree “{name}” 已移除',
         unbranchError: '移除 worktree 失败：{error}',
+        unknownError: '未知错误',
         openedInTerminal: '已在终端中打开',
         openInTerminalError: '在终端中打开失败',
         openInTerminalDescription: '请确认 worktree 目录存在',

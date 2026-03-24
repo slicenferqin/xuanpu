@@ -169,9 +169,15 @@ describe('Settings i18n', () => {
     expect(translate('zh-CN', 'recent.status.planReady')).toBe('计划已就绪')
     expect(translate('zh-CN', 'dialogs.gitInit.title')).toBe('不是 Git 仓库')
     expect(translate('zh-CN', 'dialogs.connect.connect')).toBe('连接')
+    expect(translate('zh-CN', 'dialogs.addAttachment.placeholder')).toBe('粘贴 Jira 或 Figma 链接')
     expect(translate('zh-CN', 'header.controls.mergePR')).toBe('合并 PR')
     expect(translate('zh-CN', 'pinned.title')).toBe('已固定')
     expect(translate('zh-CN', 'pinned.menu.renameBranch')).toBe('重命名分支')
+    expect(translate('zh-CN', 'pinned.menu.openInFileManager', { manager: 'Finder' })).toBe(
+      '在 Finder 中打开'
+    )
+    expect(translate('zh-CN', 'pinned.menu.pin')).toBe('固定')
+    expect(translate('zh-CN', 'pinned.status.archiving')).toBe('归档中')
     expect(translate('zh-CN', 'pinned.toasts.pathCopied')).toBe('路径已复制到剪贴板')
     expect(translate('zh-CN', 'projectItem.menu.openInFileManager', { manager: 'Finder' })).toBe(
       '在 Finder 中打开'

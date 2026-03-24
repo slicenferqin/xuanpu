@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { parseAttachmentUrl } from '@/lib/attachment-utils'
 import type { AttachmentInfo } from '@/lib/attachment-utils'
 import { toast } from '@/lib/toast'
+import { useI18n } from '@/i18n/useI18n'
 
 interface AddAttachmentDialogProps {
   open: boolean
@@ -20,6 +21,7 @@ export function AddAttachmentDialog({
   worktreeId,
   onAttachmentAdded
 }: AddAttachmentDialogProps): React.JSX.Element {
+  const { t } = useI18n()
   const [url, setUrl] = useState('')
   const [detected, setDetected] = useState<AttachmentInfo | null>(null)
   const [isAdding, setIsAdding] = useState(false)
@@ -44,19 +46,26 @@ export function AddAttachmentDialog({
       })
       if (result.success) {
         toast.success(
-          `Attached ${detected.type === 'jira' ? 'Jira ticket' : 'Figma file'}: ${detected.label}`
+          t('dialogs.addAttachment.toasts.added', {
+            type: t(
+              detected.type === 'jira'
+                ? 'dialogs.addAttachment.detected.jira'
+                : 'dialogs.addAttachment.detected.figma'
+            ),
+            label: detected.label
+          })
         )
         onAttachmentAdded()
         onOpenChange(false)
         setUrl('')
         setDetected(null)
       } else {
-        toast.error(result.error || 'Failed to add attachment')
+        toast.error(result.error || t('dialogs.addAttachment.toasts.addError'))
       }
     } finally {
       setIsAdding(false)
     }
-  }, [detected, url, worktreeId, onAttachmentAdded, onOpenChange])
+  }, [detected, url, worktreeId, onAttachmentAdded, onOpenChange, t])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent): void => {
@@ -71,11 +80,11 @@ export function AddAttachmentDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Add Attachment</DialogTitle>
+          <DialogTitle>{t('dialogs.addAttachment.title')}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           <Input
-            placeholder="Paste a Jira or Figma URL"
+            placeholder={t('dialogs.addAttachment.placeholder')}
             value={url}
             onChange={(e) => handleUrlChange(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -92,14 +101,20 @@ export function AddAttachmentDialog({
                     <Figma className="h-4 w-4 text-purple-500" />
                   )}
                   <span className="text-muted-foreground">
-                    {detected.type === 'jira' ? 'Jira ticket' : 'Figma file'}:{' '}
-                    <span className="text-foreground font-medium">{detected.label}</span>
+                    {t(
+                      detected.type === 'jira'
+                        ? 'dialogs.addAttachment.detected.jira'
+                        : 'dialogs.addAttachment.detected.figma'
+                    )}
+                    : <span className="text-foreground font-medium">{detected.label}</span>
                   </span>
                 </>
               ) : (
                 <>
                   <AlertCircle className="h-4 w-4 text-destructive" />
-                  <span className="text-destructive">Unsupported URL</span>
+                  <span className="text-destructive">
+                    {t('dialogs.addAttachment.unsupportedUrl')}
+                  </span>
                 </>
               )}
             </div>
@@ -107,7 +122,7 @@ export function AddAttachmentDialog({
           <div className="flex justify-end">
             <Button size="sm" disabled={!detected || isAdding} onClick={handleAdd}>
               <Plus className="h-4 w-4 mr-1" />
-              Add
+              {t('dialogs.addAttachment.confirm')}
             </Button>
           </div>
         </div>

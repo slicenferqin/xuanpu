@@ -1,5 +1,5 @@
 import { useCallback, useState, useRef, useEffect } from 'react'
-import { revealLabel } from '@/lib/platform'
+import { fileManagerName } from '@/lib/platform'
 import {
   AlertCircle,
   GitBranch,
@@ -60,13 +60,14 @@ import { HintBadge } from '@/components/ui/HintBadge'
 import { useGitStore } from '@/stores/useGitStore'
 import { useScriptStore } from '@/stores/useScriptStore'
 import { useWorktreeStatusStore } from '@/stores/useWorktreeStatusStore'
-import { toast, gitToast, clipboardToast } from '@/lib/toast'
+import { toast } from '@/lib/toast'
 import { formatRelativeTime } from '@/lib/format-utils'
 import { PulseAnimation } from './PulseAnimation'
 import { ModelIcon } from './ModelIcon'
 import { ArchiveConfirmDialog } from './ArchiveConfirmDialog'
 import { AddAttachmentDialog } from './AddAttachmentDialog'
 import { useFileViewerStore } from '@/stores/useFileViewerStore'
+import { useI18n } from '@/i18n/useI18n'
 
 interface Worktree {
   id: string
@@ -138,6 +139,7 @@ export function WorktreeItem({
   const inputFocused = useHintStore((s) => s.inputFocused)
   const vimMode = useVimModeStore((s) => s.mode)
   const vimModeEnabled = useSettingsStore((s) => s.vimModeEnabled)
+  const { t } = useI18n()
 
   const handleTogglePin = useCallback(async (): Promise<void> => {
     if (isPinned) {
@@ -187,20 +189,41 @@ export function WorktreeItem({
 
   // Derive display status text + color for second-line row (always shown)
   const { displayStatus, statusClass } = isArchiving
-    ? { displayStatus: 'Archiving', statusClass: 'font-semibold text-muted-foreground' }
+    ? {
+        displayStatus: t('pinned.status.archiving'),
+        statusClass: 'font-semibold text-muted-foreground'
+      }
     : worktreeStatus === 'answering'
-      ? { displayStatus: 'Answer questions', statusClass: 'font-semibold text-amber-500' }
+      ? {
+          displayStatus: t('pinned.status.answering'),
+          statusClass: 'font-semibold text-amber-500'
+        }
       : worktreeStatus === 'permission'
-        ? { displayStatus: 'Permission', statusClass: 'font-semibold text-amber-500' }
+        ? {
+            displayStatus: t('pinned.status.permission'),
+            statusClass: 'font-semibold text-amber-500'
+          }
         : worktreeStatus === 'planning'
-          ? { displayStatus: 'Planning', statusClass: 'font-semibold text-blue-400' }
+          ? {
+              displayStatus: t('pinned.status.planning'),
+              statusClass: 'font-semibold text-blue-400'
+            }
           : worktreeStatus === 'working'
-            ? { displayStatus: 'Working', statusClass: 'font-semibold text-primary' }
+            ? {
+                displayStatus: t('pinned.status.working'),
+                statusClass: 'font-semibold text-primary'
+              }
             : worktreeStatus === 'plan_ready'
-              ? { displayStatus: 'Plan ready', statusClass: 'font-semibold text-blue-400' }
+              ? {
+                  displayStatus: t('pinned.status.planReady'),
+                  statusClass: 'font-semibold text-blue-400'
+                }
               : worktreeStatus === 'completed'
-                ? { displayStatus: 'Ready', statusClass: 'font-semibold text-green-400' }
-                : { displayStatus: 'Ready', statusClass: 'text-muted-foreground' }
+                ? {
+                    displayStatus: t('pinned.status.ready'),
+                    statusClass: 'font-semibold text-green-400'
+                  }
+                : { displayStatus: t('pinned.status.ready'), statusClass: 'text-muted-foreground' }
 
   // Archive confirmation state
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false)
@@ -232,12 +255,16 @@ export function WorktreeItem({
       const result = await window.db.worktree.removeAttachment(worktree.id, attachmentId)
       if (result.success) {
         setAttachments((prev) => prev.filter((a) => a.id !== attachmentId))
-        toast.success('Attachment removed')
+        toast.success(t('pinned.toasts.attachmentRemoved'))
       } else {
-        toast.error(result.error || 'Failed to remove attachment')
+        toast.error(
+          result.error
+            ? `${t('pinned.toasts.attachmentRemoveError')}: ${result.error}`
+            : t('pinned.toasts.attachmentRemoveError')
+        )
       }
     },
-    [worktree.id]
+    [worktree.id, t]
   )
 
   const handleAttachmentAdded = useCallback((): void => {
@@ -314,7 +341,7 @@ export function WorktreeItem({
       .replace(/-+$/, '')
 
     if (!newBranch) {
-      toast.error('Invalid branch name')
+      toast.error(t('pinned.toasts.invalidBranchName'))
       setIsRenamingBranch(false)
       return
     }
@@ -328,12 +355,12 @@ export function WorktreeItem({
 
     if (result.success) {
       useWorktreeStore.getState().updateWorktreeBranch(worktree.id, newBranch)
-      toast.success(`Branch renamed to ${newBranch}`)
+      toast.success(t('pinned.toasts.branchRenamed', { branch: newBranch }))
     } else {
-      toast.error(result.error || 'Failed to rename branch')
+      toast.error(result.error || t('pinned.toasts.branchRenameError'))
     }
     setIsRenamingBranch(false)
-  }, [branchNameInput, worktree.id, worktree.path, worktree.branch_name])
+  }, [branchNameInput, worktree.id, worktree.path, worktree.branch_name, t])
 
   const handleClick = (): void => {
     if (isInConnectionMode) {
@@ -348,26 +375,26 @@ export function WorktreeItem({
   const handleOpenInTerminal = useCallback(async (): Promise<void> => {
     const result = await window.worktreeOps.openInTerminal(worktree.path)
     if (result.success) {
-      toast.success('Opened in Terminal')
+      toast.success(t('pinned.toasts.openedInTerminal'))
     } else {
-      toast.error(result.error || 'Failed to open in terminal', {
+      toast.error(result.error || t('pinned.toasts.openInTerminalError'), {
         retry: handleOpenInTerminal,
-        description: 'Make sure the worktree directory exists'
+        description: t('pinned.toasts.openInTerminalDescription')
       })
     }
-  }, [worktree.path])
+  }, [worktree.path, t])
 
   const handleOpenInEditor = useCallback(async (): Promise<void> => {
     const result = await window.worktreeOps.openInEditor(worktree.path)
     if (result.success) {
-      toast.success('Opened in Editor')
+      toast.success(t('pinned.toasts.openedInEditor'))
     } else {
-      toast.error(result.error || 'Failed to open in editor', {
+      toast.error(result.error || t('pinned.toasts.openInEditorError'), {
         retry: handleOpenInEditor,
-        description: 'Make sure VS Code is installed'
+        description: t('pinned.toasts.openInEditorDescription')
       })
     }
-  }, [worktree.path])
+  }, [worktree.path, t])
 
   const handleOpenInFinder = async (): Promise<void> => {
     await window.projectOps.showInFolder(worktree.path)
@@ -375,7 +402,7 @@ export function WorktreeItem({
 
   const handleCopyPath = async (): Promise<void> => {
     await window.projectOps.copyToClipboard(worktree.path)
-    clipboardToast.copied('Path')
+    toast.success(t('pinned.toasts.pathCopied'))
   }
 
   const doArchive = useCallback(async (): Promise<void> => {
@@ -386,11 +413,18 @@ export function WorktreeItem({
       projectPath
     )
     if (result.success) {
-      gitToast.worktreeArchived(worktree.name)
+      toast.success(t('pinned.toasts.archiveSuccess', { name: worktree.name }))
     } else {
-      gitToast.operationFailed('archive worktree', result.error, doArchive)
+      toast.error(
+        t('pinned.toasts.archiveError', {
+          error: result.error || t('pinned.toasts.unknownError')
+        }),
+        {
+          retry: doArchive
+        }
+      )
     }
-  }, [archiveWorktree, worktree, projectPath])
+  }, [archiveWorktree, worktree, projectPath, t])
 
   const handleArchive = useCallback(async (): Promise<void> => {
     try {
@@ -426,18 +460,25 @@ export function WorktreeItem({
     )
     if (result.success) {
       if (hasNamedBranch) {
-        gitToast.worktreeUnbranched(worktree.name)
+        toast.success(t('pinned.toasts.unbranchSuccess', { name: worktree.name }))
       } else {
-        toast.success(`Worktree "${worktree.name}" removed`)
+        toast.success(t('pinned.toasts.removeWorktreeSuccess', { name: worktree.name }))
       }
     } else {
-      gitToast.operationFailed('unbranch worktree', result.error, handleUnbranch)
+      toast.error(
+        t('pinned.toasts.unbranchError', {
+          error: result.error || t('pinned.toasts.unknownError')
+        }),
+        {
+          retry: handleUnbranch
+        }
+      )
     }
-  }, [hasNamedBranch, unbranchWorktree, worktree, projectPath])
+  }, [hasNamedBranch, unbranchWorktree, worktree, projectPath, t])
 
   const handleDuplicate = useCallback(async (): Promise<void> => {
     if (!hasNamedBranch) {
-      toast.error('Detached HEAD worktrees cannot be duplicated')
+      toast.error(t('pinned.toasts.detachedCannotDuplicate'))
       return
     }
 
@@ -453,11 +494,15 @@ export function WorktreeItem({
         worktree.path
       )
     if (result.success) {
-      toast.success(`Duplicated to ${result.worktree?.name || 'new branch'}`)
+      toast.success(
+        t('pinned.toasts.duplicatedTo', {
+          name: result.worktree?.name || t('pinned.toasts.newBranch')
+        })
+      )
     } else {
-      toast.error(result.error || 'Failed to duplicate worktree')
+      toast.error(result.error || t('pinned.toasts.duplicateError'))
     }
-  }, [hasNamedBranch, worktree])
+  }, [hasNamedBranch, worktree, t])
 
   // --- Connection mode rendering (simplified, no menus) ---
   if (isInConnectionMode) {
@@ -690,14 +735,14 @@ export function WorktreeItem({
                       <DropdownMenuSubContent className="w-40">
                         <DropdownMenuItem onClick={() => handleOpenAttachment(attachment.url)}>
                           <ExternalLink className="h-4 w-4 mr-2" />
-                          Open
+                          {t('pinned.menu.open')}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => handleDetachAttachment(attachment.id)}
                           className="text-destructive focus:text-destructive focus:bg-destructive/10"
                         >
                           <Unlink className="h-4 w-4 mr-2" />
-                          Detach
+                          {t('pinned.menu.detach')}
                         </DropdownMenuItem>
                       </DropdownMenuSubContent>
                     </DropdownMenuSub>
@@ -707,37 +752,37 @@ export function WorktreeItem({
               )}
               <DropdownMenuItem onClick={() => setAddAttachmentOpen(true)}>
                 <Plus className="h-4 w-4 mr-2" />
-                Add Attachment
+                {t('pinned.menu.addAttachment')}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleEditContext}>
                 <FileText className="h-4 w-4 mr-2" />
-                Edit Context
+                {t('pinned.menu.editContext')}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleOpenInTerminal}>
                 <Terminal className="h-4 w-4 mr-2" />
-                Open in Terminal
+                {t('pinned.menu.openInTerminal')}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleOpenInEditor}>
                 <Code className="h-4 w-4 mr-2" />
-                Open in Editor
+                {t('pinned.menu.openInEditor')}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleOpenInFinder}>
                 <ExternalLink className="h-4 w-4 mr-2" />
-                {revealLabel(true)}
+                {t('pinned.menu.openInFileManager', { manager: fileManagerName() })}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleCopyPath}>
                 <Copy className="h-4 w-4 mr-2" />
-                Copy Path
+                {t('pinned.menu.copyPath')}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleTogglePin}>
                 {isPinned ? <PinOff className="h-4 w-4 mr-2" /> : <Pin className="h-4 w-4 mr-2" />}
-                {isPinned ? 'Unpin' : 'Pin'}
+                {isPinned ? t('pinned.menu.unpin') : t('pinned.menu.pin')}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => enterConnectionMode(worktree.id)}>
                 <Link className="h-4 w-4 mr-2" />
-                Connect to...
+                {t('pinned.menu.connectTo')}
               </DropdownMenuItem>
               {!worktree.is_default && (
                 <>
@@ -745,25 +790,29 @@ export function WorktreeItem({
                     <>
                       <DropdownMenuItem onClick={startBranchRename}>
                         <Pencil className="h-4 w-4 mr-2" />
-                        Rename Branch
+                        {t('pinned.menu.renameBranch')}
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={handleDuplicate}>
                         <GitBranchPlus className="h-4 w-4 mr-2" />
-                        Duplicate
+                        {t('pinned.menu.duplicate')}
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onClick={handleUnbranch}>
                         <GitBranchPlus className="h-4 w-4 mr-2" />
-                        Unbranch
-                        <span className="ml-auto text-xs text-muted-foreground">Keep branch</span>
+                        {t('pinned.menu.unbranch')}
+                        <span className="ml-auto text-xs text-muted-foreground">
+                          {t('pinned.menu.keepBranch')}
+                        </span>
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={handleArchive}
                         className="text-destructive focus:text-destructive focus:bg-destructive/10"
                       >
                         <Archive className="h-4 w-4 mr-2" />
-                        Archive
-                        <span className="ml-auto text-xs text-muted-foreground">Delete branch</span>
+                        {t('pinned.menu.archive')}
+                        <span className="ml-auto text-xs text-muted-foreground">
+                          {t('pinned.menu.deleteBranch')}
+                        </span>
                       </DropdownMenuItem>
                     </>
                   ) : (
@@ -774,8 +823,10 @@ export function WorktreeItem({
                         className="text-destructive focus:text-destructive focus:bg-destructive/10"
                       >
                         <Archive className="h-4 w-4 mr-2" />
-                        Remove Worktree
-                        <span className="ml-auto text-xs text-muted-foreground">Detached HEAD</span>
+                        {t('pinned.menu.removeWorktree')}
+                        <span className="ml-auto text-xs text-muted-foreground">
+                          {t('pinned.menu.detachedHead')}
+                        </span>
                       </DropdownMenuItem>
                     </>
                   )}
@@ -811,14 +862,14 @@ export function WorktreeItem({
                 <ContextMenuSubContent className="w-40">
                   <ContextMenuItem onClick={() => handleOpenAttachment(attachment.url)}>
                     <ExternalLink className="h-4 w-4 mr-2" />
-                    Open
+                    {t('pinned.menu.open')}
                   </ContextMenuItem>
                   <ContextMenuItem
                     onClick={() => handleDetachAttachment(attachment.id)}
                     className="text-destructive focus:text-destructive focus:bg-destructive/10"
                   >
                     <Unlink className="h-4 w-4 mr-2" />
-                    Detach
+                    {t('pinned.menu.detach')}
                   </ContextMenuItem>
                 </ContextMenuSubContent>
               </ContextMenuSub>
@@ -828,37 +879,37 @@ export function WorktreeItem({
         )}
         <ContextMenuItem onClick={() => setAddAttachmentOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />
-          Add Attachment
+          {t('pinned.menu.addAttachment')}
         </ContextMenuItem>
         <ContextMenuItem onClick={handleEditContext}>
           <FileText className="h-4 w-4 mr-2" />
-          Edit Context
+          {t('pinned.menu.editContext')}
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onClick={handleOpenInTerminal}>
           <Terminal className="h-4 w-4 mr-2" />
-          Open in Terminal
+          {t('pinned.menu.openInTerminal')}
         </ContextMenuItem>
         <ContextMenuItem onClick={handleOpenInEditor}>
           <Code className="h-4 w-4 mr-2" />
-          Open in Editor
+          {t('pinned.menu.openInEditor')}
         </ContextMenuItem>
         <ContextMenuItem onClick={handleOpenInFinder}>
           <ExternalLink className="h-4 w-4 mr-2" />
-          Open in Finder
+          {t('pinned.menu.openInFileManager', { manager: fileManagerName() })}
         </ContextMenuItem>
         <ContextMenuItem onClick={handleCopyPath}>
           <Copy className="h-4 w-4 mr-2" />
-          Copy Path
+          {t('pinned.menu.copyPath')}
         </ContextMenuItem>
         <ContextMenuItem onClick={handleTogglePin}>
           {isPinned ? <PinOff className="h-4 w-4 mr-2" /> : <Pin className="h-4 w-4 mr-2" />}
-          {isPinned ? 'Unpin' : 'Pin'}
+          {isPinned ? t('pinned.menu.unpin') : t('pinned.menu.pin')}
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onClick={() => enterConnectionMode(worktree.id)}>
           <Link className="h-4 w-4 mr-2" />
-          Connect to...
+          {t('pinned.menu.connectTo')}
         </ContextMenuItem>
         {!worktree.is_default && (
           <>
@@ -866,25 +917,29 @@ export function WorktreeItem({
               <>
                 <ContextMenuItem onClick={startBranchRename}>
                   <Pencil className="h-4 w-4 mr-2" />
-                  Rename Branch
+                  {t('pinned.menu.renameBranch')}
                 </ContextMenuItem>
                 <ContextMenuItem onClick={handleDuplicate}>
                   <GitBranchPlus className="h-4 w-4 mr-2" />
-                  Duplicate
+                  {t('pinned.menu.duplicate')}
                 </ContextMenuItem>
                 <ContextMenuSeparator />
                 <ContextMenuItem onClick={handleUnbranch}>
                   <GitBranchPlus className="h-4 w-4 mr-2" />
-                  Unbranch
-                  <span className="ml-auto text-xs text-muted-foreground">Keep branch</span>
+                  {t('pinned.menu.unbranch')}
+                  <span className="ml-auto text-xs text-muted-foreground">
+                    {t('pinned.menu.keepBranch')}
+                  </span>
                 </ContextMenuItem>
                 <ContextMenuItem
                   onClick={handleArchive}
                   className="text-destructive focus:text-destructive focus:bg-destructive/10"
                 >
                   <Archive className="h-4 w-4 mr-2" />
-                  Archive
-                  <span className="ml-auto text-xs text-muted-foreground">Delete branch</span>
+                  {t('pinned.menu.archive')}
+                  <span className="ml-auto text-xs text-muted-foreground">
+                    {t('pinned.menu.deleteBranch')}
+                  </span>
                 </ContextMenuItem>
               </>
             ) : (
@@ -895,8 +950,10 @@ export function WorktreeItem({
                   className="text-destructive focus:text-destructive focus:bg-destructive/10"
                 >
                   <Archive className="h-4 w-4 mr-2" />
-                  Remove Worktree
-                  <span className="ml-auto text-xs text-muted-foreground">Detached HEAD</span>
+                  {t('pinned.menu.removeWorktree')}
+                  <span className="ml-auto text-xs text-muted-foreground">
+                    {t('pinned.menu.detachedHead')}
+                  </span>
                 </ContextMenuItem>
               </>
             )}
