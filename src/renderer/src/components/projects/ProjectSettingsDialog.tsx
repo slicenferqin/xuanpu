@@ -14,6 +14,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { useProjectStore } from '@/stores'
 import { LanguageIcon } from './LanguageIcon'
+import { useI18n } from '@/i18n/useI18n'
 
 interface Project {
   id: string
@@ -39,6 +40,7 @@ export function ProjectSettingsDialog({
   onOpenChange
 }: ProjectSettingsDialogProps): React.JSX.Element {
   const { updateProject } = useProjectStore()
+  const { t } = useI18n()
 
   const [setupScript, setSetupScript] = useState('')
   const [runScript, setRunScript] = useState('')
@@ -75,7 +77,7 @@ export function ProjectSettingsDialog({
       }
       // If cancelled, do nothing
     } catch {
-      toast.error('Failed to pick icon')
+      toast.error(t('dialogs.projectSettings.icon.pickError'))
     } finally {
       setPickingIcon(false)
     }
@@ -86,7 +88,7 @@ export function ProjectSettingsDialog({
       await window.projectOps.removeProjectIcon(project.id)
       setCustomIcon(null)
     } catch {
-      toast.error('Failed to remove icon')
+      toast.error(t('dialogs.projectSettings.icon.removeError'))
     }
   }
 
@@ -101,10 +103,10 @@ export function ProjectSettingsDialog({
         auto_assign_port: autoAssignPort
       })
       if (success) {
-        toast.success('Project settings saved')
+        toast.success(t('dialogs.projectSettings.saveSuccess'))
         onOpenChange(false)
       } else {
-        toast.error('Failed to save project settings')
+        toast.error(t('dialogs.projectSettings.saveError'))
       }
     } finally {
       setSaving(false)
@@ -115,16 +117,16 @@ export function ProjectSettingsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Project Settings</DialogTitle>
+          <DialogTitle>{t('dialogs.projectSettings.title')}</DialogTitle>
           <DialogDescription className="text-xs truncate">{project.path}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-5">
           {/* Project Icon */}
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">Project Icon</label>
+            <label className="text-sm font-medium">{t('dialogs.projectSettings.icon.label')}</label>
             <p className="text-xs text-muted-foreground">
-              Custom icon displayed in the sidebar. Supports SVG, PNG, JPG, and WebP.
+              {t('dialogs.projectSettings.icon.description')}
             </p>
             <div className="flex items-center gap-3">
               <div className="h-8 w-8 flex items-center justify-center rounded-md border border-border bg-muted/30">
@@ -143,7 +145,9 @@ export function ProjectSettingsDialog({
                   disabled={pickingIcon}
                 >
                   <ImageIcon className="h-3 w-3 mr-1.5" />
-                  {pickingIcon ? 'Picking...' : 'Change'}
+                  {pickingIcon
+                    ? t('dialogs.projectSettings.icon.changing')
+                    : t('dialogs.projectSettings.icon.change')}
                 </Button>
                 {customIcon && (
                   <Button
@@ -153,7 +157,7 @@ export function ProjectSettingsDialog({
                     onClick={handleClearIcon}
                   >
                     <X className="h-3 w-3 mr-1.5" />
-                    Clear
+                    {t('dialogs.projectSettings.icon.clear')}
                   </Button>
                 )}
               </div>
@@ -164,10 +168,11 @@ export function ProjectSettingsDialog({
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <div>
-                <label className="text-sm font-medium">Auto-assign Port</label>
+                <label className="text-sm font-medium">
+                  {t('dialogs.projectSettings.autoAssignPort.label')}
+                </label>
                 <p className="text-xs text-muted-foreground">
-                  Assign a unique port to each worktree and inject PORT into run/setup scripts.
-                  Ports start at 3011.
+                  {t('dialogs.projectSettings.autoAssignPort.description')}
                 </p>
               </div>
               <Switch checked={autoAssignPort} onCheckedChange={setAutoAssignPort} />
@@ -176,9 +181,11 @@ export function ProjectSettingsDialog({
 
           {/* Setup Script */}
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">Setup Script</label>
+            <label className="text-sm font-medium">
+              {t('dialogs.projectSettings.setupScript.label')}
+            </label>
             <p className="text-xs text-muted-foreground">
-              Commands to run when a new worktree is initialized. Each line is a separate command.
+              {t('dialogs.projectSettings.setupScript.description')}
             </p>
             <Textarea
               value={setupScript}
@@ -191,9 +198,11 @@ export function ProjectSettingsDialog({
 
           {/* Run Script */}
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">Run Script</label>
+            <label className="text-sm font-medium">
+              {t('dialogs.projectSettings.runScript.label')}
+            </label>
             <p className="text-xs text-muted-foreground">
-              Commands triggered by {'\u2318'}R. Press {'\u2318'}R again while running to stop.
+              {t('dialogs.projectSettings.runScript.description')}
             </p>
             <Textarea
               value={runScript}
@@ -206,9 +215,11 @@ export function ProjectSettingsDialog({
 
           {/* Archive Script */}
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">Archive Script</label>
+            <label className="text-sm font-medium">
+              {t('dialogs.projectSettings.archiveScript.label')}
+            </label>
             <p className="text-xs text-muted-foreground">
-              Commands to run before worktree archival. Failures won't block archival.
+              {t('dialogs.projectSettings.archiveScript.description')}
             </p>
             <Textarea
               value={archiveScript}
@@ -222,10 +233,10 @@ export function ProjectSettingsDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t('dialogs.projectSettings.cancel')}
           </Button>
           <Button onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving...' : 'Save'}
+            {saving ? t('dialogs.projectSettings.saving') : t('dialogs.projectSettings.save')}
           </Button>
         </DialogFooter>
       </DialogContent>

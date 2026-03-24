@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { useProjectStore, useWorktreeStore, useConnectionStore } from '@/stores'
+import { useI18n } from '@/i18n/useI18n'
 
 interface ConnectDialogProps {
   sourceWorktreeId: string
@@ -48,6 +49,7 @@ export function ConnectDialog({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [filter, setFilter] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const { t } = useI18n()
 
   // Find the source worktree's project ID
   const sourceProjectId = useMemo(() => {
@@ -184,18 +186,16 @@ export function ConnectDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Link className="h-4 w-4" />
-            Connect Worktrees
+            {t('dialogs.connect.title')}
           </DialogTitle>
-          <DialogDescription>
-            Select worktrees from other projects to connect into a shared workspace.
-          </DialogDescription>
+          <DialogDescription>{t('dialogs.connect.description')}</DialogDescription>
         </DialogHeader>
 
         {/* Existing connections section */}
         {existingConnections.length > 0 && (
           <div className="space-y-2" data-testid="existing-connections">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              Existing Connections
+              {t('dialogs.connect.existingConnections')}
             </p>
             <div className="space-y-1">
               {existingConnections.map((conn) => (
@@ -218,7 +218,7 @@ export function ConnectDialog({
         {addableConnections.length > 0 && selectedIds.size > 0 && (
           <div className="space-y-2" data-testid="addable-connections">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              Add to Existing Connection
+              {t('dialogs.connect.addToExisting')}
             </p>
             <div className="space-y-1">
               {addableConnections.map((conn) => (
@@ -248,7 +248,7 @@ export function ConnectDialog({
         <div className="relative">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Filter worktrees..."
+            placeholder={t('dialogs.connect.filterPlaceholder')}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             className="pl-9"
@@ -263,13 +263,13 @@ export function ConnectDialog({
         >
           {totalWorktrees === 0 ? (
             <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-              No worktrees from other projects available.
+              {t('dialogs.connect.noWorktrees')}
               <br />
-              Add another project to Hive first.
+              {t('dialogs.connect.noWorktreesHint')}
             </div>
           ) : filteredGroups.length === 0 ? (
             <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-              No worktrees match your filter
+              {t('dialogs.connect.noMatches')}
             </div>
           ) : (
             <div className="py-1">
@@ -314,8 +314,14 @@ export function ConnectDialog({
         <DialogFooter className="flex items-center sm:justify-between">
           <p className="text-xs text-muted-foreground">
             {selectedIds.size > 0
-              ? `${selectedIds.size} worktree${selectedIds.size !== 1 ? 's' : ''} selected`
-              : 'Select worktrees to connect'}
+              ? t('dialogs.connect.selectedCount', {
+                  count: selectedIds.size,
+                  label:
+                    selectedIds.size === 1
+                      ? t('dialogs.connect.worktreeSingular')
+                      : t('dialogs.connect.worktreePlural')
+                })
+              : t('dialogs.connect.selectedNone')}
           </p>
           <Button
             onClick={handleCreateConnection}
@@ -325,12 +331,12 @@ export function ConnectDialog({
             {isSubmitting ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Connecting...
+                {t('dialogs.connect.connecting')}
               </>
             ) : (
               <>
                 <Link className="h-4 w-4 mr-2" />
-                Connect
+                {t('dialogs.connect.connect')}
               </>
             )}
           </Button>

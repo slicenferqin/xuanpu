@@ -325,6 +325,185 @@ export const messages: Record<AppLocale, MessageTree> = {
         planReady: 'Plan ready',
         ready: 'Ready'
       }
+    },
+    dialogs: {
+      archiveConfirm: {
+        title: 'Uncommitted Changes',
+        description: '{worktreeName} has uncommitted changes that will be permanently lost.',
+        binary: 'binary',
+        noChanges: 'no changes',
+        moreFiles: '+{count} more {label}',
+        fileSingular: 'file',
+        filePlural: 'files',
+        cancel: 'Cancel',
+        confirm: 'Archive Anyway'
+      },
+      gitInit: {
+        title: 'Not a Git Repository',
+        selectedFolder: 'The selected folder is not a Git repository:',
+        question: 'Would you like to initialize a new Git repository?',
+        cancel: 'Cancel',
+        confirm: 'Initialize Repository'
+      },
+      connect: {
+        title: 'Connect Worktrees',
+        description: 'Select worktrees from other projects to connect into a shared workspace.',
+        existingConnections: 'Existing Connections',
+        addToExisting: 'Add to Existing Connection',
+        filterPlaceholder: 'Filter worktrees...',
+        noWorktrees: 'No worktrees from other projects available.',
+        noWorktreesHint: 'Add another project to Hive first.',
+        noMatches: 'No worktrees match your filter',
+        selectedCount: '{count} {label} selected',
+        selectedNone: 'Select worktrees to connect',
+        worktreeSingular: 'worktree',
+        worktreePlural: 'worktrees',
+        connect: 'Connect',
+        connecting: 'Connecting...'
+      },
+      projectSettings: {
+        title: 'Project Settings',
+        icon: {
+          label: 'Project Icon',
+          description: 'Custom icon displayed in the sidebar. Supports SVG, PNG, JPG, and WebP.',
+          change: 'Change',
+          changing: 'Picking...',
+          clear: 'Clear',
+          pickError: 'Failed to pick icon',
+          removeError: 'Failed to remove icon'
+        },
+        autoAssignPort: {
+          label: 'Auto-assign Port',
+          description:
+            'Assign a unique port to each worktree and inject PORT into run/setup scripts. Ports start at 3011.'
+        },
+        setupScript: {
+          label: 'Setup Script',
+          description:
+            'Commands to run when a new worktree is initialized. Each line is a separate command.'
+        },
+        runScript: {
+          label: 'Run Script',
+          description: 'Commands triggered by ⌘R. Press ⌘R again while running to stop.'
+        },
+        archiveScript: {
+          label: 'Archive Script',
+          description: "Commands to run before worktree archival. Failures won't block archival."
+        },
+        cancel: 'Cancel',
+        save: 'Save',
+        saving: 'Saving...',
+        saveSuccess: 'Project settings saved',
+        saveError: 'Failed to save project settings'
+      },
+      branchPicker: {
+        title: 'New Workspace',
+        description: 'Select a branch or pull request to create a new workspace from.',
+        tabs: {
+          branches: 'Branches',
+          prs: 'PRs'
+        },
+        filterBranches: 'Filter branches...',
+        filterPRs: 'Filter pull requests...',
+        loadingBranches: 'Loading branches...',
+        noBranchesMatch: 'No branches match your filter',
+        noBranches: 'No branches found',
+        remote: 'remote',
+        active: 'active',
+        loadingPRs: 'Loading pull requests...',
+        noPRsMatch: 'No pull requests match your filter',
+        noPRs: 'No open pull requests',
+        branchCount: '{count} {label}{match}',
+        prCount: '{count} {label}{match}',
+        branchSingular: 'branch',
+        branchPlural: 'branches',
+        prSingular: 'pull request',
+        prPlural: 'pull requests',
+        matching: ' matching "{query}"'
+      }
+    },
+    header: {
+      controls: {
+        fixConflicts: 'Fix conflicts',
+        fixingConflicts: 'Fixing conflicts...',
+        archiveWorktreeTitle: 'Archive worktree',
+        archive: 'Archive',
+        archiving: 'Archiving...',
+        mergePRTitle: 'Merge Pull Request',
+        mergePR: 'Merge PR',
+        merging: 'Merging...',
+        reviewTitle: 'Review branch changes with AI',
+        review: 'Review',
+        noRemoteBranches: 'No remote branches',
+        attached: 'Attached',
+        loadingPRs: 'Loading PRs...',
+        noOpenPRs: 'No open PRs found',
+        detachPR: 'Detach PR',
+        createPRTitle: 'Create Pull Request (right-click to attach existing)',
+        attachExistingPR: 'Attach existing PR',
+        sessionHistoryTitle: 'Session History (⌘K)',
+        settingsTitle: 'Settings (⌘,)',
+        showSidebar: 'Show sidebar',
+        hideSidebar: 'Hide sidebar',
+        merged: 'merged',
+        closed: 'closed'
+      }
+    },
+    pinned: {
+      title: 'Pinned',
+      connectionFallback: 'Connection',
+      connectionNamePlaceholder: 'Connection name',
+      menu: {
+        open: 'Open',
+        detach: 'Detach',
+        addAttachment: 'Add Attachment',
+        openInTerminal: 'Open in Terminal',
+        openInEditor: 'Open in Editor',
+        copyPath: 'Copy Path',
+        unpin: 'Unpin',
+        connectTo: 'Connect to...',
+        renameBranch: 'Rename Branch',
+        duplicate: 'Duplicate',
+        unbranch: 'Unbranch',
+        keepBranch: 'Keep branch',
+        archive: 'Archive',
+        deleteBranch: 'Delete branch',
+        removeWorktree: 'Remove Worktree',
+        detachedHead: 'Detached HEAD',
+        connectionWorktrees: 'Connection Worktrees',
+        rename: 'Rename',
+        delete: 'Delete'
+      },
+      status: {
+        answering: 'Answer questions',
+        permission: 'Permission',
+        planning: 'Planning',
+        working: 'Working',
+        planReady: 'Plan ready',
+        ready: 'Ready'
+      },
+      toasts: {
+        attachmentRemoved: 'Attachment removed',
+        attachmentRemoveError: 'Failed to remove attachment',
+        invalidBranchName: 'Invalid branch name',
+        branchRenamed: 'Branch renamed to {branch}',
+        branchRenameError: 'Failed to rename branch',
+        detachedCannotDuplicate: 'Detached HEAD worktrees cannot be duplicated',
+        duplicatedTo: 'Duplicated to {name}',
+        duplicateError: 'Failed to duplicate worktree',
+        archiveSuccess: 'Worktree "{name}" archived and branch deleted',
+        archiveError: 'Failed to archive worktree: {error}',
+        unbranchSuccess: 'Worktree "{name}" removed (branch preserved)',
+        removeWorktreeSuccess: 'Worktree "{name}" removed',
+        unbranchError: 'Failed to unbranch worktree: {error}',
+        openedInTerminal: 'Opened in Terminal',
+        openInTerminalError: 'Failed to open in terminal',
+        openInTerminalDescription: 'Make sure the worktree directory exists',
+        openedInEditor: 'Opened in Editor',
+        openInEditorError: 'Failed to open in editor',
+        openInEditorDescription: 'Make sure VS Code is installed',
+        pathCopied: 'Path copied to clipboard'
+      }
     }
   },
   'zh-CN': {
@@ -628,6 +807,184 @@ export const messages: Record<AppLocale, MessageTree> = {
         working: '执行中',
         planReady: '计划已就绪',
         ready: '就绪'
+      }
+    },
+    dialogs: {
+      archiveConfirm: {
+        title: '存在未提交变更',
+        description: '{worktreeName} 中有未提交的变更，继续后这些变更将被永久丢失。',
+        binary: '二进制',
+        noChanges: '无变更',
+        moreFiles: '另有 {count} 个{label}',
+        fileSingular: '文件',
+        filePlural: '文件',
+        cancel: '取消',
+        confirm: '仍然归档'
+      },
+      gitInit: {
+        title: '不是 Git 仓库',
+        selectedFolder: '所选文件夹不是 Git 仓库：',
+        question: '要为它初始化一个新的 Git 仓库吗？',
+        cancel: '取消',
+        confirm: '初始化仓库'
+      },
+      connect: {
+        title: '连接 Worktree',
+        description: '选择其他项目中的 worktree，将它们连接到同一个共享工作区。',
+        existingConnections: '已有连接',
+        addToExisting: '加入已有连接',
+        filterPlaceholder: '筛选 worktree...',
+        noWorktrees: '当前没有来自其他项目的 worktree 可供连接。',
+        noWorktreesHint: '请先向 Hive 添加另一个项目。',
+        noMatches: '没有匹配筛选条件的 worktree',
+        selectedCount: '已选择 {count} 个{label}',
+        selectedNone: '请选择要连接的 worktree',
+        worktreeSingular: 'worktree',
+        worktreePlural: 'worktree',
+        connect: '连接',
+        connecting: '连接中...'
+      },
+      projectSettings: {
+        title: '项目设置',
+        icon: {
+          label: '项目图标',
+          description: '显示在侧边栏中的自定义图标，支持 SVG、PNG、JPG 和 WebP。',
+          change: '更换',
+          changing: '选择中...',
+          clear: '清除',
+          pickError: '选择图标失败',
+          removeError: '移除图标失败'
+        },
+        autoAssignPort: {
+          label: '自动分配端口',
+          description:
+            '为每个 worktree 分配唯一端口，并将 PORT 注入 run/setup 脚本。端口从 3011 开始。'
+        },
+        setupScript: {
+          label: 'Setup 脚本',
+          description: '初始化新 worktree 时运行的命令。每一行都会作为独立命令执行。'
+        },
+        runScript: {
+          label: 'Run 脚本',
+          description: '按下 ⌘R 时触发的命令。运行中再次按 ⌘R 会停止。'
+        },
+        archiveScript: {
+          label: 'Archive 脚本',
+          description: '归档 worktree 前运行的命令。即使失败也不会阻止归档。'
+        },
+        cancel: '取消',
+        save: '保存',
+        saving: '保存中...',
+        saveSuccess: '项目设置已保存',
+        saveError: '保存项目设置失败'
+      },
+      branchPicker: {
+        title: '新建工作区',
+        description: '选择一个分支或 PR，以此创建新的工作区。',
+        tabs: {
+          branches: '分支',
+          prs: 'PR'
+        },
+        filterBranches: '筛选分支...',
+        filterPRs: '筛选 PR...',
+        loadingBranches: '正在加载分支...',
+        noBranchesMatch: '没有匹配筛选条件的分支',
+        noBranches: '没有找到分支',
+        remote: '远端',
+        active: '已激活',
+        loadingPRs: '正在加载 PR...',
+        noPRsMatch: '没有匹配筛选条件的 PR',
+        noPRs: '没有打开的 PR',
+        branchCount: '{count} 个{label}{match}',
+        prCount: '{count} 个{label}{match}',
+        branchSingular: '分支',
+        branchPlural: '分支',
+        prSingular: 'PR',
+        prPlural: 'PR',
+        matching: '，匹配 “{query}”'
+      }
+    },
+    header: {
+      controls: {
+        fixConflicts: '修复冲突',
+        fixingConflicts: '正在修复冲突...',
+        archiveWorktreeTitle: '归档 worktree',
+        archive: '归档',
+        archiving: '归档中...',
+        mergePRTitle: '合并 Pull Request',
+        mergePR: '合并 PR',
+        merging: '合并中...',
+        reviewTitle: '用 AI 审查分支改动',
+        review: '审查',
+        noRemoteBranches: '没有远端分支',
+        attached: '已关联',
+        loadingPRs: '正在加载 PR...',
+        noOpenPRs: '没有打开的 PR',
+        detachPR: '解除 PR 关联',
+        createPRTitle: '创建 Pull Request（右键可关联已有 PR）',
+        attachExistingPR: '关联已有 PR',
+        sessionHistoryTitle: '会话历史（⌘K）',
+        settingsTitle: '设置（⌘,）',
+        showSidebar: '显示侧边栏',
+        hideSidebar: '隐藏侧边栏',
+        merged: '已合并',
+        closed: '已关闭'
+      }
+    },
+    pinned: {
+      title: '已固定',
+      connectionFallback: '连接',
+      connectionNamePlaceholder: '连接名称',
+      menu: {
+        open: '打开',
+        detach: '解除关联',
+        addAttachment: '添加附件',
+        openInTerminal: '在终端中打开',
+        openInEditor: '在编辑器中打开',
+        copyPath: '复制路径',
+        unpin: '取消固定',
+        connectTo: '连接到...',
+        renameBranch: '重命名分支',
+        duplicate: '复制',
+        unbranch: '移除 worktree',
+        keepBranch: '保留分支',
+        archive: '归档',
+        deleteBranch: '删除分支',
+        removeWorktree: '移除 worktree',
+        detachedHead: 'Detached HEAD',
+        connectionWorktrees: '连接中的 Worktree',
+        rename: '重命名',
+        delete: '删除'
+      },
+      status: {
+        answering: '等待回答',
+        permission: '等待授权',
+        planning: '规划中',
+        working: '执行中',
+        planReady: '计划已就绪',
+        ready: '就绪'
+      },
+      toasts: {
+        attachmentRemoved: '附件已移除',
+        attachmentRemoveError: '移除附件失败',
+        invalidBranchName: '分支名称无效',
+        branchRenamed: '分支已重命名为 {branch}',
+        branchRenameError: '分支重命名失败',
+        detachedCannotDuplicate: 'Detached HEAD 状态下的 worktree 不能复制',
+        duplicatedTo: '已复制到 {name}',
+        duplicateError: '复制 worktree 失败',
+        archiveSuccess: 'Worktree “{name}” 已归档并删除分支',
+        archiveError: '归档 worktree 失败：{error}',
+        unbranchSuccess: 'Worktree “{name}” 已移除（保留分支）',
+        removeWorktreeSuccess: 'Worktree “{name}” 已移除',
+        unbranchError: '移除 worktree 失败：{error}',
+        openedInTerminal: '已在终端中打开',
+        openInTerminalError: '在终端中打开失败',
+        openInTerminalDescription: '请确认 worktree 目录存在',
+        openedInEditor: '已在编辑器中打开',
+        openInEditorError: '在编辑器中打开失败',
+        openInEditorDescription: '请确认 VS Code 已安装',
+        pathCopied: '路径已复制到剪贴板'
       }
     }
   }

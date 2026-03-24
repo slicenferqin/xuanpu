@@ -37,6 +37,7 @@ import { useVimModeStore } from '@/stores/useVimModeStore'
 import { QuickActions } from './QuickActions'
 import { usePRDetection } from '@/hooks/usePRDetection'
 import hiveLogo from '@/assets/icon.png'
+import { useI18n } from '@/i18n/useI18n'
 
 type ConflictFixFlow =
   | {
@@ -78,6 +79,7 @@ export function Header(): React.JSX.Element {
   const vimModeEnabled = useSettingsStore((s) => s.vimModeEnabled)
   const showVimHints = vimModeEnabled && vimMode === 'normal'
   const [conflictFixFlow, setConflictFixFlow] = useState<ConflictFixFlow | null>(null)
+  const { t, isZhCN } = useI18n()
 
   // Monitor PR session stream events for PR URL detection
   usePRDetection(selectedWorktreeId)
@@ -207,9 +209,7 @@ export function Header(): React.JSX.Element {
     Array<{ number: number; title: string; author: string; headRefName: string }>
   >([])
   const [prListLoading, setPrListLoading] = useState(false)
-  const [prLiveState, setPrLiveState] = useState<
-    { state?: string; title?: string } | null
-  >(null)
+  const [prLiveState, setPrLiveState] = useState<{ state?: string; title?: string } | null>(null)
 
   useEffect(() => {
     if (!selectedWorktree?.path) {
@@ -228,33 +228,42 @@ export function Header(): React.JSX.Element {
     if (!prPickerOpen || !selectedProject?.path) return
     setPrListLoading(true)
 
-    const fetchPRs = window.gitOps.listPRs(selectedProject.path).then((res) => {
-      if (res.success) {
-        // Sort: branch-matching PR first, then by number descending
-        const currentBranch = branchInfo?.name ?? ''
-        const sorted = [...res.prs].sort((a, b) => {
-          const aMatch = a.headRefName === currentBranch ? 1 : 0
-          const bMatch = b.headRefName === currentBranch ? 1 : 0
-          if (aMatch !== bMatch) return bMatch - aMatch
-          return b.number - a.number
-        })
-        setPrList(sorted)
-      } else {
-        toast.error(res.error || 'Failed to load PRs')
+    const fetchPRs = window.gitOps
+      .listPRs(selectedProject.path)
+      .then((res) => {
+        if (res.success) {
+          // Sort: branch-matching PR first, then by number descending
+          const currentBranch = branchInfo?.name ?? ''
+          const sorted = [...res.prs].sort((a, b) => {
+            const aMatch = a.headRefName === currentBranch ? 1 : 0
+            const bMatch = b.headRefName === currentBranch ? 1 : 0
+            if (aMatch !== bMatch) return bMatch - aMatch
+            return b.number - a.number
+          })
+          setPrList(sorted)
+        } else {
+          toast.error(res.error || 'Failed to load PRs')
+          setPrPickerOpen(false)
+        }
+      })
+      .catch(() => {
+        toast.error('Failed to load PRs')
         setPrPickerOpen(false)
-      }
-    }).catch(() => {
-      toast.error('Failed to load PRs')
-      setPrPickerOpen(false)
-    })
+      })
 
-    const fetchState = attachedPR && selectedProject?.path
-      ? window.gitOps.getPRState(selectedProject.path, attachedPR.number).then((res) => {
-          if (res.success) {
-            setPrLiveState({ state: res.state, title: res.title })
-          }
-        }).catch(() => { /* non-critical */ })
-      : Promise.resolve()
+    const fetchState =
+      attachedPR && selectedProject?.path
+        ? window.gitOps
+            .getPRState(selectedProject.path, attachedPR.number)
+            .then((res) => {
+              if (res.success) {
+                setPrLiveState({ state: res.state, title: res.title })
+              }
+            })
+            .catch(() => {
+              /* non-critical */
+            })
+        : Promise.resolve()
 
     Promise.all([fetchPRs, fetchState]).finally(() => setPrListLoading(false))
   }, [prPickerOpen, selectedProject?.path, attachedPR, branchInfo?.name])
@@ -533,7 +542,9 @@ export function Header(): React.JSX.Element {
             ) : (
               <AlertTriangle className="h-3.5 w-3.5 mr-1" />
             )}
-            {isFixConflictsLoading ? 'Fixing conflicts...' : 'Fix conflicts'}
+            {isFixConflictsLoading
+              ? t('header.controls.fixingConflicts')
+              : t('header.controls.fixConflicts')}
           </Button>
         </div>
       )}
@@ -553,7 +564,7 @@ export function Header(): React.JSX.Element {
               className="h-7 text-xs"
               onClick={handleArchiveWorktree}
               disabled={isArchivingWorktree}
-              title="Archive worktree"
+              title={t('header.controls.archiveWorktreeTitle')}
               data-testid="pr-archive-button"
             >
               {isArchivingWorktree ? (
@@ -562,13 +573,18 @@ export function Header(): React.JSX.Element {
                 <Archive className="h-3.5 w-3.5 mr-1" />
               )}
               {isArchivingWorktree ? (
-                'Archiving...'
+                t('header.controls.archiving')
               ) : showVimHints ? (
-                <span>
-                  <span className="text-primary font-bold">A</span>rchive
-                </span>
+                isZhCN ? (
+                  t('header.controls.archive')
+                ) : (
+                  <span>
+                    <span className="text-primary font-bold">A</span>
+                    {t('header.controls.archive').slice(1)}
+                  </span>
+                )
               ) : (
-                'Archive'
+                t('header.controls.archive')
               )}
             </Button>
           )}
@@ -584,7 +600,7 @@ export function Header(): React.JSX.Element {
               className="h-7 text-xs bg-emerald-600/10 border-emerald-600/30 text-emerald-500 hover:bg-emerald-600/20"
               onClick={handleMergePR}
               disabled={isMergingPR}
-              title="Merge Pull Request"
+              title={t('header.controls.mergePRTitle')}
               data-testid="pr-merge-button"
             >
               {isMergingPR ? (
@@ -593,13 +609,18 @@ export function Header(): React.JSX.Element {
                 <GitMerge className="h-3.5 w-3.5 mr-1" />
               )}
               {isMergingPR ? (
-                'Merging...'
+                t('header.controls.merging')
               ) : showVimHints ? (
-                <span>
-                  <span className="text-primary font-bold">M</span>erge PR
-                </span>
+                isZhCN ? (
+                  t('header.controls.mergePR')
+                ) : (
+                  <span>
+                    <span className="text-primary font-bold">M</span>
+                    {t('header.controls.mergePR').slice(1)}
+                  </span>
+                )
               ) : (
-                'Merge PR'
+                t('header.controls.mergePR')
               )}
             </Button>
           )}
@@ -611,16 +632,21 @@ export function Header(): React.JSX.Element {
               className="h-7 text-xs"
               onClick={handleReview}
               disabled={isOperating}
-              title="Review branch changes with AI"
+              title={t('header.controls.reviewTitle')}
               data-testid="review-button"
             >
               <FileSearch className="h-3.5 w-3.5 mr-1" />
               {showVimHints ? (
-                <span>
-                  <span className="text-primary font-bold">R</span>eview
-                </span>
+                isZhCN ? (
+                  t('header.controls.review')
+                ) : (
+                  <span>
+                    <span className="text-primary font-bold">R</span>
+                    {t('header.controls.review').slice(1)}
+                  </span>
+                )
               ) : (
-                'Review'
+                t('header.controls.review')
               )}
             </Button>
             <DropdownMenu>
@@ -637,7 +663,9 @@ export function Header(): React.JSX.Element {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="max-h-60 overflow-y-auto">
                 {remoteBranches.length === 0 ? (
-                  <DropdownMenuItem disabled>No remote branches</DropdownMenuItem>
+                  <DropdownMenuItem disabled>
+                    {t('header.controls.noRemoteBranches')}
+                  </DropdownMenuItem>
                 ) : (
                   remoteBranches.map((branch) => (
                     <DropdownMenuItem
@@ -669,10 +697,14 @@ export function Header(): React.JSX.Element {
                 <GitPullRequest className="h-3.5 w-3.5 mr-1" />
                 PR #{attachedPR!.number}
                 {prLiveState?.state === 'MERGED' && (
-                  <span className="text-muted-foreground ml-1">· merged</span>
+                  <span className="text-muted-foreground ml-1">
+                    · {t('header.controls.merged')}
+                  </span>
                 )}
                 {prLiveState?.state === 'CLOSED' && (
-                  <span className="text-muted-foreground ml-1">· closed</span>
+                  <span className="text-muted-foreground ml-1">
+                    · {t('header.controls.closed')}
+                  </span>
                 )}
               </Button>
             </PopoverTrigger>
@@ -680,7 +712,7 @@ export function Header(): React.JSX.Element {
               {/* Attached PR header */}
               <div className="px-3 py-2 border-b">
                 <div className="text-xs font-medium text-muted-foreground">
-                  Attached: #{attachedPR!.number}
+                  {t('header.controls.attached')}: #{attachedPR!.number}
                 </div>
                 {prLiveState?.title && (
                   <div className="text-sm truncate">
@@ -698,11 +730,11 @@ export function Header(): React.JSX.Element {
                 {prListLoading ? (
                   <div className="px-3 py-4 text-center text-xs text-muted-foreground">
                     <Loader2 className="h-3.5 w-3.5 animate-spin inline mr-1" />
-                    Loading PRs...
+                    {t('header.controls.loadingPRs')}
                   </div>
                 ) : prList.length === 0 ? (
                   <div className="px-3 py-4 text-center text-xs text-muted-foreground">
-                    No open PRs found
+                    {t('header.controls.noOpenPRs')}
                   </div>
                 ) : (
                   prList.map((pr) => (
@@ -716,10 +748,12 @@ export function Header(): React.JSX.Element {
                       onClick={() => handleSelectPR(pr)}
                       data-testid={`pr-picker-item-${pr.number}`}
                     >
-                      <span className={cn(
-                        'text-xs font-mono shrink-0',
-                        pr.number === attachedPR!.number && 'text-primary font-bold'
-                      )}>
+                      <span
+                        className={cn(
+                          'text-xs font-mono shrink-0',
+                          pr.number === attachedPR!.number && 'text-primary font-bold'
+                        )}
+                      >
                         {pr.number === attachedPR!.number ? '●' : ' '} #{pr.number}
                       </span>
                       <span className="truncate">{pr.title}</span>
@@ -735,7 +769,7 @@ export function Header(): React.JSX.Element {
                   data-testid="pr-detach-button"
                 >
                   <X className="h-3.5 w-3.5" />
-                  Detach PR
+                  {t('header.controls.detachPR')}
                 </button>
               </div>
             </PopoverContent>
@@ -768,7 +802,7 @@ export function Header(): React.JSX.Element {
                   setPrPickerOpen(true)
                 }}
                 disabled={isOperating}
-                title="Create Pull Request (right-click to attach existing)"
+                title={t('header.controls.createPRTitle')}
                 data-testid="pr-button"
               >
                 <GitPullRequest className="h-3.5 w-3.5 mr-1" />
@@ -784,18 +818,18 @@ export function Header(): React.JSX.Element {
             <PopoverContent align="end" className="w-80 p-0">
               <div className="px-3 py-2 border-b">
                 <div className="text-xs font-medium text-muted-foreground">
-                  Attach existing PR
+                  {t('header.controls.attachExistingPR')}
                 </div>
               </div>
               <div className="max-h-48 overflow-y-auto">
                 {prListLoading ? (
                   <div className="px-3 py-4 text-center text-xs text-muted-foreground">
                     <Loader2 className="h-3.5 w-3.5 animate-spin inline mr-1" />
-                    Loading PRs...
+                    {t('header.controls.loadingPRs')}
                   </div>
                 ) : prList.length === 0 ? (
                   <div className="px-3 py-4 text-center text-xs text-muted-foreground">
-                    No open PRs found
+                    {t('header.controls.noOpenPRs')}
                   </div>
                 ) : (
                   prList.map((pr) => (
@@ -808,9 +842,7 @@ export function Header(): React.JSX.Element {
                       onClick={() => handleSelectPR(pr)}
                       data-testid={`pr-picker-item-${pr.number}`}
                     >
-                      <span className="text-xs font-mono shrink-0">
-                        #{pr.number}
-                      </span>
+                      <span className="text-xs font-mono shrink-0">#{pr.number}</span>
                       <span className="truncate">{pr.title}</span>
                     </button>
                   ))
@@ -831,7 +863,9 @@ export function Header(): React.JSX.Element {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="max-h-60 overflow-y-auto">
                 {remoteBranches.length === 0 ? (
-                  <DropdownMenuItem disabled>No remote branches</DropdownMenuItem>
+                  <DropdownMenuItem disabled>
+                    {t('header.controls.noRemoteBranches')}
+                  </DropdownMenuItem>
                 ) : (
                   remoteBranches.map((branch) => (
                     <DropdownMenuItem
@@ -853,7 +887,7 @@ export function Header(): React.JSX.Element {
           variant="ghost"
           size="icon"
           onClick={openSessionHistory}
-          title="Session History (⌘K)"
+          title={t('header.controls.sessionHistoryTitle')}
           data-testid="session-history-toggle"
         >
           <History className="h-4 w-4" />
@@ -862,7 +896,7 @@ export function Header(): React.JSX.Element {
           variant="ghost"
           size="icon"
           onClick={() => openSettings()}
-          title="Settings (⌘,)"
+          title={t('header.controls.settingsTitle')}
           data-testid="settings-toggle"
         >
           <Settings className="h-4 w-4" />
@@ -871,7 +905,11 @@ export function Header(): React.JSX.Element {
           onClick={toggleRightSidebar}
           variant="ghost"
           size="icon"
-          title={rightSidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+          title={
+            rightSidebarCollapsed
+              ? t('header.controls.showSidebar')
+              : t('header.controls.hideSidebar')
+          }
           data-testid="right-sidebar-toggle"
         >
           {rightSidebarCollapsed ? (

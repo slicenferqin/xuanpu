@@ -9,6 +9,7 @@ import {
   DialogDescription
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { useI18n } from '@/i18n/useI18n'
 
 interface BranchInfo {
   name: string
@@ -48,6 +49,7 @@ export function BranchPickerDialog({
   const [prs, setPrs] = useState<PullRequestInfo[]>([])
   const [prsLoading, setPrsLoading] = useState(false)
   const [prsError, setPrsError] = useState<string | null>(null)
+  const { t } = useI18n()
 
   // Fetch branches when dialog opens
   useEffect(() => {
@@ -68,16 +70,16 @@ export function BranchPickerDialog({
         if (result.success) {
           setBranches(result.branches)
         } else {
-          setError(result.error || 'Failed to load branches')
+          setError(result.error || t('dialogs.branchPicker.loadingBranches'))
         }
       })
       .catch((err) => {
-        setError(err instanceof Error ? err.message : 'Failed to load branches')
+        setError(err instanceof Error ? err.message : t('dialogs.branchPicker.loadingBranches'))
       })
       .finally(() => {
         setLoading(false)
       })
-  }, [open, projectPath])
+  }, [open, projectPath, t])
 
   // Fetch PRs when PRs tab is selected (lazy)
   useEffect(() => {
@@ -92,16 +94,16 @@ export function BranchPickerDialog({
         if (result.success) {
           setPrs(result.prs)
         } else {
-          setPrsError(result.error || 'Failed to load pull requests')
+          setPrsError(result.error || t('dialogs.branchPicker.loadingPRs'))
         }
       })
       .catch((err) => {
-        setPrsError(err instanceof Error ? err.message : 'Failed to load pull requests')
+        setPrsError(err instanceof Error ? err.message : t('dialogs.branchPicker.loadingPRs'))
       })
       .finally(() => {
         setPrsLoading(false)
       })
-  }, [open, projectPath, activeTab])
+  }, [open, projectPath, activeTab, t])
 
   // Filter and sort branches
   const filteredBranches = useMemo(() => {
@@ -138,10 +140,8 @@ export function BranchPickerDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>New Workspace</DialogTitle>
-          <DialogDescription>
-            Select a branch or pull request to create a new workspace from.
-          </DialogDescription>
+          <DialogTitle>{t('dialogs.branchPicker.title')}</DialogTitle>
+          <DialogDescription>{t('dialogs.branchPicker.description')}</DialogDescription>
         </DialogHeader>
 
         {/* Tab bar */}
@@ -157,7 +157,7 @@ export function BranchPickerDialog({
             onClick={() => setActiveTab('branches')}
           >
             <GitBranch className="inline h-3.5 w-3.5 mr-1.5 -mt-0.5" />
-            Branches
+            {t('dialogs.branchPicker.tabs.branches')}
           </button>
           <button
             className={cn(
@@ -170,7 +170,7 @@ export function BranchPickerDialog({
             onClick={() => setActiveTab('prs')}
           >
             <GitPullRequest className="inline h-3.5 w-3.5 mr-1.5 -mt-0.5" />
-            PRs
+            {t('dialogs.branchPicker.tabs.prs')}
           </button>
         </div>
 
@@ -179,7 +179,9 @@ export function BranchPickerDialog({
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder={
-              activeTab === 'branches' ? 'Filter branches...' : 'Filter pull requests...'
+              activeTab === 'branches'
+                ? t('dialogs.branchPicker.filterBranches')
+                : t('dialogs.branchPicker.filterPRs')
             }
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
@@ -194,13 +196,17 @@ export function BranchPickerDialog({
             {loading ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                <span className="ml-2 text-sm text-muted-foreground">Loading branches...</span>
+                <span className="ml-2 text-sm text-muted-foreground">
+                  {t('dialogs.branchPicker.loadingBranches')}
+                </span>
               </div>
             ) : error ? (
               <div className="px-4 py-8 text-center text-sm text-destructive">{error}</div>
             ) : filteredBranches.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-                {filter ? 'No branches match your filter' : 'No branches found'}
+                {filter
+                  ? t('dialogs.branchPicker.noBranchesMatch')
+                  : t('dialogs.branchPicker.noBranches')}
               </div>
             ) : (
               <div className="py-1">
@@ -219,13 +225,13 @@ export function BranchPickerDialog({
                     {branch.isRemote && (
                       <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded bg-muted text-muted-foreground shrink-0">
                         <Globe className="h-2.5 w-2.5" />
-                        remote
+                        {t('dialogs.branchPicker.remote')}
                       </span>
                     )}
                     {branch.isCheckedOut && (
                       <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded bg-primary/10 text-primary shrink-0">
                         <CheckCircle2 className="h-2.5 w-2.5" />
-                        active
+                        {t('dialogs.branchPicker.active')}
                       </span>
                     )}
                   </button>
@@ -241,13 +247,15 @@ export function BranchPickerDialog({
             {prsLoading ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                <span className="ml-2 text-sm text-muted-foreground">Loading pull requests...</span>
+                <span className="ml-2 text-sm text-muted-foreground">
+                  {t('dialogs.branchPicker.loadingPRs')}
+                </span>
               </div>
             ) : prsError ? (
               <div className="px-4 py-8 text-center text-sm text-destructive">{prsError}</div>
             ) : filteredPRs.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-                {filter ? 'No pull requests match your filter' : 'No open pull requests'}
+                {filter ? t('dialogs.branchPicker.noPRsMatch') : t('dialogs.branchPicker.noPRs')}
               </div>
             ) : (
               <div className="py-1">
@@ -289,14 +297,26 @@ export function BranchPickerDialog({
         {/* Footer info */}
         {activeTab === 'branches' && !loading && !error && filteredBranches.length > 0 && (
           <p className="text-xs text-muted-foreground">
-            {filteredBranches.length} branch{filteredBranches.length !== 1 ? 'es' : ''}
-            {filter && ` matching "${filter}"`}
+            {t('dialogs.branchPicker.branchCount', {
+              count: filteredBranches.length,
+              label:
+                filteredBranches.length === 1
+                  ? t('dialogs.branchPicker.branchSingular')
+                  : t('dialogs.branchPicker.branchPlural'),
+              match: filter ? t('dialogs.branchPicker.matching', { query: filter }) : ''
+            })}
           </p>
         )}
         {activeTab === 'prs' && !prsLoading && !prsError && filteredPRs.length > 0 && (
           <p className="text-xs text-muted-foreground">
-            {filteredPRs.length} pull request{filteredPRs.length !== 1 ? 's' : ''}
-            {filter && ` matching "${filter}"`}
+            {t('dialogs.branchPicker.prCount', {
+              count: filteredPRs.length,
+              label:
+                filteredPRs.length === 1
+                  ? t('dialogs.branchPicker.prSingular')
+                  : t('dialogs.branchPicker.prPlural'),
+              match: filter ? t('dialogs.branchPicker.matching', { query: filter }) : ''
+            })}
           </p>
         )}
       </DialogContent>
