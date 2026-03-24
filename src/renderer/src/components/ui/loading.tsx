@@ -1,5 +1,6 @@
 import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/i18n/useI18n'
 
 interface LoadingSpinnerProps {
   size?: 'sm' | 'md' | 'lg'
@@ -45,9 +46,12 @@ interface LoadingPlaceholderProps {
 
 export function LoadingPlaceholder({
   height = 'h-32',
-  message = 'Loading...',
+  message,
   className
 }: LoadingPlaceholderProps): JSX.Element {
+  const { t } = useI18n()
+  const resolvedMessage = message ?? t('loading.default')
+
   return (
     <div
       className={cn(
@@ -57,7 +61,7 @@ export function LoadingPlaceholder({
       )}
     >
       <LoadingSpinner />
-      <p className="mt-2 text-sm">{message}</p>
+      <p className="mt-2 text-sm">{resolvedMessage}</p>
     </div>
   )
 }

@@ -477,6 +477,18 @@ export const messages: Record<AppLocale, MessageTree> = {
         selectWorktree: 'Select a worktree to open a terminal'
       }
     },
+    appLayout: {
+      sidebarError: 'Sidebar Error',
+      drop: {
+        noSession: 'Open a session to attach files',
+        noFolders: 'Folders cannot be attached. Drop individual files instead.',
+        maxFiles: 'Maximum {count} files per drop',
+        readError: 'Failed to read one or more dropped files'
+      }
+    },
+    loading: {
+      default: 'Loading...'
+    },
     connectionList: {
       title: 'Connections'
     },
@@ -631,15 +643,18 @@ export const messages: Record<AppLocale, MessageTree> = {
         setupScript: {
           label: 'Setup Script',
           description:
-            'Commands to run when a new worktree is initialized. Each line is a separate command.'
+            'Commands to run when a new worktree is initialized. Each line is a separate command.',
+          placeholder: 'pnpm install\npnpm run build'
         },
         runScript: {
           label: 'Run Script',
-          description: 'Commands triggered by ⌘R. Press ⌘R again while running to stop.'
+          description: 'Commands triggered by ⌘R. Press ⌘R again while running to stop.',
+          placeholder: 'pnpm run dev'
         },
         archiveScript: {
           label: 'Archive Script',
-          description: "Commands to run before worktree archival. Failures won't block archival."
+          description: "Commands to run before worktree archival. Failures won't block archival.",
+          placeholder: 'pnpm run clean'
         },
         cancel: 'Cancel',
         save: 'Save',
@@ -1258,6 +1273,18 @@ export const messages: Record<AppLocale, MessageTree> = {
         selectWorktree: '选择一个 worktree 以打开终端'
       }
     },
+    appLayout: {
+      sidebarError: '侧边栏错误',
+      drop: {
+        noSession: '请先打开一个会话再附加文件',
+        noFolders: '不能附加文件夹。请改为拖入单个文件。',
+        maxFiles: '单次最多拖入 {count} 个文件',
+        readError: '读取一个或多个拖入文件失败'
+      }
+    },
+    loading: {
+      default: '加载中...'
+    },
     connectionList: {
       title: '连接'
     },
@@ -1411,15 +1438,18 @@ export const messages: Record<AppLocale, MessageTree> = {
         },
         setupScript: {
           label: 'Setup 脚本',
-          description: '初始化新 worktree 时运行的命令。每一行都会作为独立命令执行。'
+          description: '初始化新 worktree 时运行的命令。每一行都会作为独立命令执行。',
+          placeholder: 'pnpm install\npnpm run build'
         },
         runScript: {
           label: 'Run 脚本',
-          description: '按下 ⌘R 时触发的命令。运行中再次按 ⌘R 会停止。'
+          description: '按下 ⌘R 时触发的命令。运行中再次按 ⌘R 会停止。',
+          placeholder: 'pnpm run dev'
         },
         archiveScript: {
           label: 'Archive 脚本',
-          description: '归档 worktree 前运行的命令。即使失败也不会阻止归档。'
+          description: '归档 worktree 前运行的命令。即使失败也不会阻止归档。',
+          placeholder: 'pnpm run clean'
         },
         cancel: '取消',
         save: '保存',

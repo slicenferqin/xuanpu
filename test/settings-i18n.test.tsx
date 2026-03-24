@@ -201,6 +201,11 @@ describe('Settings i18n', () => {
     expect(translate('zh-CN', 'dialogs.manageConnectionWorktrees.save')).toBe('保存')
     expect(translate('zh-CN', 'prReview.viewer.selectedCount', { count: 2 })).toBe('已选择 2 条')
     expect(translate('zh-CN', 'prReview.commentCard.copyRawHtml')).toBe('复制原始 HTML')
+    expect(translate('zh-CN', 'appLayout.drop.maxFiles', { count: 10 })).toBe(
+      '单次最多拖入 10 个文件'
+    )
+    expect(translate('zh-CN', 'dialogs.projectSettings.runScript.placeholder')).toBe('pnpm run dev')
+    expect(translate('zh-CN', 'loading.default')).toBe('加载中...')
     expect(translate('zh-CN', 'commandPalette.hints.goBack')).toBe('返回')
     expect(translate('zh-CN', 'recent.status.planReady')).toBe('计划已就绪')
     expect(translate('zh-CN', 'dialogs.gitInit.title')).toBe('不是 Git 仓库')

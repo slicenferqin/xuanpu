@@ -190,7 +190,7 @@ export function ProjectSettingsDialog({
             <Textarea
               value={setupScript}
               onChange={(e) => setSetupScript(e.target.value)}
-              placeholder={'pnpm install\npnpm run build'}
+              placeholder={t('dialogs.projectSettings.setupScript.placeholder')}
               rows={4}
               className="font-mono text-sm resize-y"
             />
@@ -207,7 +207,7 @@ export function ProjectSettingsDialog({
             <Textarea
               value={runScript}
               onChange={(e) => setRunScript(e.target.value)}
-              placeholder={'pnpm run dev'}
+              placeholder={t('dialogs.projectSettings.runScript.placeholder')}
               rows={4}
               className="font-mono text-sm resize-y"
             />
@@ -224,7 +224,7 @@ export function ProjectSettingsDialog({
             <Textarea
               value={archiveScript}
               onChange={(e) => setArchiveScript(e.target.value)}
-              placeholder={'pnpm run clean'}
+              placeholder={t('dialogs.projectSettings.archiveScript.placeholder')}
               rows={4}
               className="font-mono text-sm resize-y"
             />

@@ -30,6 +30,7 @@ import { toast } from '@/lib/toast'
 import { useDropAttachmentStore } from '@/stores'
 import { MAX_ATTACHMENTS, isImageMime } from '@/lib/file-attachment-utils'
 import type { Attachment } from '@/components/sessions/AttachmentPreview'
+import { useI18n } from '@/i18n/useI18n'
 
 function GlobalProjectSettings(): React.JSX.Element | null {
   const settingsProjectId = useProjectStore((s) => s.settingsProjectId)
@@ -54,6 +55,7 @@ interface AppLayoutProps {
 }
 
 export function AppLayout({ children }: AppLayoutProps): React.JSX.Element {
+  const { t } = useI18n()
   // Register all keyboard shortcuts centrally
   useKeyboardShortcuts()
   // Vim-style modal navigation (hjkl, panel shortcuts, file tab cycling)
@@ -74,72 +76,75 @@ export function AppLayout({ children }: AppLayoutProps): React.JSX.Element {
   // Drag-and-drop from Finder
   const activeSessionId = useSessionStore((s) => s.activeSessionId)
 
-  const handleFileDrop = useCallback((files: FileList) => {
-    const sessionId = useSessionStore.getState().activeSessionId
-    if (!sessionId) {
-      toast.warning('Open a session to attach files')
-      return
-    }
-
-    const allFiles = Array.from(files)
-
-    // Filter out directories (in Electron, directories have type '' and size 0)
-    const validFiles = allFiles.filter((f) => {
-      if (f.type === '' && f.size === 0) {
-        return false
+  const handleFileDrop = useCallback(
+    (files: FileList) => {
+      const sessionId = useSessionStore.getState().activeSessionId
+      if (!sessionId) {
+        toast.warning(t('appLayout.drop.noSession'))
+        return
       }
-      return true
-    })
 
-    if (validFiles.length < allFiles.length) {
-      toast.warning('Folders cannot be attached. Drop individual files instead.')
-    }
+      const allFiles = Array.from(files)
 
-    if (validFiles.length === 0) return
+      // Filter out directories (in Electron, directories have type '' and size 0)
+      const validFiles = allFiles.filter((f) => {
+        if (f.type === '' && f.size === 0) {
+          return false
+        }
+        return true
+      })
 
-    // Truncate to max
-    const filesToProcess =
-      validFiles.length > MAX_ATTACHMENTS
-        ? (toast.warning(`Maximum ${MAX_ATTACHMENTS} files per drop`),
-          validFiles.slice(0, MAX_ATTACHMENTS))
-        : validFiles
+      if (validFiles.length < allFiles.length) {
+        toast.warning(t('appLayout.drop.noFolders'))
+      }
 
-    // Process files
-    const promises = filesToProcess.map((file) => {
-      if (isImageMime(file.type)) {
-        return new Promise<Omit<Attachment, 'id'>>((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onload = () => {
-            resolve({
-              kind: 'data' as const,
-              name: file.name,
-              mime: file.type,
-              dataUrl: reader.result as string
-            })
-          }
-          reader.onerror = () => {
-            reject(new Error(`Failed to read file: ${file.name}`))
-          }
-          reader.readAsDataURL(file)
+      if (validFiles.length === 0) return
+
+      // Truncate to max
+      const filesToProcess =
+        validFiles.length > MAX_ATTACHMENTS
+          ? (toast.warning(t('appLayout.drop.maxFiles', { count: MAX_ATTACHMENTS })),
+            validFiles.slice(0, MAX_ATTACHMENTS))
+          : validFiles
+
+      // Process files
+      const promises = filesToProcess.map((file) => {
+        if (isImageMime(file.type)) {
+          return new Promise<Omit<Attachment, 'id'>>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => {
+              resolve({
+                kind: 'data' as const,
+                name: file.name,
+                mime: file.type,
+                dataUrl: reader.result as string
+              })
+            }
+            reader.onerror = () => {
+              reject(new Error(`Failed to read file: ${file.name}`))
+            }
+            reader.readAsDataURL(file)
+          })
+        }
+        return Promise.resolve({
+          kind: 'path' as const,
+          name: file.name,
+          mime: file.type || 'application/octet-stream',
+          filePath: window.fileOps.getPathForFile(file)
+        } as Omit<Attachment, 'id'>)
+      })
+
+      Promise.all(promises)
+        .then((items) => {
+          useDropAttachmentStore.getState().push(items)
         })
-      }
-      return Promise.resolve({
-        kind: 'path' as const,
-        name: file.name,
-        mime: file.type || 'application/octet-stream',
-        filePath: window.fileOps.getPathForFile(file)
-      } as Omit<Attachment, 'id'>)
-    })
-
-    Promise.all(promises)
-      .then((items) => {
-        useDropAttachmentStore.getState().push(items)
-      })
-      .catch((err) => {
-        console.error('Failed to process dropped files:', err)
-        toast.error('Failed to read one or more dropped files')
-      })
-  }, [])
+        .catch((err) => {
+          console.error('Failed to process dropped files:', err)
+          toast.error(t('appLayout.drop.readError'))
+        })
+    },
+    [t]
+  )
 
   const { isDragging } = useDropZone({ onDrop: handleFileDrop })
 
@@ -173,7 +178,7 @@ export function AppLayout({ children }: AppLayoutProps): React.JSX.Element {
           componentName="LeftSidebar"
           fallback={
             <div className="w-60 border-r bg-muted/50 flex items-center justify-center">
-              <ErrorFallback compact title="Sidebar Error" />
+              <ErrorFallback compact title={t('appLayout.sidebarError')} />
             </div>
           }
         >
