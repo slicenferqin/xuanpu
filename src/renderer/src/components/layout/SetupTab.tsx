@@ -5,12 +5,14 @@ import { Button } from '@/components/ui/button'
 import { useScriptStore } from '@/stores/useScriptStore'
 import { useProjectStore } from '@/stores/useProjectStore'
 import { useWorktreeStore, fireSetupScript } from '@/stores/useWorktreeStore'
+import { useI18n } from '@/i18n/useI18n'
 
 interface SetupTabProps {
   worktreeId: string | null
 }
 
 export function SetupTab({ worktreeId }: SetupTabProps): React.JSX.Element {
+  const { t } = useI18n()
   const outputRef = useRef<HTMLDivElement>(null)
 
   const scriptState = useScriptStore((s) => (worktreeId ? s.scriptStates[worktreeId] : null))
@@ -53,7 +55,7 @@ export function SetupTab({ worktreeId }: SetupTabProps): React.JSX.Element {
   if (!worktreeId) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground text-xs">
-        Select a worktree to view setup output
+        {t('setupTab.empty.noWorktree')}
       </div>
     )
   }
@@ -76,7 +78,7 @@ export function SetupTab({ worktreeId }: SetupTabProps): React.JSX.Element {
         {setupOutput.length === 0 && !setupRunning && (
           <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground text-xs">
             {hasSetupScript ? (
-              'No setup output yet. Click "Rerun Setup" to execute.'
+              t('setupTab.empty.noOutput')
             ) : (
               <Button
                 variant="outline"
@@ -86,7 +88,7 @@ export function SetupTab({ worktreeId }: SetupTabProps): React.JSX.Element {
                 }}
               >
                 <Settings className="h-4 w-4 mr-2" />
-                Configure setup script
+                {t('setupTab.empty.configure')}
               </Button>
             )}
           </div>
@@ -122,19 +124,19 @@ export function SetupTab({ worktreeId }: SetupTabProps): React.JSX.Element {
           {setupRunning && (
             <>
               <Loader2 className="h-3 w-3 animate-spin text-primary" />
-              <span className="text-muted-foreground">Running...</span>
+              <span className="text-muted-foreground">{t('setupTab.status.running')}</span>
             </>
           )}
           {isComplete && (
             <>
               <CheckCircle2 className="h-3 w-3 text-green-500" />
-              <span className="text-muted-foreground">Setup complete</span>
+              <span className="text-muted-foreground">{t('setupTab.status.complete')}</span>
             </>
           )}
           {isFailed && (
             <>
               <XCircle className="h-3 w-3 text-destructive" />
-              <span className="text-destructive">Setup failed</span>
+              <span className="text-destructive">{t('setupTab.status.failed')}</span>
             </>
           )}
         </div>
@@ -147,7 +149,7 @@ export function SetupTab({ worktreeId }: SetupTabProps): React.JSX.Element {
             data-testid="rerun-setup-button"
           >
             <RotateCcw className="h-3 w-3" />
-            Rerun Setup
+            {t('setupTab.actions.rerun')}
           </button>
         )}
       </div>

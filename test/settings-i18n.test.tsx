@@ -171,6 +171,8 @@ describe('Settings i18n', () => {
     expect(translate('zh-CN', 'terminalToolbar.actions.clear')).toBe('清空终端（Cmd+K）')
     expect(translate('zh-CN', 'runOutputSearch.placeholder')).toBe('在输出中查找...')
     expect(translate('zh-CN', 'runOutputSearch.count', { current: 2, total: 5 })).toBe('2 / 5')
+    expect(translate('zh-CN', 'setupTab.empty.configure')).toBe('配置 setup 脚本')
+    expect(translate('zh-CN', 'setupTab.actions.rerun')).toBe('重新运行 Setup')
     expect(translate('zh-CN', 'commandPalette.hints.goBack')).toBe('返回')
     expect(translate('zh-CN', 'recent.status.planReady')).toBe('计划已就绪')
     expect(translate('zh-CN', 'dialogs.gitInit.title')).toBe('不是 Git 仓库')

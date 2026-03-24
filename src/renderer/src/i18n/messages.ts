@@ -315,6 +315,21 @@ export const messages: Record<AppLocale, MessageTree> = {
       next: 'Next match (Enter)',
       close: 'Close (Escape)'
     },
+    setupTab: {
+      empty: {
+        noWorktree: 'Select a worktree to view setup output',
+        noOutput: 'No setup output yet. Click "Rerun Setup" to execute.',
+        configure: 'Configure setup script'
+      },
+      status: {
+        running: 'Running...',
+        complete: 'Setup complete',
+        failed: 'Setup failed'
+      },
+      actions: {
+        rerun: 'Rerun Setup'
+      }
+    },
     commandPalette: {
       ariaLabel: 'Command palette',
       commandLabel: 'Command palette',
@@ -895,6 +910,21 @@ export const messages: Record<AppLocale, MessageTree> = {
       previous: '上一个匹配（Shift+Enter）',
       next: '下一个匹配（Enter）',
       close: '关闭（Escape）'
+    },
+    setupTab: {
+      empty: {
+        noWorktree: '选择一个 worktree 以查看 setup 输出',
+        noOutput: '当前还没有 setup 输出。点击“重新运行 Setup”开始执行。',
+        configure: '配置 setup 脚本'
+      },
+      status: {
+        running: '运行中...',
+        complete: 'Setup 已完成',
+        failed: 'Setup 失败'
+      },
+      actions: {
+        rerun: '重新运行 Setup'
+      }
     },
     commandPalette: {
       ariaLabel: '命令面板',
