@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useLayoutStore } from '@/stores/useLayoutStore'
-import { useProjectStore, useConnectionStore } from '@/stores'
+import { useProjectStore, useConnectionStore, useFilterStore, useSpaceStore } from '@/stores'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { ResizeHandle } from './ResizeHandle'
 import { FolderGit2, Link, Loader2 } from 'lucide-react'
@@ -9,7 +9,8 @@ import {
   ProjectList,
   AddProjectButton,
   SortProjectsButton,
-  RecentToggleButton
+  RecentToggleButton,
+  FilterChips
 } from '@/components/projects'
 import { ConnectionList } from '@/components/connections'
 import { SpacesTabBar } from '@/components/spaces'
@@ -24,6 +25,14 @@ export function LeftSidebar(): React.JSX.Element {
   const projectCount = useProjectStore((s) => s.projects.length)
   const showUsageIndicator = useSettingsStore((s) => s.showUsageIndicator)
   const [filterQuery, setFilterQuery] = useState('')
+
+  // Filter store for language filters
+  const activeLanguages = useFilterStore((s) => s.activeLanguages)
+  const removeLanguage = useFilterStore((s) => s.removeLanguage)
+  const clearAllFilters = useFilterStore((s) => s.clearAll)
+
+  // Space switching
+  const activeSpaceId = useSpaceStore((s) => s.activeSpaceId)
 
   // Connection mode state
   const connectionModeActive = useConnectionStore((s) => s.connectionModeActive)
@@ -45,8 +54,15 @@ export function LeftSidebar(): React.JSX.Element {
   useEffect(() => {
     if (connectionModeActive) {
       setFilterQuery('')
+      clearAllFilters()
     }
-  }, [connectionModeActive])
+  }, [connectionModeActive, clearAllFilters])
+
+  // Clear language filters on space switch
+  useEffect(() => {
+    clearAllFilters()
+    setFilterQuery('')
+  }, [activeSpaceId, clearAllFilters])
 
   // Escape key exits connection mode
   useEffect(() => {
@@ -152,11 +168,20 @@ export function LeftSidebar(): React.JSX.Element {
             <ProjectFilter value={filterQuery} onChange={setFilterQuery} />
           </div>
         )}
+        {activeLanguages.length > 0 && (
+          <div className="px-3 py-1.5 border-b">
+            <FilterChips languages={activeLanguages} onRemove={removeLanguage} />
+          </div>
+        )}
         <div className="flex-1 overflow-auto p-2" data-testid="sidebar-scroll-container">
           <PinnedList />
           <RecentList />
           <ConnectionList />
-          <ProjectList onAddProject={handleAddProject} filterQuery={filterQuery} />
+          <ProjectList
+            onAddProject={handleAddProject}
+            filterQuery={filterQuery}
+            activeLanguages={activeLanguages}
+          />
         </div>
         {!connectionModeActive && (showUsageIndicator ? <UsageIndicator /> : <SpacesTabBar />)}
       </aside>
