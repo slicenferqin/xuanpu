@@ -1,24 +1,32 @@
 import { Globe, ExternalLink } from 'lucide-react'
+import { useI18n } from '@/i18n/useI18n'
 import type { ToolViewProps } from './types'
 
-function formatResponseSize(content: string): string {
+function formatResponseSize(
+  content: string,
+  t: (key: string, params?: Record<string, string | number | boolean>) => string
+): string {
   const byteCount = new TextEncoder().encode(content).length
 
   if (byteCount < 1024) {
-    return `${byteCount} byte${byteCount === 1 ? '' : 's'}`
+    return t(
+      byteCount === 1 ? 'toolViews.webFetch.bytesSingular' : 'toolViews.webFetch.bytesPlural',
+      { count: byteCount }
+    )
   }
 
   if (byteCount < 1024 * 1024) {
-    return `${(byteCount / 1024).toFixed(1)} KB`
+    return t('toolViews.webFetch.kb', { value: (byteCount / 1024).toFixed(1) })
   }
 
-  return `${(byteCount / (1024 * 1024)).toFixed(1)} MB`
+  return t('toolViews.webFetch.mb', { value: (byteCount / (1024 * 1024)).toFixed(1) })
 }
 
 export function WebFetchToolView({ input, output, error }: ToolViewProps): React.JSX.Element {
+  const { t } = useI18n()
   const url = (input.url || '') as string
   const prompt = (input.prompt || '') as string
-  const responseSize = output ? formatResponseSize(output) : null
+  const responseSize = output ? formatResponseSize(output, t) : null
 
   return (
     <div className="text-xs" data-testid="webfetch-tool-view">

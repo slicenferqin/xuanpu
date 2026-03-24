@@ -564,6 +564,12 @@ export const messages: Record<AppLocale, MessageTree> = {
       todo: {
         empty: 'No tasks'
       },
+      webFetch: {
+        bytesSingular: '{count} byte',
+        bytesPlural: '{count} bytes',
+        kb: '{value} KB',
+        mb: '{value} MB'
+      },
       task: {
         defaultTitle: 'Sub-agent',
         prompt: 'Prompt'
@@ -1434,6 +1440,12 @@ export const messages: Record<AppLocale, MessageTree> = {
       },
       todo: {
         empty: '没有任务'
+      },
+      webFetch: {
+        bytesSingular: '{count} 字节',
+        bytesPlural: '{count} 字节',
+        kb: '{value} KB',
+        mb: '{value} MB'
       },
       task: {
         defaultTitle: '子代理',

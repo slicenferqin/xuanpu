@@ -217,6 +217,7 @@ describe('Settings i18n', () => {
     expect(translate('zh-CN', 'toolViews.fallback.note')).toBe('暂无自定义渲染器，当前显示原始数据')
     expect(translate('zh-CN', 'toolViews.skill.loading')).toBe('正在加载技能内容...')
     expect(translate('zh-CN', 'toolViews.todo.empty')).toBe('没有任务')
+    expect(translate('zh-CN', 'toolViews.webFetch.bytesPlural', { count: 512 })).toBe('512 字节')
     expect(translate('zh-CN', 'contextIndicator.title')).toBe('上下文窗口')
     expect(translate('zh-CN', 'contextIndicator.cost.session', { cost: '$1.2345' })).toBe(
       '会话成本：$1.2345'
