@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/i18n/useI18n'
 import type { SessionMode } from '@/stores/useSessionStore'
 
 interface IndeterminateProgressBarProps {
@@ -12,6 +13,7 @@ export function IndeterminateProgressBar({
   isAsking,
   className
 }: IndeterminateProgressBarProps) {
+  const { t } = useI18n()
   const bgTrack = isAsking
     ? 'bg-amber-500/15'
     : mode === 'build'
@@ -22,7 +24,9 @@ export function IndeterminateProgressBar({
   return (
     <div
       role="progressbar"
-      aria-label={isAsking ? 'Waiting for answer' : 'Agent is working'}
+      aria-label={
+        isAsking ? t('indeterminateProgressBar.asking') : t('indeterminateProgressBar.working')
+      }
       className={cn('relative w-36 h-4 rounded-full overflow-hidden', bgTrack, className)}
     >
       <div

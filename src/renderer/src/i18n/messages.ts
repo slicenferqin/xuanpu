@@ -366,6 +366,14 @@ export const messages: Record<AppLocale, MessageTree> = {
       dismiss: "Don't show again",
       activate: 'Activate'
     },
+    compactionPill: {
+      auto: 'Auto-compacted',
+      manual: 'Context compacted'
+    },
+    indeterminateProgressBar: {
+      asking: 'Waiting for answer',
+      working: 'Agent is working'
+    },
     commandPalette: {
       ariaLabel: 'Command palette',
       commandLabel: 'Command palette',
@@ -997,6 +1005,14 @@ export const messages: Record<AppLocale, MessageTree> = {
       description: '基于 Metal 的原生渲染，并沿用你的 Ghostty 配置',
       dismiss: '不再提示',
       activate: '启用'
+    },
+    compactionPill: {
+      auto: '已自动压缩上下文',
+      manual: '已压缩上下文'
+    },
+    indeterminateProgressBar: {
+      asking: '等待回答中',
+      working: 'Agent 正在执行'
     },
     commandPalette: {
       ariaLabel: '命令面板',
