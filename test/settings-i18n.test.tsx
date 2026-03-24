@@ -189,6 +189,10 @@ describe('Settings i18n', () => {
     expect(translate('zh-CN', 'gitPushPull.toasts.mergeSuccess', { branch: 'main' })).toBe(
       '已成功合并 main'
     )
+    expect(translate('zh-CN', 'gitStatusPanel.sections.staged')).toBe('已暂存变更')
+    expect(translate('zh-CN', 'gitStatusPanel.fileItem.viewChangesTitle', { path: 'a.ts' })).toBe(
+      '查看变更：a.ts'
+    )
     expect(translate('zh-CN', 'commandPalette.hints.goBack')).toBe('返回')
     expect(translate('zh-CN', 'recent.status.planReady')).toBe('计划已就绪')
     expect(translate('zh-CN', 'dialogs.gitInit.title')).toBe('不是 Git 仓库')

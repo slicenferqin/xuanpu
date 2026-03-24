@@ -417,6 +417,49 @@ export const messages: Record<AppLocale, MessageTree> = {
         mergeError: 'Merge failed'
       }
     },
+    gitStatusPanel: {
+      ariaLabel: 'Git status',
+      loading: 'Loading...',
+      refresh: 'Refresh git status',
+      noChanges: 'No changes',
+      ahead: '{count} commit(s) ahead',
+      behind: '{count} commit(s) behind',
+      conflictsTitle: '{count} file(s) with merge conflicts - click to fix with AI',
+      conflictsButton: 'CONFLICTS',
+      unknownBranch: 'unknown',
+      conflictSessionName: 'Merge Conflicts: {branch}',
+      pendingMessage: 'Fix merge conflicts',
+      sections: {
+        conflicts: 'Conflicts',
+        staged: 'Staged Changes',
+        changes: 'Changes',
+        untracked: 'Untracked'
+      },
+      actions: {
+        stageAll: 'Stage All',
+        stageAllTitle: 'Stage all files',
+        unstageAll: 'Unstage All',
+        unstageAllTitle: 'Unstage all files'
+      },
+      fileItem: {
+        stageFile: 'Stage {path}',
+        unstageFile: 'Unstage {path}',
+        viewChanges: 'View changes',
+        viewChangesTitle: 'View changes: {path}'
+      },
+      toasts: {
+        stageAllSuccess: 'All changes staged',
+        stageAllError: 'Failed to stage changes',
+        unstageAllSuccess: 'All changes unstaged',
+        unstageAllError: 'Failed to unstage changes',
+        stageFileError: 'Failed to stage {path}',
+        unstageFileError: 'Failed to unstage {path}',
+        noWorktreeSelected: 'No worktree selected',
+        projectNotFound: 'Could not find project for worktree',
+        createSessionError: 'Failed to create session',
+        conflictResolutionError: 'Failed to start conflict resolution'
+      }
+    },
     commandPalette: {
       ariaLabel: 'Command palette',
       commandLabel: 'Command palette',
@@ -1098,6 +1141,49 @@ export const messages: Record<AppLocale, MessageTree> = {
         deleteError: '删除分支失败',
         mergeSuccess: '已成功合并 {branch}',
         mergeError: '合并失败'
+      }
+    },
+    gitStatusPanel: {
+      ariaLabel: 'Git 状态',
+      loading: '加载中...',
+      refresh: '刷新 Git 状态',
+      noChanges: '没有变更',
+      ahead: '领先 {count} 个提交',
+      behind: '落后 {count} 个提交',
+      conflictsTitle: '{count} 个文件存在合并冲突，点击可用 AI 修复',
+      conflictsButton: '冲突',
+      unknownBranch: '未知分支',
+      conflictSessionName: '合并冲突：{branch}',
+      pendingMessage: '修复合并冲突',
+      sections: {
+        conflicts: '冲突',
+        staged: '已暂存变更',
+        changes: '变更',
+        untracked: '未跟踪'
+      },
+      actions: {
+        stageAll: '全部暂存',
+        stageAllTitle: '暂存所有文件',
+        unstageAll: '全部取消暂存',
+        unstageAllTitle: '取消暂存所有文件'
+      },
+      fileItem: {
+        stageFile: '暂存 {path}',
+        unstageFile: '取消暂存 {path}',
+        viewChanges: '查看变更',
+        viewChangesTitle: '查看变更：{path}'
+      },
+      toasts: {
+        stageAllSuccess: '已暂存所有变更',
+        stageAllError: '暂存变更失败',
+        unstageAllSuccess: '已取消暂存所有变更',
+        unstageAllError: '取消暂存变更失败',
+        stageFileError: '暂存 {path} 失败',
+        unstageFileError: '取消暂存 {path} 失败',
+        noWorktreeSelected: '未选择 worktree',
+        projectNotFound: '找不到该 worktree 对应的项目',
+        createSessionError: '创建会话失败',
+        conflictResolutionError: '启动冲突修复失败'
       }
     },
     commandPalette: {

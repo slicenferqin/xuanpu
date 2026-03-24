@@ -22,6 +22,7 @@ import { useFileViewerStore } from '@/stores/useFileViewerStore'
 import { GitCommitForm } from './GitCommitForm'
 import { GitPushPull } from './GitPushPull'
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/i18n/useI18n'
 
 interface GitStatusPanelProps {
   worktreePath: string | null
@@ -76,6 +77,7 @@ interface FileItemProps {
 }
 
 function FileItem({ file, onToggle, onViewDiff, isStaged }: FileItemProps): React.JSX.Element {
+  const { t } = useI18n()
   const statusColors: Record<string, string> = {
     M: 'text-yellow-500',
     A: 'text-green-500',
@@ -93,7 +95,11 @@ function FileItem({ file, onToggle, onViewDiff, isStaged }: FileItemProps): Reac
         checked={isStaged}
         onCheckedChange={() => onToggle(file)}
         className="h-3.5 w-3.5"
-        aria-label={isStaged ? `Unstage ${file.relativePath}` : `Stage ${file.relativePath}`}
+        aria-label={
+          isStaged
+            ? t('gitStatusPanel.fileItem.unstageFile', { path: file.relativePath })
+            : t('gitStatusPanel.fileItem.stageFile', { path: file.relativePath })
+        }
       />
       <span className={cn('text-[10px] font-mono w-3', statusColors[file.status])}>
         {file.status}
@@ -102,7 +108,7 @@ function FileItem({ file, onToggle, onViewDiff, isStaged }: FileItemProps): Reac
         type="button"
         className="text-xs truncate flex-1 text-left hover:underline cursor-pointer"
         onClick={() => onViewDiff(file)}
-        title={`View changes: ${file.relativePath}`}
+        title={t('gitStatusPanel.fileItem.viewChangesTitle', { path: file.relativePath })}
       >
         {file.relativePath}
       </button>
@@ -111,7 +117,7 @@ function FileItem({ file, onToggle, onViewDiff, isStaged }: FileItemProps): Reac
         size="icon"
         className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
         onClick={() => onViewDiff(file)}
-        title="View changes"
+        title={t('gitStatusPanel.fileItem.viewChanges')}
         data-testid={`view-diff-${file.relativePath}`}
       >
         <FileDiff className="h-3 w-3 text-muted-foreground" />
@@ -124,6 +130,7 @@ export function GitStatusPanel({
   worktreePath,
   className
 }: GitStatusPanelProps): React.JSX.Element | null {
+  const { t } = useI18n()
   const {
     loadFileStatuses,
     loadBranchInfo,
@@ -196,21 +203,21 @@ export function GitStatusPanel({
     if (!worktreePath) return
     const success = await stageAll(worktreePath)
     if (success) {
-      toast.success('All changes staged')
+      toast.success(t('gitStatusPanel.toasts.stageAllSuccess'))
     } else {
-      toast.error('Failed to stage changes')
+      toast.error(t('gitStatusPanel.toasts.stageAllError'))
     }
-  }, [worktreePath, stageAll])
+  }, [worktreePath, stageAll, t])
 
   const handleUnstageAll = useCallback(async () => {
     if (!worktreePath) return
     const success = await unstageAll(worktreePath)
     if (success) {
-      toast.success('All changes unstaged')
+      toast.success(t('gitStatusPanel.toasts.unstageAllSuccess'))
     } else {
-      toast.error('Failed to unstage changes')
+      toast.error(t('gitStatusPanel.toasts.unstageAllError'))
     }
-  }, [worktreePath, unstageAll])
+  }, [worktreePath, unstageAll, t])
 
   const handleToggleFile = useCallback(
     async (file: GitFileStatus) => {
@@ -218,16 +225,16 @@ export function GitStatusPanel({
       if (file.staged) {
         const success = await unstageFile(worktreePath, file.relativePath)
         if (!success) {
-          toast.error(`Failed to unstage ${file.relativePath}`)
+          toast.error(t('gitStatusPanel.toasts.unstageFileError', { path: file.relativePath }))
         }
       } else {
         const success = await stageFile(worktreePath, file.relativePath)
         if (!success) {
-          toast.error(`Failed to stage ${file.relativePath}`)
+          toast.error(t('gitStatusPanel.toasts.stageFileError', { path: file.relativePath }))
         }
       }
     },
-    [worktreePath, stageFile, unstageFile]
+    [worktreePath, stageFile, unstageFile, t]
   )
 
   const handleViewDiff = useCallback(
@@ -265,7 +272,7 @@ export function GitStatusPanel({
       const worktreeStore = useWorktreeStore.getState()
       const selectedWorktreeId = worktreeStore.selectedWorktreeId
       if (!selectedWorktreeId) {
-        toast.error('No worktree selected')
+        toast.error(t('gitStatusPanel.toasts.noWorktreeSelected'))
         return
       }
 
@@ -277,29 +284,32 @@ export function GitStatusPanel({
         }
       }
       if (!projectId) {
-        toast.error('Could not find project for worktree')
+        toast.error(t('gitStatusPanel.toasts.projectNotFound'))
         return
       }
 
-      const branchName = branchInfo?.name || 'unknown'
+      const branchName = branchInfo?.name || t('gitStatusPanel.unknownBranch')
 
       const sessionStore = useSessionStore.getState()
       const result = await sessionStore.createSession(selectedWorktreeId, projectId)
       if (!result.success || !result.session) {
-        toast.error('Failed to create session')
+        toast.error(t('gitStatusPanel.toasts.createSessionError'))
         return
       }
 
-      await sessionStore.updateSessionName(result.session.id, `Merge Conflicts — ${branchName}`)
+      await sessionStore.updateSessionName(
+        result.session.id,
+        t('gitStatusPanel.conflictSessionName', { branch: branchName })
+      )
 
-      sessionStore.setPendingMessage(result.session.id, 'Fix merge conflicts')
+      sessionStore.setPendingMessage(result.session.id, t('gitStatusPanel.pendingMessage'))
     } catch (error) {
       console.error('Failed to start conflict resolution:', error)
-      toast.error('Failed to start conflict resolution')
+      toast.error(t('gitStatusPanel.toasts.conflictResolutionError'))
     } finally {
       setIsFixingConflicts(false)
     }
-  }, [worktreePath, branchInfo])
+  }, [worktreePath, branchInfo, t])
 
   if (!worktreePath) {
     return null
@@ -314,14 +324,14 @@ export function GitStatusPanel({
       className={cn('flex flex-col border-b', className)}
       data-testid="git-status-panel"
       role="region"
-      aria-label="Git status"
+      aria-label={t('gitStatusPanel.ariaLabel')}
     >
       {/* Header with branch info */}
       <div className="flex items-center justify-between px-2 py-1.5 bg-muted/30">
         <div className="flex items-center gap-1.5 text-xs">
           <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
           <span className="font-medium" data-testid="git-branch-name">
-            {branchInfo?.name || 'Loading...'}
+            {branchInfo?.name || t('gitStatusPanel.loading')}
           </span>
           {branchInfo && branchInfo.tracking && (
             <span
@@ -331,7 +341,7 @@ export function GitStatusPanel({
               {branchInfo.ahead > 0 && (
                 <span
                   className="flex items-center gap-0.5"
-                  title={`${branchInfo.ahead} commit(s) ahead`}
+                  title={t('gitStatusPanel.ahead', { count: branchInfo.ahead })}
                 >
                   <ArrowUp className="h-3 w-3" />
                   {branchInfo.ahead}
@@ -340,7 +350,7 @@ export function GitStatusPanel({
               {branchInfo.behind > 0 && (
                 <span
                   className="flex items-center gap-0.5"
-                  title={`${branchInfo.behind} commit(s) behind`}
+                  title={t('gitStatusPanel.behind', { count: branchInfo.behind })}
                 >
                   <ArrowDown className="h-3 w-3" />
                   {branchInfo.behind}
@@ -357,7 +367,7 @@ export function GitStatusPanel({
               className="h-5 px-1.5 text-[10px] font-bold text-orange-500 hover:text-orange-400 hover:bg-orange-500/10"
               onClick={handleFixConflicts}
               disabled={isFixingConflicts}
-              title={`${conflictedFiles.length} file(s) with merge conflicts — click to fix with AI`}
+              title={t('gitStatusPanel.conflictsTitle', { count: conflictedFiles.length })}
               data-testid="git-merge-conflicts-button"
             >
               {isFixingConflicts ? (
@@ -365,7 +375,7 @@ export function GitStatusPanel({
               ) : (
                 <AlertTriangle className="h-3 w-3 mr-0.5" />
               )}
-              CONFLICTS
+              {t('gitStatusPanel.conflictsButton')}
             </Button>
           )}
           <Button
@@ -374,7 +384,7 @@ export function GitStatusPanel({
             className={cn('h-5 w-5', (isLoading || isRefreshing) && 'animate-spin')}
             onClick={handleRefresh}
             disabled={isLoading || isRefreshing}
-            title="Refresh git status"
+            title={t('gitStatusPanel.refresh')}
             data-testid="git-refresh-button"
           >
             <RefreshCw className="h-3 w-3" />
@@ -383,12 +393,14 @@ export function GitStatusPanel({
       </div>
 
       {!hasChanges ? (
-        <div className="px-2 py-3 text-xs text-muted-foreground text-center">No changes</div>
+        <div className="px-2 py-3 text-xs text-muted-foreground text-center">
+          {t('gitStatusPanel.noChanges')}
+        </div>
       ) : (
         <div className="max-h-[200px] overflow-y-auto">
           {/* Merge Conflicts */}
           <CollapsibleSection
-            title="Conflicts"
+            title={t('gitStatusPanel.sections.conflicts')}
             count={conflictedFiles.length}
             testId="git-conflicts-section"
           >
@@ -405,7 +417,7 @@ export function GitStatusPanel({
 
           {/* Staged Changes */}
           <CollapsibleSection
-            title="Staged Changes"
+            title={t('gitStatusPanel.sections.staged')}
             count={stagedFiles.length}
             testId="git-staged-section"
             action={
@@ -415,11 +427,11 @@ export function GitStatusPanel({
                   size="sm"
                   className="h-5 px-1.5 text-[10px]"
                   onClick={handleUnstageAll}
-                  title="Unstage all files"
+                  title={t('gitStatusPanel.actions.unstageAllTitle')}
                   data-testid="git-unstage-all"
                 >
                   <Minus className="h-3 w-3 mr-0.5" />
-                  Unstage All
+                  {t('gitStatusPanel.actions.unstageAll')}
                 </Button>
               )
             }
@@ -437,7 +449,7 @@ export function GitStatusPanel({
 
           {/* Modified (Unstaged) */}
           <CollapsibleSection
-            title="Changes"
+            title={t('gitStatusPanel.sections.changes')}
             count={modifiedFiles.length}
             testId="git-modified-section"
             action={
@@ -447,11 +459,11 @@ export function GitStatusPanel({
                   size="sm"
                   className="h-5 px-1.5 text-[10px]"
                   onClick={handleStageAll}
-                  title="Stage all files"
+                  title={t('gitStatusPanel.actions.stageAllTitle')}
                   data-testid="git-stage-all"
                 >
                   <Plus className="h-3 w-3 mr-0.5" />
-                  Stage All
+                  {t('gitStatusPanel.actions.stageAll')}
                 </Button>
               )
             }
@@ -469,7 +481,7 @@ export function GitStatusPanel({
 
           {/* Untracked */}
           <CollapsibleSection
-            title="Untracked"
+            title={t('gitStatusPanel.sections.untracked')}
             count={untrackedFiles.length}
             testId="git-untracked-section"
           >
