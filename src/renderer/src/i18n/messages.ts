@@ -854,6 +854,21 @@ export const messages: Record<AppLocale, MessageTree> = {
         renameSession: 'Failed to rename session'
       }
     },
+    slashCommandPopover: {
+      loading: 'Loading commands...',
+      noMatches: 'No matching commands',
+      badges: {
+        plan: 'plan',
+        build: 'build',
+        builtIn: 'built-in'
+      },
+      descriptions: {
+        undo: 'Undo the last message and file changes',
+        redo: 'Redo the last undone message and file changes',
+        clear: 'Close current tab and open a new one',
+        ask: 'Ask a question without making code changes'
+      }
+    },
     runTab: {
       empty: {
         noWorktree: 'Select a worktree to run scripts',
@@ -2528,6 +2543,21 @@ export const messages: Record<AppLocale, MessageTree> = {
         createSession: '创建会话失败',
         closeSession: '关闭会话失败',
         renameSession: '重命名会话失败'
+      }
+    },
+    slashCommandPopover: {
+      loading: '正在加载命令...',
+      noMatches: '没有匹配的命令',
+      badges: {
+        plan: '计划',
+        build: '执行',
+        builtIn: '内置'
+      },
+      descriptions: {
+        undo: '撤销上一条消息和文件改动',
+        redo: '重做上一次被撤销的消息和文件改动',
+        clear: '关闭当前标签页并打开一个新标签页',
+        ask: '提问，但不进行代码修改'
       }
     },
     runTab: {

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/i18n/useI18n'
 
 interface SlashCommand {
   name: string
@@ -26,6 +27,7 @@ export function SlashCommandPopover({
   onClose,
   visible
 }: SlashCommandPopoverProps): React.JSX.Element | null {
+  const { t } = useI18n()
   const [selectedIndex, setSelectedIndex] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -39,6 +41,23 @@ export function SlashCommandPopover({
   useEffect(() => {
     setSelectedIndex(0)
   }, [filter])
+
+  const getDescription = (command: SlashCommand): string | undefined => {
+    if (!command.builtIn) return command.description
+
+    switch (command.name) {
+      case 'undo':
+        return t('slashCommandPopover.descriptions.undo')
+      case 'redo':
+        return t('slashCommandPopover.descriptions.redo')
+      case 'clear':
+        return t('slashCommandPopover.descriptions.clear')
+      case 'ask':
+        return t('slashCommandPopover.descriptions.ask')
+      default:
+        return command.description
+    }
+  }
 
   // Scroll selected item into view
   useEffect(() => {
@@ -96,7 +115,9 @@ export function SlashCommandPopover({
       >
         {filtered.length === 0 ? (
           <div className="px-3 py-2 text-xs text-muted-foreground">
-            {commands.length === 0 ? 'Loading commands...' : 'No matching commands'}
+            {commands.length === 0
+              ? t('slashCommandPopover.loading')
+              : t('slashCommandPopover.noMatches')}
           </div>
         ) : (
           filtered.map((cmd, index) => (
@@ -121,16 +142,22 @@ export function SlashCommandPopover({
                       : 'bg-blue-500/20 text-blue-400'
                   )}
                 >
-                  {cmd.agent}
+                  {cmd.agent === 'plan'
+                    ? t('slashCommandPopover.badges.plan')
+                    : cmd.agent === 'build'
+                      ? t('slashCommandPopover.badges.build')
+                      : cmd.agent}
                 </span>
               )}
               {cmd.builtIn && (
                 <span className="text-[10px] px-1 rounded bg-emerald-500/20 text-emerald-400">
-                  built-in
+                  {t('slashCommandPopover.badges.builtIn')}
                 </span>
               )}
-              {cmd.description && (
-                <span className="text-xs text-muted-foreground truncate">{cmd.description}</span>
+              {getDescription(cmd) && (
+                <span className="text-xs text-muted-foreground truncate">
+                  {getDescription(cmd)}
+                </span>
               )}
             </div>
           ))
