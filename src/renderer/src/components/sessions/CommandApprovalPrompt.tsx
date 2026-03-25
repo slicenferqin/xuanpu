@@ -20,6 +20,7 @@ import type {
   CommandApprovalRequest,
   SubCommandSuggestions
 } from '@/stores/useCommandApprovalStore'
+import { useI18n } from '@/i18n/useI18n'
 
 interface CommandApprovalPromptProps {
   request: CommandApprovalRequest
@@ -32,7 +33,10 @@ interface CommandApprovalPromptProps {
   ) => void
 }
 
-function getToolDisplay(toolName: string): {
+function getToolDisplay(
+  toolName: string,
+  t: (key: string) => string
+): {
   icon: React.ElementType
   label: string
   color: string
@@ -40,25 +44,49 @@ function getToolDisplay(toolName: string): {
   const tool = toolName.toLowerCase()
   switch (tool) {
     case 'bash':
-      return { icon: Terminal, label: 'Execute Command', color: 'text-orange-400' }
+      return {
+        icon: Terminal,
+        label: t('commandApprovalPrompt.types.bash'),
+        color: 'text-orange-400'
+      }
     case 'edit':
-      return { icon: FileEdit, label: 'Edit File', color: 'text-yellow-400' }
+      return {
+        icon: FileEdit,
+        label: t('commandApprovalPrompt.types.edit'),
+        color: 'text-yellow-400'
+      }
     case 'write':
-      return { icon: FileDown, label: 'Write File', color: 'text-yellow-400' }
+      return {
+        icon: FileDown,
+        label: t('commandApprovalPrompt.types.write'),
+        color: 'text-yellow-400'
+      }
     case 'read':
-      return { icon: Eye, label: 'Read File', color: 'text-blue-400' }
+      return { icon: Eye, label: t('commandApprovalPrompt.types.read'), color: 'text-blue-400' }
     case 'glob':
     case 'grep':
-      return { icon: Search, label: 'Search Files', color: 'text-blue-400' }
+      return {
+        icon: Search,
+        label: t('commandApprovalPrompt.types.search'),
+        color: 'text-blue-400'
+      }
     case 'webfetch':
     case 'websearch':
-      return { icon: Globe, label: 'Web Access', color: 'text-purple-400' }
+      return { icon: Globe, label: t('commandApprovalPrompt.types.web'), color: 'text-purple-400' }
     case 'task':
-      return { icon: Zap, label: 'Run Sub-task', color: 'text-cyan-400' }
+      return { icon: Zap, label: t('commandApprovalPrompt.types.task'), color: 'text-cyan-400' }
     case 'skill':
-      return { icon: FileCode, label: 'Execute Skill', color: 'text-green-400' }
+      return {
+        icon: FileCode,
+        label: t('commandApprovalPrompt.types.skill'),
+        color: 'text-green-400'
+      }
     case 'notebookedit':
-      return { icon: FileEdit, label: 'Edit Notebook', color: 'text-yellow-400' }
+      return {
+        icon: FileEdit,
+        label: t('commandApprovalPrompt.types.notebookEdit'),
+        color: 'text-yellow-400'
+      }
     default:
       return { icon: Shield, label: toolName, color: 'text-yellow-400' }
   }
@@ -80,6 +108,7 @@ function SubCommandPatternPicker({
   approvedSubCommands: Set<number>
   onSelect: (idx: number, pattern: string) => void
 }) {
+  const { t } = useI18n()
   return (
     <div className="space-y-3">
       {subCommandPatterns.map((group, idx) => {
@@ -93,7 +122,7 @@ function SubCommandPatternPicker({
               {isApproved && (
                 <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-500 font-medium shrink-0">
                   <Check className="h-2.5 w-2.5" />
-                  Already allowed
+                  {t('commandApprovalPrompt.subCommands.alreadyAllowed')}
                 </span>
               )}
             </div>
@@ -230,6 +259,7 @@ function buildDefaultSubPatterns(groups: SubCommandSuggestions[]): Record<number
 export function CommandApprovalPrompt({ request, onReply }: CommandApprovalPromptProps) {
   const [sending, setSending] = useState(false)
   const [patternPickerMode, setPatternPickerMode] = useState<'allow' | 'block' | null>(null)
+  const { t } = useI18n()
 
   // For flat (single command / block always) picker
   const flatSuggestions = useMemo(
@@ -272,7 +302,7 @@ export function CommandApprovalPrompt({ request, onReply }: CommandApprovalPromp
     return approved
   }, [uniqueSubCommandPatterns, commandFilter.allowlist])
 
-  const { icon: Icon, label, color } = getToolDisplay(request.toolName)
+  const { icon: Icon, label, color } = getToolDisplay(request.toolName, t)
 
   const handleAllow = useCallback(() => {
     if (sending) return
@@ -307,6 +337,7 @@ export function CommandApprovalPrompt({ request, onReply }: CommandApprovalPromp
     sending,
     patternPickerMode,
     hasSubCommands,
+    uniqueSubCommandPatterns,
     request,
     selectedSubPatterns,
     selectedFlatPattern,
@@ -349,7 +380,9 @@ export function CommandApprovalPrompt({ request, onReply }: CommandApprovalPromp
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/30">
         <Shield className={cn('h-4 w-4 shrink-0', color)} />
-        <span className="text-xs font-medium text-foreground">Command Approval Required</span>
+        <span className="text-xs font-medium text-foreground">
+          {t('commandApprovalPrompt.header.required')}
+        </span>
         <span className="text-xs text-muted-foreground">—</span>
         <Icon className={cn('h-3.5 w-3.5 shrink-0', color)} />
         <span className="text-xs text-muted-foreground">{label}</span>
@@ -359,7 +392,7 @@ export function CommandApprovalPrompt({ request, onReply }: CommandApprovalPromp
         {/* Command display — bash && chains split into rows */}
         <div className="mb-3">
           <div className="text-xs font-semibold mb-1 text-muted-foreground">
-            Tool: {request.toolName}
+            {t('commandApprovalPrompt.header.tool', { name: request.toolName })}
           </div>
           <CommandDisplay commandStr={request.commandStr} />
         </div>
@@ -370,9 +403,9 @@ export function CommandApprovalPrompt({ request, onReply }: CommandApprovalPromp
             <div className="text-xs font-medium mb-2 text-foreground">
               {patternPickerMode === 'allow'
                 ? hasSubCommands
-                  ? 'Choose patterns to always allow (one per command):'
-                  : 'Choose pattern to always allow:'
-                : 'Choose pattern to always block:'}
+                  ? t('commandApprovalPrompt.patternPicker.allowPerCommand')
+                  : t('commandApprovalPrompt.patternPicker.allowOne')
+                : t('commandApprovalPrompt.patternPicker.blockOne')}
             </div>
 
             {/* Scrollable pattern list */}
@@ -407,10 +440,10 @@ export function CommandApprovalPrompt({ request, onReply }: CommandApprovalPromp
                 data-testid="confirm-pattern"
               >
                 {sending
-                  ? 'Saving...'
+                  ? t('commandApprovalPrompt.patternPicker.saving')
                   : patternPickerMode === 'allow'
-                    ? 'Allow always'
-                    : 'Block always'}
+                    ? t('commandApprovalPrompt.actions.allowAlways')
+                    : t('commandApprovalPrompt.actions.blockAlways')}
               </Button>
               <Button
                 size="sm"
@@ -419,7 +452,7 @@ export function CommandApprovalPrompt({ request, onReply }: CommandApprovalPromp
                 disabled={sending}
                 data-testid="cancel-pattern"
               >
-                Cancel
+                {t('commandApprovalPrompt.patternPicker.cancel')}
               </Button>
             </div>
           </div>
@@ -434,17 +467,19 @@ export function CommandApprovalPrompt({ request, onReply }: CommandApprovalPromp
               disabled={sending}
               data-testid="command-approve-once"
             >
-              {sending ? 'Sending...' : 'Allow once'}
+              {sending
+                ? t('commandApprovalPrompt.actions.sending')
+                : t('commandApprovalPrompt.actions.allowOnce')}
             </Button>
             <Button
               size="sm"
               variant="outline"
               onClick={handleAllowAlways}
               disabled={sending}
-              title="Always allow this command pattern"
+              title={t('commandApprovalPrompt.actions.allowAlwaysTitle')}
               data-testid="command-approve-always"
             >
-              Allow always
+              {t('commandApprovalPrompt.actions.allowAlways')}
               <ChevronDown className="h-3 w-3 ml-1" />
             </Button>
             <Button
@@ -453,10 +488,10 @@ export function CommandApprovalPrompt({ request, onReply }: CommandApprovalPromp
               onClick={handleBlockAlways}
               disabled={sending}
               className="text-destructive hover:text-destructive"
-              title="Always block this command pattern"
+              title={t('commandApprovalPrompt.actions.blockAlwaysTitle')}
               data-testid="command-block-always"
             >
-              Block always
+              {t('commandApprovalPrompt.actions.blockAlways')}
               {flatSuggestions.length > 1 && <ChevronDown className="h-3 w-3 ml-1" />}
             </Button>
             <Button
@@ -467,7 +502,7 @@ export function CommandApprovalPrompt({ request, onReply }: CommandApprovalPromp
               className="text-destructive hover:text-destructive"
               data-testid="command-deny"
             >
-              Deny
+              {t('commandApprovalPrompt.actions.deny')}
             </Button>
           </div>
         )}

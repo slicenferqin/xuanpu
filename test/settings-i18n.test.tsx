@@ -167,6 +167,9 @@ describe('Settings i18n', () => {
     expect(translate('zh-CN', 'fileSearch.placeholder')).toBe('按文件名或路径搜索...')
     expect(translate('zh-CN', 'fileTree.gitStatus.conflicted')).toBe('有冲突')
     expect(translate('zh-CN', 'fileTree.gitStatus.stagedSuffix')).toBe('（已暂存）')
+    expect(translate('zh-CN', 'fileTree.header.title')).toBe('文件')
+    expect(translate('zh-CN', 'fileTree.branchDiff.selectBranch')).toBe('选择要比较的分支...')
+    expect(translate('zh-CN', 'fileTree.changes.mergeConflicts')).toBe('合并冲突')
     expect(translate('zh-CN', 'terminalToolbar.status.exited', { code: 1 })).toBe('已退出（1）')
     expect(translate('zh-CN', 'terminalToolbar.actions.clear')).toBe('清空终端（Cmd+K）')
     expect(translate('zh-CN', 'runOutputSearch.placeholder')).toBe('在输出中查找...')
@@ -194,6 +197,15 @@ describe('Settings i18n', () => {
       '查看变更：a.ts'
     )
     expect(translate('zh-CN', 'projectList.empty.noProjects')).toBe('还没有添加任何项目。')
+    expect(translate('zh-CN', 'fileViewer.externalChanges.keepMine')).toBe('保留我的更改')
+    expect(translate('zh-CN', 'spaces.dialogs.createTitle')).toBe('创建空间')
+    expect(translate('zh-CN', 'mainPane.welcomeTitle')).toBe('欢迎使用 Hive')
+    expect(translate('zh-CN', 'agentPicker.title')).toBe('选择默认 AI Agent')
+    expect(translate('zh-CN', 'fileMentionPopover.noFiles')).toBe('没有找到文件')
+    expect(translate('zh-CN', 'sessionView.empty.title')).toBe('开始一段对话')
+    expect(translate('zh-CN', 'sessionTerminalView.loading')).toBe('正在加载终端...')
+    expect(translate('zh-CN', 'permissionPrompt.actions.allowAlways')).toBe('始终允许')
+    expect(translate('zh-CN', 'commandApprovalPrompt.header.required')).toBe('需要命令审批')
     expect(translate('zh-CN', 'terminalManager.empty.selectWorktree')).toBe(
       '选择一个 worktree 以打开终端'
     )

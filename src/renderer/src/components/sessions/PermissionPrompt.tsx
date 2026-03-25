@@ -4,35 +4,51 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { splitBashCommand, getSubPatterns, patternMatches } from '@/lib/permissionUtils'
 import { useSettingsStore } from '@/stores/useSettingsStore'
+import { useI18n } from '@/i18n/useI18n'
 
 interface PermissionPromptProps {
   request: PermissionRequest
   onReply: (requestId: string, reply: 'once' | 'always' | 'reject', message?: string) => void
 }
 
-function getPermissionDisplay(permission: string): {
+function getPermissionDisplay(
+  permission: string,
+  t: (key: string) => string
+): {
   icon: React.ElementType
   label: string
   color: string
 } {
   switch (permission) {
     case 'bash':
-      return { icon: Terminal, label: 'Run Command', color: 'text-orange-400' }
+      return { icon: Terminal, label: t('permissionPrompt.types.bash'), color: 'text-orange-400' }
     case 'edit':
-      return { icon: FileEdit, label: 'Edit File', color: 'text-yellow-400' }
+      return { icon: FileEdit, label: t('permissionPrompt.types.edit'), color: 'text-yellow-400' }
     case 'read':
-      return { icon: Eye, label: 'Read File', color: 'text-blue-400' }
+      return { icon: Eye, label: t('permissionPrompt.types.read'), color: 'text-blue-400' }
     case 'glob':
     case 'grep':
     case 'list':
-      return { icon: Search, label: 'Search Files', color: 'text-blue-400' }
+      return {
+        icon: Search,
+        label: t('permissionPrompt.types.search'),
+        color: 'text-blue-400'
+      }
     case 'webfetch':
     case 'websearch':
-      return { icon: Globe, label: 'Web Access', color: 'text-purple-400' }
+      return {
+        icon: Globe,
+        label: t('permissionPrompt.types.webAccess'),
+        color: 'text-purple-400'
+      }
     case 'external_directory':
-      return { icon: Shield, label: 'External Directory', color: 'text-red-400' }
+      return {
+        icon: Shield,
+        label: t('permissionPrompt.types.externalDirectory'),
+        color: 'text-red-400'
+      }
     case 'task':
-      return { icon: Shield, label: 'Run Sub-task', color: 'text-cyan-400' }
+      return { icon: Shield, label: t('permissionPrompt.types.task'), color: 'text-cyan-400' }
     default:
       return { icon: Shield, label: permission, color: 'text-yellow-400' }
   }
@@ -110,9 +126,10 @@ function BashPatternView({
 
 export function PermissionPrompt({ request, onReply }: PermissionPromptProps) {
   const [sending, setSending] = useState(false)
+  const { t } = useI18n()
   const { commandFilter, updateSetting } = useSettingsStore()
 
-  const { icon: Icon, label, color } = getPermissionDisplay(request.permission)
+  const { icon: Icon, label, color } = getPermissionDisplay(request.permission, t)
 
   const handleAllow = useCallback(
     (type: 'once' | 'always') => {
@@ -152,7 +169,9 @@ export function PermissionPrompt({ request, onReply }: PermissionPromptProps) {
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/30">
         <Shield className={cn('h-4 w-4 shrink-0', color)} />
-        <span className="text-xs font-medium text-foreground">Permission Required</span>
+        <span className="text-xs font-medium text-foreground">
+          {t('permissionPrompt.header.required')}
+        </span>
         <span className="text-xs text-muted-foreground">—</span>
         <Icon className={cn('h-3.5 w-3.5 shrink-0', color)} />
         <span className="text-xs text-muted-foreground">{label}</span>
@@ -214,7 +233,9 @@ export function PermissionPrompt({ request, onReply }: PermissionPromptProps) {
             disabled={sending}
             data-testid="permission-allow-once"
           >
-            {sending ? 'Sending...' : 'Allow once'}
+            {sending
+              ? t('permissionPrompt.actions.sending')
+              : t('permissionPrompt.actions.allowOnce')}
           </Button>
           <Button
             size="sm"
@@ -224,11 +245,11 @@ export function PermissionPrompt({ request, onReply }: PermissionPromptProps) {
             title={
               request.always.length > 0
                 ? `Always allow: ${request.always.join(', ')}`
-                : 'Always allow this type of action'
+                : t('permissionPrompt.header.alwaysAllowFallback')
             }
             data-testid="permission-allow-always"
           >
-            Allow always
+            {t('permissionPrompt.actions.allowAlways')}
           </Button>
           <Button
             size="sm"
@@ -238,7 +259,7 @@ export function PermissionPrompt({ request, onReply }: PermissionPromptProps) {
             className="text-destructive hover:text-destructive"
             data-testid="permission-deny"
           >
-            Deny
+            {t('permissionPrompt.actions.deny')}
           </Button>
         </div>
       </div>

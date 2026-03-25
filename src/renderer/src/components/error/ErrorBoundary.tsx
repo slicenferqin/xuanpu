@@ -1,6 +1,9 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react'
 import { AlertTriangle, RefreshCw, Bug, Copy, Check } from 'lucide-react'
 import { Button } from '../ui/button'
+import { translate } from '@/i18n/useI18n'
+import { DEFAULT_LOCALE } from '@/i18n/messages'
+import { useSettingsStore } from '@/stores/useSettingsStore'
 
 interface Props {
   children: ReactNode
@@ -14,6 +17,11 @@ interface State {
   error: Error | null
   errorInfo: ErrorInfo | null
   copied: boolean
+}
+
+function tBoundary(key: string, params?: Record<string, string | number | boolean>): string {
+  const locale = useSettingsStore.getState().locale ?? DEFAULT_LOCALE
+  return translate(locale, key, params)
 }
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -95,39 +103,40 @@ ${errorInfo?.componentStack || 'No component stack'}
         <div className="flex flex-col items-center justify-center min-h-[200px] p-6 bg-destructive/10 border border-destructive/20 rounded-lg m-4">
           <div className="flex items-center gap-2 text-destructive mb-4">
             <AlertTriangle className="h-6 w-6" />
-            <h2 className="text-lg font-semibold">Something went wrong</h2>
+            <h2 className="text-lg font-semibold">{tBoundary('errorBoundary.title')}</h2>
           </div>
 
           {componentName && (
             <p className="text-sm text-muted-foreground mb-2">
-              Error in: <code className="bg-muted px-1 rounded">{componentName}</code>
+              {tBoundary('errorBoundary.componentPrefix')}{' '}
+              <code className="bg-muted px-1 rounded">{componentName}</code>
             </p>
           )}
 
           <p className="text-sm text-muted-foreground mb-4 text-center max-w-md">
-            {error?.message || 'An unexpected error occurred'}
+            {error?.message || tBoundary('errorBoundary.unexpected')}
           </p>
 
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={this.handleReset}>
               <RefreshCw className="h-4 w-4 mr-2" />
-              Try Again
+              {tBoundary('errorBoundary.tryAgain')}
             </Button>
 
             <Button variant="outline" size="sm" onClick={this.handleReload}>
-              Reload App
+              {tBoundary('errorBoundary.reloadApp')}
             </Button>
 
             <Button variant="ghost" size="sm" onClick={this.handleCopyError}>
               {copied ? (
                 <>
                   <Check className="h-4 w-4 mr-2" />
-                  Copied
+                  {tBoundary('errorBoundary.copied')}
                 </>
               ) : (
                 <>
                   <Copy className="h-4 w-4 mr-2" />
-                  Copy Error
+                  {tBoundary('errorBoundary.copyError')}
                 </>
               )}
             </Button>
@@ -138,7 +147,7 @@ ${errorInfo?.componentStack || 'No component stack'}
             <details className="mt-4 w-full max-w-2xl">
               <summary className="cursor-pointer text-sm text-muted-foreground flex items-center gap-1">
                 <Bug className="h-4 w-4" />
-                Developer Details
+                {tBoundary('errorBoundary.developerDetails')}
               </summary>
               <pre className="mt-2 p-4 bg-muted rounded text-xs overflow-auto max-h-64">
                 <code>

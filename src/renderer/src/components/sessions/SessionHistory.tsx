@@ -28,6 +28,7 @@ import { useSessionHistoryStore, type SessionWithWorktree } from '@/stores/useSe
 import { useProjectStore } from '@/stores/useProjectStore'
 import { useWorktreeStore } from '@/stores/useWorktreeStore'
 import { useSessionStore } from '@/stores/useSessionStore'
+import { useI18n } from '@/i18n/useI18n'
 
 // Debounce hook for search input
 function useDebounce<T>(value: T, delay: number): T {
@@ -42,24 +43,32 @@ function useDebounce<T>(value: T, delay: number): T {
 }
 
 // Format date for display
-function formatDate(dateString: string): string {
+function formatDate(
+  dateString: string,
+  locale: string,
+  t: (key: string, params?: Record<string, string | number | boolean>) => string
+): string {
   const date = new Date(dateString)
   const now = new Date()
   const diffMs = now.getTime() - date.getTime()
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
 
   if (diffDays === 0) {
-    return `Today at ${date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
+    return t('sessionHistory.date.todayAt', {
+      time: date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
+    })
   } else if (diffDays === 1) {
-    return `Yesterday at ${date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
+    return t('sessionHistory.date.yesterdayAt', {
+      time: date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
+    })
   } else if (diffDays < 7) {
-    return date.toLocaleDateString(undefined, {
+    return date.toLocaleDateString(locale, {
       weekday: 'long',
       hour: '2-digit',
       minute: '2-digit'
     })
   } else {
-    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+    return date.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' })
   }
 }
 
@@ -79,6 +88,7 @@ function SessionItem({
   onSelect,
   onLoad
 }: SessionItemProps): React.JSX.Element {
+  const { t, locale } = useI18n()
   return (
     <div
       className={cn(
@@ -94,7 +104,7 @@ function SessionItem({
         <div className="flex-1 min-w-0">
           {/* Session name */}
           <div className={cn('font-medium text-sm truncate', isOrphaned && 'italic')}>
-            {session.name || 'Untitled Session'}
+            {session.name || t('sessionHistory.common.untitled')}
           </div>
 
           {/* Project and worktree info */}
@@ -114,7 +124,7 @@ function SessionItem({
             {isOrphaned && (
               <span className="text-amber-500 flex items-center gap-1">
                 <AlertCircle className="h-3 w-3" />
-                Archived
+                {t('sessionHistory.common.archived')}
               </span>
             )}
           </div>
@@ -122,7 +132,7 @@ function SessionItem({
           {/* Timestamp */}
           <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
             <Clock className="h-3 w-3" />
-            {formatDate(session.updated_at)}
+            {formatDate(session.updated_at, locale, t)}
           </div>
         </div>
 
@@ -135,7 +145,7 @@ function SessionItem({
             e.stopPropagation()
             onLoad()
           }}
-          title="Load session in new tab"
+          title={t('sessionHistory.actions.loadSession')}
           data-testid="load-session-button"
         >
           <ExternalLink className="h-4 w-4" />
@@ -152,6 +162,7 @@ interface SessionPreviewProps {
 }
 
 function SessionPreview({ session, onLoad }: SessionPreviewProps): React.JSX.Element {
+  const { t, locale } = useI18n()
   const getSessionPreviewMessages = useSessionHistoryStore(
     (state) => state.getSessionPreviewMessages
   )
@@ -192,7 +203,7 @@ function SessionPreview({ session, onLoad }: SessionPreviewProps): React.JSX.Ele
       {/* Header */}
       <div className="p-4 border-b border-border">
         <h3 className={cn('font-semibold text-lg', isOrphaned && 'italic opacity-80')}>
-          {session.name || 'Untitled Session'}
+          {session.name || t('sessionHistory.common.untitled')}
         </h3>
         <div className="flex flex-col gap-1 mt-2 text-sm text-muted-foreground">
           {session.project_name && (
@@ -210,16 +221,20 @@ function SessionPreview({ session, onLoad }: SessionPreviewProps): React.JSX.Ele
           {isOrphaned && (
             <div className="flex items-center gap-2 text-amber-500">
               <AlertCircle className="h-4 w-4" />
-              This session's worktree has been archived
+              {t('sessionHistory.preview.archivedWorktree')}
             </div>
           )}
           <div className="flex items-center gap-2">
             <Calendar className="h-4 w-4" />
-            Created {formatDate(session.created_at)}
+            {t('sessionHistory.preview.created', {
+              date: formatDate(session.created_at, locale, t)
+            })}
           </div>
           <div className="flex items-center gap-2">
             <Clock className="h-4 w-4" />
-            Updated {formatDate(session.updated_at)}
+            {t('sessionHistory.preview.updated', {
+              date: formatDate(session.updated_at, locale, t)
+            })}
           </div>
         </div>
       </div>
@@ -228,7 +243,7 @@ function SessionPreview({ session, onLoad }: SessionPreviewProps): React.JSX.Ele
       <div className="flex-1 overflow-y-auto p-4">
         <div className="flex items-center gap-2 mb-3 text-sm font-medium text-muted-foreground">
           <MessageSquare className="h-4 w-4" />
-          Messages Preview
+          {t('sessionHistory.preview.messagesTitle')}
         </div>
         {isLoading ? (
           <div className="flex items-center justify-center py-8">
@@ -236,7 +251,7 @@ function SessionPreview({ session, onLoad }: SessionPreviewProps): React.JSX.Ele
           </div>
         ) : messages.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-8">
-            No messages in this session
+            {t('sessionHistory.preview.noMessages')}
           </p>
         ) : (
           <div className="space-y-3">
@@ -257,7 +272,9 @@ function SessionPreview({ session, onLoad }: SessionPreviewProps): React.JSX.Ele
               </div>
             ))}
             {messages.length >= 5 && (
-              <p className="text-xs text-muted-foreground text-center">...and more messages</p>
+              <p className="text-xs text-muted-foreground text-center">
+                {t('sessionHistory.preview.moreMessages')}
+              </p>
             )}
           </div>
         )}
@@ -267,7 +284,7 @@ function SessionPreview({ session, onLoad }: SessionPreviewProps): React.JSX.Ele
       <div className="p-4 border-t border-border">
         <Button onClick={onLoad} className="w-full" data-testid="load-session-preview-button">
           <ExternalLink className="h-4 w-4 mr-2" />
-          Load Session
+          {t('sessionHistory.actions.loadSession')}
         </Button>
       </div>
     </div>
@@ -276,14 +293,13 @@ function SessionPreview({ session, onLoad }: SessionPreviewProps): React.JSX.Ele
 
 // Empty state component
 function EmptyState({ hasFilters }: { hasFilters: boolean }): React.JSX.Element {
+  const { t } = useI18n()
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
       <Clock className="h-12 w-12 text-muted-foreground opacity-50 mb-4" />
-      <h3 className="font-medium text-lg mb-2">No sessions found</h3>
+      <h3 className="font-medium text-lg mb-2">{t('sessionHistory.empty.title')}</h3>
       <p className="text-sm text-muted-foreground max-w-xs">
-        {hasFilters
-          ? 'Try adjusting your search filters to find more sessions.'
-          : 'Start working in a worktree to create your first session.'}
+        {hasFilters ? t('sessionHistory.empty.filtered') : t('sessionHistory.empty.default')}
       </p>
     </div>
   )
@@ -291,6 +307,7 @@ function EmptyState({ hasFilters }: { hasFilters: boolean }): React.JSX.Element 
 
 // Main SessionHistory component
 export function SessionHistory(): React.JSX.Element | null {
+  const { t } = useI18n()
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Stores
@@ -373,19 +390,23 @@ export function SessionHistory(): React.JSX.Element | null {
         const result = await reopenSession(session.id, session.worktree_id)
         if (result.success) {
           closePanel()
-          toast.success(`Loaded session "${session.name || 'Untitled'}"`)
+          toast.success(
+            t('sessionHistory.toasts.loaded', {
+              name: session.name || t('sessionHistory.common.untitledShort')
+            })
+          )
         } else {
-          toast.error(result.error || 'Failed to load session')
+          toast.error(result.error || t('sessionHistory.toasts.loadError'))
         }
       } else {
         // Session is orphaned - we can still view it but need to create a new session
         // to continue the conversation
-        toast.info('This session is from an archived worktree. Opening in read-only mode.')
+        toast.info(t('sessionHistory.toasts.readOnlyArchived'))
         setActiveSession(session.id)
         closePanel()
       }
     },
-    [reopenSession, setActiveSession, closePanel]
+    [reopenSession, setActiveSession, closePanel, t]
   )
 
   // Get selected session
@@ -412,7 +433,7 @@ export function SessionHistory(): React.JSX.Element | null {
         <div className="flex-1 flex flex-col min-w-0">
           {/* Header */}
           <div className="flex items-center justify-between p-4 border-b border-border">
-            <h2 className="text-lg font-semibold">Session History</h2>
+            <h2 className="text-lg font-semibold">{t('sessionHistory.title')}</h2>
             <Button
               variant="ghost"
               size="icon"
@@ -431,16 +452,14 @@ export function SessionHistory(): React.JSX.Element | null {
               <Input
                 ref={inputRef}
                 type="text"
-                placeholder="Search title, project, or worktree..."
+                placeholder={t('sessionHistory.search.placeholder')}
                 value={filters.keyword}
                 onChange={(e) => setKeyword(e.target.value)}
                 className="pl-9"
                 data-testid="session-search-input"
               />
             </div>
-            <p className="text-xs text-muted-foreground">
-              Keyword search matches session metadata (title, project, and worktree) only.
-            </p>
+            <p className="text-xs text-muted-foreground">{t('sessionHistory.search.hint')}</p>
 
             {/* Filter row */}
             <div className="flex flex-wrap items-center gap-2">
@@ -450,13 +469,14 @@ export function SessionHistory(): React.JSX.Element | null {
                   <Button variant="outline" size="sm" className="h-8">
                     <FolderGit2 className="h-3.5 w-3.5 mr-1.5" />
                     {filters.projectId
-                      ? projects.find((p) => p.id === filters.projectId)?.name || 'Project'
-                      : 'All Projects'}
+                      ? projects.find((p) => p.id === filters.projectId)?.name ||
+                        t('sessionHistory.filters.project')
+                      : t('sessionHistory.filters.allProjects')}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" data-testid="project-filter-dropdown">
                   <DropdownMenuItem onClick={() => setProjectFilter(null)}>
-                    All Projects
+                    {t('sessionHistory.filters.allProjects')}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   {projects.map((project) => (
@@ -475,13 +495,13 @@ export function SessionHistory(): React.JSX.Element | null {
                       <GitBranch className="h-3.5 w-3.5 mr-1.5" />
                       {filters.worktreeId
                         ? availableWorktrees.find((w) => w.id === filters.worktreeId)?.name ||
-                          'Worktree'
-                        : 'All Worktrees'}
+                          t('sessionHistory.filters.worktree')
+                        : t('sessionHistory.filters.allWorktrees')}
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start" data-testid="worktree-filter-dropdown">
                     <DropdownMenuItem onClick={() => setWorktreeFilter(null)}>
-                      All Worktrees
+                      {t('sessionHistory.filters.allWorktrees')}
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     {availableWorktrees.map((worktree) => (
@@ -501,7 +521,9 @@ export function SessionHistory(): React.JSX.Element | null {
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm" className="h-8">
                     <Calendar className="h-3.5 w-3.5 mr-1.5" />
-                    {filters.dateFrom || filters.dateTo ? 'Date range' : 'Any time'}
+                    {filters.dateFrom || filters.dateTo
+                      ? t('sessionHistory.filters.dateRange')
+                      : t('sessionHistory.filters.anyTime')}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
@@ -511,7 +533,9 @@ export function SessionHistory(): React.JSX.Element | null {
                 >
                   <div className="p-2 space-y-2">
                     <div>
-                      <label className="text-xs text-muted-foreground">From</label>
+                      <label className="text-xs text-muted-foreground">
+                        {t('sessionHistory.filters.from')}
+                      </label>
                       <Input
                         type="date"
                         value={filters.dateFrom || ''}
@@ -520,7 +544,9 @@ export function SessionHistory(): React.JSX.Element | null {
                       />
                     </div>
                     <div>
-                      <label className="text-xs text-muted-foreground">To</label>
+                      <label className="text-xs text-muted-foreground">
+                        {t('sessionHistory.filters.to')}
+                      </label>
                       <Input
                         type="date"
                         value={filters.dateTo || ''}
@@ -537,7 +563,7 @@ export function SessionHistory(): React.JSX.Element | null {
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm" className="h-8">
                     <Filter className="h-3.5 w-3.5 mr-1.5" />
-                    More
+                    {t('sessionHistory.filters.more')}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" data-testid="more-filters-dropdown">
@@ -545,7 +571,7 @@ export function SessionHistory(): React.JSX.Element | null {
                     checked={filters.includeArchived}
                     onCheckedChange={setIncludeArchived}
                   >
-                    Include archived worktrees
+                    {t('sessionHistory.filters.includeArchived')}
                   </DropdownMenuCheckboxItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -559,7 +585,7 @@ export function SessionHistory(): React.JSX.Element | null {
                   onClick={clearFilters}
                   data-testid="clear-filters-button"
                 >
-                  Clear filters
+                  {t('sessionHistory.filters.clear')}
                 </Button>
               )}
             </div>
@@ -578,7 +604,13 @@ export function SessionHistory(): React.JSX.Element | null {
             ) : (
               <>
                 <div className="px-4 py-2 text-xs text-muted-foreground border-b border-border">
-                  {searchResults.length} session{searchResults.length === 1 ? '' : 's'} found
+                  {t('sessionHistory.results.count', {
+                    count: searchResults.length,
+                    label:
+                      searchResults.length === 1
+                        ? t('sessionHistory.results.sessionSingular')
+                        : t('sessionHistory.results.sessionPlural')
+                  })}
                 </div>
                 {searchResults.map((session) => {
                   const isOrphaned = !session.worktree_id || session.worktree_name === undefined

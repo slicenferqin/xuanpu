@@ -39,6 +39,7 @@ import { cn, parseColorQuad } from '@/lib/utils'
 import { toast } from '@/lib/toast'
 import { assignSessionHints } from '@/lib/hint-utils'
 import { HintBadge } from '@/components/ui/HintBadge'
+import { useI18n } from '@/i18n/useI18n'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -89,6 +90,7 @@ function SessionTab({
   onCloseToRight,
   hintCode
 }: SessionTabProps): React.JSX.Element {
+  const { t } = useI18n()
   const [isEditing, setIsEditing] = useState(false)
   const [editName, setEditName] = useState(name)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -212,7 +214,7 @@ function SessionTab({
               data-testid={`rename-input-${sessionId}`}
             />
           ) : (
-            <span className="truncate flex-1">{name || 'Untitled'}</span>
+            <span className="truncate flex-1">{name || t('sessionTabs.common.untitled')}</span>
           )}
           {hintCode && vimModeEnabled && vimMode === 'normal' && (
             <HintBadge
@@ -237,11 +239,15 @@ function SessionTab({
       </ContextMenuTrigger>
       <ContextMenuContent>
         <ContextMenuItem onSelect={(e) => onClose(e as unknown as React.MouseEvent)}>
-          Close
+          {t('sessionTabs.menu.close')}
           <ContextMenuShortcut>&#8984;W</ContextMenuShortcut>
         </ContextMenuItem>
-        <ContextMenuItem onSelect={onCloseOthers}>Close Others</ContextMenuItem>
-        <ContextMenuItem onSelect={onCloseToRight}>Close Others to the Right</ContextMenuItem>
+        <ContextMenuItem onSelect={onCloseOthers}>
+          {t('sessionTabs.menu.closeOthers')}
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={onCloseToRight}>
+          {t('sessionTabs.menu.closeToRight')}
+        </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
   )
@@ -268,6 +274,7 @@ function FileTab({
   onCloseToRight,
   relativePath
 }: FileTabProps): React.JSX.Element {
+  const { t } = useI18n()
   const isDirty = useFileViewerStore((s) => s.dirtyFiles.has(filePath))
 
   return (
@@ -324,26 +331,32 @@ function FileTab({
       </ContextMenuTrigger>
       <ContextMenuContent>
         <ContextMenuItem onSelect={(e) => onClose(e as unknown as React.MouseEvent)}>
-          Close
+          {t('sessionTabs.menu.close')}
           <ContextMenuShortcut>&#8984;W</ContextMenuShortcut>
         </ContextMenuItem>
-        <ContextMenuItem onSelect={onCloseOthers}>Close Others</ContextMenuItem>
-        <ContextMenuItem onSelect={onCloseToRight}>Close Others to the Right</ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onSelect={() => copyToClipboard(relativePath)}>
-          Copy Relative Path
+        <ContextMenuItem onSelect={onCloseOthers}>
+          {t('sessionTabs.menu.closeOthers')}
         </ContextMenuItem>
-        <ContextMenuItem onSelect={() => copyToClipboard(filePath)}>
-          Copy Absolute Path
+        <ContextMenuItem onSelect={onCloseToRight}>
+          {t('sessionTabs.menu.closeToRight')}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          onSelect={() => copyToClipboard(relativePath, t('sessionTabs.toasts.copied'))}
+        >
+          {t('sessionTabs.menu.copyRelativePath')}
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => copyToClipboard(filePath, t('sessionTabs.toasts.copied'))}>
+          {t('sessionTabs.menu.copyAbsolutePath')}
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
   )
 }
 
-function copyToClipboard(text: string) {
+function copyToClipboard(text: string, successMessage: string) {
   navigator.clipboard.writeText(text)
-  toast.success('Copied to clipboard')
+  toast.success(successMessage)
 }
 
 interface DiffTabItemProps {
@@ -365,6 +378,7 @@ function DiffTabItem({
   onCloseOthers,
   onCloseToRight
 }: DiffTabItemProps): React.JSX.Element {
+  const { t } = useI18n()
   const absolutePath = `${tab.worktreePath}/${tab.filePath}`
 
   return (
@@ -386,7 +400,7 @@ function DiffTabItem({
               ? 'bg-background text-foreground'
               : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
           )}
-          title={`${tab.filePath} (${tab.staged ? 'staged' : 'unstaged'})`}
+          title={`${tab.filePath} (${tab.staged ? t('sessionTabs.common.staged') : t('sessionTabs.common.unstaged')})`}
         >
           <GitCompareArrows className="h-3.5 w-3.5 flex-shrink-0 text-orange-400" />
           <span className="truncate flex-1">{tab.fileName}</span>
@@ -406,17 +420,25 @@ function DiffTabItem({
       </ContextMenuTrigger>
       <ContextMenuContent>
         <ContextMenuItem onSelect={(e) => onClose(e as unknown as React.MouseEvent)}>
-          Close
+          {t('sessionTabs.menu.close')}
           <ContextMenuShortcut>&#8984;W</ContextMenuShortcut>
         </ContextMenuItem>
-        <ContextMenuItem onSelect={onCloseOthers}>Close Others</ContextMenuItem>
-        <ContextMenuItem onSelect={onCloseToRight}>Close Others to the Right</ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onSelect={() => copyToClipboard(tab.filePath)}>
-          Copy Relative Path
+        <ContextMenuItem onSelect={onCloseOthers}>
+          {t('sessionTabs.menu.closeOthers')}
         </ContextMenuItem>
-        <ContextMenuItem onSelect={() => copyToClipboard(absolutePath)}>
-          Copy Absolute Path
+        <ContextMenuItem onSelect={onCloseToRight}>
+          {t('sessionTabs.menu.closeToRight')}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          onSelect={() => copyToClipboard(tab.filePath, t('sessionTabs.toasts.copied'))}
+        >
+          {t('sessionTabs.menu.copyRelativePath')}
+        </ContextMenuItem>
+        <ContextMenuItem
+          onSelect={() => copyToClipboard(absolutePath, t('sessionTabs.toasts.copied'))}
+        >
+          {t('sessionTabs.menu.copyAbsolutePath')}
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
@@ -441,6 +463,7 @@ function ConnectionSessionTab({
   connectionColor,
   connectionName
 }: ConnectionSessionTabProps): React.JSX.Element {
+  const { t } = useI18n()
   const sessionStatus = useWorktreeStatusStore(
     (state) => state.sessionStatuses[sessionId]?.status ?? null
   )
@@ -456,7 +479,7 @@ function ConnectionSessionTab({
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') onClick()
       }}
-      title={`${connectionName} — ${name || 'Untitled'}`}
+      title={`${connectionName} — ${name || t('sessionTabs.common.untitled')}`}
       className={cn(
         'group relative flex items-center gap-1.5 px-3 py-1.5 text-sm cursor-pointer select-none',
         'border-r border-border/50 transition-colors min-w-[100px] max-w-[200px]'
@@ -489,12 +512,13 @@ function ConnectionSessionTab({
         <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
       )}
 
-      <span className="truncate flex-1">{name || 'Untitled'}</span>
+      <span className="truncate flex-1">{name || t('sessionTabs.common.untitled')}</span>
     </div>
   )
 }
 
 export function SessionTabs(): React.JSX.Element | null {
+  const { t } = useI18n()
   const tabsContainerRef = useRef<HTMLDivElement>(null)
   const [showLeftArrow, setShowLeftArrow] = useState(false)
   const [showRightArrow, setShowRightArrow] = useState(false)
@@ -728,7 +752,7 @@ export function SessionTabs(): React.JSX.Element | null {
     if (isConnectionMode && selectedConnectionId) {
       const result = await createConnectionSession(selectedConnectionId)
       if (!result.success) {
-        toast.error(result.error || 'Failed to create session')
+        toast.error(result.error || t('sessionTabs.errors.createSession'))
       }
       return
     }
@@ -737,7 +761,7 @@ export function SessionTabs(): React.JSX.Element | null {
 
     const result = await createSession(selectedWorktreeId, project.id)
     if (!result.success) {
-      toast.error(result.error || 'Failed to create session')
+      toast.error(result.error || t('sessionTabs.errors.createSession'))
     }
   }
 
@@ -748,7 +772,7 @@ export function SessionTabs(): React.JSX.Element | null {
     if (isConnectionMode && selectedConnectionId) {
       const result = await createConnectionSession(selectedConnectionId, sdk)
       if (!result.success) {
-        toast.error(result.error || 'Failed to create session')
+        toast.error(result.error || t('sessionTabs.errors.createSession'))
       }
       return
     }
@@ -757,7 +781,7 @@ export function SessionTabs(): React.JSX.Element | null {
 
     const result = await createSession(selectedWorktreeId, project.id, sdk)
     if (!result.success) {
-      toast.error(result.error || 'Failed to create session')
+      toast.error(result.error || t('sessionTabs.errors.createSession'))
     }
   }
 
@@ -766,7 +790,7 @@ export function SessionTabs(): React.JSX.Element | null {
     e.stopPropagation()
     const result = await closeSession(sessionId)
     if (!result.success) {
-      toast.error(result.error || 'Failed to close session')
+      toast.error(result.error || t('sessionTabs.errors.closeSession'))
     }
   }
 
@@ -774,7 +798,7 @@ export function SessionTabs(): React.JSX.Element | null {
   const handleRenameSession = async (sessionId: string, newName: string) => {
     const success = await updateSessionName(sessionId, newName)
     if (!success) {
-      toast.error('Failed to rename session')
+      toast.error(t('sessionTabs.errors.renameSession'))
     }
   }
 
@@ -960,7 +984,7 @@ export function SessionTabs(): React.JSX.Element | null {
             onClick={handleCreateSession}
             className="p-1.5 hover:bg-accent transition-colors shrink-0 border-r border-border"
             data-testid="create-session"
-            title="Create new session (right-click for options)"
+            title={t('sessionTabs.actions.createSession')}
           >
             <Plus className="h-4 w-4" />
           </button>
@@ -968,17 +992,17 @@ export function SessionTabs(): React.JSX.Element | null {
         <ContextMenuContent>
           {availableAgentSdks?.opencode && (
             <ContextMenuItem onSelect={() => handleCreateSessionWithSdk('opencode')}>
-              New OpenCode Session
+              {t('sessionTabs.actions.newOpenCode')}
             </ContextMenuItem>
           )}
           {availableAgentSdks?.claude && (
             <ContextMenuItem onSelect={() => handleCreateSessionWithSdk('claude-code')}>
-              New Claude Code Session
+              {t('sessionTabs.actions.newClaudeCode')}
             </ContextMenuItem>
           )}
           {availableAgentSdks?.codex && (
             <ContextMenuItem onSelect={() => handleCreateSessionWithSdk('codex')}>
-              New Codex Session
+              {t('sessionTabs.actions.newCodex')}
             </ContextMenuItem>
           )}
           {(availableAgentSdks?.opencode ||
@@ -986,7 +1010,7 @@ export function SessionTabs(): React.JSX.Element | null {
             availableAgentSdks?.codex) && <ContextMenuSeparator />}
           <ContextMenuItem onSelect={() => handleCreateSessionWithSdk('terminal')}>
             <TerminalSquare className="h-4 w-4 mr-2 text-emerald-500" />
-            New Terminal
+            {t('sessionTabs.actions.newTerminal')}
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -1021,7 +1045,7 @@ export function SessionTabs(): React.JSX.Element | null {
             className="flex items-center px-3 py-1.5 text-sm text-muted-foreground"
             data-testid="no-sessions"
           >
-            No sessions yet. Click + to create one.
+            {t('sessionTabs.empty.noSessions')}
           </div>
         ) : (
           <>
@@ -1044,7 +1068,7 @@ export function SessionTabs(): React.JSX.Element | null {
                       <ConnectionSessionTab
                         key={session.id}
                         sessionId={session.id}
-                        name={session.name || 'Untitled'}
+                        name={session.name || t('sessionTabs.common.untitled')}
                         isActive={session.id === inlineConnectionSessionId && !isFileTabActive}
                         onClick={() => handleConnectionSessionTabClick(session.id)}
                         connectionColor={connection.color}
@@ -1060,7 +1084,7 @@ export function SessionTabs(): React.JSX.Element | null {
               <SessionTab
                 key={session.id}
                 sessionId={session.id}
-                name={session.name || 'Untitled'}
+                name={session.name || t('sessionTabs.common.untitled')}
                 agentSdk={session.agent_sdk}
                 isActive={
                   session.id === activeSessionId && !isFileTabActive && !inlineConnectionSessionId
@@ -1144,10 +1168,10 @@ export function SessionTabs(): React.JSX.Element | null {
                     ? 'bg-background text-foreground'
                     : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
                 )}
-                title="Worktree Context"
+                title={t('sessionTabs.context.title')}
               >
                 <FileText className="h-3.5 w-3.5 flex-shrink-0 text-emerald-400" />
-                <span className="truncate flex-1">Context</span>
+                <span className="truncate flex-1">{t('sessionTabs.context.label')}</span>
                 <button
                   onClick={(e) => {
                     e.stopPropagation()

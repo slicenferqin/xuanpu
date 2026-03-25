@@ -10,6 +10,7 @@ import { RunOutputLine } from './RunOutputLine'
 import type { SearchHighlight } from './RunOutputLine'
 import { RunOutputSearch } from './RunOutputSearch'
 import type { RunSearchMatch } from './RunOutputSearch'
+import { useI18n } from '@/i18n/useI18n'
 
 interface RunTabProps {
   worktreeId: string | null
@@ -18,6 +19,7 @@ interface RunTabProps {
 const ROW_ESTIMATE_PX = 20
 
 export function RunTab({ worktreeId }: RunTabProps): React.JSX.Element {
+  const { t } = useI18n()
   const outputRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -197,7 +199,7 @@ export function RunTab({ worktreeId }: RunTabProps): React.JSX.Element {
   if (!worktreeId) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground text-xs">
-        Select a worktree to run scripts
+        {t('runTab.empty.noWorktree')}
       </div>
     )
   }
@@ -226,7 +228,7 @@ export function RunTab({ worktreeId }: RunTabProps): React.JSX.Element {
         {lineCount === 0 && !runRunning && (
           <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground text-xs">
             {hasRunScript ? (
-              'No run output yet. Press ⌘R or click Run to start.'
+              t('runTab.empty.noOutput')
             ) : (
               <Button
                 variant="outline"
@@ -236,7 +238,7 @@ export function RunTab({ worktreeId }: RunTabProps): React.JSX.Element {
                 }}
               >
                 <Settings className="h-4 w-4 mr-2" />
-                Setup run script
+                {t('runTab.empty.setupScript')}
               </Button>
             )}
           </div>
@@ -278,12 +280,12 @@ export function RunTab({ worktreeId }: RunTabProps): React.JSX.Element {
           {runRunning ? (
             <>
               <span className="h-2 w-2 rounded-full bg-green-500 shrink-0" />
-              <span className="text-muted-foreground">Running</span>
+              <span className="text-muted-foreground">{t('runTab.status.running')}</span>
             </>
           ) : lineCount > 0 ? (
             <>
               <span className="h-2 w-2 rounded-full bg-muted-foreground shrink-0" />
-              <span className="text-muted-foreground">Stopped</span>
+              <span className="text-muted-foreground">{t('runTab.status.stopped')}</span>
             </>
           ) : null}
           {assignedPort && (
@@ -299,7 +301,7 @@ export function RunTab({ worktreeId }: RunTabProps): React.JSX.Element {
               data-testid="clear-button"
             >
               <Trash2 className="h-3 w-3" />
-              Clear
+              {t('runTab.actions.clear')}
             </button>
           )}
           {hasRunScript && (
@@ -312,7 +314,7 @@ export function RunTab({ worktreeId }: RunTabProps): React.JSX.Element {
                     data-testid="stop-button"
                   >
                     <Square className="h-3 w-3" />
-                    Stop
+                    {t('runTab.actions.stop')}
                   </button>
                   <button
                     onClick={handleRestart}
@@ -320,7 +322,7 @@ export function RunTab({ worktreeId }: RunTabProps): React.JSX.Element {
                     data-testid="restart-button"
                   >
                     <RotateCcw className="h-3 w-3" />
-                    Restart
+                    {t('runTab.actions.restart')}
                   </button>
                 </>
               ) : (
@@ -330,7 +332,7 @@ export function RunTab({ worktreeId }: RunTabProps): React.JSX.Element {
                   data-testid="run-button"
                 >
                   <Play className="h-3 w-3" />
-                  Run
+                  {t('runTab.actions.run')}
                 </button>
               )}
             </>

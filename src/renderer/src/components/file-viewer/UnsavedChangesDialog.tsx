@@ -8,6 +8,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from '@/components/ui/alert-dialog'
+import { useI18n } from '@/i18n/useI18n'
 
 interface UnsavedChangesDialogProps {
   open: boolean
@@ -24,21 +25,27 @@ export function UnsavedChangesDialog({
   onDontSave,
   onCancel
 }: UnsavedChangesDialogProps): React.JSX.Element {
+  const { t } = useI18n()
+
   return (
     <AlertDialog open={open} onOpenChange={(isOpen) => !isOpen && onCancel()}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Unsaved Changes</AlertDialogTitle>
+          <AlertDialogTitle>{t('fileViewer.unsavedChanges.title')}</AlertDialogTitle>
           <AlertDialogDescription>
-            Do you want to save changes to {fileName}?
+            {t('fileViewer.unsavedChanges.description', { fileName })}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogAction variant="destructive" onClick={onDontSave}>
-            Don&apos;t Save
+            {t('fileViewer.unsavedChanges.dontSave')}
           </AlertDialogAction>
-          <AlertDialogCancel onClick={onCancel}>Cancel</AlertDialogCancel>
-          <AlertDialogAction onClick={onSave}>Save</AlertDialogAction>
+          <AlertDialogCancel onClick={onCancel}>
+            {t('fileViewer.unsavedChanges.cancel')}
+          </AlertDialogCancel>
+          <AlertDialogAction onClick={onSave}>
+            {t('fileViewer.unsavedChanges.save')}
+          </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

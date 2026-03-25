@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { MarkdownRenderer } from '@/components/sessions/MarkdownRenderer'
 import { useFileViewerStore } from '@/stores/useFileViewerStore'
 import { toast } from '@/lib/toast'
+import { useI18n } from '@/i18n/useI18n'
 
 interface WorktreeContextEditorProps {
   worktreeId: string
@@ -12,6 +13,7 @@ interface WorktreeContextEditorProps {
 export function WorktreeContextEditor({
   worktreeId
 }: WorktreeContextEditorProps): React.JSX.Element {
+  const { t } = useI18n()
   const [content, setContent] = useState('')
   const [savedContent, setSavedContent] = useState('')
   const [isEditing, setIsEditing] = useState(false)
@@ -38,7 +40,7 @@ export function WorktreeContextEditor({
         }
       } catch {
         if (!cancelled) {
-          toast.error('Failed to load worktree context')
+          toast.error(t('worktreeContext.toasts.loadError'))
         }
       } finally {
         if (!cancelled) {
@@ -50,7 +52,7 @@ export function WorktreeContextEditor({
     return () => {
       cancelled = true
     }
-  }, [worktreeId])
+  }, [worktreeId, t])
 
   const handleSave = useCallback(async () => {
     setIsSaving(true)
@@ -58,16 +60,16 @@ export function WorktreeContextEditor({
       const result = await window.worktreeOps.updateContext(worktreeId, content || null)
       if (result.success) {
         setSavedContent(content)
-        toast.success('Context saved')
+        toast.success(t('worktreeContext.toasts.saved'))
       } else {
-        toast.error(result.error || 'Failed to save context')
+        toast.error(result.error || t('worktreeContext.toasts.saveError'))
       }
     } catch {
-      toast.error('Failed to save context')
+      toast.error(t('worktreeContext.toasts.saveError'))
     } finally {
       setIsSaving(false)
     }
-  }, [worktreeId, content])
+  }, [worktreeId, content, t])
 
   // Save on Cmd+S / Ctrl+S
   useEffect(() => {
@@ -88,11 +90,11 @@ export function WorktreeContextEditor({
 
   const handleClose = useCallback(() => {
     if (hasUnsavedChanges) {
-      const confirmed = window.confirm('You have unsaved changes. Discard them?')
+      const confirmed = window.confirm(t('worktreeContext.confirmDiscard'))
       if (!confirmed) return
     }
     useFileViewerStore.getState().closeContextEditor()
-  }, [hasUnsavedChanges])
+  }, [hasUnsavedChanges, t])
 
   if (isLoading) {
     return (
@@ -110,11 +112,11 @@ export function WorktreeContextEditor({
       <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-muted/30">
         {/* Left: icon + title + unsaved indicator */}
         <FileText className="h-4 w-4 text-emerald-400 flex-shrink-0" />
-        <span className="text-sm font-bold">Worktree Context</span>
+        <span className="text-sm font-bold">{t('worktreeContext.title')}</span>
         {hasUnsavedChanges && isEditing && (
           <span
             className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0"
-            title="Unsaved changes"
+            title={t('worktreeContext.unsaved')}
           />
         )}
 
@@ -130,7 +132,7 @@ export function WorktreeContextEditor({
             onClick={() => setIsEditing(false)}
           >
             <Eye className="h-3.5 w-3.5" />
-            Preview
+            {t('worktreeContext.preview')}
           </Button>
           <Button
             variant={isEditing ? 'secondary' : 'ghost'}
@@ -139,7 +141,7 @@ export function WorktreeContextEditor({
             onClick={() => setIsEditing(true)}
           >
             <Pencil className="h-3.5 w-3.5" />
-            Edit
+            {t('worktreeContext.edit')}
           </Button>
         </div>
 
@@ -147,7 +149,7 @@ export function WorktreeContextEditor({
         <button
           onClick={handleClose}
           className="p-1 rounded hover:bg-accent transition-colors"
-          title="Close"
+          title={t('worktreeContext.close')}
         >
           <X className="h-4 w-4" />
         </button>
@@ -159,9 +161,7 @@ export function WorktreeContextEditor({
           <textarea
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            placeholder={
-              'Enter worktree context here. This markdown will be injected into the first prompt of each new AI session.\n\nExample:\n## Feature: User Authentication\n- Working on login/signup flow\n- Backend API at /api/auth\n- Using JWT tokens'
-            }
+            placeholder={t('worktreeContext.placeholder')}
             className="w-full h-full resize-none bg-transparent font-mono text-sm p-4 focus:outline-none"
           />
         ) : content ? (
@@ -170,8 +170,7 @@ export function WorktreeContextEditor({
           </div>
         ) : (
           <div className="flex items-center justify-center h-full text-sm text-muted-foreground px-8 text-center">
-            No worktree context set. Click Edit to add context that will be injected into AI
-            sessions.
+            {t('worktreeContext.empty')}
           </div>
         )}
       </div>
@@ -190,7 +189,7 @@ export function WorktreeContextEditor({
             ) : (
               <Save className="h-3.5 w-3.5" />
             )}
-            Save Context
+            {t('worktreeContext.save')}
           </Button>
         </div>
       )}

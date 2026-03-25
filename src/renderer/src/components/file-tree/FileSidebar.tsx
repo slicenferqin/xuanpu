@@ -8,6 +8,7 @@ import { FileTree } from './FileTree'
 import { ChangesView } from './ChangesView'
 import { BranchDiffView } from './BranchDiffView'
 import { PrReviewViewer } from '@/components/pr-review/PrReviewViewer'
+import { useI18n } from '@/i18n/useI18n'
 
 interface ConnectionMemberInfo {
   worktree_path: string
@@ -32,6 +33,7 @@ export function FileSidebar({
   onFileClick,
   className
 }: FileSidebarProps): React.JSX.Element {
+  const { t, supportsFirstCharHint } = useI18n()
   const [activeTab, setActiveTab] = useState<'changes' | 'files' | 'diffs' | 'comments'>('changes')
   const vimModeEnabled = useSettingsStore((s) => s.vimModeEnabled)
   const selectedWorktreeId = useWorktreeStore((s) => s.selectedWorktreeId)
@@ -70,12 +72,12 @@ export function FileSidebar({
           )}
           onClick={() => setActiveTab('changes')}
         >
-          {vimModeEnabled ? (
+          {vimModeEnabled && supportsFirstCharHint ? (
             <>
               <span className="text-primary">C</span>hanges
             </>
           ) : (
-            'Changes'
+            t('fileTree.sidebar.changes')
           )}
           {activeTab === 'changes' && (
             <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
@@ -90,12 +92,12 @@ export function FileSidebar({
           )}
           onClick={() => setActiveTab('files')}
         >
-          {vimModeEnabled ? (
+          {vimModeEnabled && supportsFirstCharHint ? (
             <>
               <span className="text-primary">F</span>iles
             </>
           ) : (
-            'Files'
+            t('fileTree.sidebar.files')
           )}
           {activeTab === 'files' && (
             <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
@@ -110,12 +112,12 @@ export function FileSidebar({
           )}
           onClick={() => setActiveTab('diffs')}
         >
-          {vimModeEnabled ? (
+          {vimModeEnabled && supportsFirstCharHint ? (
             <>
               <span className="text-primary">D</span>iffs
             </>
           ) : (
-            'Diffs'
+            t('fileTree.sidebar.diffs')
           )}
           {activeTab === 'diffs' && (
             <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
@@ -131,12 +133,12 @@ export function FileSidebar({
             )}
             onClick={() => setActiveTab('comments')}
           >
-            {vimModeEnabled ? (
+            {vimModeEnabled && supportsFirstCharHint ? (
               <>
                 C<span className="text-primary">o</span>mments
               </>
             ) : (
-              'Comments'
+              t('fileTree.sidebar.comments')
             )}
             {activeTab === 'comments' && (
               <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
@@ -147,7 +149,7 @@ export function FileSidebar({
         <button
           onClick={onClose}
           className="p-1 text-muted-foreground hover:text-foreground rounded"
-          aria-label="Close sidebar"
+          aria-label={t('fileTree.sidebar.closeSidebar')}
         >
           <X className="h-3.5 w-3.5" />
         </button>

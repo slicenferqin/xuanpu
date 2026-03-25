@@ -21,8 +21,10 @@ import {
   DialogFooter,
   DialogDescription
 } from '@/components/ui/dialog'
+import { useI18n } from '@/i18n/useI18n'
 
 export function SpacesTabBar(): React.JSX.Element {
+  const { t } = useI18n()
   const spaces = useSpaceStore((s) => s.spaces)
   const activeSpaceId = useSpaceStore((s) => s.activeSpaceId)
   const setActiveSpace = useSpaceStore((s) => s.setActiveSpace)
@@ -138,7 +140,7 @@ export function SpacesTabBar(): React.JSX.Element {
               : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
           )}
           onClick={() => setActiveSpace(null)}
-          title="All projects"
+          title={t('spaces.allProjects')}
           data-testid="space-tab-all"
         >
           <LayoutGrid className="h-3 w-3" />
@@ -176,11 +178,11 @@ export function SpacesTabBar(): React.JSX.Element {
               <ContextMenuContent className="w-40">
                 <ContextMenuItem onClick={() => handleOpenEdit(space)}>
                   <Pencil className="h-4 w-4 mr-2" />
-                  Rename
+                  {t('spaces.menu.rename')}
                 </ContextMenuItem>
                 <ContextMenuItem onClick={() => handleOpenEdit(space)}>
                   <Palette className="h-4 w-4 mr-2" />
-                  Change Icon
+                  {t('spaces.menu.changeIcon')}
                 </ContextMenuItem>
                 <ContextMenuSeparator />
                 <ContextMenuItem
@@ -188,7 +190,7 @@ export function SpacesTabBar(): React.JSX.Element {
                   className="text-destructive focus:text-destructive focus:bg-destructive/10"
                 >
                   <Trash2 className="h-4 w-4 mr-2" />
-                  Delete
+                  {t('spaces.menu.delete')}
                 </ContextMenuItem>
               </ContextMenuContent>
             </ContextMenu>
@@ -200,7 +202,7 @@ export function SpacesTabBar(): React.JSX.Element {
           type="button"
           className="flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors cursor-pointer shrink-0"
           onClick={() => setCreateOpen(true)}
-          title="Create space"
+          title={t('spaces.createSpace')}
           data-testid="space-add-button"
         >
           <Plus className="h-3 w-3" />
@@ -211,16 +213,18 @@ export function SpacesTabBar(): React.JSX.Element {
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Create Space</DialogTitle>
-            <DialogDescription>Organize your projects into spaces.</DialogDescription>
+            <DialogTitle>{t('spaces.dialogs.createTitle')}</DialogTitle>
+            <DialogDescription>{t('spaces.dialogs.createDescription')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <label className="text-xs font-medium text-muted-foreground">Name</label>
+              <label className="text-xs font-medium text-muted-foreground">
+                {t('spaces.dialogs.fields.name')}
+              </label>
               <Input
                 value={createName}
                 onChange={(e) => setCreateName(e.target.value)}
-                placeholder="e.g. Work, Side Projects"
+                placeholder={t('spaces.dialogs.namePlaceholder')}
                 className="mt-1"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleCreate()
@@ -229,7 +233,9 @@ export function SpacesTabBar(): React.JSX.Element {
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-muted-foreground">Icon</label>
+              <label className="text-xs font-medium text-muted-foreground">
+                {t('spaces.dialogs.fields.icon')}
+              </label>
               <div className="mt-1">
                 <SpaceIconPicker
                   selectedValue={createIconValue}
@@ -243,10 +249,10 @@ export function SpacesTabBar(): React.JSX.Element {
           </div>
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => setCreateOpen(false)}>
-              Cancel
+              {t('spaces.dialogs.cancel')}
             </Button>
             <Button size="sm" onClick={handleCreate} disabled={!createName.trim()}>
-              Create
+              {t('spaces.dialogs.create')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -256,12 +262,14 @@ export function SpacesTabBar(): React.JSX.Element {
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Edit Space</DialogTitle>
-            <DialogDescription>Update the space name or icon.</DialogDescription>
+            <DialogTitle>{t('spaces.dialogs.editTitle')}</DialogTitle>
+            <DialogDescription>{t('spaces.dialogs.editDescription')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <label className="text-xs font-medium text-muted-foreground">Name</label>
+              <label className="text-xs font-medium text-muted-foreground">
+                {t('spaces.dialogs.fields.name')}
+              </label>
               <Input
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
@@ -273,7 +281,9 @@ export function SpacesTabBar(): React.JSX.Element {
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-muted-foreground">Icon</label>
+              <label className="text-xs font-medium text-muted-foreground">
+                {t('spaces.dialogs.fields.icon')}
+              </label>
               <div className="mt-1">
                 <SpaceIconPicker
                   selectedValue={editIconValue}
@@ -287,10 +297,10 @@ export function SpacesTabBar(): React.JSX.Element {
           </div>
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => setEditOpen(false)}>
-              Cancel
+              {t('spaces.dialogs.cancel')}
             </Button>
             <Button size="sm" onClick={handleSaveEdit} disabled={!editName.trim()}>
-              Save
+              {t('spaces.dialogs.save')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -11,6 +11,7 @@ import { useFileViewerStore } from '@/stores/useFileViewerStore'
 import { useWorktreeStore } from '@/stores/useWorktreeStore'
 import { useGitStore } from '@/stores/useGitStore'
 import { isBinaryImageFile, isSvgFile, getImageMimeType } from '@shared/types/file-utils'
+import { useI18n } from '@/i18n/useI18n'
 
 // Time window after a save during which file watcher events are suppressed
 // to avoid treating our own writes as external changes.
@@ -26,6 +27,7 @@ interface FileViewerProps {
 }
 
 export function FileViewer({ filePath }: FileViewerProps): React.JSX.Element {
+  const { t } = useI18n()
   const [content, setContent] = useState<string | null>(null)
   const [imageDataUri, setImageDataUri] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -54,7 +56,7 @@ export function FileViewer({ filePath }: FileViewerProps): React.JSX.Element {
         if (result.success && result.data) {
           setImageDataUri(`data:${mimeType};base64,${result.data}`)
         } else {
-          setError(result.error || 'Failed to read image')
+          setError(result.error || t('fileViewer.errors.readImage'))
         }
         setIsLoading(false)
       })
@@ -70,7 +72,7 @@ export function FileViewer({ filePath }: FileViewerProps): React.JSX.Element {
             )
           }
         } else {
-          setError(result.error || 'Failed to read file')
+          setError(result.error || t('fileViewer.errors.readFile'))
         }
         setIsLoading(false)
       })
@@ -79,7 +81,7 @@ export function FileViewer({ filePath }: FileViewerProps): React.JSX.Element {
     return () => {
       cancelled = true
     }
-  }, [filePath, isBinaryImage, isSvg])
+  }, [filePath, isBinaryImage, isSvg, t])
 
   const [reloadKey, setReloadKey] = useState(0)
   const lastSaveTimestampRef = useRef<number>(0)
@@ -96,7 +98,7 @@ export function FileViewer({ filePath }: FileViewerProps): React.JSX.Element {
       lastSaveTimestampRef.current = Date.now()
       const result = await window.fileOps.writeFile(filePath, newContent)
       if (result.success) {
-        toast.success('File saved')
+        toast.success(t('fileViewer.toasts.saved'))
         const store = useFileViewerStore.getState()
         store.markClean(filePath)
         store.setOriginalContent(filePath, newContent)
@@ -110,10 +112,10 @@ export function FileViewer({ filePath }: FileViewerProps): React.JSX.Element {
           }
         }
       } else {
-        toast.error('Failed to save: ' + result.error)
+        toast.error(t('fileViewer.toasts.saveError', { error: result.error || '' }))
       }
     },
-    [filePath]
+    [filePath, t]
   )
 
   const handleContentChange = useCallback(
@@ -249,7 +251,7 @@ export function FileViewer({ filePath }: FileViewerProps): React.JSX.Element {
       <div className="flex-1 flex items-center justify-center" data-testid="file-viewer-loading">
         <div className="text-center">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto" />
-          <p className="text-sm text-muted-foreground mt-2">Loading file...</p>
+          <p className="text-sm text-muted-foreground mt-2">{t('fileViewer.loading')}</p>
         </div>
       </div>
     )
@@ -259,7 +261,7 @@ export function FileViewer({ filePath }: FileViewerProps): React.JSX.Element {
     return (
       <div className="flex-1 flex items-center justify-center" data-testid="file-viewer-error">
         <div className="text-center text-destructive">
-          <p className="text-sm font-medium">Error loading file</p>
+          <p className="text-sm font-medium">{t('fileViewer.errorTitle')}</p>
           <p className="text-xs mt-1 opacity-75">{error}</p>
         </div>
       </div>
@@ -269,7 +271,7 @@ export function FileViewer({ filePath }: FileViewerProps): React.JSX.Element {
   if (content === null && !imageDataUri) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-sm text-muted-foreground">No content</p>
+        <p className="text-sm text-muted-foreground">{t('fileViewer.noContent')}</p>
       </div>
     )
   }
@@ -291,7 +293,7 @@ export function FileViewer({ filePath }: FileViewerProps): React.JSX.Element {
               )}
               data-testid="source-toggle"
             >
-              Source
+              {t('fileViewer.source')}
             </button>
             <button
               onClick={() => setViewMode('preview')}
@@ -301,7 +303,7 @@ export function FileViewer({ filePath }: FileViewerProps): React.JSX.Element {
               )}
               data-testid="preview-toggle"
             >
-              Preview
+              {t('fileViewer.preview')}
             </button>
           </div>
         )}

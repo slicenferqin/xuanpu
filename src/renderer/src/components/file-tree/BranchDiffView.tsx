@@ -5,6 +5,7 @@ import { useGitStore } from '@/stores/useGitStore'
 import { useFileViewerStore } from '@/stores/useFileViewerStore'
 import { FileIcon } from './FileIcon'
 import { GitStatusIndicator, type GitStatusCode } from './GitStatusIndicator'
+import { useI18n } from '@/i18n/useI18n'
 
 interface BranchDiffViewProps {
   worktreePath: string | null
@@ -29,6 +30,7 @@ function toGitStatusCode(raw: string): GitStatusCode {
 }
 
 export function BranchDiffView({ worktreePath }: BranchDiffViewProps): React.JSX.Element {
+  const { t } = useI18n()
   const selectedDiffBranch = useGitStore((state) => state.selectedDiffBranch)
   const setSelectedDiffBranch = useGitStore((state) => state.setSelectedDiffBranch)
 
@@ -74,16 +76,16 @@ export function BranchDiffView({ worktreePath }: BranchDiffViewProps): React.JSX
         setDiffError(null)
       } else {
         setFiles([])
-        setDiffError(result.error || 'Failed to load diff files')
+        setDiffError(result.error || t('fileTree.branchDiff.loadError'))
       }
     } catch (error) {
       console.error('Failed to load branch diff files:', error)
       setFiles([])
-      setDiffError(error instanceof Error ? error.message : 'Failed to load diff files')
+      setDiffError(error instanceof Error ? error.message : t('fileTree.branchDiff.loadError'))
     } finally {
       setIsLoadingFiles(false)
     }
-  }, [worktreePath, selectedBranch])
+  }, [worktreePath, selectedBranch, t])
 
   // Initial load of branches
   useEffect(() => {
@@ -166,7 +168,11 @@ export function BranchDiffView({ worktreePath }: BranchDiffViewProps): React.JSX
   }, [branches, searchFilter])
 
   if (!worktreePath) {
-    return <div className="p-4 text-sm text-muted-foreground text-center">No worktree selected</div>
+    return (
+      <div className="p-4 text-sm text-muted-foreground text-center">
+        {t('fileTree.branchDiff.noWorktree')}
+      </div>
+    )
   }
 
   return (
@@ -184,7 +190,7 @@ export function BranchDiffView({ worktreePath }: BranchDiffViewProps): React.JSX
         >
           <GitBranch className="h-3 w-3 text-muted-foreground shrink-0" />
           <span className="truncate flex-1 text-left">
-            {selectedBranch || 'Select branch to compare...'}
+            {selectedBranch || t('fileTree.branchDiff.selectBranch')}
           </span>
           <ChevronDown
             className={cn(
@@ -203,7 +209,7 @@ export function BranchDiffView({ worktreePath }: BranchDiffViewProps): React.JSX
                 ref={searchInputRef}
                 type="text"
                 className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
-                placeholder="Filter branches..."
+                placeholder={t('fileTree.branchDiff.filterBranches')}
                 value={searchFilter}
                 onChange={(e) => setSearchFilter(e.target.value)}
               />
@@ -214,7 +220,7 @@ export function BranchDiffView({ worktreePath }: BranchDiffViewProps): React.JSX
               {filteredBranches.local.length > 0 && (
                 <div>
                   <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-                    Local
+                    {t('fileTree.branchDiff.local')}
                   </div>
                   {filteredBranches.local.map((branch) => (
                     <button
@@ -229,7 +235,7 @@ export function BranchDiffView({ worktreePath }: BranchDiffViewProps): React.JSX
                       <span className="truncate">{branch.name}</span>
                       {branch.isCheckedOut && (
                         <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
-                          current
+                          {t('fileTree.branchDiff.current')}
                         </span>
                       )}
                     </button>
@@ -240,7 +246,7 @@ export function BranchDiffView({ worktreePath }: BranchDiffViewProps): React.JSX
               {filteredBranches.remote.length > 0 && (
                 <div>
                   <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-                    Remote
+                    {t('fileTree.branchDiff.remote')}
                   </div>
                   {filteredBranches.remote.map((branch) => (
                     <button
@@ -260,7 +266,7 @@ export function BranchDiffView({ worktreePath }: BranchDiffViewProps): React.JSX
 
               {filteredBranches.local.length === 0 && filteredBranches.remote.length === 0 && (
                 <div className="px-2 py-3 text-xs text-muted-foreground text-center">
-                  No branches found
+                  {t('fileTree.branchDiff.noBranches')}
                 </div>
               )}
             </div>
@@ -271,11 +277,11 @@ export function BranchDiffView({ worktreePath }: BranchDiffViewProps): React.JSX
       {/* File list */}
       {!selectedBranch ? (
         <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground">
-          Select a branch to see differences
+          {t('fileTree.branchDiff.selectBranchToSeeDifferences')}
         </div>
       ) : isLoadingFiles ? (
         <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground">
-          Loading...
+          {t('fileTree.branchDiff.loading')}
         </div>
       ) : diffError ? (
         <div className="flex-1 flex items-center justify-center text-xs text-destructive px-4 text-center">
@@ -283,7 +289,7 @@ export function BranchDiffView({ worktreePath }: BranchDiffViewProps): React.JSX
         </div>
       ) : files.length === 0 ? (
         <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground">
-          No differences
+          {t('fileTree.branchDiff.noDifferences')}
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto">
@@ -318,8 +324,14 @@ export function BranchDiffView({ worktreePath }: BranchDiffViewProps): React.JSX
       <div className="flex items-center justify-between px-2 py-1 border-t border-border bg-muted/30">
         <span className="text-[10px] text-muted-foreground">
           {selectedBranch
-            ? `${files.length} file${files.length === 1 ? '' : 's'} changed`
-            : 'No branch selected'}
+            ? t('fileTree.branchDiff.changedCount', {
+                count: files.length,
+                label:
+                  files.length === 1
+                    ? t('fileTree.branchDiff.fileSingular')
+                    : t('fileTree.branchDiff.filePlural')
+              })
+            : t('fileTree.branchDiff.noBranchSelected')}
         </span>
         <button
           className={cn(
@@ -328,7 +340,7 @@ export function BranchDiffView({ worktreePath }: BranchDiffViewProps): React.JSX
           )}
           onClick={handleRefresh}
           disabled={isLoadingFiles}
-          title="Refresh"
+          title={t('fileTree.branchDiff.refresh')}
         >
           <RefreshCw className="h-3 w-3" />
         </button>

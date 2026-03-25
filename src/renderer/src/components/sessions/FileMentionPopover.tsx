@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
 import { FileIcon } from '@/components/file-tree/FileIcon'
 import type { FlatFile } from '@/lib/file-search-utils'
+import { useI18n } from '@/i18n/useI18n'
 
 interface FileMentionPopoverProps {
   suggestions: FlatFile[]
@@ -20,6 +21,7 @@ export function FileMentionPopover({
   onClose,
   onNavigate
 }: FileMentionPopoverProps): React.JSX.Element | null {
+  const { t } = useI18n()
   const listRef = useRef<HTMLDivElement>(null)
 
   // Scroll selected item into view
@@ -78,7 +80,9 @@ export function FileMentionPopover({
         className="mx-3 rounded-lg border bg-popover text-popover-foreground shadow-md max-h-48 overflow-y-auto"
       >
         {suggestions.length === 0 ? (
-          <div className="px-3 py-2 text-xs text-muted-foreground">No files found</div>
+          <div className="px-3 py-2 text-xs text-muted-foreground">
+            {t('fileMentionPopover.noFiles')}
+          </div>
         ) : (
           suggestions.map((file, index) => (
             <div

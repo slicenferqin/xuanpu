@@ -10,6 +10,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from '@/components/ui/alert-dialog'
+import { useI18n } from '@/i18n/useI18n'
 
 interface CodexFastToggleProps {
   enabled: boolean
@@ -24,6 +25,7 @@ export function CodexFastToggle({
   onToggle,
   onAccept
 }: CodexFastToggleProps): React.JSX.Element {
+  const { t } = useI18n()
   const [showConfirm, setShowConfirm] = useState(false)
 
   const handleClick = (): void => {
@@ -40,7 +42,9 @@ export function CodexFastToggle({
         type="button"
         onClick={handleClick}
         aria-pressed={enabled}
-        aria-label={`Fast mode ${enabled ? 'enabled' : 'disabled'}`}
+        aria-label={t('codexFastToggle.ariaLabel', {
+          state: enabled ? t('codexFastToggle.enabled') : t('codexFastToggle.disabled')
+        })}
         data-testid="codex-fast-toggle"
         className={cn(
           'flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors',
@@ -50,19 +54,19 @@ export function CodexFastToggle({
             : 'bg-muted/50 border-border text-muted-foreground hover:bg-muted hover:text-foreground'
         )}
       >
-        Fast
+        {t('codexFastToggle.label')}
       </button>
 
       <AlertDialog open={showConfirm} onOpenChange={(open) => !open && setShowConfirm(false)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Fast Mode</AlertDialogTitle>
-            <AlertDialogDescription>
-              Fast mode consumes 2X the usage from your plan.
-            </AlertDialogDescription>
+            <AlertDialogTitle>{t('codexFastToggle.title')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('codexFastToggle.description')}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setShowConfirm(false)}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => setShowConfirm(false)}>
+              {t('codexFastToggle.cancel')}
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 onAccept()
@@ -70,7 +74,7 @@ export function CodexFastToggle({
                 setShowConfirm(false)
               }}
             >
-              Accept
+              {t('codexFastToggle.accept')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -3,6 +3,7 @@ import { TerminalView } from '@/components/terminal/TerminalView'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useWorktreeStore } from '@/stores/useWorktreeStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
+import { useI18n } from '@/i18n/useI18n'
 
 interface SessionTerminalViewProps {
   sessionId: string
@@ -19,6 +20,7 @@ export function SessionTerminalView({
   sessionId,
   isVisible = true
 }: SessionTerminalViewProps): React.JSX.Element {
+  const { t } = useI18n()
   // Look up the session to find its worktree_id or connection_id
   const session = useSessionStore((state) => {
     for (const sessions of state.sessionsByWorktree.values()) {
@@ -73,7 +75,7 @@ export function SessionTerminalView({
   if (!cwd) {
     return (
       <div className="flex-1 flex items-center justify-center text-muted-foreground">
-        <p className="text-sm">Loading terminal...</p>
+        <p className="text-sm">{t('sessionTerminalView.loading')}</p>
       </div>
     )
   }

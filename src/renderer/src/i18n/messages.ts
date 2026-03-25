@@ -278,7 +278,102 @@ export const messages: Record<AppLocale, MessageTree> = {
       },
       fileCount: '{count} files'
     },
+    fileMentionPopover: {
+      noFiles: 'No files found'
+    },
     fileTree: {
+      ariaLabel: 'File tree',
+      header: {
+        title: 'Files',
+        collapseAll: 'Collapse all folders',
+        refresh: 'Refresh file tree',
+        closeSidebar: 'Close sidebar'
+      },
+      filter: {
+        placeholder: 'Filter files...',
+        clear: 'Clear filter'
+      },
+      sidebar: {
+        changes: 'Changes',
+        files: 'Files',
+        diffs: 'Diffs',
+        comments: 'Comments',
+        closeSidebar: 'Close sidebar'
+      },
+      empty: {
+        noWorktreeTitle: 'Select a worktree',
+        noWorktreeHint: 'to view its files',
+        errorTitle: 'Error loading files',
+        loading: 'Loading files...',
+        loadingAria: 'Loading files',
+        noFiles: 'No files found'
+      },
+      branchDiff: {
+        noWorktree: 'No worktree selected',
+        selectBranch: 'Select branch to compare...',
+        filterBranches: 'Filter branches...',
+        local: 'Local',
+        remote: 'Remote',
+        current: 'current',
+        noBranches: 'No branches found',
+        selectBranchToSeeDifferences: 'Select a branch to see differences',
+        loading: 'Loading...',
+        noDifferences: 'No differences',
+        loadError: 'Failed to load diff files',
+        changedCount: '{count} {label} changed',
+        fileSingular: 'file',
+        filePlural: 'files',
+        noBranchSelected: 'No branch selected',
+        refresh: 'Refresh'
+      },
+      changes: {
+        noWorktree: 'No worktree selected',
+        refresh: 'Refresh git status',
+        refreshAll: 'Refresh all',
+        branchLoading: 'Loading...',
+        noChanges: 'No changes',
+        mergeConflicts: 'Merge Conflicts',
+        stagedChanges: 'Staged Changes',
+        changes: 'Changes',
+        untracked: 'Untracked',
+        markResolved: 'Mark as Resolved',
+        openDiff: 'Open Diff',
+        unstage: 'Unstage',
+        stage: 'Stage',
+        discardChanges: 'Discard Changes',
+        delete: 'Delete',
+        addToGitignore: 'Add to .gitignore',
+        stageAll: 'Stage All',
+        unstageAll: 'Unstage All',
+        discard: 'Discard',
+        stageAllTitle: 'Stage all files',
+        unstageAllTitle: 'Unstage all files',
+        discardAllTitle: 'Discard all changes',
+        clean: 'clean',
+        connectionNoChanges: 'No changes',
+        connectionSummary: '{files} {fileLabel} across {repos} {repoLabel}',
+        fileSingular: 'file',
+        filePlural: 'files',
+        repoSingular: 'repo',
+        repoPlural: 'repos',
+        aheadTooltip: '{count} commit(s) ahead',
+        behindTooltip: '{count} commit(s) behind',
+        toasts: {
+          stageAllSuccess: 'All changes staged',
+          stageAllError: 'Failed to stage changes',
+          unstageAllSuccess: 'All changes unstaged',
+          unstageAllError: 'Failed to unstage changes',
+          discardAllSuccess: 'Discarded {count} change(s)',
+          discardPartial: 'Discarded {success}/{total} changes',
+          discardAllError: 'Failed to discard changes',
+          stageFileError: 'Failed to stage {path}',
+          unstageFileError: 'Failed to unstage {path}',
+          discardFileSuccess: 'Discarded changes to {path}',
+          discardFileError: 'Failed to discard {path}',
+          addToGitignoreSuccess: 'Added {path} to .gitignore',
+          addToGitignoreError: 'Failed to add to .gitignore'
+        }
+      },
       gitStatus: {
         modified: 'Modified',
         staged: 'Staged',
@@ -286,6 +381,33 @@ export const messages: Record<AppLocale, MessageTree> = {
         untracked: 'Untracked',
         conflicted: 'Conflicted',
         stagedSuffix: ' (staged)'
+      }
+    },
+    fileViewer: {
+      loading: 'Loading file...',
+      errorTitle: 'Error loading file',
+      noContent: 'No content',
+      source: 'Source',
+      preview: 'Preview',
+      errors: {
+        readImage: 'Failed to read image',
+        readFile: 'Failed to read file'
+      },
+      toasts: {
+        saved: 'File saved',
+        saveError: 'Failed to save: {error}'
+      },
+      externalChanges: {
+        message: 'This file has been changed on disk.',
+        keepMine: 'Keep Mine',
+        reload: 'Reload'
+      },
+      unsavedChanges: {
+        title: 'Unsaved Changes',
+        description: 'Do you want to save changes to {fileName}?',
+        dontSave: "Don't Save",
+        cancel: 'Cancel',
+        save: 'Save'
       }
     },
     terminalToolbar: {
@@ -491,6 +613,294 @@ export const messages: Record<AppLocale, MessageTree> = {
     },
     connectionList: {
       title: 'Connections'
+    },
+    spaces: {
+      allProjects: 'All projects',
+      createSpace: 'Create space',
+      menu: {
+        rename: 'Rename',
+        changeIcon: 'Change Icon',
+        delete: 'Delete'
+      },
+      dialogs: {
+        createTitle: 'Create Space',
+        createDescription: 'Organize your projects into spaces.',
+        editTitle: 'Edit Space',
+        editDescription: 'Update the space name or icon.',
+        fields: {
+          name: 'Name',
+          icon: 'Icon'
+        },
+        namePlaceholder: 'e.g. Work, Side Projects',
+        cancel: 'Cancel',
+        create: 'Create',
+        save: 'Save'
+      },
+      iconPicker: {
+        search: 'Search icons...',
+        noMatches: 'No icons match'
+      }
+    },
+    mainPane: {
+      welcomeTitle: 'Welcome to Hive',
+      welcomeDescription: 'Select a project or worktree to get started.',
+      loadingSessions: 'Loading sessions...',
+      noActiveSessionTitle: 'No active session',
+      noActiveSessionDescription: 'Click the + button above to create a new session.'
+    },
+    agentPicker: {
+      title: 'Choose Your AI Agent',
+      description:
+        'Multiple AI agents are installed. Choose which one to use as the default for new sessions. You can change this later in Settings.',
+      agents: {
+        opencode: {
+          title: 'OpenCode',
+          description: 'Open-source AI coding agent'
+        },
+        claude: {
+          title: 'Claude Code',
+          description: "Anthropic's coding assistant"
+        },
+        codex: {
+          title: 'Codex',
+          description: "OpenAI's coding agent"
+        }
+      }
+    },
+    sessionView: {
+      loading: {
+        title: 'Connecting to session...',
+        subtitle: 'This may take a moment'
+      },
+      error: {
+        title: 'Connection Error',
+        retry: 'Retry Connection',
+        fallback: 'Failed to connect to session'
+      },
+      empty: {
+        title: 'Start a conversation',
+        subtitle: 'Type a message below to begin',
+        connectingOpencode: 'Connecting to OpenCode...',
+        noWorktree: 'No worktree selected'
+      },
+      revert: {
+        summarySingular: '1 message reverted',
+        summaryPlural: '{count} messages reverted',
+        restore: '/redo to restore'
+      },
+      sessionError: {
+        title: 'Session error'
+      },
+      retry: {
+        withCountdown: 'Retrying in {seconds}s (attempt {attempt})',
+        withoutCountdown: 'Retrying (attempt {attempt})'
+      }
+    },
+    sessionTerminalView: {
+      loading: 'Loading terminal...'
+    },
+    sessionHistory: {
+      title: 'Session History',
+      common: {
+        untitled: 'Untitled Session',
+        untitledShort: 'Untitled',
+        archived: 'Archived'
+      },
+      date: {
+        todayAt: 'Today at {time}',
+        yesterdayAt: 'Yesterday at {time}'
+      },
+      actions: {
+        loadSession: 'Load Session'
+      },
+      search: {
+        placeholder: 'Search title, project, or worktree...',
+        hint: 'Keyword search matches session metadata (title, project, and worktree) only.'
+      },
+      filters: {
+        project: 'Project',
+        worktree: 'Worktree',
+        allProjects: 'All Projects',
+        allWorktrees: 'All Worktrees',
+        dateRange: 'Date range',
+        anyTime: 'Any time',
+        from: 'From',
+        to: 'To',
+        more: 'More',
+        includeArchived: 'Include archived worktrees',
+        clear: 'Clear filters'
+      },
+      empty: {
+        title: 'No sessions found',
+        filtered: 'Try adjusting your search filters to find more sessions.',
+        default: 'Start working in a worktree to create your first session.'
+      },
+      preview: {
+        archivedWorktree: "This session's worktree has been archived",
+        created: 'Created {date}',
+        updated: 'Updated {date}',
+        messagesTitle: 'Messages Preview',
+        noMessages: 'No messages in this session',
+        moreMessages: '...and more messages'
+      },
+      results: {
+        count: '{count} {label} found',
+        sessionSingular: 'session',
+        sessionPlural: 'sessions'
+      },
+      toasts: {
+        loaded: 'Loaded session "{name}"',
+        loadError: 'Failed to load session',
+        readOnlyArchived: 'This session is from an archived worktree. Opening in read-only mode.'
+      }
+    },
+    sessionTabs: {
+      common: {
+        untitled: 'Untitled',
+        staged: 'staged',
+        unstaged: 'unstaged'
+      },
+      menu: {
+        close: 'Close',
+        closeOthers: 'Close Others',
+        closeToRight: 'Close Others to the Right',
+        copyRelativePath: 'Copy Relative Path',
+        copyAbsolutePath: 'Copy Absolute Path'
+      },
+      actions: {
+        createSession: 'Create new session (right-click for options)',
+        newOpenCode: 'New OpenCode Session',
+        newClaudeCode: 'New Claude Code Session',
+        newCodex: 'New Codex Session',
+        newTerminal: 'New Terminal'
+      },
+      empty: {
+        noSessions: 'No sessions yet. Click + to create one.'
+      },
+      context: {
+        title: 'Worktree Context',
+        label: 'Context'
+      },
+      toasts: {
+        copied: 'Copied to clipboard'
+      },
+      errors: {
+        createSession: 'Failed to create session',
+        closeSession: 'Failed to close session',
+        renameSession: 'Failed to rename session'
+      }
+    },
+    runTab: {
+      empty: {
+        noWorktree: 'Select a worktree to run scripts',
+        noOutput: 'No run output yet. Press ⌘R or click Run to start.',
+        setupScript: 'Setup run script'
+      },
+      status: {
+        running: 'Running',
+        stopped: 'Stopped'
+      },
+      actions: {
+        clear: 'Clear',
+        stop: 'Stop',
+        restart: 'Restart',
+        run: 'Run'
+      }
+    },
+    errorBoundary: {
+      title: 'Something went wrong',
+      componentPrefix: 'Error in:',
+      unexpected: 'An unexpected error occurred',
+      tryAgain: 'Try Again',
+      reloadApp: 'Reload App',
+      copied: 'Copied',
+      copyError: 'Copy Error',
+      developerDetails: 'Developer Details'
+    },
+    worktreeContext: {
+      title: 'Worktree Context',
+      unsaved: 'Unsaved changes',
+      preview: 'Preview',
+      edit: 'Edit',
+      close: 'Close',
+      save: 'Save Context',
+      empty:
+        'No worktree context set. Click Edit to add context that will be injected into AI sessions.',
+      confirmDiscard: 'You have unsaved changes. Discard them?',
+      placeholder:
+        'Enter worktree context here. This markdown will be injected into the first prompt of each new AI session.\n\nExample:\n## Feature: User Authentication\n- Working on login/signup flow\n- Backend API at /api/auth\n- Using JWT tokens',
+      toasts: {
+        loadError: 'Failed to load worktree context',
+        saved: 'Context saved',
+        saveError: 'Failed to save context'
+      }
+    },
+    codexFastToggle: {
+      label: 'Fast',
+      title: 'Fast Mode',
+      description: 'Fast mode consumes 2X the usage from your plan.',
+      cancel: 'Cancel',
+      accept: 'Accept',
+      enabled: 'enabled',
+      disabled: 'disabled',
+      ariaLabel: 'Fast mode {state}'
+    },
+    permissionPrompt: {
+      header: {
+        required: 'Permission Required',
+        alwaysAllowFallback: 'Always allow this type of action'
+      },
+      types: {
+        bash: 'Run Command',
+        edit: 'Edit File',
+        read: 'Read File',
+        search: 'Search Files',
+        webAccess: 'Web Access',
+        externalDirectory: 'External Directory',
+        task: 'Run Sub-task'
+      },
+      actions: {
+        sending: 'Sending...',
+        allowOnce: 'Allow once',
+        allowAlways: 'Allow always',
+        deny: 'Deny'
+      }
+    },
+    commandApprovalPrompt: {
+      header: {
+        required: 'Command Approval Required',
+        tool: 'Tool: {name}'
+      },
+      types: {
+        bash: 'Execute Command',
+        edit: 'Edit File',
+        write: 'Write File',
+        read: 'Read File',
+        search: 'Search Files',
+        web: 'Web Access',
+        task: 'Run Sub-task',
+        skill: 'Execute Skill',
+        notebookEdit: 'Edit Notebook'
+      },
+      subCommands: {
+        alreadyAllowed: 'Already allowed'
+      },
+      patternPicker: {
+        allowPerCommand: 'Choose patterns to always allow (one per command):',
+        allowOne: 'Choose pattern to always allow:',
+        blockOne: 'Choose pattern to always block:',
+        saving: 'Saving...',
+        cancel: 'Cancel'
+      },
+      actions: {
+        sending: 'Sending...',
+        allowOnce: 'Allow once',
+        allowAlways: 'Allow always',
+        allowAlwaysTitle: 'Always allow this command pattern',
+        blockAlways: 'Block always',
+        blockAlwaysTitle: 'Always block this command pattern',
+        deny: 'Deny'
+      }
     },
     prReview: {
       viewer: {
@@ -1309,7 +1719,102 @@ export const messages: Record<AppLocale, MessageTree> = {
       },
       fileCount: '{count} 个文件'
     },
+    fileMentionPopover: {
+      noFiles: '没有找到文件'
+    },
     fileTree: {
+      ariaLabel: '文件树',
+      header: {
+        title: '文件',
+        collapseAll: '折叠所有文件夹',
+        refresh: '刷新文件树',
+        closeSidebar: '关闭侧边栏'
+      },
+      filter: {
+        placeholder: '筛选文件...',
+        clear: '清空筛选'
+      },
+      sidebar: {
+        changes: '变更',
+        files: '文件',
+        diffs: '差异',
+        comments: '评论',
+        closeSidebar: '关闭侧边栏'
+      },
+      empty: {
+        noWorktreeTitle: '选择一个 worktree',
+        noWorktreeHint: '以查看它的文件',
+        errorTitle: '加载文件失败',
+        loading: '正在加载文件...',
+        loadingAria: '正在加载文件',
+        noFiles: '没有找到文件'
+      },
+      branchDiff: {
+        noWorktree: '未选择 worktree',
+        selectBranch: '选择要比较的分支...',
+        filterBranches: '筛选分支...',
+        local: '本地',
+        remote: '远端',
+        current: '当前',
+        noBranches: '没有找到分支',
+        selectBranchToSeeDifferences: '选择一个分支以查看差异',
+        loading: '加载中...',
+        noDifferences: '没有差异',
+        loadError: '加载 diff 文件失败',
+        changedCount: '已变更 {count} 个{label}',
+        fileSingular: '文件',
+        filePlural: '文件',
+        noBranchSelected: '未选择分支',
+        refresh: '刷新'
+      },
+      changes: {
+        noWorktree: '未选择 worktree',
+        refresh: '刷新 Git 状态',
+        refreshAll: '全部刷新',
+        branchLoading: '加载中...',
+        noChanges: '没有变更',
+        mergeConflicts: '合并冲突',
+        stagedChanges: '已暂存变更',
+        changes: '变更',
+        untracked: '未跟踪',
+        markResolved: '标记为已解决',
+        openDiff: '打开 Diff',
+        unstage: '取消暂存',
+        stage: '暂存',
+        discardChanges: '丢弃变更',
+        delete: '删除',
+        addToGitignore: '添加到 .gitignore',
+        stageAll: '全部暂存',
+        unstageAll: '全部取消暂存',
+        discard: '丢弃',
+        stageAllTitle: '暂存所有文件',
+        unstageAllTitle: '取消暂存所有文件',
+        discardAllTitle: '丢弃所有变更',
+        clean: '干净',
+        connectionNoChanges: '没有变更',
+        connectionSummary: '{files} 个{fileLabel}，涉及 {repos} 个{repoLabel}',
+        fileSingular: '文件',
+        filePlural: '文件',
+        repoSingular: '仓库',
+        repoPlural: '仓库',
+        aheadTooltip: '领先 {count} 个提交',
+        behindTooltip: '落后 {count} 个提交',
+        toasts: {
+          stageAllSuccess: '已暂存所有变更',
+          stageAllError: '暂存变更失败',
+          unstageAllSuccess: '已取消暂存所有变更',
+          unstageAllError: '取消暂存变更失败',
+          discardAllSuccess: '已丢弃 {count} 处变更',
+          discardPartial: '已丢弃 {success}/{total} 处变更',
+          discardAllError: '丢弃变更失败',
+          stageFileError: '暂存 {path} 失败',
+          unstageFileError: '取消暂存 {path} 失败',
+          discardFileSuccess: '已丢弃 {path} 的变更',
+          discardFileError: '丢弃 {path} 失败',
+          addToGitignoreSuccess: '已将 {path} 添加到 .gitignore',
+          addToGitignoreError: '添加到 .gitignore 失败'
+        }
+      },
       gitStatus: {
         modified: '已修改',
         staged: '已暂存',
@@ -1317,6 +1822,33 @@ export const messages: Record<AppLocale, MessageTree> = {
         untracked: '未跟踪',
         conflicted: '有冲突',
         stagedSuffix: '（已暂存）'
+      }
+    },
+    fileViewer: {
+      loading: '正在加载文件...',
+      errorTitle: '加载文件失败',
+      noContent: '没有内容',
+      source: '源码',
+      preview: '预览',
+      errors: {
+        readImage: '读取图片失败',
+        readFile: '读取文件失败'
+      },
+      toasts: {
+        saved: '文件已保存',
+        saveError: '保存失败：{error}'
+      },
+      externalChanges: {
+        message: '此文件在磁盘上已发生更改。',
+        keepMine: '保留我的更改',
+        reload: '重新加载'
+      },
+      unsavedChanges: {
+        title: '未保存的更改',
+        description: '要保存对 {fileName} 的更改吗？',
+        dontSave: '不保存',
+        cancel: '取消',
+        save: '保存'
       }
     },
     terminalToolbar: {
@@ -1522,6 +2054,294 @@ export const messages: Record<AppLocale, MessageTree> = {
     },
     connectionList: {
       title: '连接'
+    },
+    spaces: {
+      allProjects: '全部项目',
+      createSpace: '创建空间',
+      menu: {
+        rename: '重命名',
+        changeIcon: '更换图标',
+        delete: '删除'
+      },
+      dialogs: {
+        createTitle: '创建空间',
+        createDescription: '将你的项目组织到不同空间中。',
+        editTitle: '编辑空间',
+        editDescription: '更新空间名称或图标。',
+        fields: {
+          name: '名称',
+          icon: '图标'
+        },
+        namePlaceholder: '例如：工作、Side Projects',
+        cancel: '取消',
+        create: '创建',
+        save: '保存'
+      },
+      iconPicker: {
+        search: '搜索图标...',
+        noMatches: '没有匹配的图标'
+      }
+    },
+    mainPane: {
+      welcomeTitle: '欢迎使用 Hive',
+      welcomeDescription: '选择一个项目或 worktree 以开始使用。',
+      loadingSessions: '正在加载会话...',
+      noActiveSessionTitle: '当前没有活动会话',
+      noActiveSessionDescription: '点击上方的 + 按钮创建一个新会话。'
+    },
+    agentPicker: {
+      title: '选择默认 AI Agent',
+      description:
+        '检测到已安装多个 AI Agent。请选择新会话默认使用的 Agent。你之后仍可在设置中更改。',
+      agents: {
+        opencode: {
+          title: 'OpenCode',
+          description: '开源 AI 编码 Agent'
+        },
+        claude: {
+          title: 'Claude Code',
+          description: 'Anthropic 的编码助手'
+        },
+        codex: {
+          title: 'Codex',
+          description: 'OpenAI 的编码 Agent'
+        }
+      }
+    },
+    sessionView: {
+      loading: {
+        title: '正在连接会话...',
+        subtitle: '这可能需要一点时间'
+      },
+      error: {
+        title: '连接错误',
+        retry: '重新连接',
+        fallback: '连接会话失败'
+      },
+      empty: {
+        title: '开始一段对话',
+        subtitle: '在下方输入消息以开始',
+        connectingOpencode: '正在连接到 OpenCode...',
+        noWorktree: '未选择 worktree'
+      },
+      revert: {
+        summarySingular: '已回退 1 条消息',
+        summaryPlural: '已回退 {count} 条消息',
+        restore: '使用 /redo 恢复'
+      },
+      sessionError: {
+        title: '会话错误'
+      },
+      retry: {
+        withCountdown: '{seconds} 秒后重试（第 {attempt} 次）',
+        withoutCountdown: '正在重试（第 {attempt} 次）'
+      }
+    },
+    sessionTerminalView: {
+      loading: '正在加载终端...'
+    },
+    sessionHistory: {
+      title: '会话历史',
+      common: {
+        untitled: '未命名会话',
+        untitledShort: '未命名',
+        archived: '已归档'
+      },
+      date: {
+        todayAt: '今天 {time}',
+        yesterdayAt: '昨天 {time}'
+      },
+      actions: {
+        loadSession: '加载会话'
+      },
+      search: {
+        placeholder: '搜索标题、项目或 worktree...',
+        hint: '关键词搜索仅匹配会话元数据（标题、项目和 worktree）。'
+      },
+      filters: {
+        project: '项目',
+        worktree: 'Worktree',
+        allProjects: '全部项目',
+        allWorktrees: '全部 Worktree',
+        dateRange: '日期范围',
+        anyTime: '任意时间',
+        from: '从',
+        to: '到',
+        more: '更多',
+        includeArchived: '包含已归档的 worktree',
+        clear: '清空筛选'
+      },
+      empty: {
+        title: '没有找到会话',
+        filtered: '试试调整搜索筛选条件以找到更多会话。',
+        default: '开始在某个 worktree 中工作，即可创建第一个会话。'
+      },
+      preview: {
+        archivedWorktree: '该会话所属的 worktree 已归档',
+        created: '创建于 {date}',
+        updated: '更新于 {date}',
+        messagesTitle: '消息预览',
+        noMessages: '该会话中没有消息',
+        moreMessages: '……还有更多消息'
+      },
+      results: {
+        count: '找到 {count} 个{label}',
+        sessionSingular: '会话',
+        sessionPlural: '会话'
+      },
+      toasts: {
+        loaded: '已加载会话“{name}”',
+        loadError: '加载会话失败',
+        readOnlyArchived: '该会话来自已归档的 worktree。将以只读模式打开。'
+      }
+    },
+    sessionTabs: {
+      common: {
+        untitled: '未命名',
+        staged: '已暂存',
+        unstaged: '未暂存'
+      },
+      menu: {
+        close: '关闭',
+        closeOthers: '关闭其他标签',
+        closeToRight: '关闭右侧其他标签',
+        copyRelativePath: '复制相对路径',
+        copyAbsolutePath: '复制绝对路径'
+      },
+      actions: {
+        createSession: '创建新会话（右键查看更多选项）',
+        newOpenCode: '新建 OpenCode 会话',
+        newClaudeCode: '新建 Claude Code 会话',
+        newCodex: '新建 Codex 会话',
+        newTerminal: '新建终端'
+      },
+      empty: {
+        noSessions: '还没有会话。点击 + 创建一个。'
+      },
+      context: {
+        title: 'Worktree 上下文',
+        label: '上下文'
+      },
+      toasts: {
+        copied: '已复制到剪贴板'
+      },
+      errors: {
+        createSession: '创建会话失败',
+        closeSession: '关闭会话失败',
+        renameSession: '重命名会话失败'
+      }
+    },
+    runTab: {
+      empty: {
+        noWorktree: '选择一个 worktree 以运行脚本',
+        noOutput: '当前还没有运行输出。按 ⌘R 或点击运行开始执行。',
+        setupScript: '配置运行脚本'
+      },
+      status: {
+        running: '运行中',
+        stopped: '已停止'
+      },
+      actions: {
+        clear: '清空',
+        stop: '停止',
+        restart: '重启',
+        run: '运行'
+      }
+    },
+    errorBoundary: {
+      title: '出了点问题',
+      componentPrefix: '错误位置：',
+      unexpected: '发生了一个未预期的错误',
+      tryAgain: '重试',
+      reloadApp: '重新加载应用',
+      copied: '已复制',
+      copyError: '复制错误信息',
+      developerDetails: '开发者详情'
+    },
+    worktreeContext: {
+      title: 'Worktree 上下文',
+      unsaved: '存在未保存更改',
+      preview: '预览',
+      edit: '编辑',
+      close: '关闭',
+      save: '保存上下文',
+      empty:
+        '当前还没有设置 worktree 上下文。点击“编辑”即可添加，这些内容会注入到 AI 会话的首条提示中。',
+      confirmDiscard: '你有未保存的更改。要丢弃吗？',
+      placeholder:
+        '在这里输入 worktree 上下文。每个新 AI 会话的第一条提示中都会注入这段 markdown。\n\n示例：\n## 功能：用户认证\n- 正在开发登录/注册流程\n- 后端 API 位于 /api/auth\n- 使用 JWT token',
+      toasts: {
+        loadError: '加载 worktree 上下文失败',
+        saved: '上下文已保存',
+        saveError: '保存上下文失败'
+      }
+    },
+    codexFastToggle: {
+      label: '快速',
+      title: '快速模式',
+      description: '快速模式会消耗你套餐中 2 倍的用量。',
+      cancel: '取消',
+      accept: '接受',
+      enabled: '已启用',
+      disabled: '已禁用',
+      ariaLabel: '快速模式{state}'
+    },
+    permissionPrompt: {
+      header: {
+        required: '需要授权',
+        alwaysAllowFallback: '始终允许这类操作'
+      },
+      types: {
+        bash: '运行命令',
+        edit: '编辑文件',
+        read: '读取文件',
+        search: '搜索文件',
+        webAccess: '访问网络',
+        externalDirectory: '外部目录',
+        task: '运行子任务'
+      },
+      actions: {
+        sending: '发送中...',
+        allowOnce: '允许一次',
+        allowAlways: '始终允许',
+        deny: '拒绝'
+      }
+    },
+    commandApprovalPrompt: {
+      header: {
+        required: '需要命令审批',
+        tool: '工具：{name}'
+      },
+      types: {
+        bash: '执行命令',
+        edit: '编辑文件',
+        write: '写入文件',
+        read: '读取文件',
+        search: '搜索文件',
+        web: '访问网络',
+        task: '运行子任务',
+        skill: '执行技能',
+        notebookEdit: '编辑 Notebook'
+      },
+      subCommands: {
+        alreadyAllowed: '已允许'
+      },
+      patternPicker: {
+        allowPerCommand: '选择要始终允许的模式（每条命令各一个）：',
+        allowOne: '选择要始终允许的模式：',
+        blockOne: '选择要始终阻止的模式：',
+        saving: '保存中...',
+        cancel: '取消'
+      },
+      actions: {
+        sending: '发送中...',
+        allowOnce: '允许一次',
+        allowAlways: '始终允许',
+        allowAlwaysTitle: '始终允许此命令模式',
+        blockAlways: '始终阻止',
+        blockAlwaysTitle: '始终阻止此命令模式',
+        deny: '拒绝'
+      }
     },
     prReview: {
       viewer: {

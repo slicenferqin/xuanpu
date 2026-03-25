@@ -2,6 +2,7 @@ import { RefreshCw, ChevronsDownUp, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { FileTreeFilter } from './FileTreeFilter'
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/i18n/useI18n'
 
 interface FileTreeHeaderProps {
   title?: string
@@ -15,7 +16,7 @@ interface FileTreeHeaderProps {
 }
 
 export function FileTreeHeader({
-  title = 'Files',
+  title,
   filter,
   isLoading,
   onFilterChange,
@@ -24,12 +25,15 @@ export function FileTreeHeader({
   onClose,
   className
 }: FileTreeHeaderProps): React.JSX.Element {
+  const { t } = useI18n()
+  const resolvedTitle = title ?? t('fileTree.header.title')
+
   return (
     <div className={cn('flex flex-col gap-2 p-2 border-b', className)}>
       {/* Title row with actions */}
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-          {title}
+          {resolvedTitle}
         </span>
         <div className="flex items-center gap-0.5">
           <Button
@@ -37,7 +41,7 @@ export function FileTreeHeader({
             size="icon"
             className="h-6 w-6"
             onClick={onCollapseAll}
-            title="Collapse all folders"
+            title={t('fileTree.header.collapseAll')}
             data-testid="file-tree-collapse-all"
           >
             <ChevronsDownUp className="h-3.5 w-3.5" />
@@ -48,7 +52,7 @@ export function FileTreeHeader({
             className={cn('h-6 w-6', isLoading && 'animate-spin')}
             onClick={onRefresh}
             disabled={isLoading}
-            title="Refresh file tree"
+            title={t('fileTree.header.refresh')}
             data-testid="file-tree-refresh"
           >
             <RefreshCw className="h-3.5 w-3.5" />
@@ -59,7 +63,7 @@ export function FileTreeHeader({
               size="icon"
               className="h-6 w-6"
               onClick={onClose}
-              title="Close sidebar"
+              title={t('fileTree.header.closeSidebar')}
               data-testid="file-tree-close"
             >
               <X className="h-3.5 w-3.5" />

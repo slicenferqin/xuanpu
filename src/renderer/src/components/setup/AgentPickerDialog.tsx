@@ -7,6 +7,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from '@/components/ui/alert-dialog'
+import { useI18n } from '@/i18n/useI18n'
 
 interface AgentPickerDialogProps {
   onSelect: (sdk: 'opencode' | 'claude-code' | 'codex') => void
@@ -17,18 +18,17 @@ export function AgentPickerDialog({
   onSelect,
   availableSdks
 }: AgentPickerDialogProps): React.JSX.Element {
+  const { t } = useI18n()
+
   return (
     <AlertDialog open={true}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle className="flex items-center gap-2">
             <Bot className="size-5" />
-            Choose Your AI Agent
+            {t('agentPicker.title')}
           </AlertDialogTitle>
-          <AlertDialogDescription>
-            Multiple AI agents are installed. Choose which one to use as the default for new
-            sessions. You can change this later in Settings.
-          </AlertDialogDescription>
+          <AlertDialogDescription>{t('agentPicker.description')}</AlertDialogDescription>
         </AlertDialogHeader>
         <div className="flex gap-3 pt-2">
           {availableSdks.opencode && (
@@ -40,8 +40,10 @@ export function AgentPickerDialog({
                 'text-center cursor-pointer'
               )}
             >
-              <div className="text-sm font-medium">OpenCode</div>
-              <div className="text-xs text-muted-foreground mt-1">Open-source AI coding agent</div>
+              <div className="text-sm font-medium">{t('agentPicker.agents.opencode.title')}</div>
+              <div className="text-xs text-muted-foreground mt-1">
+                {t('agentPicker.agents.opencode.description')}
+              </div>
             </button>
           )}
           {availableSdks.claude && (
@@ -53,9 +55,9 @@ export function AgentPickerDialog({
                 'text-center cursor-pointer'
               )}
             >
-              <div className="text-sm font-medium">Claude Code</div>
+              <div className="text-sm font-medium">{t('agentPicker.agents.claude.title')}</div>
               <div className="text-xs text-muted-foreground mt-1">
-                Anthropic&apos;s coding assistant
+                {t('agentPicker.agents.claude.description')}
               </div>
             </button>
           )}
@@ -68,8 +70,10 @@ export function AgentPickerDialog({
                 'text-center cursor-pointer'
               )}
             >
-              <div className="text-sm font-medium">Codex</div>
-              <div className="text-xs text-muted-foreground mt-1">OpenAI&apos;s coding agent</div>
+              <div className="text-sm font-medium">{t('agentPicker.agents.codex.title')}</div>
+              <div className="text-xs text-muted-foreground mt-1">
+                {t('agentPicker.agents.codex.description')}
+              </div>
             </button>
           )}
         </div>

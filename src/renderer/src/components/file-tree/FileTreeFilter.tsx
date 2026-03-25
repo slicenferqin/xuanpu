@@ -3,6 +3,7 @@ import { Search, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/i18n/useI18n'
 
 interface FileTreeFilterProps {
   value: string
@@ -17,6 +18,7 @@ export function FileTreeFilter({
   onChange,
   className
 }: FileTreeFilterProps): React.JSX.Element {
+  const { t } = useI18n()
   const [localValue, setLocalValue] = useState(value)
   const debounceTimer = useRef<NodeJS.Timeout | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -78,7 +80,7 @@ export function FileTreeFilter({
       <Input
         ref={inputRef}
         type="text"
-        placeholder="Filter files..."
+        placeholder={t('fileTree.filter.placeholder')}
         value={localValue}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
@@ -95,7 +97,7 @@ export function FileTreeFilter({
           size="icon"
           className="absolute right-0.5 top-1/2 -translate-y-1/2 h-6 w-6 hover:bg-transparent"
           onClick={handleClear}
-          title="Clear filter"
+          title={t('fileTree.filter.clear')}
         >
           <X className="h-3.5 w-3.5 text-muted-foreground" />
         </Button>

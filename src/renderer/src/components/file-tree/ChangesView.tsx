@@ -33,6 +33,7 @@ import { FileIcon } from './FileIcon'
 import { GitStatusIndicator } from './GitStatusIndicator'
 import { GitCommitForm } from '@/components/git/GitCommitForm'
 import { GitPushPull } from '@/components/git/GitPushPull'
+import { useI18n } from '@/i18n/useI18n'
 
 interface ConnectionMemberInfo {
   worktree_path: string
@@ -53,6 +54,7 @@ export function ChangesView({
   connectionMembers,
   onFileClick
 }: ChangesViewProps): React.JSX.Element {
+  const { t } = useI18n()
   const {
     loadFileStatuses,
     loadBranchInfo,
@@ -141,21 +143,21 @@ export function ChangesView({
     if (!worktreePath) return
     const success = await stageAll(worktreePath)
     if (success) {
-      toast.success('All changes staged')
+      toast.success(t('fileTree.changes.toasts.stageAllSuccess'))
     } else {
-      toast.error('Failed to stage changes')
+      toast.error(t('fileTree.changes.toasts.stageAllError'))
     }
-  }, [worktreePath, stageAll])
+  }, [worktreePath, stageAll, t])
 
   const handleUnstageAll = useCallback(async () => {
     if (!worktreePath) return
     const success = await unstageAll(worktreePath)
     if (success) {
-      toast.success('All changes unstaged')
+      toast.success(t('fileTree.changes.toasts.unstageAllSuccess'))
     } else {
-      toast.error('Failed to unstage changes')
+      toast.error(t('fileTree.changes.toasts.unstageAllError'))
     }
-  }, [worktreePath, unstageAll])
+  }, [worktreePath, unstageAll, t])
 
   const handleDiscardAll = useCallback(async () => {
     if (!worktreePath) return
@@ -169,23 +171,28 @@ export function ChangesView({
     }
 
     if (successCount === filesToDiscard.length) {
-      toast.success(`Discarded ${successCount} change(s)`)
+      toast.success(t('fileTree.changes.toasts.discardAllSuccess', { count: successCount }))
     } else if (successCount > 0) {
-      toast.warning(`Discarded ${successCount}/${filesToDiscard.length} changes`)
+      toast.warning(
+        t('fileTree.changes.toasts.discardPartial', {
+          success: successCount,
+          total: filesToDiscard.length
+        })
+      )
     } else {
-      toast.error('Failed to discard changes')
+      toast.error(t('fileTree.changes.toasts.discardAllError'))
     }
-  }, [worktreePath, modifiedFiles, discardChanges])
+  }, [worktreePath, modifiedFiles, discardChanges, t])
 
   const handleStageFile = useCallback(
     async (file: GitFileStatus) => {
       if (!worktreePath) return
       const success = await stageFile(worktreePath, file.relativePath)
       if (!success) {
-        toast.error(`Failed to stage ${file.relativePath}`)
+        toast.error(t('fileTree.changes.toasts.stageFileError', { path: file.relativePath }))
       }
     },
-    [worktreePath, stageFile]
+    [worktreePath, stageFile, t]
   )
 
   const handleUnstageFile = useCallback(
@@ -193,10 +200,10 @@ export function ChangesView({
       if (!worktreePath) return
       const success = await unstageFile(worktreePath, file.relativePath)
       if (!success) {
-        toast.error(`Failed to unstage ${file.relativePath}`)
+        toast.error(t('fileTree.changes.toasts.unstageFileError', { path: file.relativePath }))
       }
     },
-    [worktreePath, unstageFile]
+    [worktreePath, unstageFile, t]
   )
 
   const handleDiscardFile = useCallback(
@@ -204,12 +211,12 @@ export function ChangesView({
       if (!worktreePath) return
       const success = await discardChanges(worktreePath, file.relativePath)
       if (success) {
-        toast.success(`Discarded changes to ${file.relativePath}`)
+        toast.success(t('fileTree.changes.toasts.discardFileSuccess', { path: file.relativePath }))
       } else {
-        toast.error(`Failed to discard ${file.relativePath}`)
+        toast.error(t('fileTree.changes.toasts.discardFileError', { path: file.relativePath }))
       }
     },
-    [worktreePath, discardChanges]
+    [worktreePath, discardChanges, t]
   )
 
   const handleViewDiff = useCallback(
@@ -330,7 +337,11 @@ export function ChangesView({
   )
 
   if (!worktreePath) {
-    return <div className="p-4 text-sm text-muted-foreground text-center">No worktree selected</div>
+    return (
+      <div className="p-4 text-sm text-muted-foreground text-center">
+        {t('fileTree.changes.noWorktree')}
+      </div>
+    )
   }
 
   if (isConnectionMode) {
@@ -342,8 +353,19 @@ export function ChangesView({
             <Link className="h-3.5 w-3.5 text-muted-foreground" />
             <span className="font-medium">
               {connectionSummary.totalFiles === 0
-                ? 'No changes'
-                : `${connectionSummary.totalFiles} file${connectionSummary.totalFiles === 1 ? '' : 's'} across ${connectionSummary.reposWithChanges} repo${connectionSummary.reposWithChanges === 1 ? '' : 's'}`}
+                ? t('fileTree.changes.connectionNoChanges')
+                : t('fileTree.changes.connectionSummary', {
+                    files: connectionSummary.totalFiles,
+                    fileLabel:
+                      connectionSummary.totalFiles === 1
+                        ? t('fileTree.changes.fileSingular')
+                        : t('fileTree.changes.filePlural'),
+                    repos: connectionSummary.reposWithChanges,
+                    repoLabel:
+                      connectionSummary.reposWithChanges === 1
+                        ? t('fileTree.changes.repoSingular')
+                        : t('fileTree.changes.repoPlural')
+                  })}
             </span>
           </div>
           <Button
@@ -352,7 +374,7 @@ export function ChangesView({
             className={cn('h-5 w-5', isRefreshing && 'animate-spin')}
             onClick={handleConnectionRefresh}
             disabled={isRefreshing}
-            title="Refresh all"
+            title={t('fileTree.changes.refreshAll')}
           >
             <RefreshCw className="h-3 w-3" />
           </Button>
@@ -398,7 +420,9 @@ export function ChangesView({
                   </span>
                   <span className="flex items-center gap-1 shrink-0">
                     {hasNoChanges ? (
-                      <span className="text-muted-foreground text-[10px]">clean</span>
+                      <span className="text-muted-foreground text-[10px]">
+                        {t('fileTree.changes.clean')}
+                      </span>
                     ) : (
                       <span className="text-[10px] px-1 py-0.5 rounded bg-muted">
                         {member.totalChanges}
@@ -434,14 +458,14 @@ export function ChangesView({
         <div className="flex items-center gap-1.5 text-xs">
           <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
           <span className="font-medium" data-testid="changes-branch-name">
-            {branchInfo?.name || 'Loading...'}
+            {branchInfo?.name || t('fileTree.changes.branchLoading')}
           </span>
           {branchInfo?.tracking && (
             <span className="flex items-center gap-1 text-muted-foreground">
               {branchInfo.ahead > 0 && (
                 <span
                   className="flex items-center gap-0.5"
-                  title={`${branchInfo.ahead} commit(s) ahead`}
+                  title={t('fileTree.changes.aheadTooltip', { count: branchInfo.ahead })}
                 >
                   <ArrowUp className="h-3 w-3" />
                   {branchInfo.ahead}
@@ -450,7 +474,7 @@ export function ChangesView({
               {branchInfo.behind > 0 && (
                 <span
                   className="flex items-center gap-0.5"
-                  title={`${branchInfo.behind} commit(s) behind`}
+                  title={t('fileTree.changes.behindTooltip', { count: branchInfo.behind })}
                 >
                   <ArrowDown className="h-3 w-3" />
                   {branchInfo.behind}
@@ -466,7 +490,7 @@ export function ChangesView({
             className={cn('h-5 w-5', (isLoading || isRefreshing) && 'animate-spin')}
             onClick={handleRefresh}
             disabled={isLoading || isRefreshing}
-            title="Refresh git status"
+            title={t('fileTree.changes.refresh')}
             data-testid="changes-refresh-button"
           >
             <RefreshCw className="h-3 w-3" />
@@ -480,14 +504,14 @@ export function ChangesView({
           className="flex-1 flex items-center justify-center text-xs text-muted-foreground"
           data-testid="changes-empty"
         >
-          No changes
+          {t('fileTree.changes.noChanges')}
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto">
           {/* Merge Conflicts */}
           {conflictedFiles.length > 0 && (
             <GroupHeader
-              title="Merge Conflicts"
+              title={t('fileTree.changes.mergeConflicts')}
               count={conflictedFiles.length}
               isCollapsed={collapsed.has('conflicts')}
               onToggle={() => toggleGroup('conflicts')}
@@ -505,11 +529,11 @@ export function ChangesView({
                     <ContextMenuContent>
                       <ContextMenuItem onClick={() => handleStageFile(file)}>
                         <Plus className="h-3.5 w-3.5 mr-2" />
-                        Mark as Resolved
+                        {t('fileTree.changes.markResolved')}
                       </ContextMenuItem>
                       <ContextMenuItem onClick={() => handleViewDiff(file)}>
                         <FileDiff className="h-3.5 w-3.5 mr-2" />
-                        Open Diff
+                        {t('fileTree.changes.openDiff')}
                       </ContextMenuItem>
                     </ContextMenuContent>
                   }
@@ -521,7 +545,7 @@ export function ChangesView({
           {/* Staged Changes */}
           {stagedFiles.length > 0 && (
             <GroupHeader
-              title="Staged Changes"
+              title={t('fileTree.changes.stagedChanges')}
               count={stagedFiles.length}
               isCollapsed={collapsed.has('staged')}
               onToggle={() => toggleGroup('staged')}
@@ -531,11 +555,11 @@ export function ChangesView({
                   size="sm"
                   className="h-5 px-1.5 text-[10px]"
                   onClick={handleUnstageAll}
-                  title="Unstage all files"
+                  title={t('fileTree.changes.unstageAllTitle')}
                   data-testid="changes-unstage-all"
                 >
                   <Minus className="h-3 w-3 mr-0.5" />
-                  Unstage All
+                  {t('fileTree.changes.unstageAll')}
                 </Button>
               }
               testId="changes-staged-section"
@@ -550,11 +574,11 @@ export function ChangesView({
                     <ContextMenuContent>
                       <ContextMenuItem onClick={() => handleUnstageFile(file)}>
                         <Minus className="h-3.5 w-3.5 mr-2" />
-                        Unstage
+                        {t('fileTree.changes.unstage')}
                       </ContextMenuItem>
                       <ContextMenuItem onClick={() => handleViewDiff(file)}>
                         <FileDiff className="h-3.5 w-3.5 mr-2" />
-                        Open Diff
+                        {t('fileTree.changes.openDiff')}
                       </ContextMenuItem>
                     </ContextMenuContent>
                   }
@@ -566,7 +590,7 @@ export function ChangesView({
           {/* Unstaged Changes */}
           {modifiedFiles.length > 0 && (
             <GroupHeader
-              title="Changes"
+              title={t('fileTree.changes.changes')}
               count={modifiedFiles.length}
               isCollapsed={collapsed.has('unstaged')}
               onToggle={() => toggleGroup('unstaged')}
@@ -576,11 +600,11 @@ export function ChangesView({
                   size="sm"
                   className="h-5 px-1.5 text-[10px]"
                   onClick={handleStageAll}
-                  title="Stage all files"
+                  title={t('fileTree.changes.stageAllTitle')}
                   data-testid="changes-stage-all"
                 >
                   <Plus className="h-3 w-3 mr-0.5" />
-                  Stage All
+                  {t('fileTree.changes.stageAll')}
                 </Button>
               }
               testId="changes-modified-section"
@@ -595,11 +619,11 @@ export function ChangesView({
                     <ContextMenuContent>
                       <ContextMenuItem onClick={() => handleStageFile(file)}>
                         <Plus className="h-3.5 w-3.5 mr-2" />
-                        Stage
+                        {t('fileTree.changes.stage')}
                       </ContextMenuItem>
                       <ContextMenuItem onClick={() => handleViewDiff(file)}>
                         <FileDiff className="h-3.5 w-3.5 mr-2" />
-                        Open Diff
+                        {t('fileTree.changes.openDiff')}
                       </ContextMenuItem>
                       <ContextMenuSeparator />
                       <ContextMenuItem
@@ -607,7 +631,7 @@ export function ChangesView({
                         className="text-destructive focus:text-destructive"
                       >
                         <Undo2 className="h-3.5 w-3.5 mr-2" />
-                        Discard Changes
+                        {t('fileTree.changes.discardChanges')}
                       </ContextMenuItem>
                     </ContextMenuContent>
                   }
@@ -619,7 +643,7 @@ export function ChangesView({
           {/* Untracked Files */}
           {untrackedFiles.length > 0 && (
             <GroupHeader
-              title="Untracked"
+              title={t('fileTree.changes.untracked')}
               count={untrackedFiles.length}
               isCollapsed={collapsed.has('untracked')}
               onToggle={() => toggleGroup('untracked')}
@@ -635,7 +659,7 @@ export function ChangesView({
                     <ContextMenuContent>
                       <ContextMenuItem onClick={() => handleStageFile(file)}>
                         <Plus className="h-3.5 w-3.5 mr-2" />
-                        Stage
+                        {t('fileTree.changes.stage')}
                       </ContextMenuItem>
                       <ContextMenuSeparator />
                       <ContextMenuItem
@@ -643,7 +667,7 @@ export function ChangesView({
                         className="text-destructive focus:text-destructive"
                       >
                         <Trash2 className="h-3.5 w-3.5 mr-2" />
-                        Delete
+                        {t('fileTree.changes.delete')}
                       </ContextMenuItem>
                       <ContextMenuItem
                         onClick={async () => {
@@ -652,14 +676,18 @@ export function ChangesView({
                             .getState()
                             .addToGitignore(worktreePath, file.relativePath)
                           if (success) {
-                            toast.success(`Added ${file.relativePath} to .gitignore`)
+                            toast.success(
+                              t('fileTree.changes.toasts.addToGitignoreSuccess', {
+                                path: file.relativePath
+                              })
+                            )
                           } else {
-                            toast.error('Failed to add to .gitignore')
+                            toast.error(t('fileTree.changes.toasts.addToGitignoreError'))
                           }
                         }}
                       >
                         <EyeOff className="h-3.5 w-3.5 mr-2" />
-                        Add to .gitignore
+                        {t('fileTree.changes.addToGitignore')}
                       </ContextMenuItem>
                     </ContextMenuContent>
                   }
@@ -677,27 +705,27 @@ export function ChangesView({
             <button
               onClick={handleStageAll}
               className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-              title="Stage All"
+              title={t('fileTree.changes.stageAll')}
             >
-              <Plus className="h-3 w-3" /> Stage All
+              <Plus className="h-3 w-3" /> {t('fileTree.changes.stageAll')}
             </button>
           )}
           {hasStaged && (
             <button
               onClick={handleUnstageAll}
               className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-              title="Unstage All"
+              title={t('fileTree.changes.unstageAll')}
             >
-              <Minus className="h-3 w-3" /> Unstage All
+              <Minus className="h-3 w-3" /> {t('fileTree.changes.unstageAll')}
             </button>
           )}
           {modifiedFiles.length > 0 && (
             <button
               onClick={handleDiscardAll}
               className="text-xs text-destructive/70 hover:text-destructive flex items-center gap-1"
-              title="Discard All Changes"
+              title={t('fileTree.changes.discardAllTitle')}
             >
-              <Undo2 className="h-3 w-3" /> Discard
+              <Undo2 className="h-3 w-3" /> {t('fileTree.changes.discard')}
             </button>
           )}
         </div>

@@ -51,6 +51,7 @@ import { messageSendTimes, lastSendMode, userExplicitSendTimes } from '@/lib/mes
 import { isComposingKeyboardEvent } from '@/lib/message-composer-shortcuts'
 import { buildPlanImplementationPrompt, looksLikeCodexProposedPlan } from '@/lib/proposedPlan'
 import beeIcon from '@/assets/bee.png'
+import { useI18n } from '@/i18n/useI18n'
 
 // Stable empty array to avoid creating new references in selectors
 const EMPTY_FILE_INDEX: FlatFile[] = []
@@ -327,6 +328,8 @@ function writeTranscriptCache(sessionId: string, messages: OpenCodeMessage[]): v
 
 // Loading state component
 function LoadingState(): React.JSX.Element {
+  const { t } = useI18n()
+
   return (
     <div
       className="flex-1 flex flex-col items-center justify-center gap-4"
@@ -334,8 +337,8 @@ function LoadingState(): React.JSX.Element {
     >
       <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       <div className="text-center">
-        <p className="text-sm font-medium">Connecting to session...</p>
-        <p className="text-xs text-muted-foreground mt-1">This may take a moment</p>
+        <p className="text-sm font-medium">{t('sessionView.loading.title')}</p>
+        <p className="text-xs text-muted-foreground mt-1">{t('sessionView.loading.subtitle')}</p>
       </div>
     </div>
   )
@@ -348,6 +351,8 @@ interface ErrorStateProps {
 }
 
 function ErrorState({ message, onRetry }: ErrorStateProps): React.JSX.Element {
+  const { t } = useI18n()
+
   return (
     <div
       className="flex-1 flex flex-col items-center justify-center gap-4"
@@ -357,12 +362,12 @@ function ErrorState({ message, onRetry }: ErrorStateProps): React.JSX.Element {
         <AlertCircle className="h-6 w-6 text-destructive" />
       </div>
       <div className="text-center">
-        <p className="text-sm font-medium">Connection Error</p>
+        <p className="text-sm font-medium">{t('sessionView.error.title')}</p>
         <p className="text-xs text-muted-foreground mt-1 max-w-xs">{message}</p>
       </div>
       <Button variant="outline" onClick={onRetry} className="mt-2" data-testid="retry-button">
         <RefreshCw className="h-4 w-4 mr-2" />
-        Retry Connection
+        {t('sessionView.error.retry')}
       </Button>
     </div>
   )
@@ -413,6 +418,7 @@ function PrCommentAttachments(): React.JSX.Element | null {
 
 // Main SessionView component
 export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element {
+  const { t } = useI18n()
   // State
   const [messages, setMessages] = useState<OpenCodeMessage[]>([])
   const [inputValue, setInputValue] = useState('')
@@ -3666,6 +3672,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     worktreePath,
     pendingPlan,
     isClaudeCode,
+    sessionRecord?.agent_sdk,
     updateStreamingPartsRef,
     immediateFlush
   ])
@@ -4408,7 +4415,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     return (
       <div className="flex-1 flex flex-col" data-testid="session-view" data-session-id={sessionId}>
         <ErrorState
-          message={viewState.errorMessage || 'Failed to connect to session'}
+          message={viewState.errorMessage || t('sessionView.error.fallback')}
           onRetry={handleRetry}
         />
       </div>
@@ -4436,13 +4443,17 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           {visibleMessages.length === 0 && !hasStreamingContent ? (
             <div className="flex-1 flex items-center justify-center h-full text-muted-foreground">
               <div className="text-center">
-                <p className="text-lg font-medium">Start a conversation</p>
-                <p className="text-sm mt-1">Type a message below to begin</p>
+                <p className="text-lg font-medium">{t('sessionView.empty.title')}</p>
+                <p className="text-sm mt-1">{t('sessionView.empty.subtitle')}</p>
                 {!opencodeSessionId && worktreePath && (
-                  <p className="text-xs mt-2 text-yellow-500">Connecting to OpenCode...</p>
+                  <p className="text-xs mt-2 text-yellow-500">
+                    {t('sessionView.empty.connectingOpencode')}
+                  </p>
                 )}
                 {!worktreePath && (
-                  <p className="text-xs mt-2 text-yellow-500">No worktree selected</p>
+                  <p className="text-xs mt-2 text-yellow-500">
+                    {t('sessionView.empty.noWorktree')}
+                  </p>
                 )}
               </div>
             </div>
@@ -4466,8 +4477,9 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">
-                      {revertedUserCount} {revertedUserCount === 1 ? 'message' : 'messages'}{' '}
-                      reverted
+                      {revertedUserCount === 1
+                        ? t('sessionView.revert.summarySingular')
+                        : t('sessionView.revert.summaryPlural', { count: revertedUserCount })}
                     </span>
                     <button
                       className="text-xs text-primary hover:text-primary/80 font-medium transition-colors"
@@ -4477,7 +4489,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                         textareaRef.current?.focus()
                       }}
                     >
-                      /redo to restore
+                      {t('sessionView.revert.restore')}
                     </button>
                   </div>
                 </div>
@@ -4490,7 +4502,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                   <div className="flex items-start gap-2 text-destructive">
                     <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                     <div>
-                      <p className="text-sm font-medium">Session error</p>
+                      <p className="text-sm font-medium">{t('sessionView.sessionError.title')}</p>
                       <p className="mt-0.5 text-sm text-destructive/90">{sessionErrorMessage}</p>
                       {sessionErrorStderr && (
                         <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-destructive/10 px-2 py-1.5 font-mono text-xs text-destructive/80">
@@ -4510,9 +4522,14 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                     <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
                     <div>
                       <p className="text-sm font-medium">
-                        Retrying
-                        {retrySecondsRemaining !== null ? ` in ${retrySecondsRemaining}s` : ''}{' '}
-                        (attempt {sessionRetry.attempt ?? 1})
+                        {retrySecondsRemaining !== null
+                          ? t('sessionView.retry.withCountdown', {
+                              seconds: retrySecondsRemaining,
+                              attempt: sessionRetry.attempt ?? 1
+                            })
+                          : t('sessionView.retry.withoutCountdown', {
+                              attempt: sessionRetry.attempt ?? 1
+                            })}
                       </p>
                       {sessionRetry.message && (
                         <p className="mt-0.5 text-sm text-destructive/90">{sessionRetry.message}</p>
