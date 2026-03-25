@@ -83,14 +83,57 @@ export function PrReviewViewer({ worktreeId }: PrReviewViewerProps): React.JSX.E
 
   // Derive filtered/grouped data — defensively wrapped so a malformed
   // comment never crashes the whole sidebar.
-  const { grouped, threads, reviewers } = (() => {
+  const { grouped, threads, reviewers } = useMemo(() => {
     try {
-      const state = usePRReviewStore.getState()
-      const visible = state.getVisibleComments(worktreeId)
+      const visible =
+        hiddenReviewers.size === 0
+          ? rawComments
+          : rawComments.filter(
+              (comment) => !hiddenReviewers.has(comment.user?.login ?? UNKNOWN_REVIEWER_KEY)
+            )
+
+      const grouped = new Map<string, PRReviewComment[]>()
+      for (const comment of visible) {
+        const filePath = comment.path ?? UNKNOWN_PATH_KEY
+        const existing = grouped.get(filePath) ?? []
+        existing.push(comment)
+        grouped.set(filePath, existing)
+      }
+      for (const [filePath, fileComments] of grouped) {
+        grouped.set(
+          filePath,
+          fileComments.sort((a, b) => (a.line ?? 0) - (b.line ?? 0))
+        )
+      }
+
+      const threads = new Map<number, PRReviewComment[]>()
+      for (const comment of visible) {
+        const threadId = comment.inReplyToId ?? comment.id
+        const thread = threads.get(threadId) ?? []
+        thread.push(comment)
+        threads.set(threadId, thread)
+      }
+      for (const [threadId, threadComments] of threads) {
+        threads.set(
+          threadId,
+          threadComments.sort(
+            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          )
+        )
+      }
+
+      const counts = new Map<string, number>()
+      for (const comment of rawComments) {
+        const reviewerKey = comment.user?.login ?? UNKNOWN_REVIEWER_KEY
+        counts.set(reviewerKey, (counts.get(reviewerKey) ?? 0) + 1)
+      }
+
       return {
-        grouped: state.getGroupedByFile(worktreeId),
-        threads: state.getThreads(visible),
-        reviewers: state.getUniqueReviewers(worktreeId)
+        grouped,
+        threads,
+        reviewers: Array.from(counts.entries())
+          .map(([login, count]) => ({ login, count }))
+          .sort((a, b) => b.count - a.count)
       }
     } catch (err) {
       console.error('[PrReviewViewer] Error computing derived data:', err)
@@ -100,7 +143,7 @@ export function PrReviewViewer({ worktreeId }: PrReviewViewerProps): React.JSX.E
         reviewers: [] as Array<{ login: string; count: number }>
       }
     }
-  })()
+  }, [rawComments, hiddenReviewers])
 
   const hasRawComments = rawComments.length > 0
 
