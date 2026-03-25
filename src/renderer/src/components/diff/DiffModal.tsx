@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { DiffViewer, type DiffViewMode } from './DiffViewer'
 import { Columns2, AlignJustify, Copy, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/i18n/useI18n'
 
 interface DiffModalProps {
   isOpen: boolean
@@ -30,6 +31,7 @@ export function DiffModal({
   staged,
   isUntracked
 }: DiffModalProps): React.JSX.Element {
+  const { t } = useI18n()
   const [diff, setDiff] = useState<string>('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -52,17 +54,17 @@ export function DiffModal({
         if (result.success && result.diff) {
           setDiff(result.diff)
         } else {
-          setError(result.error || 'Failed to load diff')
+          setError(result.error || t('diffUi.errors.loadDiff'))
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load diff')
+        setError(err instanceof Error ? err.message : t('diffUi.errors.loadDiff'))
       } finally {
         setIsLoading(false)
       }
     }
 
     loadDiff()
-  }, [isOpen, worktreePath, filePath, staged, isUntracked])
+  }, [isOpen, worktreePath, filePath, staged, isUntracked, t])
 
   // Copy diff content to clipboard
   const handleCopyDiff = useCallback(async () => {
@@ -76,7 +78,11 @@ export function DiffModal({
     setViewMode((prev) => (prev === 'unified' ? 'split' : 'unified'))
   }, [])
 
-  const statusLabel = staged ? 'Staged changes' : isUntracked ? 'New file' : 'Unstaged changes'
+  const statusLabel = staged
+    ? t('diffUi.status.stagedChanges')
+    : isUntracked
+      ? t('diffUi.status.newFile')
+      : t('diffUi.status.unstagedChanges')
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -99,18 +105,22 @@ export function DiffModal({
                 variant="outline"
                 size="sm"
                 onClick={toggleViewMode}
-                title={viewMode === 'unified' ? 'Switch to split view' : 'Switch to unified view'}
+                title={
+                  viewMode === 'unified'
+                    ? t('diffUi.actions.switchToSplitView')
+                    : t('diffUi.actions.switchToUnifiedView')
+                }
                 data-testid="diff-view-toggle"
               >
                 {viewMode === 'unified' ? (
                   <>
                     <Columns2 className="h-4 w-4 mr-1" />
-                    Split
+                    {t('diffUi.actions.split')}
                   </>
                 ) : (
                   <>
                     <AlignJustify className="h-4 w-4 mr-1" />
-                    Unified
+                    {t('diffUi.actions.unified')}
                   </>
                 )}
               </Button>
@@ -119,11 +129,11 @@ export function DiffModal({
                 size="sm"
                 onClick={handleCopyDiff}
                 disabled={!diff}
-                title="Copy diff to clipboard"
+                title={t('diffUi.actions.copyToClipboard')}
                 data-testid="diff-copy-button"
               >
                 <Copy className="h-4 w-4 mr-1" />
-                Copy
+                {t('diffUi.actions.copy')}
               </Button>
             </div>
           </div>

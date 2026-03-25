@@ -11,6 +11,7 @@ import { PrCommentGutter } from './PrCommentGutter'
 import { usePRReviewStore } from '@/stores/usePRReviewStore'
 import type { PRReviewComment } from '@shared/types/git'
 import type { editor } from 'monaco-editor'
+import { useI18n } from '@/i18n/useI18n'
 
 interface MonacoDiffViewProps {
   worktreePath: string
@@ -40,6 +41,7 @@ export default function MonacoDiffView({
   prReviewWorktreeId,
   onClose
 }: MonacoDiffViewProps): React.JSX.Element {
+  const { t } = useI18n()
   const [originalContent, setOriginalContent] = useState<string | null>(null)
   const [modifiedContent, setModifiedContent] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -61,10 +63,7 @@ export default function MonacoDiffView({
     (s) => (prReviewWorktreeId ? s.comments.get(prReviewWorktreeId) : undefined) ?? EMPTY_COMMENTS
   )
   const fileComments = useMemo(
-    () =>
-      prReviewWorktreeId
-        ? allPrComments.filter((c) => c.path === filePath)
-        : EMPTY_COMMENTS,
+    () => (prReviewWorktreeId ? allPrComments.filter((c) => c.path === filePath) : EMPTY_COMMENTS),
     [allPrComments, filePath, prReviewWorktreeId]
   )
 
@@ -96,11 +95,11 @@ export default function MonacoDiffView({
         ])
 
         if (!origResult.success && !origResult.error?.includes('does not exist')) {
-          setError(origResult.error || 'Failed to load HEAD version')
+          setError(origResult.error || t('diffUi.errors.loadHeadVersion'))
           return
         }
         if (!modResult.success) {
-          setError(modResult.error || 'Failed to load staged version')
+          setError(modResult.error || t('diffUi.errors.loadStagedVersion'))
           return
         }
 
@@ -116,11 +115,11 @@ export default function MonacoDiffView({
         ])
 
         if (!origResult.success && !origResult.error?.includes('does not exist')) {
-          setError(origResult.error || 'Failed to load original version')
+          setError(origResult.error || t('diffUi.errors.loadOriginalVersion'))
           return
         }
         if (!modResult.success) {
-          setError(modResult.error || 'Failed to load file content')
+          setError(modResult.error || t('diffUi.errors.loadFileContent'))
           return
         }
 
@@ -128,12 +127,12 @@ export default function MonacoDiffView({
         setModifiedContent(modResult.content ?? '')
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load diff content')
+      setError(err instanceof Error ? err.message : t('diffUi.errors.loadDiffContent'))
     } finally {
       setIsLoading(false)
       isInitialLoad.current = false
     }
-  }, [worktreePath, filePath, staged, compareBranch])
+  }, [worktreePath, filePath, staged, compareBranch, t])
 
   // Fetch on mount and when refresh is triggered
   useEffect(() => {

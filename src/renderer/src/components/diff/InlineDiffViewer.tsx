@@ -15,6 +15,7 @@ import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { DiffViewer, type DiffViewMode } from './DiffViewer'
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/i18n/useI18n'
 
 // Map file extensions to Prism language identifiers
 const extensionToLanguage: Record<string, string> = {
@@ -113,6 +114,7 @@ export function InlineDiffViewer({
   isNewFile,
   onClose
 }: InlineDiffViewerProps): React.JSX.Element {
+  const { t } = useI18n()
   const [diff, setDiff] = useState<string>('')
   const [fileContent, setFileContent] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -131,14 +133,14 @@ export function InlineDiffViewer({
       if (result.success && result.content !== null) {
         setFileContent(result.content)
       } else {
-        setError(result.error || 'Failed to load file content')
+        setError(result.error || t('diffUi.errors.loadFileContent'))
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load file content')
+      setError(err instanceof Error ? err.message : t('diffUi.errors.loadFileContent'))
     } finally {
       setIsLoading(false)
     }
-  }, [worktreePath, filePath])
+  }, [worktreePath, filePath, t])
 
   // Fetch diff
   const fetchDiff = useCallback(
@@ -150,15 +152,15 @@ export function InlineDiffViewer({
         if (result.success && result.diff) {
           setDiff(result.diff)
         } else {
-          setError(result.error || 'Failed to load diff')
+          setError(result.error || t('diffUi.errors.loadDiff'))
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load diff')
+        setError(err instanceof Error ? err.message : t('diffUi.errors.loadDiff'))
       } finally {
         setIsLoading(false)
       }
     },
-    [worktreePath, filePath, staged, isUntracked]
+    [worktreePath, filePath, staged, isUntracked, t]
   )
 
   // Load on mount and when contextLines changes
@@ -206,9 +208,11 @@ export function InlineDiffViewer({
     const content = isNewFile ? fileContent : diff
     if (content) {
       await window.projectOps.copyToClipboard(content)
-      toast.success(isNewFile ? 'File content copied to clipboard' : 'Diff copied to clipboard')
+      toast.success(
+        isNewFile ? t('diffUi.toasts.fileContentCopied') : t('diffUi.toasts.diffCopied')
+      )
     }
-  }, [diff, fileContent, isNewFile])
+  }, [diff, fileContent, isNewFile, t])
 
   // Toggle view mode
   const toggleViewMode = useCallback(() => {
@@ -234,12 +238,12 @@ export function InlineDiffViewer({
   }, [goToNextHunk, goToPrevHunk, onClose])
 
   const statusLabel = isNewFile
-    ? 'New file'
+    ? t('diffUi.status.newFile')
     : staged
-      ? 'Staged'
+      ? t('diffUi.status.staged')
       : isUntracked
-        ? 'New file'
-        : 'Unstaged'
+        ? t('diffUi.status.newFile')
+        : t('diffUi.status.unstaged')
 
   return (
     <div className="flex-1 flex flex-col min-h-0" data-testid="inline-diff-viewer">
@@ -258,7 +262,7 @@ export function InlineDiffViewer({
             size="icon"
             className="h-6 w-6"
             onClick={goToPrevHunk}
-            title="Previous hunk (Alt+Up)"
+            title={t('diffUi.actions.previousHunk')}
             data-testid="diff-prev-hunk"
           >
             <ChevronUp className="h-3.5 w-3.5" />
@@ -268,7 +272,7 @@ export function InlineDiffViewer({
             size="icon"
             className="h-6 w-6"
             onClick={goToNextHunk}
-            title="Next hunk (Alt+Down)"
+            title={t('diffUi.actions.nextHunk')}
             data-testid="diff-next-hunk"
           >
             <ChevronDown className="h-3.5 w-3.5" />
@@ -282,11 +286,11 @@ export function InlineDiffViewer({
             size="sm"
             className="h-6 px-2 text-xs"
             onClick={handleExpandContext}
-            title="Show more context"
+            title={t('diffUi.actions.showMoreContext')}
             data-testid="diff-expand-context"
           >
             <ChevronsUpDown className="h-3.5 w-3.5 mr-1" />
-            More context
+            {t('diffUi.actions.moreContext')}
           </Button>
 
           <div className="w-px h-4 bg-border mx-1" />
@@ -297,7 +301,11 @@ export function InlineDiffViewer({
             size="icon"
             className="h-6 w-6"
             onClick={toggleViewMode}
-            title={viewMode === 'unified' ? 'Switch to split view' : 'Switch to unified view'}
+            title={
+              viewMode === 'unified'
+                ? t('diffUi.actions.switchToSplitView')
+                : t('diffUi.actions.switchToUnifiedView')
+            }
             data-testid="diff-view-toggle"
           >
             {viewMode === 'unified' ? (
@@ -314,7 +322,7 @@ export function InlineDiffViewer({
             className="h-6 w-6"
             onClick={handleCopyDiff}
             disabled={isNewFile ? !fileContent : !diff}
-            title="Copy diff to clipboard"
+            title={t('diffUi.actions.copyToClipboard')}
             data-testid="diff-copy-button"
           >
             <Copy className="h-3.5 w-3.5" />
@@ -328,7 +336,7 @@ export function InlineDiffViewer({
             size="icon"
             className="h-6 w-6"
             onClick={onClose}
-            title="Close diff (Esc)"
+            title={t('diffUi.actions.closeWithEsc')}
             data-testid="diff-close-button"
           >
             <X className="h-3.5 w-3.5" />

@@ -3,6 +3,7 @@ import { X, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ImagePreview } from '@/components/file-viewer/ImagePreview'
 import { isSvgFile, getImageMimeType } from '@shared/types/file-utils'
+import { useI18n } from '@/i18n/useI18n'
 
 interface ImageDiffViewProps {
   worktreePath: string
@@ -25,18 +26,19 @@ export function ImageDiffView({
   compareBranch,
   onClose
 }: ImageDiffViewProps): React.JSX.Element {
+  const { t } = useI18n()
   const [originalUri, setOriginalUri] = useState<string | null>(null)
   const [modifiedUri, setModifiedUri] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const statusLabel = compareBranch
-    ? `vs ${compareBranch}`
+    ? t('diffUi.status.compareBranch', { branch: compareBranch })
     : staged
-      ? 'Staged'
+      ? t('diffUi.status.staged')
       : isUntracked
-        ? 'New file'
-        : 'Unstaged'
+        ? t('diffUi.status.newFile')
+        : t('diffUi.status.unstaged')
 
   const buildDataUri = useCallback(
     (base64Data: string, mimeType?: string): string => {
@@ -163,7 +165,7 @@ export function ImageDiffView({
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load image diff')
+      setError(err instanceof Error ? err.message : t('diffUi.errors.loadImageDiff'))
     } finally {
       setIsLoading(false)
     }
@@ -175,7 +177,8 @@ export function ImageDiffView({
     isNewFile,
     compareBranch,
     buildDataUri,
-    buildSvgDataUri
+    buildSvgDataUri,
+    t
   ])
 
   useEffect(() => {
@@ -206,7 +209,7 @@ export function ImageDiffView({
           size="icon"
           className="h-6 w-6"
           onClick={onClose}
-          title="Close (Esc)"
+          title={t('diffUi.actions.closeWithEsc')}
         >
           <X className="h-3.5 w-3.5" />
         </Button>
@@ -241,7 +244,7 @@ export function ImageDiffView({
         {originalUri && (
           <div className="flex-1 flex flex-col min-w-0 border-r border-border">
             <div className="px-3 py-1 text-xs text-muted-foreground bg-muted/20 border-b border-border">
-              Before
+              {t('diffUi.image.before')}
             </div>
             <div className="flex-1 overflow-auto">
               <ImagePreview src={originalUri} fileName={fileName} />
@@ -251,7 +254,7 @@ export function ImageDiffView({
         {modifiedUri && (
           <div className="flex-1 flex flex-col min-w-0">
             <div className="px-3 py-1 text-xs text-muted-foreground bg-muted/20 border-b border-border">
-              After
+              {t('diffUi.image.after')}
             </div>
             <div className="flex-1 overflow-auto">
               <ImagePreview src={modifiedUri} fileName={fileName} />

@@ -6,6 +6,7 @@ import { useGitStore } from '@/stores/useGitStore'
 import type { Hunk } from '@/lib/diff-utils'
 import { createHunkPatch } from '@/lib/diff-utils'
 import type { editor } from 'monaco-editor'
+import { useI18n } from '@/i18n/useI18n'
 
 interface HunkActionGutterProps {
   hunks: Hunk[]
@@ -33,6 +34,7 @@ export function HunkActionGutter({
   modifiedEditor,
   onContentChanged
 }: HunkActionGutterProps): React.JSX.Element | null {
+  const { t } = useI18n()
   const [positions, setPositions] = useState<HunkPosition[]>([])
   const [loading, setLoading] = useState<number | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -89,19 +91,19 @@ export function HunkActionGutter({
         const patch = createHunkPatch(filePath, originalLines, modifiedLines, hunk)
         const result = await window.gitOps.stageHunk(worktreePath, patch)
         if (result.success) {
-          toast.success('Hunk staged')
+          toast.success(t('diffUi.toasts.hunkStaged'))
           useGitStore.getState().refreshStatuses(worktreePath)
           onContentChanged()
         } else {
-          toast.error(result.error || 'Failed to stage hunk')
+          toast.error(result.error || t('diffUi.errors.stageHunk'))
         }
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Failed to stage hunk')
+        toast.error(err instanceof Error ? err.message : t('diffUi.errors.stageHunk'))
       } finally {
         setLoading(null)
       }
     },
-    [filePath, originalLines, modifiedLines, worktreePath, onContentChanged]
+    [filePath, originalLines, modifiedLines, worktreePath, onContentChanged, t]
   )
 
   const handleUnstageHunk = useCallback(
@@ -111,19 +113,19 @@ export function HunkActionGutter({
         const patch = createHunkPatch(filePath, originalLines, modifiedLines, hunk)
         const result = await window.gitOps.unstageHunk(worktreePath, patch)
         if (result.success) {
-          toast.success('Hunk unstaged')
+          toast.success(t('diffUi.toasts.hunkUnstaged'))
           useGitStore.getState().refreshStatuses(worktreePath)
           onContentChanged()
         } else {
-          toast.error(result.error || 'Failed to unstage hunk')
+          toast.error(result.error || t('diffUi.errors.unstageHunk'))
         }
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Failed to unstage hunk')
+        toast.error(err instanceof Error ? err.message : t('diffUi.errors.unstageHunk'))
       } finally {
         setLoading(null)
       }
     },
-    [filePath, originalLines, modifiedLines, worktreePath, onContentChanged]
+    [filePath, originalLines, modifiedLines, worktreePath, onContentChanged, t]
   )
 
   const handleRevertHunk = useCallback(
@@ -133,19 +135,19 @@ export function HunkActionGutter({
         const patch = createHunkPatch(filePath, originalLines, modifiedLines, hunk)
         const result = await window.gitOps.revertHunk(worktreePath, patch)
         if (result.success) {
-          toast.success('Hunk reverted')
+          toast.success(t('diffUi.toasts.hunkReverted'))
           useGitStore.getState().refreshStatuses(worktreePath)
           onContentChanged()
         } else {
-          toast.error(result.error || 'Failed to revert hunk')
+          toast.error(result.error || t('diffUi.errors.revertHunk'))
         }
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Failed to revert hunk')
+        toast.error(err instanceof Error ? err.message : t('diffUi.errors.revertHunk'))
       } finally {
         setLoading(null)
       }
     },
-    [filePath, originalLines, modifiedLines, worktreePath, onContentChanged]
+    [filePath, originalLines, modifiedLines, worktreePath, onContentChanged, t]
   )
 
   if (!modifiedEditor || hunks.length === 0) return null
@@ -170,7 +172,7 @@ export function HunkActionGutter({
               className="h-5 w-5 bg-orange-500/20 hover:bg-orange-500/40 border border-orange-500/30"
               onClick={() => handleUnstageHunk(hunk)}
               disabled={loading === hunk.index}
-              title="Unstage this change"
+              title={t('diffUi.actions.unstageChange')}
             >
               <Minus className="h-3 w-3 text-orange-400" />
             </Button>
@@ -183,7 +185,7 @@ export function HunkActionGutter({
                 className="h-5 w-5 bg-green-500/20 hover:bg-green-500/40 border border-green-500/30"
                 onClick={() => handleStageHunk(hunk)}
                 disabled={loading === hunk.index}
-                title="Stage this change"
+                title={t('diffUi.actions.stageChange')}
               >
                 <Plus className="h-3 w-3 text-green-400" />
               </Button>
@@ -193,7 +195,7 @@ export function HunkActionGutter({
                 className="h-5 w-5 bg-red-500/20 hover:bg-red-500/40 border border-red-500/30"
                 onClick={() => handleRevertHunk(hunk)}
                 disabled={loading === hunk.index}
-                title="Revert this change"
+                title={t('diffUi.actions.revertChange')}
               >
                 <Undo2 className="h-3 w-3 text-red-400" />
               </Button>

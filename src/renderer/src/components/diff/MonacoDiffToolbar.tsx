@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import { ChevronUp, ChevronDown, Columns2, AlignJustify, Copy, X } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
+import { useI18n } from '@/i18n/useI18n'
 
 interface MonacoDiffToolbarProps {
   fileName: string
@@ -28,18 +29,19 @@ export function MonacoDiffToolbar({
   onCopy,
   onClose
 }: MonacoDiffToolbarProps): React.JSX.Element {
+  const { t } = useI18n()
   const statusLabel = compareBranch
-    ? `vs ${compareBranch}`
+    ? t('diffUi.status.compareBranch', { branch: compareBranch })
     : staged
-      ? 'Staged'
+      ? t('diffUi.status.staged')
       : isUntracked
-        ? 'New file'
-        : 'Unstaged'
+        ? t('diffUi.status.newFile')
+        : t('diffUi.status.unstaged')
 
   const handleCopy = useCallback(async () => {
     onCopy()
-    toast.success('Diff content copied to clipboard')
-  }, [onCopy])
+    toast.success(t('diffUi.toasts.diffCopied'))
+  }, [onCopy, t])
 
   return (
     <div className="flex items-center justify-between px-3 py-1.5 border-b bg-muted/30 shrink-0">
@@ -56,7 +58,7 @@ export function MonacoDiffToolbar({
           size="icon"
           className="h-6 w-6"
           onClick={onPrevHunk}
-          title="Previous change (Alt+Up)"
+          title={t('diffUi.actions.previousChange')}
           data-testid="monaco-diff-prev-hunk"
         >
           <ChevronUp className="h-3.5 w-3.5" />
@@ -66,7 +68,7 @@ export function MonacoDiffToolbar({
           size="icon"
           className="h-6 w-6"
           onClick={onNextHunk}
-          title="Next change (Alt+Down)"
+          title={t('diffUi.actions.nextChange')}
           data-testid="monaco-diff-next-hunk"
         >
           <ChevronDown className="h-3.5 w-3.5" />
@@ -80,7 +82,11 @@ export function MonacoDiffToolbar({
           size="icon"
           className="h-6 w-6"
           onClick={onToggleSideBySide}
-          title={sideBySide ? 'Switch to inline view' : 'Switch to side-by-side view'}
+          title={
+            sideBySide
+              ? t('diffUi.actions.switchToInlineView')
+              : t('diffUi.actions.switchToSideBySideView')
+          }
           data-testid="monaco-diff-view-toggle"
         >
           {sideBySide ? (
@@ -96,7 +102,7 @@ export function MonacoDiffToolbar({
           size="icon"
           className="h-6 w-6"
           onClick={handleCopy}
-          title="Copy diff to clipboard"
+          title={t('diffUi.actions.copyToClipboard')}
           data-testid="monaco-diff-copy-button"
         >
           <Copy className="h-3.5 w-3.5" />
@@ -110,7 +116,7 @@ export function MonacoDiffToolbar({
           size="icon"
           className="h-6 w-6"
           onClick={onClose}
-          title="Close diff (Esc)"
+          title={t('diffUi.actions.closeWithEsc')}
           data-testid="monaco-diff-close-button"
         >
           <X className="h-3.5 w-3.5" />

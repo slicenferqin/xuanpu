@@ -926,6 +926,67 @@ export const messages: Record<AppLocale, MessageTree> = {
       copyPath: 'Copy Path',
       copyRelativePath: 'Copy Relative Path'
     },
+    diffUi: {
+      status: {
+        compareBranch: 'vs {branch}',
+        newFile: 'New file',
+        staged: 'Staged',
+        unstaged: 'Unstaged',
+        stagedChanges: 'Staged changes',
+        unstagedChanges: 'Unstaged changes'
+      },
+      actions: {
+        split: 'Split',
+        unified: 'Unified',
+        copy: 'Copy',
+        moreContext: 'More context',
+        previousHunk: 'Previous hunk (Alt+Up)',
+        nextHunk: 'Next hunk (Alt+Down)',
+        previousChange: 'Previous change (Alt+Up)',
+        nextChange: 'Next change (Alt+Down)',
+        showMoreContext: 'Show more context',
+        switchToSplitView: 'Switch to split view',
+        switchToUnifiedView: 'Switch to unified view',
+        switchToInlineView: 'Switch to inline view',
+        switchToSideBySideView: 'Switch to side-by-side view',
+        copyToClipboard: 'Copy to clipboard',
+        closeWithEsc: 'Close (Esc)',
+        stageChange: 'Stage this change',
+        unstageChange: 'Unstage this change',
+        revertChange: 'Revert this change'
+      },
+      viewer: {
+        noChanges: 'No changes',
+        parseError: 'Failed to parse diff',
+        ariaLabel: 'File diff viewer'
+      },
+      toasts: {
+        diffCopied: 'Diff copied to clipboard',
+        fileContentCopied: 'File content copied to clipboard',
+        hunkStaged: 'Hunk staged',
+        hunkUnstaged: 'Hunk unstaged',
+        hunkReverted: 'Hunk reverted'
+      },
+      errors: {
+        loadDiff: 'Failed to load diff',
+        loadFileContent: 'Failed to load file content',
+        loadImageDiff: 'Failed to load image diff',
+        loadHeadVersion: 'Failed to load HEAD version',
+        loadStagedVersion: 'Failed to load staged version',
+        loadOriginalVersion: 'Failed to load original version',
+        loadDiffContent: 'Failed to load diff content',
+        stageHunk: 'Failed to stage hunk',
+        unstageHunk: 'Failed to unstage hunk',
+        revertHunk: 'Failed to revert hunk'
+      },
+      image: {
+        before: 'Before',
+        after: 'After'
+      }
+    },
+    dialog: {
+      close: 'Close'
+    },
     permissionPrompt: {
       header: {
         required: 'Permission Required',
@@ -2447,6 +2508,67 @@ export const messages: Record<AppLocale, MessageTree> = {
       revealInExplorer: '在资源管理器中显示',
       copyPath: '复制路径',
       copyRelativePath: '复制相对路径'
+    },
+    diffUi: {
+      status: {
+        compareBranch: '对比 {branch}',
+        newFile: '新文件',
+        staged: '已暂存',
+        unstaged: '未暂存',
+        stagedChanges: '已暂存变更',
+        unstagedChanges: '未暂存变更'
+      },
+      actions: {
+        split: '分栏',
+        unified: '统一',
+        copy: '复制',
+        moreContext: '更多上下文',
+        previousHunk: '上一个变更块（Alt+Up）',
+        nextHunk: '下一个变更块（Alt+Down）',
+        previousChange: '上一个变更（Alt+Up）',
+        nextChange: '下一个变更（Alt+Down）',
+        showMoreContext: '显示更多上下文',
+        switchToSplitView: '切换到分栏视图',
+        switchToUnifiedView: '切换到统一视图',
+        switchToInlineView: '切换到内联视图',
+        switchToSideBySideView: '切换到并排视图',
+        copyToClipboard: '复制到剪贴板',
+        closeWithEsc: '关闭（Esc）',
+        stageChange: '暂存这处变更',
+        unstageChange: '取消暂存这处变更',
+        revertChange: '还原这处变更'
+      },
+      viewer: {
+        noChanges: '没有变更',
+        parseError: '解析 diff 失败',
+        ariaLabel: '文件 diff 查看器'
+      },
+      toasts: {
+        diffCopied: 'Diff 已复制到剪贴板',
+        fileContentCopied: '文件内容已复制到剪贴板',
+        hunkStaged: '变更块已暂存',
+        hunkUnstaged: '变更块已取消暂存',
+        hunkReverted: '变更块已还原'
+      },
+      errors: {
+        loadDiff: '加载 diff 失败',
+        loadFileContent: '加载文件内容失败',
+        loadImageDiff: '加载图片 diff 失败',
+        loadHeadVersion: '加载 HEAD 版本失败',
+        loadStagedVersion: '加载已暂存版本失败',
+        loadOriginalVersion: '加载原始版本失败',
+        loadDiffContent: '加载 diff 内容失败',
+        stageHunk: '暂存变更块失败',
+        unstageHunk: '取消暂存变更块失败',
+        revertHunk: '还原变更块失败'
+      },
+      image: {
+        before: '变更前',
+        after: '变更后'
+      }
+    },
+    dialog: {
+      close: '关闭'
     },
     permissionPrompt: {
       header: {

@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { Diff2HtmlUI } from 'diff2html/lib-esm/ui/js/diff2html-ui-slim'
 import type { Diff2HtmlUIConfig } from 'diff2html/lib-esm/ui/js/diff2html-ui-base'
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/i18n/useI18n'
 
 export type DiffViewMode = 'unified' | 'split'
 
@@ -16,13 +17,15 @@ export function DiffViewer({
   viewMode = 'unified',
   className
 }: DiffViewerProps): React.JSX.Element {
+  const { t } = useI18n()
   const targetRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (!targetRef.current) return
+    const target = targetRef.current
+    if (!target) return
 
     if (!diff) {
-      targetRef.current.innerHTML = '<div class="d2h-empty">No changes</div>'
+      target.innerHTML = `<div class="d2h-empty">${t('diffUi.viewer.noChanges')}</div>`
       return
     }
 
@@ -39,21 +42,17 @@ export function DiffViewer({
     }
 
     try {
-      const ui = new Diff2HtmlUI(targetRef.current, diff, config)
+      const ui = new Diff2HtmlUI(target, diff, config)
       ui.draw()
     } catch (error) {
       console.error('Failed to parse diff:', error)
-      if (targetRef.current) {
-        targetRef.current.innerHTML = '<div class="d2h-error">Failed to parse diff</div>'
-      }
+      target.innerHTML = `<div class="d2h-error">${t('diffUi.viewer.parseError')}</div>`
     }
 
     return () => {
-      if (targetRef.current) {
-        targetRef.current.innerHTML = ''
-      }
+      target.innerHTML = ''
     }
-  }, [diff, viewMode])
+  }, [diff, viewMode, t])
 
   return (
     <div
@@ -61,7 +60,7 @@ export function DiffViewer({
       className={cn('diff-viewer', className)}
       data-testid="diff-viewer"
       role="region"
-      aria-label="File diff viewer"
+      aria-label={t('diffUi.viewer.ariaLabel')}
     />
   )
 }
