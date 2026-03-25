@@ -442,18 +442,22 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     setAttachments((prev) => {
       const remaining = MAX_ATTACHMENTS - prev.length
       if (remaining <= 0) {
-        toast.warning(`Maximum ${MAX_ATTACHMENTS} attachments reached`)
+        toast.warning(t('sessionView.toasts.maxAttachmentsReached', { count: MAX_ATTACHMENTS }))
         return prev
       }
       if (items.length > remaining) {
         toast.warning(
-          `Only ${remaining} of ${items.length} files attached (maximum ${MAX_ATTACHMENTS})`
+          t('sessionView.toasts.partialAttachments', {
+            attached: remaining,
+            total: items.length,
+            count: MAX_ATTACHMENTS
+          })
         )
       }
       const toAdd = items.slice(0, remaining)
       return [...prev, ...toAdd.map((item) => ({ id: crypto.randomUUID(), ...item }))]
     })
-  }, [pendingDropFiles])
+  }, [pendingDropFiles, t])
 
   const [slashCommands, setSlashCommands] = useState<SlashCommandInfo[]>([])
   const [showSlashCommands, setShowSlashCommands] = useState(false)
@@ -1404,7 +1408,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         }
       } catch (error) {
         console.error('Failed to refresh messages after stream completion:', error)
-        toast.error('Failed to refresh response')
+        toast.error(t('sessionView.toasts.refreshResponseError'))
       } finally {
         resetStreamingState()
         setIsSending(false)
@@ -2269,13 +2273,13 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                   .then((result) => {
                     if (!result.success) {
                       console.error('Failed to send follow-up message:', result.error)
-                      toast.error('Failed to send follow-up prompt')
+                      toast.error(t('sessionView.toasts.followUpPromptError'))
                       setIsSending(false)
                     }
                   })
                   .catch((err) => {
                     console.error('Failed to send follow-up message:', err)
-                    toast.error('Failed to send follow-up prompt')
+                    toast.error(t('sessionView.toasts.followUpPromptError'))
                     setIsSending(false)
                   })
                 return
@@ -2652,13 +2656,13 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             }
             if (!result.success) {
               console.error('Failed to send pending message:', result.error)
-              toast.error('Failed to send review prompt')
+              toast.error(t('sessionView.toasts.reviewPromptError'))
               restorePendingAfterFailure()
               setIsSending(false)
             }
           } catch (err) {
             console.error('Failed to send pending message:', err)
-            toast.error('Failed to send review prompt')
+            toast.error(t('sessionView.toasts.reviewPromptError'))
             restorePendingAfterFailure()
             setIsSending(false)
           }
@@ -2941,10 +2945,10 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         await window.opencodeOps.questionReply(requestId, answers, worktreePath || undefined)
       } catch (err) {
         console.error('Failed to reply to question:', err)
-        toast.error('Failed to send answer')
+        toast.error(t('sessionView.toasts.answerError'))
       }
     },
-    [worktreePath]
+    [worktreePath, t]
   )
 
   // Handle question reject/dismiss
@@ -2954,10 +2958,10 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         await window.opencodeOps.questionReject(requestId, worktreePath || undefined)
       } catch (err) {
         console.error('Failed to reject question:', err)
-        toast.error('Failed to dismiss question')
+        toast.error(t('sessionView.toasts.dismissQuestionError'))
       }
     },
-    [worktreePath]
+    [worktreePath, t]
   )
 
   // Handle permission reply (allow once, allow always, or reject)
@@ -2972,10 +2976,10 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         )
       } catch (err) {
         console.error('Failed to reply to permission:', err)
-        toast.error('Failed to send permission reply')
+        toast.error(t('sessionView.toasts.permissionReplyError'))
       }
     },
-    [worktreePath]
+    [worktreePath, t]
   )
 
   // Handle command approval reply (approve/deny with optional remember + pattern/patterns)
@@ -3000,10 +3004,10 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         useCommandApprovalStore.getState().removeApproval(sessionId, requestId)
       } catch (err) {
         console.error('Failed to reply to command approval:', err)
-        toast.error('Failed to send command approval reply')
+        toast.error(t('sessionView.toasts.commandApprovalReplyError'))
       }
     },
-    [worktreePath, sessionId]
+    [worktreePath, sessionId, t]
   )
 
   const refreshMessagesFromOpenCode = useCallback(async (): Promise<boolean> => {
@@ -3052,25 +3056,25 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       if (forkingMessageId) return
 
       if (!worktreePath || !opencodeSessionId) {
-        toast.error('Session is not ready to fork yet')
+        toast.error(t('sessionView.toasts.forkNotReady'))
         return
       }
 
       const sourceSession = sessionRecord ?? (await window.db.session.get(sessionId))
       if (!sourceSession) {
-        toast.error('Session is not ready to fork yet')
+        toast.error(t('sessionView.toasts.forkNotReady'))
         return
       }
 
       const targetWorktreeId = worktreeId ?? sourceSession.worktree_id
       if (!targetWorktreeId) {
-        toast.error('Session has no worktree to fork into')
+        toast.error(t('sessionView.toasts.forkNoWorktree'))
         return
       }
 
       const messageIndex = messages.findIndex((candidate) => candidate.id === message.id)
       if (messageIndex === -1) {
-        toast.error('Could not locate the selected message')
+        toast.error(t('sessionView.toasts.forkMessageNotFound'))
         return
       }
 
@@ -3088,7 +3092,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         )
 
         if (!forkResult.success || !forkResult.sessionId) {
-          throw new Error(forkResult.error || 'Failed to fork session')
+          throw new Error(forkResult.error || t('sessionView.toasts.forkFailed'))
         }
 
         const fallbackForkName = sourceSession.name ? `${sourceSession.name} (fork)` : null
@@ -3105,7 +3109,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         await useSessionStore.getState().loadSessions(targetWorktreeId, sourceSession.project_id)
         useSessionStore.getState().setActiveSession(forkedSession.id)
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Failed to fork session')
+        toast.error(error instanceof Error ? error.message : t('sessionView.toasts.forkFailed'))
       } finally {
         setForkingMessageId(null)
       }
@@ -3117,7 +3121,8 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       sessionId,
       sessionRecord,
       worktreeId,
-      worktreePath
+      worktreePath,
+      t
     ]
   )
 
@@ -3137,7 +3142,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
 
         if (commandName === 'undo' || commandName === 'redo') {
           if (!worktreePath || !opencodeSessionId) {
-            toast.error('OpenCode is not connected')
+            toast.error(t('sessionView.toasts.notConnected'))
             return
           }
 
@@ -3153,7 +3158,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             if (commandName === 'undo') {
               const result = await window.opencodeOps.undo(worktreePath, opencodeSessionId)
               if (!result.success) {
-                toast.error(result.error || 'Nothing to undo')
+                toast.error(result.error || t('sessionView.toasts.nothingToUndo'))
                 return
               }
 
@@ -3168,12 +3173,12 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               inputValueRef.current = restoredPrompt
             } else {
               if (sessionCapabilities && !sessionCapabilities.supportsRedo) {
-                toast.error('Redo is not supported for this session type')
+                toast.error(t('sessionView.toasts.redoUnsupported'))
                 return
               }
               const result = await window.opencodeOps.redo(worktreePath, opencodeSessionId)
               if (!result.success) {
-                toast.error(result.error || 'Nothing to redo')
+                toast.error(result.error || t('sessionView.toasts.nothingToRedo'))
                 return
               }
 
@@ -3187,11 +3192,15 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
 
             const refreshed = await refreshMessagesFromOpenCode()
             if (!refreshed) {
-              toast.error('Undo/redo completed, but refresh failed')
+              toast.error(t('sessionView.toasts.undoRedoRefreshFailed'))
             }
           } catch (error) {
             console.error('Built-in command failed:', error)
-            toast.error(commandName === 'undo' ? 'Undo failed' : 'Redo failed')
+            toast.error(
+              commandName === 'undo'
+                ? t('sessionView.toasts.undoFailed')
+                : t('sessionView.toasts.redoFailed')
+            )
           }
 
           return
@@ -3226,12 +3235,12 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           const question = trimmedValue.slice(5).trim() // Remove "/ask " prefix
 
           if (!question) {
-            toast.error('Please provide a question after /ask')
+            toast.error(t('sessionView.toasts.askMissingQuestion'))
             return
           }
 
           if (!worktreePath || !opencodeSessionId) {
-            toast.error('OpenCode is not connected')
+            toast.error(t('sessionView.toasts.notConnected'))
             return
           }
 
@@ -3306,12 +3315,12 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
 
             if (!result.success) {
               console.error('Failed to send /ask question:', result.error)
-              toast.error('Failed to send question')
+              toast.error(t('sessionView.toasts.questionError'))
               setIsSending(false)
             }
           } catch (error) {
             console.error('Error sending /ask question:', error)
-            toast.error('Failed to send question')
+            toast.error(t('sessionView.toasts.questionError'))
             setIsSending(false)
           }
 
@@ -3464,7 +3473,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               )
               if (!result.success) {
                 console.error('Failed to send command:', result.error)
-                toast.error('Failed to send command')
+                toast.error(t('sessionView.toasts.commandError'))
                 setIsSending(false)
               }
             } else {
@@ -3498,7 +3507,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               )
               if (!result.success) {
                 console.error('Failed to send prompt to OpenCode:', result.error)
-                toast.error('Failed to send message to AI')
+                toast.error(t('sessionView.toasts.messageToAiError'))
                 setIsSending(false)
               }
             }
@@ -3535,7 +3544,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             )
             if (!result.success) {
               console.error('Failed to send prompt to OpenCode:', result.error)
-              toast.error('Failed to send message to AI')
+              toast.error(t('sessionView.toasts.messageToAiError'))
               setIsSending(false)
             }
           }
@@ -3546,15 +3555,14 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           usePRReviewStore.getState().clearAttachments()
           console.warn('No OpenCode connection, showing placeholder response')
           setTimeout(() => {
-            const placeholderContent =
-              'OpenCode is not connected. Please ensure a worktree is selected and the connection is established.'
+            const placeholderContent = t('sessionView.connection.disconnectedPlaceholder')
             setMessages((prev) => [...prev, createLocalMessage('assistant', placeholderContent)])
             setIsSending(false)
           }, 500)
         }
       } catch (error) {
         console.error('Failed to send message:', error)
-        toast.error('Failed to send message')
+        toast.error(t('sessionView.toasts.messageError'))
         setIsSending(false)
       }
     },
@@ -3576,7 +3584,8 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       getModelForRequests,
       fileMentions,
       resetAutoScrollState,
-      stripAtMentions
+      stripAtMentions,
+      t
     ]
   )
 
@@ -3611,7 +3620,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     // Claude Code sessions must resolve a real pending ExitPlanMode request.
     if (isClaudeCode) {
       if (!worktreePath || !pendingPlan) {
-        toast.error('No pending plan approval found')
+        toast.error(t('sessionView.toasts.noPendingPlanApproval'))
         return
       }
 
@@ -3627,7 +3636,11 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           pendingBeforeAction.requestId
         )
         if (!result.success) {
-          toast.error(`Plan approve failed: ${result.error ?? 'unknown'}`)
+          toast.error(
+            t('sessionView.toasts.planApproveFailed', {
+              error: result.error ?? t('toolViews.common.unknown')
+            })
+          )
           // Avoid stale FAB loops if backend no longer has a pending request.
           if (!(result.error ?? '').toLowerCase().includes('no pending plan')) {
             useSessionStore.getState().setPendingPlan(sessionId, pendingBeforeAction)
@@ -3655,7 +3668,11 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         )
         immediateFlush()
       } catch (err) {
-        toast.error(`Plan approve error: ${err instanceof Error ? err.message : String(err)}`)
+        toast.error(
+          t('sessionView.toasts.planApproveError', {
+            error: err instanceof Error ? err.message : String(err)
+          })
+        )
         useSessionStore.getState().setPendingPlan(sessionId, pendingBeforeAction)
         useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'plan_ready')
       }
@@ -3674,7 +3691,8 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     isClaudeCode,
     sessionRecord?.agent_sdk,
     updateStreamingPartsRef,
-    immediateFlush
+    immediateFlush,
+    t
   ])
 
   const handlePlanReject = useCallback(
@@ -3718,7 +3736,11 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           pendingBeforeAction.requestId
         )
         if (!result.success) {
-          toast.error(`Plan reject failed: ${result.error ?? 'unknown'}`)
+          toast.error(
+            t('sessionView.toasts.planRejectFailed', {
+              error: result.error ?? t('toolViews.common.unknown')
+            })
+          )
           if (!(result.error ?? '').toLowerCase().includes('no pending plan')) {
             useSessionStore.getState().setPendingPlan(sessionId, pendingBeforeAction)
             useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'plan_ready')
@@ -3743,7 +3765,11 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           .getState()
           .setSessionStatus(sessionId, currentMode === 'plan' ? 'planning' : 'working')
       } catch (err) {
-        toast.error(`Plan reject error: ${err instanceof Error ? err.message : String(err)}`)
+        toast.error(
+          t('sessionView.toasts.planRejectError', {
+            error: err instanceof Error ? err.message : String(err)
+          })
+        )
         useSessionStore.getState().setPendingPlan(sessionId, pendingBeforeAction)
         useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'plan_ready')
       }
@@ -3755,7 +3781,8 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       isClaudeCode,
       updateStreamingPartsRef,
       immediateFlush,
-      handleSend
+      handleSend,
+      t
     ]
   )
 
@@ -3765,7 +3792,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       .find((message) => message.role === 'assistant' && message.content.trim().length > 0)
 
     if (!lastAssistantMessage) {
-      toast.error('No assistant plan message to hand off')
+      toast.error(t('sessionView.toasts.noAssistantPlanToHandoff'))
       return
     }
 
@@ -3777,7 +3804,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       const sessionStore = useSessionStore.getState()
       const result = await sessionStore.createConnectionSession(connectionId)
       if (!result.success || !result.session) {
-        toast.error(result.error ?? 'Failed to create handoff session')
+        toast.error(result.error ?? t('sessionView.toasts.createHandoffSessionError'))
         return
       }
       const setModePromise = sessionStore.setSessionMode(result.session.id, 'build')
@@ -3790,7 +3817,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     const currentWorktreeId = worktreeId
     const currentProjectId = sessionRecord?.project_id
     if (!currentWorktreeId || !currentProjectId) {
-      toast.error('Could not start handoff session')
+      toast.error(t('sessionView.toasts.startHandoffSessionError'))
       return
     }
 
@@ -3799,7 +3826,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     const sessionStore = useSessionStore.getState()
     const result = await sessionStore.createSession(currentWorktreeId, currentProjectId)
     if (!result.success || !result.session) {
-      toast.error(result.error ?? 'Failed to create handoff session')
+      toast.error(result.error ?? t('sessionView.toasts.createHandoffSessionError'))
       return
     }
 
@@ -3807,7 +3834,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     sessionStore.setPendingMessage(result.session.id, handoffPrompt)
     sessionStore.setActiveSession(result.session.id)
     await setModePromise
-  }, [messages, worktreeId, sessionRecord?.project_id, connectionId, sessionId])
+  }, [messages, worktreeId, sessionRecord?.project_id, connectionId, sessionId, t])
 
   const handlePlanReadySuperpowers = useCallback(async () => {
     // 1. Extract plan content
@@ -3816,7 +3843,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       [...messages].reverse().find((m) => m.role === 'assistant' && m.content.trim().length > 0)
         ?.content
     if (!planContent) {
-      toast.error('No plan content found to supercharge')
+      toast.error(t('sessionView.toasts.noPlanContentToSupercharge'))
       return
     }
 
@@ -3849,13 +3876,13 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       if (worktree) break
     }
     if (!worktree) {
-      toast.error('Could not find current worktree')
+      toast.error(t('sessionView.toasts.currentWorktreeNotFound'))
       return
     }
 
     const project = useProjectStore.getState().projects.find((p) => p.id === worktree!.project_id)
     if (!project) {
-      toast.error('Could not find project for worktree')
+      toast.error(t('sessionView.toasts.projectForWorktreeNotFound'))
       return
     }
 
@@ -3868,7 +3895,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       worktree.path
     )
     if (!dupResult.success || !dupResult.worktree) {
-      toast.error(dupResult.error ?? 'Failed to duplicate worktree')
+      toast.error(dupResult.error ?? t('sessionView.toasts.duplicateWorktreeError'))
       return
     }
 
@@ -3876,7 +3903,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     const sessionStore = useSessionStore.getState()
     const sessionResult = await sessionStore.createSession(dupResult.worktree.id, project.id)
     if (!sessionResult.success || !sessionResult.session) {
-      toast.error(sessionResult.error ?? 'Failed to create supercharge session')
+      toast.error(sessionResult.error ?? t('sessionView.toasts.createSuperchargeSessionError'))
       return
     }
 
@@ -3891,7 +3918,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     // 6. Navigate to the new worktree
     worktreeStore.selectWorktree(dupResult.worktree.id)
     await setModePromise
-  }, [messages, worktreeId, pendingPlan, connectionId, sessionId])
+  }, [messages, worktreeId, pendingPlan, connectionId, sessionId, t])
 
   const handlePlanReadySuperpowersLocal = useCallback(async () => {
     // 1. Extract plan content
@@ -3900,7 +3927,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       [...messages].reverse().find((m) => m.role === 'assistant' && m.content.trim().length > 0)
         ?.content
     if (!planContent) {
-      toast.error('No plan content found to supercharge')
+      toast.error(t('sessionView.toasts.noPlanContentToSupercharge'))
       return
     }
 
@@ -3911,14 +3938,14 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     const currentWorktreeId = worktreeId
     const currentProjectId = sessionRecord?.project_id
     if (!currentWorktreeId || !currentProjectId) {
-      toast.error('Could not start local supercharge session')
+      toast.error(t('sessionView.toasts.startLocalSuperchargeSessionError'))
       return
     }
 
     const sessionStore = useSessionStore.getState()
     const sessionResult = await sessionStore.createSession(currentWorktreeId, currentProjectId)
     if (!sessionResult.success || !sessionResult.session) {
-      toast.error(sessionResult.error ?? 'Failed to create local supercharge session')
+      toast.error(sessionResult.error ?? t('sessionView.toasts.createLocalSuperchargeSessionError'))
       return
     }
 
@@ -3933,7 +3960,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     // 4. Navigate to the new session (same worktree)
     sessionStore.setActiveSession(newSessionId)
     await setModePromise
-  }, [messages, worktreeId, sessionRecord?.project_id, pendingPlan, sessionId])
+  }, [messages, worktreeId, sessionRecord?.project_id, pendingPlan, sessionId, t])
 
   // Abort streaming
   const handleAbort = useCallback(async () => {
@@ -4202,7 +4229,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       try {
         const result = await window.opencodeOps.undo(worktreePath, opencodeSessionId)
         if (!result.success) {
-          toast.error(result.error || 'Nothing to undo')
+          toast.error(result.error || t('sessionView.toasts.nothingToUndo'))
           return
         }
         setRevertMessageID(result.revertMessageID ?? null)
@@ -4215,7 +4242,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         inputValueRef.current = restoredPrompt
         await refreshMessagesFromOpenCode()
       } catch {
-        toast.error('Undo failed')
+        toast.error(t('sessionView.toasts.undoFailed'))
       }
     }
 
@@ -4223,13 +4250,13 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       if (useSessionStore.getState().activeSessionId !== sessionId) return
       if (!worktreePath || !opencodeSessionId) return
       if (sessionCapabilitiesRef.current && !sessionCapabilitiesRef.current.supportsRedo) {
-        toast.error('Redo is not supported for this session type')
+        toast.error(t('sessionView.toasts.redoUnsupported'))
         return
       }
       try {
         const result = await window.opencodeOps.redo(worktreePath, opencodeSessionId)
         if (!result.success) {
-          toast.error(result.error || 'Nothing to redo')
+          toast.error(result.error || t('sessionView.toasts.nothingToRedo'))
           return
         }
         setRevertMessageID(result.revertMessageID ?? null)
@@ -4240,7 +4267,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         }
         await refreshMessagesFromOpenCode()
       } catch {
-        toast.error('Redo failed')
+        toast.error(t('sessionView.toasts.redoFailed'))
       }
     }
 
@@ -4257,7 +4284,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       window.removeEventListener('hive:undo-turn', onUndo)
       window.removeEventListener('hive:redo-turn', onRedo)
     }
-  }, [sessionId, worktreePath, opencodeSessionId, refreshMessagesFromOpenCode])
+  }, [sessionId, worktreePath, opencodeSessionId, refreshMessagesFromOpenCode, t])
 
   // Determine if there's streaming content to show
   const visibleMessages = useMemo(() => {
@@ -4582,10 +4609,12 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                   style={{ color: '#C15F3C' }}
                   data-testid="completion-badge"
                 >
-                  <img src={beeIcon} alt="bee" className="h-7 w-7" />
+                  <img src={beeIcon} alt={t('sessionView.completion.alt')} className="h-7 w-7" />
                   <span className="font-medium">
-                    {completionEntry.word ?? 'Worked'} for{' '}
-                    {formatCompletionDuration(completionEntry.durationMs ?? 0)}
+                    {t('sessionView.completion.forDuration', {
+                      word: completionEntry.word ?? t('sessionView.completion.defaultWord'),
+                      duration: formatCompletionDuration(completionEntry.durationMs ?? 0)
+                    })}
                   </span>
                 </div>
               )}
@@ -4655,7 +4684,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         className="p-4 bg-background"
         data-testid="input-area"
         role="form"
-        aria-label="Message input"
+        aria-label={t('sessionView.composer.inputAriaLabel')}
       >
         <div className="max-w-4xl mx-auto relative">
           {/* Slash command popover — outside overflow-hidden so it can render above */}
@@ -4722,12 +4751,12 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               disabled={!!activePermission}
               placeholder={
                 activePermission
-                  ? 'Waiting for permission response...'
+                  ? t('sessionView.composer.waitingPermissionResponse')
                   : pendingPlan
-                    ? 'Send feedback to revise the plan...'
-                    : 'Type your message...'
+                    ? t('sessionView.composer.planFeedbackPlaceholder')
+                    : t('sessionView.composer.messagePlaceholder')
               }
-              aria-label="Message input"
+              aria-label={t('sessionView.composer.inputAriaLabel')}
               aria-haspopup="listbox"
               aria-expanded={fileMentions.isOpen && !showSlashCommands}
               className={cn(
@@ -4773,8 +4802,10 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                 >
                   {elapsedTimerText ??
                     (pendingPlan
-                      ? 'Enter to send feedback to revise the plan'
-                      : `${navigator.platform.includes('Mac') ? '⌃' : 'Ctrl+'}T to change variant, Shift+Enter for new line`)}
+                      ? t('sessionView.composer.planFeedbackHint')
+                      : t('sessionView.composer.changeVariantHint', {
+                          shortcut: navigator.platform.includes('Mac') ? 'Ctrl+T' : 'Ctrl+T'
+                        }))}
                 </span>
               </div>
               <div className="flex items-center gap-1.5">
@@ -4787,8 +4818,8 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                     size="sm"
                     variant="destructive"
                     className="h-7 w-7 p-0"
-                    aria-label="Stop streaming"
-                    title="Stop streaming"
+                    aria-label={t('sessionView.composer.stopStreaming')}
+                    title={t('sessionView.composer.stopStreaming')}
                     data-testid="stop-button"
                   >
                     <Square className="h-3 w-3" />
@@ -4812,17 +4843,17 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                     className="h-7 w-7 p-0"
                     aria-label={
                       pendingPlan && inputValue.trim()
-                        ? 'Send feedback'
+                        ? t('sessionView.composer.sendFeedback')
                         : isStreaming
-                          ? 'Queue message'
-                          : 'Send message'
+                          ? t('sessionView.composer.queueMessage')
+                          : t('sessionView.composer.sendMessage')
                     }
                     title={
                       pendingPlan && inputValue.trim()
-                        ? 'Send feedback to revise the plan'
+                        ? t('sessionView.composer.sendFeedbackTitle')
                         : isStreaming
-                          ? 'Queue message'
-                          : 'Send message'
+                          ? t('sessionView.composer.queueMessage')
+                          : t('sessionView.composer.sendMessage')
                     }
                     data-testid="send-button"
                   >
