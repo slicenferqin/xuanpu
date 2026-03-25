@@ -1,5 +1,13 @@
 import { create } from 'zustand'
 import type { PRReviewComment } from '@shared/types/git'
+import { translate } from '@/i18n/useI18n'
+import { DEFAULT_LOCALE } from '@/i18n/messages'
+import { useSettingsStore } from './useSettingsStore'
+
+function t(key: string, params?: Record<string, string | number | boolean>): string {
+  const locale = useSettingsStore.getState().locale ?? DEFAULT_LOCALE
+  return translate(locale, key, params)
+}
 
 interface PRReviewStoreState {
   // Data - keyed by worktreeId
@@ -65,7 +73,7 @@ export const usePRReviewStore = create<PRReviewStoreState>((set, get) => ({
       } else {
         set((s) => {
           const error = new Map(s.error)
-          error.set(worktreeId, result.error ?? 'Failed to fetch comments')
+          error.set(worktreeId, result.error ?? t('prReview.store.fetchError'))
           const loading = new Map(s.loading)
           loading.set(worktreeId, false)
           return { error, loading }
@@ -111,9 +119,7 @@ export const usePRReviewStore = create<PRReviewStoreState>((set, get) => ({
   selectAll: (worktreeId) => {
     const comments = get().getVisibleComments(worktreeId)
     // Select only root comments (not replies)
-    const rootIds = comments
-      .filter((c) => c.inReplyToId === null)
-      .map((c) => c.id)
+    const rootIds = comments.filter((c) => c.inReplyToId === null).map((c) => c.id)
     set({ selectedCommentIds: new Set(rootIds) })
   },
 
@@ -170,14 +176,16 @@ export const usePRReviewStore = create<PRReviewStoreState>((set, get) => ({
     const allComments = state.comments.get(worktreeId) ?? []
     const hidden = state.hiddenReviewers
     if (hidden.size === 0) return allComments
-    return allComments.filter((c) => !hidden.has(c.user?.login ?? 'ghost'))
+    return allComments.filter(
+      (c) => !hidden.has(c.user?.login ?? t('prReview.store.unknownReviewer'))
+    )
   },
 
   getGroupedByFile: (worktreeId) => {
     const visible = get().getVisibleComments(worktreeId)
     const grouped = new Map<string, PRReviewComment[]>()
     for (const c of visible) {
-      const filePath = c.path ?? 'unknown'
+      const filePath = c.path ?? t('prReview.store.unknownPath')
       const existing = grouped.get(filePath) ?? []
       existing.push(c)
       grouped.set(filePath, existing)
@@ -204,10 +212,7 @@ export const usePRReviewStore = create<PRReviewStoreState>((set, get) => ({
     for (const [key, thread] of threads) {
       threads.set(
         key,
-        thread.sort(
-          (a, b) =>
-            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-        )
+        thread.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
       )
     }
     return threads
@@ -217,7 +222,7 @@ export const usePRReviewStore = create<PRReviewStoreState>((set, get) => ({
     const allComments = get().comments.get(worktreeId) ?? []
     const counts = new Map<string, number>()
     for (const c of allComments) {
-      const login = c.user?.login ?? 'ghost'
+      const login = c.user?.login ?? t('prReview.store.unknownReviewer')
       counts.set(login, (counts.get(login) ?? 0) + 1)
     }
     return Array.from(counts.entries())

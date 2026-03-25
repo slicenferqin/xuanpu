@@ -508,6 +508,11 @@ export const messages: Record<AppLocale, MessageTree> = {
           hide: "Hide {login}'s comments"
         }
       },
+      store: {
+        fetchError: 'Failed to fetch comments',
+        unknownReviewer: 'unknown reviewer',
+        unknownPath: 'unknown'
+      },
       commentCard: {
         copied: 'Raw comment HTML copied',
         outdated: 'old',
@@ -1527,6 +1532,11 @@ export const messages: Record<AppLocale, MessageTree> = {
           show: '显示 {login} 的评论',
           hide: '隐藏 {login} 的评论'
         }
+      },
+      store: {
+        fetchError: '获取评论失败',
+        unknownReviewer: '未知评论者',
+        unknownPath: '未知文件'
       },
       commentCard: {
         copied: '已复制原始评论 HTML',

@@ -18,8 +18,9 @@ function snippetFromHtml(html: string, plain: string): string {
 }
 
 function Avatar({ user }: { user: PRReviewComment['user'] }): React.JSX.Element {
+  const { t } = useI18n()
   const [failed, setFailed] = useState(false)
-  const login = user?.login ?? 'ghost'
+  const login = user?.login ?? t('prReview.store.unknownReviewer')
 
   if (!failed && user?.avatarUrl) {
     return (
@@ -84,7 +85,7 @@ export function PrCommentCard({
           />
           <Avatar user={comment.user} />
           <span className="text-[11px] font-medium text-foreground shrink-0">
-            {comment.user?.login ?? 'ghost'}
+            {comment.user?.login ?? t('prReview.store.unknownReviewer')}
           </span>
           <span className="text-[11px] text-muted-foreground font-mono shrink-0 group-hover:text-primary transition-colors">
             :{line}

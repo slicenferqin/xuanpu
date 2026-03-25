@@ -238,6 +238,8 @@ describe('Settings i18n', () => {
     expect(translate('zh-CN', 'sessionStore.errors.createConnectionSession')).toBe(
       '创建连接会话失败'
     )
+    expect(translate('zh-CN', 'prReview.store.fetchError')).toBe('获取评论失败')
+    expect(translate('zh-CN', 'prReview.store.unknownReviewer')).toBe('未知评论者')
     expect(translate('zh-CN', 'commandPalette.hints.goBack')).toBe('返回')
     expect(translate('zh-CN', 'recent.status.planReady')).toBe('计划已就绪')
     expect(translate('zh-CN', 'dialogs.gitInit.title')).toBe('不是 Git 仓库')
