@@ -635,6 +635,16 @@ export const messages: Record<AppLocale, MessageTree> = {
     connectionList: {
       title: 'Connections'
     },
+    addProjectButton: {
+      toasts: {
+        addError: 'Failed to add project',
+        initError: 'Failed to initialize repository',
+        initialized: 'Git repository initialized'
+      }
+    },
+    languageIcon: {
+      customProjectIcon: 'Custom project icon'
+    },
     spaces: {
       allProjects: 'All projects',
       createSpace: 'Create space',
@@ -2419,6 +2429,16 @@ export const messages: Record<AppLocale, MessageTree> = {
     },
     connectionList: {
       title: '连接'
+    },
+    addProjectButton: {
+      toasts: {
+        addError: '添加项目失败',
+        initError: '初始化仓库失败',
+        initialized: 'Git 仓库已初始化'
+      }
+    },
+    languageIcon: {
+      customProjectIcon: '自定义项目图标'
     },
     spaces: {
       allProjects: '全部项目',

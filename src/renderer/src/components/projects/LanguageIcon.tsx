@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { FolderGit2 } from 'lucide-react'
+import { useI18n } from '@/i18n/useI18n'
 
 // Bundled language icons (Vite resolves these to hashed asset URLs at build time)
 import typescriptIcon from '@/assets/language-icons/typescript.svg'
@@ -147,6 +148,7 @@ export function LanguageIcon({
   customIcon,
   className
 }: LanguageIconProps): React.JSX.Element {
+  const { t } = useI18n()
   const customIcons = useCustomIcons()
   const projectIconUrl = useProjectIconUrl(customIcon)
 
@@ -156,7 +158,7 @@ export function LanguageIcon({
       <img
         src={projectIconUrl}
         alt="project icon"
-        title="Custom project icon"
+        title={t('languageIcon.customProjectIcon')}
         className="h-4 w-4 shrink-0 object-contain rounded-sm"
       />
     )

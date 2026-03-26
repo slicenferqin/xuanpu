@@ -39,17 +39,17 @@ export function AddProjectButton(): React.JSX.Element {
         return
       }
 
-      toast.error(result.error || 'Failed to add project', {
+      toast.error(result.error || t('addProjectButton.toasts.addError'), {
         retry: () => handleAddProject()
       })
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to add project', {
+      toast.error(error instanceof Error ? error.message : t('addProjectButton.toasts.addError'), {
         retry: () => handleAddProject()
       })
     } finally {
       setIsAdding(false)
     }
-  }, [isAdding, addProject])
+  }, [isAdding, addProject, t])
 
   useEffect(() => {
     const handler = (): void => {
@@ -64,22 +64,22 @@ export function AddProjectButton(): React.JSX.Element {
 
     const initResult = await window.projectOps.initRepository(gitInitPath)
     if (!initResult.success) {
-      toast.error(initResult.error || 'Failed to initialize repository')
+      toast.error(initResult.error || t('addProjectButton.toasts.initError'))
       setGitInitPath(null)
       return
     }
 
-    toast.success('Git repository initialized')
+    toast.success(t('addProjectButton.toasts.initialized'))
 
     // Retry adding the project
     const addResult = await addProject(gitInitPath)
     if (!addResult.success) {
-      toast.error(addResult.error || 'Failed to add project')
+      toast.error(addResult.error || t('addProjectButton.toasts.addError'))
     } else {
       projectToast.added(gitInitPath.split('/').pop() || gitInitPath)
     }
     setGitInitPath(null)
-  }, [gitInitPath, addProject])
+  }, [gitInitPath, addProject, t])
 
   return (
     <>
