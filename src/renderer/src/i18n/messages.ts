@@ -869,6 +869,20 @@ export const messages: Record<AppLocale, MessageTree> = {
         ask: 'Ask a question without making code changes'
       }
     },
+    planReadyFab: {
+      labels: {
+        handoff: 'Handoff',
+        superchargeLocal: 'Supercharge locally',
+        supercharge: 'Supercharge',
+        implement: 'Implement'
+      },
+      aria: {
+        handoff: 'Handoff plan',
+        superchargeLocal: 'Supercharge plan locally',
+        supercharge: 'Supercharge plan',
+        implement: 'Implement plan'
+      }
+    },
     runTab: {
       empty: {
         noWorktree: 'Select a worktree to run scripts',
@@ -2558,6 +2572,20 @@ export const messages: Record<AppLocale, MessageTree> = {
         redo: '重做上一次被撤销的消息和文件改动',
         clear: '关闭当前标签页并打开一个新标签页',
         ask: '提问，但不进行代码修改'
+      }
+    },
+    planReadyFab: {
+      labels: {
+        handoff: '移交',
+        superchargeLocal: '本地增强',
+        supercharge: '增强执行',
+        implement: '开始实现'
+      },
+      aria: {
+        handoff: '移交计划',
+        superchargeLocal: '在本地增强执行计划',
+        supercharge: '增强执行计划',
+        implement: '实现计划'
       }
     },
     runTab: {

@@ -3854,7 +3854,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       const sessionStore = useSessionStore.getState()
       const sessionResult = await sessionStore.createConnectionSession(connectionId)
       if (!sessionResult.success || !sessionResult.session) {
-        toast.error(sessionResult.error ?? 'Failed to create supercharge session')
+        toast.error(sessionResult.error ?? t('sessionView.toasts.createSuperchargeSessionError'))
         return
       }
       const newSessionId = sessionResult.session.id

@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils'
 import { useSettingsStore } from '@/stores/useSettingsStore'
+import { useI18n } from '@/i18n/useI18n'
 
 function MnemonicLabel({ letter, label }: { letter: string; label: string }): React.JSX.Element {
   const index = label.toLowerCase().indexOf(letter.toLowerCase())
@@ -35,6 +36,8 @@ export function PlanReadyImplementFab({
   isConnectionSession
 }: PlanReadyImplementFabProps): React.JSX.Element {
   const vimModeEnabled = useSettingsStore((s) => s.vimModeEnabled)
+  const { t, supportsFirstCharHint } = useI18n()
+  const showMnemonic = vimModeEnabled && supportsFirstCharHint
 
   return (
     <div
@@ -55,10 +58,14 @@ export function PlanReadyImplementFab({
           'cursor-pointer',
           visible ? 'opacity-100' : 'opacity-0'
         )}
-        aria-label="Handoff plan"
+        aria-label={t('planReadyFab.aria.handoff')}
         data-testid="plan-ready-handoff-fab"
       >
-        {vimModeEnabled ? <MnemonicLabel letter="a" label="Handoff" /> : 'Handoff'}
+        {showMnemonic ? (
+          <MnemonicLabel letter="a" label={t('planReadyFab.labels.handoff')} />
+        ) : (
+          t('planReadyFab.labels.handoff')
+        )}
       </button>
       {superpowersAvailable && !isConnectionSession && onSuperpowersLocal && (
         <button
@@ -71,13 +78,13 @@ export function PlanReadyImplementFab({
             'cursor-pointer',
             visible ? 'opacity-100' : 'opacity-0'
           )}
-          aria-label="Supercharge plan locally"
+          aria-label={t('planReadyFab.aria.superchargeLocal')}
           data-testid="plan-ready-supercharge-local-fab"
         >
-          {vimModeEnabled ? (
-            <MnemonicLabel letter="o" label="Supercharge locally" />
+          {showMnemonic ? (
+            <MnemonicLabel letter="o" label={t('planReadyFab.labels.superchargeLocal')} />
           ) : (
-            'Supercharge locally'
+            t('planReadyFab.labels.superchargeLocal')
           )}
         </button>
       )}
@@ -92,10 +99,14 @@ export function PlanReadyImplementFab({
             'cursor-pointer',
             visible ? 'opacity-100' : 'opacity-0'
           )}
-          aria-label="Supercharge plan"
+          aria-label={t('planReadyFab.aria.supercharge')}
           data-testid="plan-ready-supercharge-fab"
         >
-          {vimModeEnabled ? <MnemonicLabel letter="u" label="Supercharge" /> : 'Supercharge'}
+          {showMnemonic ? (
+            <MnemonicLabel letter="u" label={t('planReadyFab.labels.supercharge')} />
+          ) : (
+            t('planReadyFab.labels.supercharge')
+          )}
         </button>
       )}
       <button
@@ -108,10 +119,14 @@ export function PlanReadyImplementFab({
           'cursor-pointer',
           visible ? 'opacity-100' : 'opacity-0 pointer-events-none'
         )}
-        aria-label="Implement plan"
+        aria-label={t('planReadyFab.aria.implement')}
         data-testid="plan-ready-implement-fab"
       >
-        {vimModeEnabled ? <MnemonicLabel letter="m" label="Implement" /> : 'Implement'}
+        {showMnemonic ? (
+          <MnemonicLabel letter="m" label={t('planReadyFab.labels.implement')} />
+        ) : (
+          t('planReadyFab.labels.implement')
+        )}
       </button>
     </div>
   )
