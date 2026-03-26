@@ -40,10 +40,14 @@ import { AgentSdkManager } from './services/agent-sdk-manager'
 import { resolveClaudeBinaryPath } from './services/claude-binary-resolver'
 import type { AgentSdkImplementer } from './services/agent-sdk-types'
 import { telemetryService } from './services/telemetry-service'
+import { bootstrapForkDataDir } from './services/fork-data-migration'
+import { APP_BUNDLE_ID, APP_PRODUCT_NAME } from '@shared/app-identity'
 
 const log = createLogger({ component: 'Main' })
 
 const appStartTime = Date.now()
+
+app.setName(APP_PRODUCT_NAME)
 
 // Parse CLI flags
 const cliArgs = process.argv.slice(2)
@@ -67,12 +71,15 @@ interface WindowBounds {
   isMaximized?: boolean
 }
 
-const BOUNDS_FILE = join(app.getPath('userData'), 'window-bounds.json')
+function getBoundsFile(): string {
+  return join(app.getPath('userData'), 'window-bounds.json')
+}
 
 function loadWindowBounds(): WindowBounds | null {
   try {
-    if (existsSync(BOUNDS_FILE)) {
-      const data = readFileSync(BOUNDS_FILE, 'utf-8')
+    const boundsFile = getBoundsFile()
+    if (existsSync(boundsFile)) {
+      const data = readFileSync(boundsFile, 'utf-8')
       const bounds = JSON.parse(data) as WindowBounds
 
       // Validate that the bounds are still valid (screen might have changed)
@@ -108,7 +115,7 @@ function saveWindowBounds(window: BrowserWindow): void {
       mkdirSync(dir, { recursive: true })
     }
 
-    writeFileSync(BOUNDS_FILE, JSON.stringify({ ...bounds, isMaximized }))
+    writeFileSync(getBoundsFile(), JSON.stringify({ ...bounds, isMaximized }))
   } catch {
     // Ignore save errors
   }
@@ -353,7 +360,10 @@ function registerSystemHandlers(): void {
 
     if (process.platform === 'win32') {
       try {
-        const installDir = join(process.env.LOCALAPPDATA || join(app.getPath('home'), 'AppData', 'Local'), 'Hive')
+        const installDir = join(
+          process.env.LOCALAPPDATA || join(app.getPath('home'), 'AppData', 'Local'),
+          'Hive'
+        )
         mkdirSync(installDir, { recursive: true })
         const targetPath = join(installDir, 'hive-server.cmd')
         const scriptContent = `@echo off\r\n"${execPath}" --headless %*\r\n`
@@ -405,7 +415,10 @@ function registerSystemHandlers(): void {
 
     if (process.platform === 'win32') {
       try {
-        const installDir = join(process.env.LOCALAPPDATA || join(app.getPath('home'), 'AppData', 'Local'), 'Hive')
+        const installDir = join(
+          process.env.LOCALAPPDATA || join(app.getPath('home'), 'AppData', 'Local'),
+          'Hive'
+        )
         const targetPath = join(installDir, 'hive-server.cmd')
         if (!existsSync(targetPath)) {
           return { success: false, error: 'hive-server is not installed' }
@@ -479,7 +492,12 @@ app.whenReady().then(async () => {
   }
 
   // Set app user model id for windows
-  electronApp.setAppUserModelId('com.hive')
+  electronApp.setAppUserModelId(APP_BUNDLE_ID)
+
+  const migration = bootstrapForkDataDir()
+  if (migration.copied) {
+    log.info('Fork data directory initialized from legacy Hive data', migration)
+  }
 
   // --- Headless mode ---
   if (isHeadless) {

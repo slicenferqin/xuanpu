@@ -1,5 +1,4 @@
 import { join } from 'node:path'
-import { homedir } from 'node:os'
 import { loadHeadlessConfig } from './config'
 import { ensureTlsCerts, generateTlsCerts, getCertFingerprint } from './tls'
 import { generateApiKey, hashApiKey, BruteForceTracker } from './plugins/auth'
@@ -12,6 +11,7 @@ import { CodexImplementer } from '../main/services/codex-implementer'
 import { AgentSdkManager } from '../main/services/agent-sdk-manager'
 import type { AgentSdkImplementer } from '../main/services/agent-sdk-types'
 import { rmSync } from 'node:fs'
+import { getAppHomeDir } from '@shared/app-identity'
 
 export interface HeadlessBootstrapOpts {
   port?: number
@@ -83,7 +83,7 @@ export async function headlessBootstrap(opts: HeadlessBootstrapOpts): Promise<vo
   // Ensure TLS certs (skip in insecure/HTTP mode)
   let fingerprint: string | null = null
   if (!config.insecure) {
-    const tlsDir = join(homedir(), '.hive', 'tls')
+    const tlsDir = join(getAppHomeDir(), 'tls')
     fingerprint = ensureTlsCerts(tlsDir, (fp) => {
       db.setSetting('headless_cert_fingerprint', fp)
     })
@@ -150,7 +150,7 @@ export interface ManagementCommandOpts {
 
 export async function handleManagementCommand(opts: ManagementCommandOpts): Promise<void> {
   const db = getDatabase()
-  const hiveDir = join(homedir(), '.hive')
+  const hiveDir = getAppHomeDir()
 
   if (opts.rotateKey) {
     const newKey = generateApiKey()

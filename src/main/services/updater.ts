@@ -3,6 +3,7 @@ import { autoUpdater } from 'electron-updater'
 import { createLogger } from './logger'
 import { getDatabase } from '../db'
 import { APP_SETTINGS_DB_KEY } from '@shared/types/settings'
+import { APP_AUTO_UPDATES_ENABLED } from '@shared/app-identity'
 
 const log = createLogger({ component: 'AutoUpdater' })
 
@@ -39,6 +40,11 @@ function safeSend(win: BrowserWindow, channel: string, data?: unknown): void {
 
 export const updaterService = {
   init(mainWindow: BrowserWindow): void {
+    if (!APP_AUTO_UPDATES_ENABLED) {
+      log.info('Skipping auto-updater for fork build')
+      return
+    }
+
     if (!app.isPackaged) {
       log.debug('Skipping auto-updater in development mode')
       return
@@ -112,6 +118,8 @@ export const updaterService = {
   },
 
   async checkForUpdates(options?: { manual?: boolean }): Promise<void> {
+    if (!APP_AUTO_UPDATES_ENABLED) return
+
     try {
       isManualCheck = options?.manual ?? false
       await autoUpdater.checkForUpdates()
@@ -124,6 +132,8 @@ export const updaterService = {
   },
 
   async downloadUpdate(): Promise<void> {
+    if (!APP_AUTO_UPDATES_ENABLED) return
+
     try {
       await autoUpdater.downloadUpdate()
     } catch (error) {
@@ -135,6 +145,8 @@ export const updaterService = {
   },
 
   quitAndInstall(): void {
+    if (!APP_AUTO_UPDATES_ENABLED) return
+
     autoUpdater.quitAndInstall()
   },
 
@@ -150,6 +162,8 @@ export const updaterService = {
   },
 
   setChannel(channel: 'stable' | 'canary'): void {
+    if (!APP_AUTO_UPDATES_ENABLED) return
+
     autoUpdater.channel = channel === 'canary' ? 'canary' : 'latest'
     autoUpdater.allowPrerelease = channel === 'canary'
     autoUpdater.allowDowngrade = true // allow downgrade on explicit channel switch

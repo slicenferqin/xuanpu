@@ -1,6 +1,7 @@
 import { app } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync, appendFileSync, readdirSync, statSync, unlinkSync } from 'fs'
+import { getAppHomeDir } from '@shared/app-identity'
 
 export enum LogLevel {
   DEBUG = 0,
@@ -46,9 +47,7 @@ class LoggerService {
   private minLevel: LogLevel
 
   private constructor() {
-    // Use ~/.hive/logs/ for logs
-    const homeDir = app.getPath('home')
-    this.logDir = join(homeDir, '.hive', LOG_DIR_NAME)
+    this.logDir = join(getAppHomeDir(app.getPath('home')), LOG_DIR_NAME)
     this.ensureLogDir()
     this.currentLogFile = this.getLogFileName()
     this.minLevel = process.env.NODE_ENV === 'development' ? LogLevel.DEBUG : LogLevel.INFO

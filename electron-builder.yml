@@ -1,5 +1,5 @@
-appId: com.hive.app
-productName: Hive
+appId: com.slicenfer.hivecn
+productName: 'Hive CN'
 directories:
   buildResources: resources
   output: dist
@@ -55,7 +55,7 @@ nsis:
   perMachine: false
   allowToChangeInstallationDirectory: true
   deleteAppDataOnUninstall: false
-  artifactName: "Hive-Setup-${version}.${ext}"
+  artifactName: 'Hive-Setup-${version}.${ext}'
 
 # ── Linux ──────────────────────────────────────────────
 linux:
@@ -65,5 +65,5 @@ linux:
 # ── Auto-update ───────────────────────────────────────
 publish:
   - provider: github
-    owner: morapelker
+    owner: slicenferqin
     repo: hive

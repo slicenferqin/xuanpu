@@ -14,6 +14,7 @@ import {
 } from './breed-names'
 import { createLogger } from './logger'
 import { normalizeWorktreePath } from './path-utils'
+import { getAppWorktreesBaseDir } from '@shared/app-identity'
 
 const execFileAsync = promisify(execFile)
 const log = createLogger({ component: 'GitService' })
@@ -131,7 +132,7 @@ export class GitService {
    * Get the base directory for all Hive worktrees
    */
   static getWorktreesBaseDir(): string {
-    return join(app.getPath('home'), '.hive-worktrees')
+    return getAppWorktreesBaseDir(app.getPath('home'))
   }
 
   /**

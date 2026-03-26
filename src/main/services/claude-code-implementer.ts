@@ -17,6 +17,7 @@ import { Options, PermissionMode } from '@anthropic-ai/claude-agent-sdk'
 import { CommandFilterService, type CommandFilterSettings } from './command-filter-service'
 import { createLspMcpServerConfig, LspService } from './lsp'
 import { APP_SETTINGS_DB_KEY } from '@shared/types/settings'
+import { getAppHomeDir } from '@shared/app-identity'
 
 const log = createLogger({ component: 'ClaudeCodeImplementer' })
 
@@ -523,7 +524,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
         extraArgs: { 'replay-user-messages': null },
         thinking: { type: 'adaptive' },
         effort: effortLevel,
-        debugFile: join(app.getPath('home'), '.hive', 'logs', 'claude-debug.log'),
+        debugFile: join(getAppHomeDir(app.getPath('home')), 'logs', 'claude-debug.log'),
         env: {
           ...process.env,
           CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING: '1'
@@ -2060,7 +2061,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
     // Git commands need special handling - be very specific
     if (command === 'git') {
       if (!subcommand) {
-        return commandStr  // Just "git" alone - use exact
+        return commandStr // Just "git" alone - use exact
       }
 
       // Safe git subcommands that can have broad patterns
@@ -2072,7 +2073,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
       // For git commit, be very specific about the flags
       if (subcommand === 'commit') {
         if (flag === '-m' || flag === '--message') {
-          return `git commit -m *`  // Only allow commit with message flag
+          return `git commit -m *` // Only allow commit with message flag
         }
         // For other commit variations (--amend, --no-verify, etc), use exact command
         // This prevents dangerous operations
@@ -2082,14 +2083,14 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
       // For git push/pull, include the operation but not force flags
       if (subcommand === 'push' || subcommand === 'pull') {
         if (flag === '--force' || flag === '-f') {
-          return commandStr  // Don't suggest pattern for force push
+          return commandStr // Don't suggest pattern for force push
         }
         return `git ${subcommand} *`
       }
 
       // For git checkout/reset, be very careful
       if (subcommand === 'checkout' || subcommand === 'reset') {
-        return commandStr  // Always use exact for these dangerous operations
+        return commandStr // Always use exact for these dangerous operations
       }
 
       // For other git subcommands, use subcommand + first flag if present
@@ -2104,13 +2105,13 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
     if (dangerousCommands.includes(command)) {
       // For rm, never suggest patterns with -rf
       if (command === 'rm' && (parts.includes('-rf') || parts.includes('-fr'))) {
-        return commandStr  // Use exact command for dangerous rm operations
+        return commandStr // Use exact command for dangerous rm operations
       }
 
       if (subcommand) {
         return `${command} ${subcommand} *`
       }
-      return commandStr  // Use exact if no subcommand
+      return commandStr // Use exact if no subcommand
     }
 
     // For other commands, suggest the exact command
@@ -2159,7 +2160,10 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
     }
 
     // Emit command.approval_needed event to renderer
-    log.info('APPROVAL FLOW: Sending event to renderer', { requestId, sessionId: session.hiveSessionId })
+    log.info('APPROVAL FLOW: Sending event to renderer', {
+      requestId,
+      sessionId: session.hiveSessionId
+    })
     this.sendToRenderer('opencode:stream', {
       type: 'command.approval_needed',
       sessionId: session.hiveSessionId,
@@ -2182,7 +2186,10 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
     }>((resolve) => {
       this.pendingApprovals.set(requestId, {
         resolve: (response) => {
-          log.info('APPROVAL FLOW: User response received', { requestId, approved: response.approved })
+          log.info('APPROVAL FLOW: User response received', {
+            requestId,
+            approved: response.approved
+          })
           resolve(response)
         },
         toolName,

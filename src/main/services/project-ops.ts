@@ -12,6 +12,7 @@ import { execSync } from 'child_process'
 import { join, basename, extname } from 'path'
 import { createLogger } from './logger'
 import { getDatabase } from '../db'
+import { getAppHomeDir } from '@shared/app-identity'
 
 export { detectProjectLanguage } from './language-detector'
 
@@ -26,7 +27,7 @@ const MIME_TYPES: Record<string, string> = {
   '.webp': 'image/webp'
 }
 
-const iconDir = join(app.getPath('home'), '.hive', 'project-icons')
+const iconDir = join(getAppHomeDir(app.getPath('home')), 'project-icons')
 
 /**
  * Ensure the project-icons directory exists

@@ -2,6 +2,7 @@ import { ipcMain, dialog, shell, clipboard, BrowserWindow, app } from 'electron'
 import { existsSync, readdirSync, readFileSync, copyFileSync, unlinkSync, mkdirSync } from 'fs'
 import { join, extname } from 'path'
 import { createLogger } from '../services/logger'
+import { getAppHomeDir } from '@shared/app-identity'
 import {
   isGitRepository,
   validateProject,
@@ -97,7 +98,7 @@ export function registerProjectHandlers(): void {
 
   // --- Custom Project Icon handlers ---
 
-  const iconDir = join(app.getPath('home'), '.hive', 'project-icons')
+  const iconDir = join(getAppHomeDir(app.getPath('home')), 'project-icons')
 
   /**
    * Ensure the project-icons directory exists
@@ -108,7 +109,7 @@ export function registerProjectHandlers(): void {
     }
   }
 
-  // Pick a custom project icon via native file dialog, copy to ~/.hive/project-icons/
+  // Pick a custom project icon via native file dialog, copy to the app-specific project-icons dir
   ipcMain.handle(
     'project:pickIcon',
     async (

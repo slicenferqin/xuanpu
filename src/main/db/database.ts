@@ -4,6 +4,7 @@ import { join } from 'path'
 import { existsSync, mkdirSync } from 'fs'
 import { randomUUID } from 'crypto'
 import { MIGRATIONS } from './schema'
+import { getAppHomeDir } from '@shared/app-identity'
 import type {
   Project,
   ProjectCreate,
@@ -42,7 +43,7 @@ export class DatabaseService {
     if (dbPath) {
       this.dbPath = dbPath
     } else {
-      const hiveDir = join(app.getPath('home'), '.hive')
+      const hiveDir = getAppHomeDir(app.getPath('home'))
       if (!existsSync(hiveDir)) {
         mkdirSync(hiveDir, { recursive: true })
       }
@@ -706,9 +707,11 @@ export class DatabaseService {
     const db = this.getDb()
     const row = db.prepare('SELECT id FROM worktrees WHERE id = ?').get(worktreeId)
     if (!row) return { success: false, error: 'Worktree not found' }
-    db.prepare(
-      'UPDATE worktrees SET github_pr_number = ?, github_pr_url = ? WHERE id = ?'
-    ).run(prNumber, prUrl, worktreeId)
+    db.prepare('UPDATE worktrees SET github_pr_number = ?, github_pr_url = ? WHERE id = ?').run(
+      prNumber,
+      prUrl,
+      worktreeId
+    )
     return { success: true }
   }
 
