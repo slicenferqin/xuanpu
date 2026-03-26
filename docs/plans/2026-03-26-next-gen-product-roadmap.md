@@ -1,364 +1,364 @@
-# Next-Gen Chinese Agent Workspace Roadmap Implementation Plan
+# 下一代中文 Agent Workspace 路线规划实施文档
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Start the next-generation self-owned product line on top of the validated `Hive CN` baseline, prioritizing product definition, UI/UX modernization, and Chinese-developer-native workflows before any desktop-shell rewrite.
+**目标：** 基于已经验证可用的 `Hive CN` 基线，启动下一代自有产品线。优先推进产品定义、UI/UX 现代化，以及更贴近中文开发者的工作流设计，而不是立刻重写桌面运行时。
 
-**Architecture:** Treat `Hive CN` as a stable maintenance baseline and open a separate next-product track. Keep the proven local-first desktop architecture for the first redesign cycle, then extract core services to reduce Electron coupling. Do not begin with a Tauri rewrite; use Tauri only after product shape and shell boundaries are stable enough to justify migration cost.
+**架构思路：** 将 `Hive CN` 视为稳定维护基线，同时启动一条独立的下一代产品路线。第一阶段继续沿用已经验证过的本地优先桌面架构，先完成产品重设计；随后再逐步抽离核心服务、降低对 Electron 的强耦合。在产品形态和壳层边界尚未稳定前，不启动 Tauri 重写；只有在迁移收益足够明确时，才进入 Tauri 评估与落地。
 
-**Tech Stack:** Current baseline: Electron 33, React 19, TypeScript 5.7, Zustand 5, SQLite, better-sqlite3, node-pty, native Ghostty addon, Tailwind CSS 4, shadcn/ui, pnpm. Future evaluation target: Tauri 2 + existing React frontend + Rust/native plugins only after architecture extraction.
-
----
-
-## Decision Summary
-
-### What we are deciding now
-
-- `Hive CN` has reached a usable acceptance baseline for personal daily use.
-- The biggest remaining gap is no longer localization or installation, but overall product polish, visual language, and workflow design.
-- We should now enter `next-generation product development`.
-- We should **not** enter `full desktop runtime rewrite` yet.
-
-### What this means in practice
-
-- `Hive CN` becomes the stable line for bug fixes, compatibility, and self-use continuity.
-- A new product line starts now, focused on:
-  - modern UI/UX
-  - clearer information architecture
-  - stronger Chinese-developer defaults
-  - product identity independent from upstream Hive
-- Electron remains acceptable for the next product prototype cycle.
-- Tauri is deferred to a later architecture decision gate.
-
-### Non-goals for this stage
-
-- No immediate Electron-to-Tauri rewrite
-- No cloud sync or team SaaS platform work
-- No plugin marketplace or extension platform
-- No attempt to preserve upstream parity as a primary goal
-- No broad team rollout before the next product direction is coherent
+**技术栈：** 当前基线为 Electron 33、React 19、TypeScript 5.7、Zustand 5、SQLite、better-sqlite3、node-pty、原生 Ghostty addon、Tailwind CSS 4、shadcn/ui、pnpm。未来评估目标为 Tauri 2 + 现有 React 前端 + Rust/原生插件，但前提是完成架构抽离。
 
 ---
 
-## Product Line Split
+## 决策摘要
 
-### Track A: `Hive CN` Maintenance Line
+### 我们当前真正做出的决策
 
-**Role:** Stable, installable, Chinese-localized daily-driver fork.
+- `Hive CN` 已经达到可自用的验收基线。
+- 当前最大的短板已经不是汉化或安装，而是整体产品质感、视觉语言和工作流设计。
+- 现在适合进入 `下一代产品开发阶段`。
+- 现在 **不适合** 进入 `整套桌面 runtime 全量重写阶段`。
 
-**Scope:**
-- bug fixes
-- remaining high-value localization gaps
-- compatibility maintenance
-- packaging and install reliability
-- Chinese-network/provider usability improvements only when clearly needed
+### 这在执行层面的含义
 
-**Out of scope:**
-- major navigation redesign
-- deep visual rebrand
-- large information architecture changes
-- risky shell/runtime rewrites
+- `Hive CN` 转为稳定维护线，负责 bug 修复、兼容性和自用连续性。
+- 从现在开始启动一条新的产品线，重点放在：
+  - 更现代的 UI/UX
+  - 更清晰的信息架构
+  - 更强的中文开发者默认体验
+  - 独立于上游 Hive 的产品身份
+- 在下一代产品原型阶段，Electron 仍然是可接受的壳层。
+- Tauri 延后到后续的架构决策门槛再评估。
 
-**Success criteria:**
-- stays usable as the fallback daily-driver
-- remains isolated from official Hive
-- continues to build and package reliably
+### 当前阶段的非目标
 
-### Track B: Next-Generation Self-Owned Product
-
-**Role:** The future primary product line aimed at a better Chinese-native agent workspace experience.
-
-**Scope:**
-- new product identity
-- modernized layout and interaction model
-- redesigned onboarding and empty states
-- more opinionated workflows for Chinese developers
-- eventual shell decoupling and runtime replacement evaluation
-
-**Success criteria:**
-- materially better UX than `Hive CN`
-- clear product identity independent from upstream
-- validated by personal daily use before broader distribution
+- 不立即进行 Electron 到 Tauri 的重写
+- 不做云同步或团队 SaaS 平台
+- 不做插件市场或扩展生态
+- 不再以“保持和上游完全一致”为主要目标
+- 在下一代产品方向尚未清晰之前，不扩大团队范围推广
 
 ---
 
-## Repo and Branch Strategy
+## 产品线拆分
 
-### Immediate strategy
+### Track A：`Hive CN` 维护线
 
-- Stay in the current repository for the planning and prototype phase.
-- Keep `codex/i18n-foundation` as the maintenance branch for `Hive CN`.
-- Create a dedicated next-product branch when implementation starts, using a name such as `codex/next-product-foundation`.
+**角色：** 稳定、可安装、已完成中文化的日常自用分支。
 
-### Repo split gate
+**范围：**
+- bug 修复
+- 剩余高价值汉化补漏
+- 兼容性维护
+- 打包和安装可靠性维护
+- 仅在明确需要时处理中国网络/模型提供方相关可用性问题
 
-Create a separate repository only after at least one of the following becomes true:
+**不在范围内：**
+- 大规模导航重设计
+- 深度视觉重品牌
+- 大的信息架构重构
+- 高风险壳层/runtime 重写
 
-- the next product no longer intends to merge upstream changes regularly
-- branding, navigation, and core UX diverge enough that the app is no longer meaningfully a Hive fork
-- core service extraction begins to remove large parts of Electron-specific structure
-- the Tauri spike is approved and a shell rewrite becomes an active milestone
+**成功标准：**
+- 始终可作为回退的日常可用版本
+- 与官方 Hive 持续隔离
+- 可以稳定构建和打包
 
-**Recommendation:** Do not split repos yet. Split only after the next product has a stable direction and a clear ownership boundary.
+### Track B：下一代自有产品线
 
----
+**角色：** 面向更优中文开发者体验的未来主产品线。
 
-## Phase Goals
+**范围：**
+- 新的产品身份
+- 更现代的布局和交互模型
+- 重设计 onboarding 和空状态
+- 更有主张的中文开发者工作流
+- 最终为壳层解耦和 runtime 替换做好准备
 
-### Phase 0: Freeze the Baseline
-
-**Goal:** Stop treating `Hive CN` as the main innovation surface and stabilize it as the fallback product line.
-
-**Exit criteria:**
-- current acceptance status is written down
-- maintenance scope is clearly bounded
-- next-product branch strategy is defined
-
-### Phase 1: Product Definition
-
-**Goal:** Define what the next product is, who it is for, and how it should feel.
-
-**Deliverables:**
-- product positioning note
-- target user profile and use cases
-- UX principles
-- information architecture draft
-- brand direction and naming placeholder
-- workflow priorities for Chinese developers
-
-**Exit criteria:**
-- we can explain the product in one paragraph without mentioning Hive first
-- top 3 workflows are explicit
-- redesign scope is bounded
-
-### Phase 2: UX and Visual Redesign on Current Shell
-
-**Goal:** Prove the next product experience without paying rewrite cost too early.
-
-**Deliverables:**
-- redesigned home/projects surface
-- redesigned session/composer experience
-- redesigned settings and onboarding
-- design token system and UI language
-- empty states, loading states, and error states that feel intentional
-
-**Exit criteria:**
-- daily use feels materially more modern than `Hive CN`
-- visual system is coherent across major screens
-- personal usage validates the new direction
-
-### Phase 3: Core Service Extraction
-
-**Goal:** Reduce hard Electron coupling so the shell can be swapped later without rewriting product logic twice.
-
-**Deliverables:**
-- thinner shell boundary
-- clearer service interfaces for project, session, git, settings, terminal
-- reduced renderer knowledge of Electron-specific APIs
-- identified abstractions for terminal backends and native integrations
-
-**Exit criteria:**
-- key product logic can be described without Electron-specific terms
-- shell-specific responsibilities are isolated enough for a Tauri spike
-
-### Phase 4: Runtime Decision Gate
-
-**Goal:** Decide whether the product should stay on Electron or move to Tauri.
-
-**Decision inputs:**
-- actual performance pain, not hypothetical discomfort
-- package size and memory pressure in real use
-- complexity of terminal migration
-- viability of replacing `node-pty` and the Ghostty native overlay
-- cost of losing velocity during migration
-
-**Exit criteria:**
-- explicit stay-on-Electron decision, or
-- approved Tauri migration spike with bounded scope
+**成功标准：**
+- UX 明显优于 `Hive CN`
+- 拥有独立于上游的产品识别度
+- 先经过个人高频日常使用验证，再考虑更大范围分发
 
 ---
 
-## Why Tauri Is Deferred
+## 仓库与分支策略
 
-Tauri is attractive for size and platform efficiency, but it does not automatically solve our current biggest problem. Our main dissatisfaction is product polish and UX clarity, not the inability to ship the current product. The current codebase also has deep Electron coupling in IPC, window management, terminal orchestration, `node-pty`, and the native Ghostty overlay. Rewriting the shell before stabilizing product direction would stack product risk and architecture risk at the same time.
+### 当前建议策略
 
-**Working rule:**
+- 在规划和原型阶段，继续留在当前仓库中推进。
+- 保持 `codex/i18n-foundation` 作为 `Hive CN` 的维护分支。
+- 当下一代产品开始真正实现时，创建专门分支，例如 `codex/next-product-foundation`。
 
-- redesign first
-- extract services second
-- migrate shell only if real gains justify the cost
+### 何时拆仓
 
-**A Tauri migration is justified only when all of the following are true:**
+只有在满足下列任一条件时，才考虑创建独立仓库：
 
-- the next product UX has stabilized across the main workflows
-- Electron-specific APIs are no longer spread across the product logic
-- terminal strategy is explicit:
-  - either an external-terminal compromise is acceptable
-  - or a Rust/native terminal replacement plan is funded
-- we have measured reasons to migrate, such as startup, memory, package size, or distribution constraints
+- 下一代产品不再计划频繁吸收上游变更
+- 品牌、导航、核心 UX 已经足够分化，不再适合被视为 Hive fork
+- 核心服务抽离开始移除大量 Electron 专属结构
+- Tauri 迁移 spike 被正式批准，壳层重写进入实际里程碑
 
----
-
-## Product Priorities for the Next Generation
-
-### Priority 1: Modern UI/UX
-
-- stronger visual hierarchy
-- more intentional typography and spacing
-- clearer density strategy for project/session-heavy usage
-- less “utility app” feel, more “developer workspace” feel
-
-### Priority 2: Better Information Architecture
-
-- clearer separation between projects, worktrees, sessions, and actions
-- lower cognitive load for first-run and return usage
-- faster orientation when switching contexts
-
-### Priority 3: Chinese-Developer-Native Defaults
-
-- clearer Chinese microcopy
-- more realistic proxy/provider assumptions
-- terminology adapted for Chinese engineering workflows
-- onboarding optimized for local usage habits
-
-### Priority 4: Product Identity
-
-- name, visual language, and tone should no longer read like an upstream translation
-- the app should be recommendable as its own product, not as “the Chinese Hive fork”
+**建议：** 现在先不要拆仓。等下一代产品方向稳定、边界清晰后再拆。
 
 ---
 
-## Implementation Tasks
+## 阶段目标
 
-### Task 1: Document the Product Split
+### Phase 0：冻结当前基线
 
-**Files:**
-- Create: `docs/plans/2026-03-26-next-gen-product-roadmap.md`
-- Reference: `docs/plans/2026-03-26-chinese-agent-fork-roadmap.md`
+**目标：** 不再把 `Hive CN` 当作主要创新面，而是把它稳定为可回退的产品线。
 
-**Objective:** Record the decision that `Hive CN` and the next-generation product are now separate tracks with different goals.
+**退出标准：**
+- 当前验收状态有文档记录
+- 维护范围边界清晰
+- 下一代产品的分支策略已定义
 
-**Steps:**
-1. Write the decision summary and non-goals.
-2. Define Track A and Track B responsibilities.
-3. Record repo and branch policy.
-4. Record the Tauri decision gate.
+### Phase 1：产品定义
 
-**Verification:**
-- The document makes it clear why we are starting a new product track now.
-- The document makes it clear why Tauri is deferred.
+**目标：** 明确下一代产品是什么、服务谁、整体应该呈现什么感觉。
 
-### Task 2: Write the Product Definition Pack
+**交付物：**
+- 产品定位说明
+- 目标用户画像和核心场景
+- UX 原则
+- 信息架构草图
+- 品牌方向与临时代号
+- 面向中文开发者的工作流优先级
 
-**Files:**
-- Create: `docs/plans/2026-03-26-next-product-definition.md`
-- Create: `docs/plans/2026-03-26-next-product-ux-principles.md`
-- Create: `docs/plans/2026-03-26-next-product-ia.md`
+**退出标准：**
+- 我们能用一段话讲清产品，而不是先讲 Hive
+- Top 3 工作流已经明确
+- 重设计范围已经收敛
 
-**Objective:** Turn the broad product direction into explicit product and UX definitions.
+### Phase 2：基于当前壳层完成 UX 与视觉重设计
 
-**Steps:**
-1. Write a one-paragraph product positioning statement.
-2. Define the target users and top 3 workflows.
-3. Define UX principles and anti-patterns.
-4. Draft a first-pass information architecture for the main screens.
+**目标：** 在不提前支付 runtime 重写成本的前提下，验证下一代产品体验。
 
-**Verification:**
-- The product can be described without leaning on upstream Hive framing.
-- The redesign target is concrete enough to start UI work.
+**交付物：**
+- 重设计后的首页 / 项目入口
+- 重设计后的会话 / 输入体验
+- 重设计后的设置和 onboarding
+- 设计 token 系统和整体 UI 语言
+- 更有完成度的空状态、加载状态和错误状态
 
-### Task 3: Create the Visual Redesign Plan
+**退出标准：**
+- 日常使用体验明显比 `Hive CN` 更现代
+- 主要界面的视觉系统足够统一
+- 个人高频使用能验证这条方向成立
 
-**Files:**
-- Create: `docs/plans/2026-03-26-next-product-visual-system.md`
-- Modify later: `src/renderer/src/components/layout/*`
-- Modify later: `src/renderer/src/components/sessions/*`
-- Modify later: `src/renderer/src/components/settings/*`
+### Phase 3：核心服务抽离
 
-**Objective:** Define the visual and interaction system before touching implementation.
+**目标：** 降低对 Electron 的硬耦合，为后续换壳做准备，避免产品逻辑被重写两次。
 
-**Steps:**
-1. Define typography, spacing, color, and surface rules.
-2. Define layout principles for desktop-heavy workflows.
-3. Define how empty/loading/error states should feel.
-4. Define modernization targets for the top-level screens.
+**交付物：**
+- 更薄的壳层边界
+- 更清晰的 project、session、git、settings、terminal 服务接口
+- renderer 对 Electron 专属 API 的直接依赖减少
+- terminal backend 与原生集成的抽象边界被识别出来
 
-**Verification:**
-- The redesign has a coherent visual direction.
-- Screen work can be split into implementation batches afterward.
+**退出标准：**
+- 关键产品逻辑已经可以不用 Electron 术语来描述
+- 壳层职责已被隔离到足以支撑 Tauri spike
 
-### Task 4: Start the Next-Product Prototype on the Current Shell
+### Phase 4：运行时决策门槛
 
-**Files:**
-- Branch target: `codex/next-product-foundation`
-- Modify later: renderer layout, navigation, onboarding, settings, session surfaces
+**目标：** 决定下一代产品是继续留在 Electron，还是迁移到 Tauri。
 
-**Objective:** Validate the next-generation UX on the current desktop shell before any runtime rewrite.
+**决策输入：**
+- 真正存在的性能痛点，而不是理论上的不爽
+- 真实使用下的包体、内存和启动成本
+- terminal 迁移复杂度
+- 替代 `node-pty` 和 Ghostty 原生 overlay 的可行性
+- 迁移期间的研发速度损失
 
-**Steps:**
-1. Create a dedicated next-product branch.
-2. Implement the redesign on the current Electron/React foundation.
-3. Use personal daily-driver testing to validate the direction.
-4. Keep `Hive CN` available as a fallback branch and installable build.
-
-**Verification:**
-- The new UX is usable end-to-end on real projects.
-- We have enough evidence to decide whether the product direction is working.
-
-### Task 5: Prepare the Architecture Extraction Plan
-
-**Files:**
-- Create: `docs/plans/2026-03-26-shell-decoupling-plan.md`
-- Reference: `src/main/index.ts`
-- Reference: `src/preload/index.ts`
-- Reference: `src/main/ipc/*`
-- Reference: `src/renderer/src/components/terminal/backends/*`
-
-**Objective:** Identify what must be extracted before a Tauri spike becomes rational.
-
-**Steps:**
-1. Map Electron-specific shell responsibilities.
-2. Separate product logic from shell integration responsibilities.
-3. Define terminal strategy options and trade-offs.
-4. Create migration gates for any future shell replacement.
-
-**Verification:**
-- We can explain what a Tauri migration would require in bounded terms.
-- We avoid starting a shell rewrite without a service-boundary plan.
+**退出标准：**
+- 明确决定继续留在 Electron，或
+- 批准一个边界清晰的 Tauri 迁移 spike
 
 ---
 
-## Decision Gates
+## 为什么暂缓 Tauri
 
-### Gate A: Start Next-Product Implementation
+Tauri 在包体和平台效率上很有吸引力，但它不会自动解决我们当前最核心的问题。我们现在最不满的是产品质感和 UX 清晰度，而不是“当前产品完全无法交付”。与此同时，这个仓库在 IPC、窗口管理、terminal 编排、`node-pty` 以及 Ghostty 原生 overlay 上都和 Electron 深度耦合。如果在产品方向还没稳定的时候先重写壳层，就会把“产品风险”和“架构风险”叠加在一起。
 
-Proceed when:
-- this roadmap is documented
-- product definition documents exist
-- redesign scope is explicit enough to start UI work
+**当前工作原则：**
 
-### Gate B: Split Repo
+- 先做重设计
+- 再做服务抽离
+- 只有在收益足够明确时才迁移壳层
 
-Proceed when:
-- the next-product branch is clearly no longer an upstream-oriented fork
-- sync with upstream becomes secondary to product independence
+**只有满足以下全部条件，Tauri 迁移才成立：**
 
-### Gate C: Approve Tauri Spike
-
-Proceed only when:
-- the next-product UX has been proven in daily use
-- architecture extraction is complete enough
-- terminal strategy is explicit
-- measured shell pain is significant enough to justify migration
+- 下一代产品在主流程上的 UX 已经稳定
+- Electron 专属 API 不再散落在产品逻辑中
+- terminal 策略已经明确：
+  - 要么接受先用外部终端的折中方案
+  - 要么明确投入 Rust/原生 terminal 替代方案
+- 已经有可量化的迁移动机，例如启动、内存、包体或分发限制
 
 ---
 
-## Recommended Immediate Next Step
+## 下一代产品优先级
 
-Write the next three planning documents before touching the next-product implementation:
+### Priority 1：现代 UI/UX
+
+- 更强的视觉层级
+- 更有意图的字体、留白与间距
+- 更适合项目/会话密集使用场景的密度策略
+- 减少“工具型 utility app”的感觉，增强“开发者工作台”的质感
+
+### Priority 2：更好的信息架构
+
+- 更清晰地区分 projects、worktrees、sessions 和 actions
+- 降低首次使用和回访使用时的认知负担
+- 切换上下文时更容易快速定位
+
+### Priority 3：中文开发者原生默认体验
+
+- 更自然的中文 microcopy
+- 更符合国内环境的代理/模型默认假设
+- 更贴近中文工程协作习惯的术语设计
+- 更符合本地使用习惯的 onboarding
+
+### Priority 4：产品身份
+
+- 名称、视觉语言和产品语气不能再像“上游产品翻译版”
+- 这个产品应该能被推荐为独立产品，而不是“汉化版 Hive”
+
+---
+
+## 实施任务
+
+### Task 1：记录产品分线决策
+
+**文件：**
+- 创建：`docs/plans/2026-03-26-next-gen-product-roadmap.md`
+- 参考：`docs/plans/2026-03-26-chinese-agent-fork-roadmap.md`
+
+**目标：** 把 `Hive CN` 与下一代产品已经分成两条路线这件事明确写下来。
+
+**步骤：**
+1. 写清决策摘要和非目标。
+2. 定义 Track A 与 Track B 的职责边界。
+3. 写明 repo 和 branch 策略。
+4. 写明 Tauri 的决策门槛。
+
+**验证：**
+- 文档明确解释了为什么现在要启动新产品路线。
+- 文档明确解释了为什么 Tauri 被延后。
+
+### Task 2：编写产品定义包
+
+**文件：**
+- 创建：`docs/plans/2026-03-26-next-product-definition.md`
+- 创建：`docs/plans/2026-03-26-next-product-ux-principles.md`
+- 创建：`docs/plans/2026-03-26-next-product-ia.md`
+
+**目标：** 把宏观方向变成明确的产品和 UX 定义。
+
+**步骤：**
+1. 写一段清晰的产品定位说明。
+2. 定义目标用户和 Top 3 工作流。
+3. 定义 UX 原则和反模式。
+4. 产出主界面的第一版信息架构草图。
+
+**验证：**
+- 这个产品可以不依赖 Hive 作为前置说明。
+- 重设计目标已经具体到可以开始做 UI。
+
+### Task 3：制定视觉重设计方案
+
+**文件：**
+- 创建：`docs/plans/2026-03-26-next-product-visual-system.md`
+- 后续修改：`src/renderer/src/components/layout/*`
+- 后续修改：`src/renderer/src/components/sessions/*`
+- 后续修改：`src/renderer/src/components/settings/*`
+
+**目标：** 在开始实现前，先定义视觉和交互系统。
+
+**步骤：**
+1. 定义字体、间距、色彩和 surface 规则。
+2. 定义桌面高频工作流下的布局原则。
+3. 定义空状态、加载状态、错误状态应该呈现的感觉。
+4. 定义顶层页面的现代化改造目标。
+
+**验证：**
+- 重设计方案具备统一的视觉方向。
+- 后续可以按页面批次拆分实现。
+
+### Task 4：在当前壳层上启动下一代产品原型
+
+**文件：**
+- 目标分支：`codex/next-product-foundation`
+- 后续修改：renderer 布局、导航、onboarding、settings、session 等主界面
+
+**目标：** 在不重写 runtime 的前提下，先验证下一代产品 UX。
+
+**步骤：**
+1. 创建专门的下一代产品分支。
+2. 基于当前 Electron/React 基线做重设计实现。
+3. 通过个人日常高频使用验证产品方向。
+4. 保留 `Hive CN` 作为稳定回退分支和可安装版本。
+
+**验证：**
+- 新 UX 可以在真实项目中端到端使用。
+- 已经有足够证据判断这条产品方向是否成立。
+
+### Task 5：准备壳层解耦规划
+
+**文件：**
+- 创建：`docs/plans/2026-03-26-shell-decoupling-plan.md`
+- 参考：`src/main/index.ts`
+- 参考：`src/preload/index.ts`
+- 参考：`src/main/ipc/*`
+- 参考：`src/renderer/src/components/terminal/backends/*`
+
+**目标：** 明确在 Tauri spike 变得合理之前，必须先抽离哪些能力。
+
+**步骤：**
+1. 梳理 Electron 专属壳层职责。
+2. 分离产品逻辑与壳层集成职责。
+3. 定义 terminal 策略的可选方案和取舍。
+4. 为后续可能的壳层替换建立迁移门槛。
+
+**验证：**
+- 我们可以用有边界的方式解释 Tauri 迁移需要什么。
+- 不会在没有服务边界规划的情况下贸然开始重写壳层。
+
+---
+
+## 决策门槛
+
+### Gate A：开始下一代产品实现
+
+满足以下条件后推进：
+- 本路线文档已经落地
+- 产品定义类文档已经存在
+- 重设计范围足够明确，可以开始 UI 工作
+
+### Gate B：拆仓
+
+满足以下条件后推进：
+- 下一代产品分支已经不再以吸收上游为主
+- 与上游同步的重要性低于产品独立性
+
+### Gate C：批准 Tauri Spike
+
+只有在以下条件全部满足时才推进：
+- 下一代产品 UX 已经在日常使用中被验证
+- 架构抽离已经完成到足够程度
+- terminal 策略已经明确
+- 已经测到足够明显的壳层痛点，值得付出迁移成本
+
+---
+
+## 当前最合理的下一步
+
+在开始下一代产品实现之前，先写完下面三份规划文档：
 
 1. `docs/plans/2026-03-26-next-product-definition.md`
 2. `docs/plans/2026-03-26-next-product-ux-principles.md`
 3. `docs/plans/2026-03-26-next-product-ia.md`
 
-That sequence keeps product thinking ahead of code and prevents us from using a runtime rewrite as a substitute for product clarity.
+这个顺序能确保我们先把产品想清楚，再进入实现阶段，避免把“技术重写”误当成“产品清晰度”的替代品。
