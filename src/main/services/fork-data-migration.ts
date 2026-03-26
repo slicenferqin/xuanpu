@@ -1,32 +1,27 @@
-import { existsSync, cpSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { mkdirSync } from 'node:fs'
-import { getAppHomeDir, getLegacyAppHomeDir } from '@shared/app-identity'
+import { getAppHomeDir } from '@shared/app-identity'
 
-export interface ForkDataMigrationResult {
-  copied: boolean
-  sourcePath: string
+export interface ForkDataDirResult {
+  created: boolean
   targetPath: string
 }
 
-export function bootstrapForkDataDir(): ForkDataMigrationResult {
-  const sourcePath = getLegacyAppHomeDir()
+export function ensureForkDataDir(): ForkDataDirResult {
   const targetPath = getAppHomeDir()
 
-  if (!existsSync(sourcePath) || existsSync(targetPath)) {
+  if (existsSync(targetPath)) {
     return {
-      copied: false,
-      sourcePath,
+      created: false,
       targetPath
     }
   }
 
   mkdirSync(dirname(targetPath), { recursive: true })
-  cpSync(sourcePath, targetPath, { recursive: true })
+  mkdirSync(targetPath, { recursive: true })
 
   return {
-    copied: true,
-    sourcePath,
+    created: true,
     targetPath
   }
 }

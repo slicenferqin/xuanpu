@@ -40,7 +40,7 @@ import { AgentSdkManager } from './services/agent-sdk-manager'
 import { resolveClaudeBinaryPath } from './services/claude-binary-resolver'
 import type { AgentSdkImplementer } from './services/agent-sdk-types'
 import { telemetryService } from './services/telemetry-service'
-import { bootstrapForkDataDir } from './services/fork-data-migration'
+import { ensureForkDataDir } from './services/fork-data-migration'
 import { APP_BUNDLE_ID, APP_PRODUCT_NAME } from '@shared/app-identity'
 
 const log = createLogger({ component: 'Main' })
@@ -494,9 +494,9 @@ app.whenReady().then(async () => {
   // Set app user model id for windows
   electronApp.setAppUserModelId(APP_BUNDLE_ID)
 
-  const migration = bootstrapForkDataDir()
-  if (migration.copied) {
-    log.info('Fork data directory initialized from legacy Hive data', migration)
+  const forkDataDir = ensureForkDataDir()
+  if (forkDataDir.created) {
+    log.info('Created isolated fork data directory', forkDataDir)
   }
 
   // --- Headless mode ---
