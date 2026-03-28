@@ -161,7 +161,7 @@ export const projectToast = {
   },
 
   removed: (name: string): string | number => {
-    return toast.success(`Project "${name}" removed from Hive`)
+    return toast.success(`Project "${name}" removed from Xuanpu`)
   },
 
   renamed: (name: string): string | number => {

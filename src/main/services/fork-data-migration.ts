@@ -1,19 +1,24 @@
 import { existsSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { getAppHomeDir } from '@shared/app-identity'
+import { getActiveAppHomeDir, getAppHomeDir } from '@shared/app-identity'
 
 export interface ForkDataDirResult {
   created: boolean
   targetPath: string
+  activePath: string
+  usingLegacyPath: boolean
 }
 
 export function ensureForkDataDir(): ForkDataDirResult {
   const targetPath = getAppHomeDir()
+  const activePath = getActiveAppHomeDir()
 
-  if (existsSync(targetPath)) {
+  if (existsSync(activePath)) {
     return {
       created: false,
-      targetPath
+      targetPath,
+      activePath,
+      usingLegacyPath: activePath !== targetPath
     }
   }
 
@@ -22,6 +27,8 @@ export function ensureForkDataDir(): ForkDataDirResult {
 
   return {
     created: true,
-    targetPath
+    targetPath,
+    activePath: targetPath,
+    usingLegacyPath: false
   }
 }

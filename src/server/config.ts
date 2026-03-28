@@ -1,6 +1,6 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { getAppHomeDir } from '@shared/app-identity'
+import { getActiveAppHomeDir } from '@shared/app-identity'
 
 export interface HeadlessConfig {
   port: number
@@ -24,8 +24,8 @@ const DEFAULTS: HeadlessConfig = {
   bindAddress: '0.0.0.0',
   insecure: false,
   tls: {
-    certPath: join(getAppHomeDir(), 'tls', 'server.crt'),
-    keyPath: join(getAppHomeDir(), 'tls', 'server.key')
+    certPath: join(getActiveAppHomeDir(), 'tls', 'server.crt'),
+    keyPath: join(getActiveAppHomeDir(), 'tls', 'server.key')
   },
   security: {
     bruteForceMaxAttempts: 5,
@@ -72,7 +72,7 @@ function cloneDefaults(): HeadlessConfig {
 }
 
 export function loadHeadlessConfig(configPath?: string): HeadlessConfig {
-  const path = configPath ?? join(getAppHomeDir(), 'headless.json')
+  const path = configPath ?? join(getActiveAppHomeDir(), 'headless.json')
   if (!existsSync(path)) return cloneDefaults()
 
   try {

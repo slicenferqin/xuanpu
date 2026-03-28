@@ -2,7 +2,7 @@ import { ipcMain, dialog, shell, clipboard, BrowserWindow, app } from 'electron'
 import { existsSync, readdirSync, readFileSync, copyFileSync, unlinkSync, mkdirSync } from 'fs'
 import { join, extname } from 'path'
 import { createLogger } from '../services/logger'
-import { getAppHomeDir } from '@shared/app-identity'
+import { getActiveAppHomeDir } from '@shared/app-identity'
 import {
   isGitRepository,
   validateProject,
@@ -98,7 +98,7 @@ export function registerProjectHandlers(): void {
 
   // --- Custom Project Icon handlers ---
 
-  const iconDir = join(getAppHomeDir(app.getPath('home')), 'project-icons')
+  const iconDir = join(getActiveAppHomeDir(app.getPath('home')), 'project-icons')
 
   /**
    * Ensure the project-icons directory exists

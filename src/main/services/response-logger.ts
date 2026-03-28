@@ -2,14 +2,14 @@ import { app } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync, appendFileSync } from 'fs'
 import { createLogger } from './logger'
-import { getAppHomeDir } from '@shared/app-identity'
+import { getActiveAppHomeDir } from '@shared/app-identity'
 
 const log = createLogger({ component: 'ResponseLogger' })
 
 const RESPONSE_LOG_DIR = 'responses'
 
 function getResponseLogDir(): string {
-  return join(getAppHomeDir(app.getPath('home')), 'logs', RESPONSE_LOG_DIR)
+  return join(getActiveAppHomeDir(app.getPath('home')), 'logs', RESPONSE_LOG_DIR)
 }
 
 function ensureLogDir(): void {

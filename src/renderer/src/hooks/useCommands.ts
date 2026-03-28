@@ -261,7 +261,7 @@ export function useCommands() {
       {
         id: 'action:add-project',
         label: 'Add Project',
-        description: 'Add a new project to Hive',
+        description: 'Add a new project to Xuanpu',
         category: 'action',
         icon: 'FolderPlus',
         keywords: ['add', 'new', 'project', 'import'],
@@ -571,10 +571,10 @@ export function useCommands() {
       // =====================
       {
         id: 'action:install-server',
-        label: "Install 'hive-server' Command in PATH",
+        label: "Install 'xuanpu-server' Command in PATH",
         description: isWindows()
-          ? 'Install the hive-server CLI to %LOCALAPPDATA%\\Hive'
-          : 'Install the hive-server CLI to /usr/local/bin',
+          ? 'Install the xuanpu-server CLI to %LOCALAPPDATA%\\Xuanpu'
+          : 'Install the xuanpu-server CLI to /usr/local/bin',
         category: 'action',
         icon: 'Terminal',
         keywords: ['install', 'server', 'path', 'headless', 'cli', 'terminal'],
@@ -583,7 +583,7 @@ export function useCommands() {
           try {
             const result = await window.systemOps.installServerToPath()
             if (result.success) {
-              toast.success(`Installed hive-server to ${result.path}`)
+              toast.success(`Installed xuanpu-server to ${result.path}`)
             } else {
               toast.error(result.error || 'Failed to install')
             }
@@ -595,10 +595,10 @@ export function useCommands() {
       },
       {
         id: 'action:uninstall-server',
-        label: "Uninstall 'hive-server' Command from PATH",
+        label: "Uninstall 'xuanpu-server' Command from PATH",
         description: isWindows()
-          ? 'Remove the hive-server CLI from %LOCALAPPDATA%\\Hive'
-          : 'Remove the hive-server CLI from /usr/local/bin',
+          ? 'Remove the xuanpu-server CLI from %LOCALAPPDATA%\\Xuanpu'
+          : 'Remove the xuanpu-server CLI from /usr/local/bin',
         category: 'action',
         icon: 'Trash2',
         keywords: ['uninstall', 'remove', 'server', 'path', 'cli'],
@@ -607,7 +607,7 @@ export function useCommands() {
           try {
             const result = await window.systemOps.uninstallServerFromPath()
             if (result.success) {
-              toast.success('Removed hive-server from PATH')
+              toast.success('Removed xuanpu-server from PATH')
             } else {
               toast.error(result.error || 'Failed to uninstall')
             }

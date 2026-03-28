@@ -1,28 +1,63 @@
+import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-export const APP_PRODUCT_NAME = 'Hive CN'
-export const APP_BUNDLE_ID = 'com.slicenfer.hivecn'
+export const APP_PRODUCT_NAME = 'Xuanpu'
+export const APP_BUNDLE_ID = 'com.slicenfer.xuanpu'
 export const APP_AUTO_UPDATES_ENABLED = false
+export const APP_CLI_NAME = 'xuanpu-server'
+export const APP_DATABASE_FILENAME = 'xuanpu.db'
+export const LEGACY_DATABASE_FILENAMES = ['hive.db']
 
-export const APP_HOME_DIRNAME = '.hive-cn'
-export const LEGACY_HOME_DIRNAME = '.hive'
+export const APP_HOME_DIRNAME = '.xuanpu'
+export const LEGACY_HOME_DIRNAMES = ['.hive-cn', '.hive']
 
-export const APP_WORKTREES_DIRNAME = '.hive-cn-worktrees'
-export const LEGACY_WORKTREES_DIRNAME = '.hive-worktrees'
+export const APP_WORKTREES_DIRNAME = '.xuanpu-worktrees'
+export const LEGACY_WORKTREES_DIRNAMES = ['.hive-cn-worktrees', '.hive-worktrees']
 
 export function getAppHomeDir(homeDir: string = homedir()): string {
   return join(homeDir, APP_HOME_DIRNAME)
 }
 
-export function getLegacyAppHomeDir(homeDir: string = homedir()): string {
-  return join(homeDir, LEGACY_HOME_DIRNAME)
+export function getLegacyAppHomeDirs(homeDir: string = homedir()): string[] {
+  return LEGACY_HOME_DIRNAMES.map((dir) => join(homeDir, dir))
+}
+
+export function getActiveAppHomeDir(homeDir: string = homedir()): string {
+  const primaryPath = getAppHomeDir(homeDir)
+  if (existsSync(primaryPath)) return primaryPath
+
+  return getLegacyAppHomeDirs(homeDir).find((dir) => existsSync(dir)) ?? primaryPath
+}
+
+export function getAppDatabasePath(homeDir: string = homedir()): string {
+  return join(getAppHomeDir(homeDir), APP_DATABASE_FILENAME)
+}
+
+export function getLegacyAppDatabasePaths(homeDir: string = homedir()): string[] {
+  return getLegacyAppHomeDirs(homeDir).flatMap((dir) =>
+    LEGACY_DATABASE_FILENAMES.map((filename) => join(dir, filename))
+  )
+}
+
+export function getActiveAppDatabasePath(homeDir: string = homedir()): string {
+  const primaryPath = getAppDatabasePath(homeDir)
+  if (existsSync(primaryPath)) return primaryPath
+
+  return getLegacyAppDatabasePaths(homeDir).find((path) => existsSync(path)) ?? primaryPath
 }
 
 export function getAppWorktreesBaseDir(homeDir: string = homedir()): string {
   return join(homeDir, APP_WORKTREES_DIRNAME)
 }
 
-export function getLegacyWorktreesBaseDir(homeDir: string = homedir()): string {
-  return join(homeDir, LEGACY_WORKTREES_DIRNAME)
+export function getLegacyWorktreesBaseDirs(homeDir: string = homedir()): string[] {
+  return LEGACY_WORKTREES_DIRNAMES.map((dir) => join(homeDir, dir))
+}
+
+export function getActiveWorktreesBaseDir(homeDir: string = homedir()): string {
+  const primaryPath = getAppWorktreesBaseDir(homeDir)
+  if (existsSync(primaryPath)) return primaryPath
+
+  return getLegacyWorktreesBaseDirs(homeDir).find((dir) => existsSync(dir)) ?? primaryPath
 }

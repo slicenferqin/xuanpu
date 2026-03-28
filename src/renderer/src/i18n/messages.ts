@@ -211,10 +211,10 @@ export const messages: Record<AppLocale, MessageTree> = {
       },
       privacy: {
         title: 'Privacy',
-        description: 'Control how Hive collects anonymous usage data',
+        description: 'Control how Xuanpu collects anonymous usage data',
         analytics: {
           label: 'Send anonymous usage analytics',
-          description: 'Help improve Hive by sharing anonymous feature usage data'
+          description: 'Help improve Xuanpu by sharing anonymous feature usage data'
         },
         collect: {
           title: 'What we collect:',
@@ -249,7 +249,7 @@ export const messages: Record<AppLocale, MessageTree> = {
       },
       updates: {
         title: 'Updates',
-        description: 'Manage how Hive updates itself',
+        description: 'Manage how Xuanpu updates itself',
         currentVersion: 'Current version:',
         channel: {
           label: 'Update Channel',
@@ -673,7 +673,7 @@ export const messages: Record<AppLocale, MessageTree> = {
       }
     },
     mainPane: {
-      welcomeTitle: 'Welcome to Hive',
+      welcomeTitle: 'Welcome to Xuanpu',
       welcomeDescription: 'Select a project or worktree to get started.',
       loadingSessions: 'Loading sessions...',
       noActiveSessionTitle: 'No active session',
@@ -703,7 +703,8 @@ export const messages: Record<AppLocale, MessageTree> = {
       subtitle:
         'Check your environment, pick a default agent, and make the first run feel clean for your team.',
       headerTitle: 'First-launch setup',
-      headerDescription: 'Hive checks the local toolchain and helps you choose a sensible default.',
+      headerDescription:
+        'Xuanpu checks the local toolchain and helps you choose a sensible default.',
       steps: {
         inspect: '1. Check environment',
         inspectDescription: 'Verify the machine is ready for local AI workflows.',
@@ -778,7 +779,7 @@ export const messages: Record<AppLocale, MessageTree> = {
           description: "Anthropic's local coding agent with strong default planning workflow.",
           ready: 'Installed and login credentials were detected.',
           loginRequired: 'Installed, but you need to finish the Claude login flow first.',
-          authUnknown: 'Installed, but Hive could not confirm the current login state.',
+          authUnknown: 'Installed, but Xuanpu could not confirm the current login state.',
           missing: 'Claude Code is not installed yet.'
         },
         codex: {
@@ -786,7 +787,7 @@ export const messages: Record<AppLocale, MessageTree> = {
           description: "OpenAI's local coding agent for terminal-first development.",
           ready: 'Installed and ready to use.',
           loginRequired: 'Installed, but Codex needs to be authenticated first.',
-          authUnknown: 'Installed. Hive could not verify auth, but you can still choose it.',
+          authUnknown: 'Installed. Xuanpu could not verify auth, but you can still choose it.',
           missing: 'Codex is not installed yet.'
         },
         opencode: {
@@ -799,7 +800,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         },
         terminal: {
           title: 'Terminal mode',
-          description: 'Use Hive as a project workspace first, then connect an agent later.',
+          description: 'Use Xuanpu as a project workspace first, then connect an agent later.',
           detail:
             'Terminal mode skips native agent setup for now and still gives you projects, worktrees, and the integrated terminal.'
         }
@@ -812,7 +813,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         selectedTitle: 'Current choice',
         whyTitle: 'Notes',
         recommendedDescription:
-          'Hive recommends {agent} because it is the best fit among the tools detected on this machine.',
+          'Xuanpu recommends {agent} because it is the best fit among the tools detected on this machine.',
         terminalDescription:
           'Terminal mode is a safe fallback. You can switch to Claude Code, Codex, or OpenCode later in Settings.',
         commandLabel: 'Suggested command',
@@ -824,7 +825,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         agentReadyDescription: '{agent} is ready. You can set it as the default now.',
         agentNotReady: 'Not selectable yet. Open the guidance below to finish setup.',
         authUnknownDescription:
-          'Hive could not verify the current auth state for {agent}, but you can already select it if you want to proceed.',
+          'Xuanpu could not verify the current auth state for {agent}, but you can already select it if you want to proceed.',
         loginHintClaude: 'Launch Claude Code and follow the interactive sign-in flow.',
         loginHintCodex: 'Run the login command and complete the ChatGPT or API-key authentication flow.',
         loginHintOpencode:
@@ -1715,7 +1716,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         addToExisting: 'Add to Existing Connection',
         filterPlaceholder: 'Filter worktrees...',
         noWorktrees: 'No worktrees from other projects available.',
-        noWorktreesHint: 'Add another project to Hive first.',
+        noWorktreesHint: 'Add another project to Xuanpu first.',
         noMatches: 'No worktrees match your filter',
         selectedCount: '{count} {label} selected',
         selectedNone: 'Select worktrees to connect',
@@ -1944,12 +1945,12 @@ export const messages: Record<AppLocale, MessageTree> = {
         newWorkspaceFrom: 'New Workspace From...',
         projectSettings: 'Project Settings',
         assignToSpace: 'Assign to Space',
-        removeFromHive: 'Remove from Hive'
+        removeFromHive: 'Remove from Xuanpu'
       },
       dialogs: {
         remove: {
-          title: 'Remove project from Hive?',
-          description: 'This will remove {name} from Hive.',
+          title: 'Remove project from Xuanpu?',
+          description: 'This will remove {name} from Xuanpu.',
           unaffected: 'Your files on disk will not be affected.',
           cancel: 'Cancel',
           confirm: 'Remove'
@@ -1964,7 +1965,7 @@ export const messages: Record<AppLocale, MessageTree> = {
       toasts: {
         renamedSuccess: 'Project renamed successfully',
         renamedError: 'Failed to rename project',
-        removedSuccess: 'Project removed from Hive',
+        removedSuccess: 'Project removed from Xuanpu',
         removedError: 'Failed to remove project',
         pathCopied: 'Path copied to clipboard',
         refreshed: 'Project refreshed',
@@ -2166,10 +2167,10 @@ export const messages: Record<AppLocale, MessageTree> = {
       },
       privacy: {
         title: '隐私',
-        description: '控制 Hive 如何收集匿名使用数据',
+        description: '控制玄圃如何收集匿名使用数据',
         analytics: {
           label: '发送匿名使用分析数据',
-          description: '通过共享匿名功能使用数据帮助改进 Hive'
+          description: '通过共享匿名功能使用数据帮助改进玄圃'
         },
         collect: {
           title: '我们会收集：',
@@ -2203,7 +2204,7 @@ export const messages: Record<AppLocale, MessageTree> = {
       },
       updates: {
         title: '更新',
-        description: '管理 Hive 的更新方式',
+        description: '管理玄圃的更新方式',
         currentVersion: '当前版本：',
         channel: {
           label: '更新通道',
@@ -2626,7 +2627,7 @@ export const messages: Record<AppLocale, MessageTree> = {
       }
     },
     mainPane: {
-      welcomeTitle: '欢迎使用 Hive',
+      welcomeTitle: '欢迎使用玄圃',
       welcomeDescription: '选择一个项目或 worktree 以开始使用。',
       loadingSessions: '正在加载会话...',
       noActiveSessionTitle: '当前没有活动会话',
@@ -2655,7 +2656,7 @@ export const messages: Record<AppLocale, MessageTree> = {
       title: '开发环境就绪引导',
       subtitle: '先检查本机环境，再选择默认 Agent，把第一次启动做得顺滑、清楚、可交付。',
       headerTitle: '首次启动配置',
-      headerDescription: 'Hive 会检查本地工具链，并帮你选一个合理的默认 Agent。',
+      headerDescription: '玄圃会检查本地工具链，并帮你选一个合理的默认 Agent。',
       steps: {
         inspect: '1. 检查环境',
         inspectDescription: '确认这台机器已经具备本地 AI 开发的基本条件。',
@@ -2730,7 +2731,7 @@ export const messages: Record<AppLocale, MessageTree> = {
           description: 'Anthropic 的本地编码 Agent，默认规划体验比较成熟。',
           ready: '已安装，并且检测到了登录凭证。',
           loginRequired: '已安装，但还需要先完成 Claude 的登录流程。',
-          authUnknown: '已安装，但 Hive 暂时无法确认当前登录状态。',
+          authUnknown: '已安装，但玄圃暂时无法确认当前登录状态。',
           missing: '当前还没有安装 Claude Code。'
         },
         codex: {
@@ -2738,7 +2739,7 @@ export const messages: Record<AppLocale, MessageTree> = {
           description: 'OpenAI 的本地编码 Agent，适合终端优先的开发流程。',
           ready: '已安装，可以直接使用。',
           loginRequired: '已安装，但还需要先完成 Codex 登录。',
-          authUnknown: '已安装。Hive 暂时无法确认登录状态，但你现在也可以直接选它。',
+          authUnknown: '已安装。玄圃暂时无法确认登录状态，但你现在也可以直接选它。',
           missing: '当前还没有安装 Codex。'
         },
         opencode: {
@@ -2751,7 +2752,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         },
         terminal: {
           title: '终端模式',
-          description: '先把 Hive 当作项目工作台使用，之后再接入 Agent。',
+          description: '先把玄圃当作项目工作台使用，之后再接入 Agent。',
           detail:
             '终端模式会先跳过原生 Agent 配置，但你仍然可以使用项目、worktree 和集成终端这些核心能力。'
         }
@@ -2763,7 +2764,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         loginTitle: '登录指引',
         selectedTitle: '当前选择',
         whyTitle: '说明',
-        recommendedDescription: 'Hive 推荐 {agent}，因为它是当前这台机器上最适合直接开箱即用的方案。',
+        recommendedDescription: '玄圃推荐 {agent}，因为它是当前这台机器上最适合直接开箱即用的方案。',
         terminalDescription:
           '终端模式是一个安全兜底。之后你仍然可以在设置里切换到 Claude Code、Codex 或 OpenCode。',
         commandLabel: '建议命令',
@@ -2774,7 +2775,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         agentReadyDescription: '{agent} 已经可用，现在就可以把它设为默认 Agent。',
         agentNotReady: '它暂时还不能直接选中。先按下方指引完成安装或登录。',
         authUnknownDescription:
-          'Hive 暂时无法确认 {agent} 的登录状态，但如果你愿意，也可以现在就把它设成默认。',
+          '玄圃暂时无法确认 {agent} 的登录状态，但如果你愿意，也可以现在就把它设成默认。',
         loginHintClaude: '先启动 Claude Code，然后按交互提示完成登录。',
         loginHintCodex: '执行登录命令，并完成 ChatGPT 或 API Key 认证流程。',
         loginHintOpencode: '先启动 OpenCode，然后在交互界面里完成 Provider 配置。'
@@ -3663,7 +3664,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         addToExisting: '加入已有连接',
         filterPlaceholder: '筛选 worktree...',
         noWorktrees: '当前没有来自其他项目的 worktree 可供连接。',
-        noWorktreesHint: '请先向 Hive 添加另一个项目。',
+        noWorktreesHint: '请先向玄圃添加另一个项目。',
         noMatches: '没有匹配筛选条件的 worktree',
         selectedCount: '已选择 {count} 个{label}',
         selectedNone: '请选择要连接的 worktree',
@@ -3891,12 +3892,12 @@ export const messages: Record<AppLocale, MessageTree> = {
         newWorkspaceFrom: '从分支创建工作区...',
         projectSettings: '项目设置',
         assignToSpace: '分配到空间',
-        removeFromHive: '从 Hive 中移除'
+        removeFromHive: '从玄圃移除'
       },
       dialogs: {
         remove: {
-          title: '要从 Hive 中移除这个项目吗？',
-          description: '这会把 {name} 从 Hive 中移除。',
+          title: '要从玄圃移除这个项目吗？',
+          description: '这会把 {name} 从玄圃移除。',
           unaffected: '磁盘上的文件不会受到影响。',
           cancel: '取消',
           confirm: '移除'
@@ -3910,7 +3911,7 @@ export const messages: Record<AppLocale, MessageTree> = {
       toasts: {
         renamedSuccess: '项目重命名成功',
         renamedError: '项目重命名失败',
-        removedSuccess: '项目已从 Hive 中移除',
+        removedSuccess: '项目已从玄圃移除',
         removedError: '移除项目失败',
         pathCopied: '路径已复制到剪贴板',
         refreshed: '项目已刷新',

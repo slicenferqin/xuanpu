@@ -100,7 +100,7 @@ export const useProjectStore = create<ProjectState>()(
           // Check if project already exists
           const existingProject = await window.db.project.getByPath(path)
           if (existingProject) {
-            return { success: false, error: 'This project has already been added to Hive.' }
+            return { success: false, error: 'This project has already been added to Xuanpu.' }
           }
 
           // Create the project

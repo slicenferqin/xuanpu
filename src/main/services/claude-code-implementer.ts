@@ -17,7 +17,7 @@ import { Options, PermissionMode } from '@anthropic-ai/claude-agent-sdk'
 import { CommandFilterService, type CommandFilterSettings } from './command-filter-service'
 import { createLspMcpServerConfig, LspService } from './lsp'
 import { APP_SETTINGS_DB_KEY } from '@shared/types/settings'
-import { getAppHomeDir } from '@shared/app-identity'
+import { getActiveAppHomeDir } from '@shared/app-identity'
 
 const log = createLogger({ component: 'ClaudeCodeImplementer' })
 
@@ -524,7 +524,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
         extraArgs: { 'replay-user-messages': null },
         thinking: { type: 'adaptive' },
         effort: effortLevel,
-        debugFile: join(getAppHomeDir(app.getPath('home')), 'logs', 'claude-debug.log'),
+        debugFile: join(getActiveAppHomeDir(app.getPath('home')), 'logs', 'claude-debug.log'),
         env: {
           ...process.env,
           CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING: '1'

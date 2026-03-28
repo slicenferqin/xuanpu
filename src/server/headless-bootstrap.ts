@@ -11,7 +11,7 @@ import { CodexImplementer } from '../main/services/codex-implementer'
 import { AgentSdkManager } from '../main/services/agent-sdk-manager'
 import type { AgentSdkImplementer } from '../main/services/agent-sdk-types'
 import { rmSync } from 'node:fs'
-import { getAppHomeDir } from '@shared/app-identity'
+import { getActiveAppHomeDir } from '@shared/app-identity'
 
 export interface HeadlessBootstrapOpts {
   port?: number
@@ -83,7 +83,7 @@ export async function headlessBootstrap(opts: HeadlessBootstrapOpts): Promise<vo
   // Ensure TLS certs (skip in insecure/HTTP mode)
   let fingerprint: string | null = null
   if (!config.insecure) {
-    const tlsDir = join(getAppHomeDir(), 'tls')
+    const tlsDir = join(getActiveAppHomeDir(), 'tls')
     fingerprint = ensureTlsCerts(tlsDir, (fp) => {
       db.setSetting('headless_cert_fingerprint', fp)
     })
@@ -95,7 +95,7 @@ export async function headlessBootstrap(opts: HeadlessBootstrapOpts): Promise<vo
     const newKey = generateApiKey()
     existingHash = hashApiKey(newKey)
     db.setSetting('headless_api_key_hash', existingHash)
-    console.log('\n=== Hive Headless API Key (save this!) ===')
+    console.log('\n=== Xuanpu Headless API Key (save this!) ===')
     console.log(newKey)
     console.log('==========================================\n')
   }
@@ -122,7 +122,7 @@ export async function headlessBootstrap(opts: HeadlessBootstrapOpts): Promise<vo
   })
 
   const protocol = config.insecure ? 'http' : 'https'
-  console.log(`Hive headless server running on ${protocol}://${bind}:${port}/graphql`)
+  console.log(`Xuanpu headless server running on ${protocol}://${bind}:${port}/graphql`)
   if (fingerprint) {
     console.log(`TLS fingerprint: ${fingerprint}`)
   }
@@ -150,7 +150,7 @@ export interface ManagementCommandOpts {
 
 export async function handleManagementCommand(opts: ManagementCommandOpts): Promise<void> {
   const db = getDatabase()
-  const hiveDir = getAppHomeDir()
+  const hiveDir = getActiveAppHomeDir()
 
   if (opts.rotateKey) {
     const newKey = generateApiKey()

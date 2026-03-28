@@ -1,5 +1,5 @@
-appId: com.slicenfer.hivecn
-productName: 'Hive CN'
+appId: com.slicenfer.xuanpu
+productName: 'Xuanpu'
 directories:
   buildResources: resources
   output: dist
@@ -55,7 +55,7 @@ nsis:
   perMachine: false
   allowToChangeInstallationDirectory: true
   deleteAppDataOnUninstall: false
-  artifactName: 'Hive-Setup-${version}.${ext}'
+  artifactName: 'Xuanpu-Setup-${version}.${ext}'
 
 # ── Linux ──────────────────────────────────────────────
 linux:
@@ -66,4 +66,4 @@ linux:
 publish:
   - provider: github
     owner: slicenferqin
-    repo: hive
+    repo: xuanpu

@@ -66,7 +66,7 @@ const AGENT_META: Record<WizardAgentId, AgentMeta> = {
   },
   terminal: {
     icon: TerminalSquare,
-    docsUrl: 'https://github.com/morapelker/hive'
+    docsUrl: 'https://github.com/slicenferqin/xuanpu'
   }
 }
 

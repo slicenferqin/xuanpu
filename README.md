@@ -1,20 +1,20 @@
 <div align="center">
-  <img src="resources/icon.png" alt="Hive" width="128" />
-  <h1>Hive</h1>
-  <p><strong>An open-source AI agent orchestrator for parallel coding across projects.</strong></p>
-  <p>Run Claude Code, OpenCode, and Codex sessions in parallel. One window. Isolated branches. Zero tab chaos.</p>
+  <img src="resources/icon.png" alt="Xuanpu" width="128" />
+  <h1>Xuanpu Workbench</h1>
+  <p><strong>An AI-native workbench for builders.</strong></p>
+  <p>Run Claude Code, OpenCode, and Codex sessions in parallel. One workspace. Isolated branches. Less context thrash.</p>
   <p>
     <a href="README.md"><strong>English</strong></a> | <a href="README.ar.md">العربية</a> | <a href="README.bn.md">বাংলা</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.da.md">Dansk</a> | <a href="README.de.md">Deutsch</a> | <a href="README.el.md">Ελληνικά</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.he.md">עברית</a> | <a href="README.it.md">Italiano</a> | <a href="README.ja.md">日本語</a> | <a href="README.ko.md">한국어</a> | <a href="README.no.md">Norsk</a> | <a href="README.pl.md">Polski</a> | <a href="README.pt-BR.md">Português (BR)</a> | <a href="README.ru.md">Русский</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.uk.md">Українська</a> | <a href="README.vi.md">Tiếng Việt</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a>
   </p>
-    <a href="https://github.com/morapelker/hive/releases/latest"><img src="https://img.shields.io/github/v/release/morapelker/hive?style=flat-square&logo=github&label=version" alt="Latest Release" /></a>
-    <a href="https://github.com/morapelker/hive/releases"><img src="https://img.shields.io/github/downloads/morapelker/hive/total?style=flat-square&logo=github" alt="Downloads" /></a>
-    <a href="https://github.com/morapelker/hive/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/morapelker/hive/release.yml?style=flat-square&logo=github-actions&label=build" alt="Build Status" /></a>
+    <a href="https://github.com/slicenferqin/xuanpu/releases/latest"><img src="https://img.shields.io/github/v/release/slicenferqin/xuanpu?style=flat-square&logo=github&label=version" alt="Latest Release" /></a>
+    <a href="https://github.com/slicenferqin/xuanpu/releases"><img src="https://img.shields.io/github/downloads/slicenferqin/xuanpu/total?style=flat-square&logo=github" alt="Downloads" /></a>
+    <a href="https://github.com/slicenferqin/xuanpu/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/slicenferqin/xuanpu/release.yml?style=flat-square&logo=github-actions&label=build" alt="Build Status" /></a>
     <a href="#"><img src="https://img.shields.io/badge/macOS-only-000000?style=flat-square&logo=apple&logoColor=white" alt="macOS" /></a>
     <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D20-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node.js" /></a>
     <a href="https://www.electronjs.org/"><img src="https://img.shields.io/badge/electron-33-47848F?style=flat-square&logo=electron&logoColor=white" alt="Electron" /></a>
     <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/typescript-5.7-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License" /></a>
-    <a href="https://github.com/morapelker/hive/pulls"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square" alt="PRs Welcome" /></a>
+    <a href="https://github.com/slicenferqin/xuanpu/pulls"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square" alt="PRs Welcome" /></a>
   </p>
 </div>
 
@@ -22,9 +22,9 @@
 
 ## Table of Contents
 
-- [What is Hive?](#what-is-hive)
+- [What is Xuanpu?](#what-is-xuanpu)
 - [Features](#features)
-- [Why Hive?](#why-hive)
+- [Why Xuanpu?](#why-xuanpu)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Connections - The Game Changer](#-connections---the-game-changer)
@@ -42,11 +42,11 @@
 - [Contributing](#contributing)
 - [License](#license)
 
-## What is Hive?
+## What is Xuanpu?
 
 If you run multiple AI coding agents across different projects and branches, you know the pain -- six terminal tabs open, you can't remember which agent is working on what, and you're worried two of them are editing the same files.
 
-Hive is an AI agent orchestrator. See all your running agents in one sidebar, click to switch between them, and each one runs on an isolated git worktree branch so they can't conflict. Connect multiple repositories together so a single agent session has context across your entire stack.
+Xuanpu is an AI-native workbench for builders. See all your running agents in one sidebar, switch between them instantly, and keep each task on an isolated git worktree branch so sessions do not collide. Connect multiple repositories so one agent session can operate with context across your stack.
 
 ## Features
 
@@ -54,7 +54,7 @@ Hive is an AI agent orchestrator. See all your running agents in one sidebar, cl
 Work on multiple branches simultaneously without stashing or switching. Create, archive, and organize worktrees with one click. Each worktree gets a unique city-based name for easy identification.
 
 ### 🤖 **Built-in AI Coding Sessions**
-Run AI coding agents directly inside Hive with both **OpenCode** and **Claude Code** support. Stream responses in real-time, watch tool calls execute, and approve permissions as needed. Full undo/redo support keeps you in control.
+Run AI coding agents directly inside Xuanpu with **OpenCode**, **Claude Code**, and **Codex** support. Stream responses in real-time, watch tool calls execute, and approve permissions as needed. Full undo/redo support keeps you in control.
 
 ### 📁 **Smart File Explorer**
 See what changed at a glance with live git status indicators. View diffs inline, browse file history, and navigate your codebase without leaving the app. Integrated Monaco editor provides a full VS Code experience.
@@ -77,11 +77,11 @@ Full LSP integration with per-worktree language servers. Get intelligent code co
 ### 🔌 **Worktree Connections**
 Connect two worktrees together to share context, compare implementations, or collaborate in real-time. Perfect for reviewing changes between branches, sharing AI sessions across worktrees, or maintaining consistency when working on related features. See live updates as connected worktrees change.
 
-## Why Hive?
+## Why Xuanpu?
 
-See how Hive transforms your git workflow:
+See how Xuanpu reshapes an AI-native git workflow:
 
-| Task | Traditional Workflow | With Hive |
+| Task | Traditional Workflow | With Xuanpu |
 |------|---------------------|-----------|
 | **Switch branches** | `git stash` → `git checkout` → `git stash pop` | Click on worktree → Done |
 | **Work on multiple features** | Constant stashing and context switching | Open multiple worktrees side-by-side |
@@ -96,25 +96,18 @@ See how Hive transforms your git workflow:
 
 > 🍎 **macOS only** — Windows and Linux support coming soon.
 
-### Via Homebrew (Recommended)
+### Via GitHub Releases
 
-```bash
-brew tap morapelker/hive
-brew install --cask hive
-```
+Download the latest `.dmg` from [GitHub Releases](https://github.com/slicenferqin/xuanpu/releases/latest).
 
-### Direct Download
-
-Download the latest `.dmg` from [GitHub Releases](https://github.com/morapelker/hive/releases/latest).
-
-That's it! Open Hive from your Applications folder and point it at a git repo.
+That's it. Open Xuanpu from your Applications folder and point it at a git repo.
 
 ## Quick Start
 
 Get up and running in under 2 minutes:
 
 ### 1️⃣ **Add Your First Project**
-Open Hive → Click **"Add Project"** → Select any git repository on your machine
+Open Xuanpu → Click **"Add Project"** → Select any git repository on your machine
 
 ### 2️⃣ **Create a Worktree**
 Select your project → Click **"New Worktree"** → Choose a branch (or create a new one)
@@ -128,7 +121,7 @@ Open a worktree → Click **"New Session"** → Start coding with OpenCode or Cl
 
 ## 🔌 Worktree Connections - The Game Changer
 
-Hive's **Worktree Connections** feature lets you link two worktrees together, creating a bridge between different branches or features. This is incredibly powerful for development workflows that require cross-branch awareness.
+Xuanpu's **Worktree Connections** feature lets you link two worktrees together, creating a bridge between different branches or features. This is powerful for development workflows that require cross-branch awareness.
 
 ### What Are Worktree Connections?
 
@@ -156,7 +149,7 @@ Connect any two worktrees to:
 - ✅ **AI Context Sharing** - AI sessions can reference connected worktree code
 - ✅ **Status Indicators** - See build status, tests, and changes in connected worktrees
 - ✅ **Connection History** - Track which worktrees were connected and when
-- ✅ **Smart Suggestions** - Hive suggests relevant worktrees to connect based on your workflow
+- ✅ **Smart Suggestions** - Xuanpu suggests relevant worktrees to connect based on your workflow
 
 ### Example Use Cases
 
@@ -173,7 +166,7 @@ Connect any two worktrees to:
 ## See It In Action
 
 <div align="center">
-  <img src="docs/screenshots/hive-full-demo.gif" alt="Hive demo — orchestrate AI agents across projects" width="900" />
+  <img src="docs/screenshots/hive-full-demo.gif" alt="Xuanpu demo — orchestrate AI agents across projects" width="900" />
 </div>
 
 <details>
@@ -181,7 +174,7 @@ Connect any two worktrees to:
 
 <div align="center">
   <br/>
-  <img src="docs/screenshots/hive-ss-1.png" alt="Hive — AI coding session with git worktrees" width="900" />
+  <img src="docs/screenshots/hive-ss-1.png" alt="Xuanpu — AI coding session with git worktrees" width="900" />
   <sub>AI-powered coding sessions with integrated git worktree management</sub>
   <br/><br/>
   <img src="docs/screenshots/hive-worktree-create.png" alt="Creating a new worktree" width="900" />
@@ -201,8 +194,8 @@ Connect any two worktrees to:
 <div align="center">
 
 [![Documentation](https://img.shields.io/badge/📖_Documentation-Read-blue?style=for-the-badge)](docs/)
-[![Issues](https://img.shields.io/badge/🐛_Issues-Report-red?style=for-the-badge)](https://github.com/morapelker/hive/issues)
-[![Discussions](https://img.shields.io/badge/💬_Discussions-Join-purple?style=for-the-badge)](https://github.com/morapelker/hive/discussions)
+[![Issues](https://img.shields.io/badge/🐛_Issues-Report-red?style=for-the-badge)](https://github.com/slicenferqin/xuanpu/issues)
+[![Discussions](https://img.shields.io/badge/💬_Discussions-Join-purple?style=for-the-badge)](https://github.com/slicenferqin/xuanpu/discussions)
 [![Contributing](https://img.shields.io/badge/🤝_Contributing-Guidelines-green?style=for-the-badge)](CONTRIBUTING.md)
 [![Security](https://img.shields.io/badge/🔒_Security-Policy-orange?style=for-the-badge)](SECURITY.md)
 
@@ -211,9 +204,9 @@ Connect any two worktrees to:
 ### Get Help
 
 - 📖 Read the [documentation](docs/) for detailed guides
-- 🐛 [Report bugs](https://github.com/morapelker/hive/issues/new?template=bug_report.md) with reproduction steps
-- 💡 [Request features](https://github.com/morapelker/hive/issues/new?template=feature_request.md) you'd like to see
-- 💬 [Join discussions](https://github.com/morapelker/hive/discussions) to connect with the community
+- 🐛 [Report bugs](https://github.com/slicenferqin/xuanpu/issues/new?template=bug_report.md) with reproduction steps
+- 💡 [Request features](https://github.com/slicenferqin/xuanpu/issues/new?template=feature_request.md) you'd like to see
+- 💬 [Join discussions](https://github.com/slicenferqin/xuanpu/discussions) to connect with the community
 - 🔒 [Report security vulnerabilities](SECURITY.md) responsibly
 
 ### Resources
@@ -227,7 +220,7 @@ Connect any two worktrees to:
 ### 🚀 Coming Soon
 
 - **Cross-platform support** — Windows and Linux builds
-- **Plugin system** — Extend Hive with custom integrations
+- **Plugin system** — Extend Xuanpu with custom integrations
 - **Enhanced Connections** — Multi-way connections, connection groups, smart suggestions
 - **Cloud sync** — Sync settings, sessions, and connection templates across devices
 - **Team features** — Share worktrees and collaborate in real-time
@@ -271,7 +264,7 @@ pnpm dev
 
 ### Ghostty Terminal (Optional)
 
-Hive includes an optional native terminal powered by [Ghostty](https://ghostty.org/)'s `libghostty`. This is only needed if you want to work on the embedded terminal feature.
+Xuanpu includes an optional native terminal powered by [Ghostty](https://ghostty.org/)'s `libghostty`. This is only needed if you want to work on the embedded terminal feature.
 
 **Setup:**
 
@@ -294,7 +287,7 @@ Hive includes an optional native terminal powered by [Ghostty](https://ghostty.o
    cd src/native && npx node-gyp rebuild
    ```
 
-If `libghostty` is not available, Hive still builds and runs -- the Ghostty terminal feature will just be disabled.
+If `libghostty` is not available, Xuanpu still builds and runs -- the Ghostty terminal feature will just be disabled.
 
 ### Commands
 
@@ -312,7 +305,7 @@ If `libghostty` is not available, Hive still builds and runs -- the Ghostty term
 
 ### Architecture
 
-Hive uses Electron's three-process model with strict sandboxing:
+Xuanpu uses Electron's three-process model with strict sandboxing:
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -390,7 +383,7 @@ Detailed docs live in [`docs/`](docs/):
 
 ## Contributing
 
-We love contributions! Hive is built by developers, for developers, and we welcome improvements of all kinds.
+We love contributions! Xuanpu is built by developers, for developers, and we welcome improvements of all kinds.
 
 ### Ways to Contribute
 
@@ -421,4 +414,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 [MIT](LICENSE) © 2024 morapelker
 
-Hive is open source software licensed under the MIT License. See the [LICENSE](LICENSE) file for full details.
+Xuanpu is open source software licensed under the MIT License. See the [LICENSE](LICENSE) file for full details.

@@ -1,10 +1,10 @@
 import Database from 'better-sqlite3'
 import { app } from 'electron'
-import { join } from 'path'
+import { dirname } from 'path'
 import { existsSync, mkdirSync } from 'fs'
 import { randomUUID } from 'crypto'
 import { MIGRATIONS } from './schema'
-import { getAppHomeDir } from '@shared/app-identity'
+import { getActiveAppDatabasePath } from '@shared/app-identity'
 import type {
   Project,
   ProjectCreate,
@@ -43,11 +43,12 @@ export class DatabaseService {
     if (dbPath) {
       this.dbPath = dbPath
     } else {
-      const hiveDir = getAppHomeDir(app.getPath('home'))
-      if (!existsSync(hiveDir)) {
-        mkdirSync(hiveDir, { recursive: true })
+      const appDataFilePath = getActiveAppDatabasePath(app.getPath('home'))
+      const appDataDir = dirname(appDataFilePath)
+      if (!existsSync(appDataDir)) {
+        mkdirSync(appDataDir, { recursive: true })
       }
-      this.dbPath = join(hiveDir, 'hive.db')
+      this.dbPath = appDataFilePath
     }
   }
 

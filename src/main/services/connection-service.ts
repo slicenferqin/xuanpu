@@ -11,14 +11,14 @@ import {
   writeFileSync
 } from 'fs'
 import { createLogger } from './logger'
-import { getAppHomeDir } from '@shared/app-identity'
+import { getActiveAppHomeDir } from '@shared/app-identity'
 
 const log = createLogger({ component: 'ConnectionService' })
 
 const CONNECTIONS_DIR_NAME = 'connections'
 
 export function getConnectionsBaseDir(): string {
-  return join(getAppHomeDir(app.getPath('home')), CONNECTIONS_DIR_NAME)
+  return join(getActiveAppHomeDir(app.getPath('home')), CONNECTIONS_DIR_NAME)
 }
 
 export function ensureConnectionsDir(): void {

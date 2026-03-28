@@ -380,8 +380,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       // Initialize protocol
       await this.sendRequest(context, 'initialize', {
         clientInfo: {
-          name: 'hive_desktop',
-          title: 'Hive Desktop',
+          name: 'xuanpu_desktop',
+          title: 'Xuanpu Desktop',
           version: '1.0.0'
         },
         capabilities: {

@@ -1,26 +1,26 @@
 <div align="center">
-  <img src="resources/icon.png" alt="Hive" width="128" />
-  <h1>Hive</h1>
-  <p><strong>一个开源的 AI Agent 编排器，用来在多个项目和多个分支之间并行编码。</strong></p>
-  <p>在一个窗口里同时运行 Claude Code、OpenCode 和 Codex。每个会话都绑定独立的 git worktree，减少分支切换和上下文混乱。</p>
+  <img src="resources/icon.png" alt="玄圃" width="128" />
+  <h1>玄圃 Xuanpu Workbench</h1>
+  <p><strong>一款面向构建者的 AI 原生工作台。</strong></p>
+  <p>在一个工作台里并行运行 Claude Code、OpenCode 和 Codex。每个会话绑定独立 git worktree，减少上下文来回切换。</p>
   <p><a href="README.md"><strong>English</strong></a> | <a href="README.zh-CN.md"><strong>简体中文</strong></a></p>
 
   <p>
-    <a href="https://github.com/morapelker/hive/releases/latest"><img src="https://img.shields.io/github/v/release/morapelker/hive?style=flat-square&logo=github&label=version" alt="Latest Release" /></a>
-    <a href="https://github.com/morapelker/hive/releases"><img src="https://img.shields.io/github/downloads/morapelker/hive/total?style=flat-square&logo=github" alt="Downloads" /></a>
-    <a href="https://github.com/morapelker/hive/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/morapelker/hive/release.yml?style=flat-square&logo=github-actions&label=build" alt="Build Status" /></a>
+    <a href="https://github.com/slicenferqin/xuanpu/releases/latest"><img src="https://img.shields.io/github/v/release/slicenferqin/xuanpu?style=flat-square&logo=github&label=version" alt="Latest Release" /></a>
+    <a href="https://github.com/slicenferqin/xuanpu/releases"><img src="https://img.shields.io/github/downloads/slicenferqin/xuanpu/total?style=flat-square&logo=github" alt="Downloads" /></a>
+    <a href="https://github.com/slicenferqin/xuanpu/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/slicenferqin/xuanpu/release.yml?style=flat-square&logo=github-actions&label=build" alt="Build Status" /></a>
     <a href="#"><img src="https://img.shields.io/badge/macOS-only-000000?style=flat-square&logo=apple&logoColor=white" alt="macOS" /></a>
     <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D20-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node.js" /></a>
     <a href="https://www.electronjs.org/"><img src="https://img.shields.io/badge/electron-33-47848F?style=flat-square&logo=electron&logoColor=white" alt="Electron" /></a>
     <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/typescript-5.7-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License" /></a>
-    <a href="https://github.com/morapelker/hive/pulls"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square" alt="PRs Welcome" /></a>
+    <a href="https://github.com/slicenferqin/xuanpu/pulls"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square" alt="PRs Welcome" /></a>
   </p>
 </div>
 
 ---
 
-## Hive 是什么
+## 玄圃是什么
 
 如果你经常同时开多个 AI 编码代理，很容易遇到这些问题：
 
@@ -29,7 +29,7 @@
 - 前后端或多个仓库之间需要来回切换上下文
 - 想同时推进多个功能，但不想一直 `git stash`
 
-Hive 的目标就是把这些问题收拢到一个桌面应用里：
+玄圃的目标就是把这些问题收拢到一个桌面应用里：
 
 - 在一个侧边栏里看到所有项目、worktree 和 AI 会话
 - 每个会话绑定独立 worktree，降低冲突风险
@@ -46,7 +46,7 @@ Hive 的目标就是把这些问题收拢到一个桌面应用里：
 
 ### 内置 AI 编码会话
 
-- 直接在 Hive 里启动 OpenCode、Claude Code 和 Codex
+- 直接在玄圃里启动 OpenCode、Claude Code 和 Codex
 - 实时查看流式回复、工具调用、权限审批和问题输入
 - 支持 undo / redo、模型切换和会话恢复
 
@@ -78,22 +78,15 @@ Hive 的目标就是把这些问题收拢到一个桌面应用里：
 
 > 当前以 macOS 为主，Windows 和 Linux 支持仍在演进中。
 
-### Homebrew
-
-```bash
-brew tap morapelker/hive
-brew install --cask hive
-```
-
 ### 直接下载
 
-从 [GitHub Releases](https://github.com/morapelker/hive/releases/latest) 下载最新 `.dmg`。
+从 [GitHub Releases](https://github.com/slicenferqin/xuanpu/releases/latest) 下载最新 `.dmg`。
 
 ## 快速开始
 
 ### 1. 添加项目
 
-打开 Hive，点击 `Add Project`，选择本地任意一个 git 仓库。
+打开玄圃，点击 `Add Project`，选择本地任意一个 git 仓库。
 
 ### 2. 创建 worktree
 
@@ -109,7 +102,7 @@ brew install --cask hive
 
 ## 为什么这个项目值得看
 
-Hive 不只是一个 Electron UI，它更像一个共享核心、双入口的桌面工作台：
+玄圃不只是一个 Electron UI，它更像一个共享核心、双入口的桌面工作台：
 
 - GUI 模式下，渲染层通过 preload 暴露的 `window.*` API 与 Electron 主进程通信
 - Headless 模式下，同一套数据库和服务通过 GraphQL + WebSocket 暴露给外部客户端

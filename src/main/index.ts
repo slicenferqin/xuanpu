@@ -45,7 +45,7 @@ import { resolveClaudeBinaryPath } from './services/claude-binary-resolver'
 import type { AgentSdkImplementer } from './services/agent-sdk-types'
 import { telemetryService } from './services/telemetry-service'
 import { ensureForkDataDir } from './services/fork-data-migration'
-import { APP_BUNDLE_ID, APP_PRODUCT_NAME } from '@shared/app-identity'
+import { APP_BUNDLE_ID, APP_CLI_NAME, APP_PRODUCT_NAME } from '@shared/app-identity'
 
 const log = createLogger({ component: 'Main' })
 
@@ -380,7 +380,7 @@ function registerSystemHandlers(): void {
     return process.platform
   })
 
-  // Install hive-server shell wrapper to PATH
+  // Install xuanpu-server shell wrapper to PATH
   ipcMain.handle('system:installServerToPath', async () => {
     const execAsync = promisify(exec)
     const execPath = process.execPath
@@ -389,10 +389,10 @@ function registerSystemHandlers(): void {
       try {
         const installDir = join(
           process.env.LOCALAPPDATA || join(app.getPath('home'), 'AppData', 'Local'),
-          'Hive'
+          'Xuanpu'
         )
         mkdirSync(installDir, { recursive: true })
-        const targetPath = join(installDir, 'hive-server.cmd')
+        const targetPath = join(installDir, `${APP_CLI_NAME}.cmd`)
         const scriptContent = `@echo off\r\n"${execPath}" --headless %*\r\n`
         writeFileSync(targetPath, scriptContent)
 
@@ -409,18 +409,18 @@ function registerSystemHandlers(): void {
     }
 
     // macOS / Linux
-    const targetPath = '/usr/local/bin/hive-server'
+    const targetPath = `/usr/local/bin/${APP_CLI_NAME}`
     try {
       const scriptContent =
         [
           '#!/bin/bash',
-          '# hive-server — Hive headless mode launcher',
-          '# Installed by Hive.app',
+          `# ${APP_CLI_NAME} — Xuanpu headless mode launcher`,
+          '# Installed by Xuanpu.app',
           `exec "${execPath}" --headless "$@"`
         ].join('\n') + '\n'
 
       // Write to a temp file first (no admin needed), then move with elevation
-      const tmpPath = join(app.getPath('temp'), 'hive-server-install')
+      const tmpPath = join(app.getPath('temp'), `${APP_CLI_NAME}-install`)
       writeFileSync(tmpPath, scriptContent, { mode: 0o755 })
 
       const osascript = `do shell script "mv '${tmpPath}' '${targetPath}' && chmod +x '${targetPath}'" with administrator privileges`
@@ -436,7 +436,7 @@ function registerSystemHandlers(): void {
     }
   })
 
-  // Uninstall hive-server from PATH
+  // Uninstall xuanpu-server from PATH
   ipcMain.handle('system:uninstallServerFromPath', async () => {
     const execAsync = promisify(exec)
 
@@ -444,11 +444,11 @@ function registerSystemHandlers(): void {
       try {
         const installDir = join(
           process.env.LOCALAPPDATA || join(app.getPath('home'), 'AppData', 'Local'),
-          'Hive'
+          'Xuanpu'
         )
-        const targetPath = join(installDir, 'hive-server.cmd')
+        const targetPath = join(installDir, `${APP_CLI_NAME}.cmd`)
         if (!existsSync(targetPath)) {
-          return { success: false, error: 'hive-server is not installed' }
+          return { success: false, error: `${APP_CLI_NAME} is not installed` }
         }
 
         unlinkSync(targetPath)
@@ -466,10 +466,10 @@ function registerSystemHandlers(): void {
     }
 
     // macOS / Linux
-    const targetPath = '/usr/local/bin/hive-server'
+    const targetPath = `/usr/local/bin/${APP_CLI_NAME}`
     try {
       if (!existsSync(targetPath)) {
-        return { success: false, error: 'hive-server is not installed' }
+        return { success: false, error: `${APP_CLI_NAME} is not installed` }
       }
 
       const osascript = `do shell script "rm '${targetPath}'" with administrator privileges`
@@ -523,7 +523,9 @@ app.whenReady().then(async () => {
 
   const forkDataDir = ensureForkDataDir()
   if (forkDataDir.created) {
-    log.info('Created isolated fork data directory', forkDataDir)
+    log.info('Created isolated fork data directory', { ...forkDataDir })
+  } else if (forkDataDir.usingLegacyPath) {
+    log.info('Using legacy app data directory for compatibility', { ...forkDataDir })
   }
 
   // --- Headless mode ---

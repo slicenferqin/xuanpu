@@ -73,7 +73,7 @@ import { stripAnsi } from './ansi-utils'
 export const COMPLETION_WORDS = [
   'Swarmed',
   'Buzzed',
-  'Hived',
+  'Forged',
   'Brewed',
   'Waxed',
   'Honeyed',
