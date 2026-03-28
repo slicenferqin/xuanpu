@@ -1,417 +1,131 @@
 <div align="center">
-  <img src="resources/icon.png" alt="Xuanpu" width="128" />
-  <h1>Xuanpu Workbench</h1>
-  <p><strong>An AI-native workbench for builders.</strong></p>
-  <p>Run Claude Code, OpenCode, and Codex sessions in parallel. One workspace. Isolated branches. Less context thrash.</p>
+  <img src="resources/icon.png" alt="玄圃" width="128" />
+  <h1>玄圃 Xuanpu Workbench</h1>
+  <p><strong>面向构建者的 AI 原生工作台</strong></p>
+  <p>不是把 AI 塞进传统编辑器，而是把项目、上下文、任务、Agent、变更和产物放进同一个工作台。</p>
+  <p><a href="./README.md"><strong>简体中文</strong></a> | <a href="./README.en.md">English</a></p>
+
   <p>
-    <a href="README.md"><strong>English</strong></a> | <a href="README.ar.md">العربية</a> | <a href="README.bn.md">বাংলা</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.da.md">Dansk</a> | <a href="README.de.md">Deutsch</a> | <a href="README.el.md">Ελληνικά</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.he.md">עברית</a> | <a href="README.it.md">Italiano</a> | <a href="README.ja.md">日本語</a> | <a href="README.ko.md">한국어</a> | <a href="README.no.md">Norsk</a> | <a href="README.pl.md">Polski</a> | <a href="README.pt-BR.md">Português (BR)</a> | <a href="README.ru.md">Русский</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.uk.md">Українська</a> | <a href="README.vi.md">Tiếng Việt</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a>
-  </p>
     <a href="https://github.com/slicenferqin/xuanpu/releases/latest"><img src="https://img.shields.io/github/v/release/slicenferqin/xuanpu?style=flat-square&logo=github&label=version" alt="Latest Release" /></a>
     <a href="https://github.com/slicenferqin/xuanpu/releases"><img src="https://img.shields.io/github/downloads/slicenferqin/xuanpu/total?style=flat-square&logo=github" alt="Downloads" /></a>
     <a href="https://github.com/slicenferqin/xuanpu/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/slicenferqin/xuanpu/release.yml?style=flat-square&logo=github-actions&label=build" alt="Build Status" /></a>
-    <a href="#"><img src="https://img.shields.io/badge/macOS-only-000000?style=flat-square&logo=apple&logoColor=white" alt="macOS" /></a>
-    <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D20-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node.js" /></a>
-    <a href="https://www.electronjs.org/"><img src="https://img.shields.io/badge/electron-33-47848F?style=flat-square&logo=electron&logoColor=white" alt="Electron" /></a>
-    <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/typescript-5.7-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" /></a>
+    <a href="#"><img src="https://img.shields.io/badge/macOS-first-111827?style=flat-square&logo=apple&logoColor=white" alt="macOS first" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License" /></a>
-    <a href="https://github.com/slicenferqin/xuanpu/pulls"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square" alt="PRs Welcome" /></a>
   </p>
 </div>
 
----
+## 玄圃是什么
+玄圃是一款面向构建者的 AI 原生工作台。它不是“给编辑器加一个聊天框”，也不是“把终端换个皮肤”，而是把真实工作流里的几个一等公民放回桌面端：
 
-## Table of Contents
+- `Workspace`：你的项目、仓库、关联仓库和上下文边界
+- `Worktree`：并行推进任务时的隔离执行面
+- `Session`：Agent 真正工作的线程，而不是一次性问答
+- `Connections`：跨 worktree、跨仓库共享上下文
+- `Changes`：文件、diff、命令输出、执行轨迹、审批、问题
 
-- [What is Xuanpu?](#what-is-xuanpu)
-- [Features](#features)
-- [Why Xuanpu?](#why-xuanpu)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Connections - The Game Changer](#-connections---the-game-changer)
-- [Screenshots](#screenshots)
-- [Community & Support](#community--support)
-- [Roadmap](#roadmap)
-- [Development](#development)
-  - [Prerequisites](#prerequisites)
-  - [Setup](#setup)
-  - [Commands](#commands)
-  - [Architecture](#architecture)
-  - [Project Structure](#project-structure)
-  - [Tech Stack](#tech-stack)
-  - [Documentation](#documentation)
-- [Contributing](#contributing)
-- [License](#license)
+如果你平时会同时推进多个功能、多个分支、多个 Agent，会遇到这些痛点：
 
-## What is Xuanpu?
+- 终端和标签页越来越多，不知道哪个 Agent 在做什么
+- 不同任务共用一个分支，改动互相污染
+- 前后端或多个仓库来回切换，脑子里的上下文断裂
+- AI 在生成、编辑、提问、等待审批时，状态分散在不同工具里
 
-If you run multiple AI coding agents across different projects and branches, you know the pain -- six terminal tabs open, you can't remember which agent is working on what, and you're worried two of them are editing the same files.
+玄圃的目标就是把这些事情收拢到一个统一工作台里。
 
-Xuanpu is an AI-native workbench for builders. See all your running agents in one sidebar, switch between them instantly, and keep each task on an isolated git worktree branch so sessions do not collide. Connect multiple repositories so one agent session can operate with context across your stack.
+## 当前能力
+当前主线已经具备一套比较完整的本地 AI 开发工作流：
 
-## Features
+- 项目 / worktree / space 管理
+- Claude Code、OpenCode、Codex 三类本地 Agent 接入
+- 会话流式输出、权限审批、问题应答、任务跟踪
+- 文件树、git 状态、内联 diff、Monaco diff、图片 diff
+- 内置终端、setup / run 脚本入口、命令运行状态
+- worktree connections，用于跨分支和跨仓库共享上下文
+- headless 模式，基于 GraphQL + WebSocket 复用同一套本地数据库和服务
+- 中文界面、本地化文案、首次启动环境检查与 Agent 引导
 
-### 🌳 **Worktree-First Workflow**
-Work on multiple branches simultaneously without stashing or switching. Create, archive, and organize worktrees with one click. Each worktree gets a unique city-based name for easy identification.
+这意味着它已经不只是一个“方便看文件的 Electron 壳”，而是一套可以实际承载日常构建任务的桌面工作台。
 
-### 🤖 **Built-in AI Coding Sessions**
-Run AI coding agents directly inside Xuanpu with **OpenCode**, **Claude Code**, and **Codex** support. Stream responses in real-time, watch tool calls execute, and approve permissions as needed. Full undo/redo support keeps you in control.
+## 为什么不是传统 IDE
+玄圃刻意不把自己定义成传统 `IDE`，原因很直接：
 
-### 📁 **Smart File Explorer**
-See what changed at a glance with live git status indicators. View diffs inline, browse file history, and navigate your codebase without leaving the app. Integrated Monaco editor provides a full VS Code experience.
+- 你真正想推进的是“功能 / 任务 / 目标”，不是单个文件
+- 一个真实任务通常会跨代码、文档、脚本、终端、评审、多个仓库
+- AI 时代里，`session`、`approval`、`context`、`worktree isolation` 都应该是界面一等公民
 
-### 🔧 **Complete Git Integration**
-Commit, push, pull, and manage branches visually. No terminal needed for common git operations. See pending changes, staged files, and commit history all in one place.
+所以玄圃更适合被理解成：
 
-### 📦 **Spaces for Organization**
-Group related projects and worktrees into logical workspaces. Pin your favorites for quick access. Keep your development environment organized as you scale.
+- `AI-native workbench`
+- `future workspace for builders`
+- `以任务推进为中心，而不是以文件编辑为中心`
 
-### ⚡ **Command Palette**
-Navigate and act fast with keyboard shortcuts. Press `Cmd+K` to access any feature instantly. Search sessions, switch worktrees, or run commands without touching the mouse.
+## 安装
+当前建议的使用方式：
 
-### 🎨 **Beautiful Themes**
-Choose from 10 carefully crafted themes — 6 dark and 4 light. Switch instantly to match your preference or time of day. Follows system theme automatically if desired.
+### 直接下载
+从 [GitHub Releases](https://github.com/slicenferqin/xuanpu/releases/latest) 下载最新构建。
 
-### 🖥️ **Language Server Protocol**
-Full LSP integration with per-worktree language servers. Get intelligent code completion, go-to-definition, hover tooltips, and real-time diagnostics for TypeScript, Python, Go, Rust, and more.
-
-### 🔌 **Worktree Connections**
-Connect two worktrees together to share context, compare implementations, or collaborate in real-time. Perfect for reviewing changes between branches, sharing AI sessions across worktrees, or maintaining consistency when working on related features. See live updates as connected worktrees change.
-
-## Why Xuanpu?
-
-See how Xuanpu reshapes an AI-native git workflow:
-
-| Task | Traditional Workflow | With Xuanpu |
-|------|---------------------|-----------|
-| **Switch branches** | `git stash` → `git checkout` → `git stash pop` | Click on worktree → Done |
-| **Work on multiple features** | Constant stashing and context switching | Open multiple worktrees side-by-side |
-| **Create worktree** | `git worktree add ../project-feature origin/feature` | Click "New Worktree" → Select branch |
-| **AI coding assistance** | Terminal + separate AI tool + copy/paste | Integrated AI sessions with full context |
-| **View file changes** | `git status` → `git diff file.ts` | Visual tree with inline diffs |
-| **Compare branches** | Multiple terminal tabs, copy/paste between | Connect worktrees to share context |
-| **Find a worktree** | `cd ~/projects/...` → remember directory names | All worktrees in one sidebar |
-| **Clean up worktrees** | `git worktree remove` → `rm -rf directory` | Click "Archive" → Handles everything |
-
-## Installation
-
-> 🍎 **macOS only** — Windows and Linux support coming soon.
-
-### Via GitHub Releases
-
-Download the latest `.dmg` from [GitHub Releases](https://github.com/slicenferqin/xuanpu/releases/latest).
-
-That's it. Open Xuanpu from your Applications folder and point it at a git repo.
-
-## Quick Start
-
-Get up and running in under 2 minutes:
-
-### 1️⃣ **Add Your First Project**
-Open Xuanpu → Click **"Add Project"** → Select any git repository on your machine
-
-### 2️⃣ **Create a Worktree**
-Select your project → Click **"New Worktree"** → Choose a branch (or create a new one)
-
-### 3️⃣ **Start Coding with AI**
-Open a worktree → Click **"New Session"** → Start coding with OpenCode or Claude
-
-> 💡 **Pro tip**: Press `Cmd+K` anytime to open the command palette and navigate quickly!
-
-📖 [Read the full guide](docs/GUIDE.md) | ⌨️ [Keyboard shortcuts](docs/SHORTCUTS.md)
-
-## 🔌 Worktree Connections - The Game Changer
-
-Xuanpu's **Worktree Connections** feature lets you link two worktrees together, creating a bridge between different branches or features. This is powerful for development workflows that require cross-branch awareness.
-
-### What Are Worktree Connections?
-
-Connect any two worktrees to:
-- **🔄 Share Context** - Access files and changes from another branch instantly
-- **🤝 Collaborate** - Work on related features with live updates between worktrees
-- **📊 Compare** - See differences between implementations side-by-side
-- **🎯 Reference** - Keep your main branch visible while working on features
-- **🔗 Link Features** - Connect frontend and backend branches for full-stack development
-- **💬 Share AI Sessions** - Continue AI conversations across different worktrees
-
-### How It Works
-
-1. **Select Source Worktree** - Choose the worktree you're working in
-2. **Connect to Target** - Click the connection icon and select another worktree
-3. **Bidirectional Link** - Both worktrees become aware of each other
-4. **Real-time Updates** - See changes in connected worktrees as they happen
-
-### Connection Features
-
-- ✅ **Live Sync** - File changes in one worktree appear in the connection panel
-- ✅ **Quick Switch** - Jump between connected worktrees with one click
-- ✅ **Diff View** - Compare files between connected worktrees
-- ✅ **Shared Terminal** - Run commands that affect both worktrees
-- ✅ **AI Context Sharing** - AI sessions can reference connected worktree code
-- ✅ **Status Indicators** - See build status, tests, and changes in connected worktrees
-- ✅ **Connection History** - Track which worktrees were connected and when
-- ✅ **Smart Suggestions** - Xuanpu suggests relevant worktrees to connect based on your workflow
-
-### Example Use Cases
-
-**Feature Development**: Connect your feature branch to main to ensure compatibility and see how your changes integrate.
-
-**Bug Fixes**: Connect the bug fix worktree to the production branch to verify the fix works in context.
-
-**Code Reviews**: Connect reviewer and author worktrees to discuss changes with full context on both sides.
-
-**Full-Stack Development**: Connect frontend and backend worktrees to work on API and UI simultaneously with perfect coordination.
-
-**Refactoring**: Connect old and new implementations to ensure feature parity during large refactors.
-
-## See It In Action
-
-<div align="center">
-  <img src="docs/screenshots/hive-full-demo.gif" alt="Xuanpu demo — orchestrate AI agents across projects" width="900" />
-</div>
-
-<details>
-<summary><strong>More Screenshots</strong></summary>
-
-<div align="center">
-  <br/>
-  <img src="docs/screenshots/hive-ss-1.png" alt="Xuanpu — AI coding session with git worktrees" width="900" />
-  <sub>AI-powered coding sessions with integrated git worktree management</sub>
-  <br/><br/>
-  <img src="docs/screenshots/hive-worktree-create.png" alt="Creating a new worktree" width="900" />
-  <sub>Create and manage worktrees visually</sub>
-  <br/><br/>
-  <img src="docs/screenshots/hive-file-tree.png" alt="File tree with git status" width="900" />
-  <sub>File explorer with live git status indicators</sub>
-  <br/><br/>
-  <img src="docs/screenshots/hive-themes.png" alt="Theme showcase" width="900" />
-  <sub>Beautiful themes for every preference</sub>
-</div>
-
-</details>
-
-## Community & Support
-
-<div align="center">
-
-[![Documentation](https://img.shields.io/badge/📖_Documentation-Read-blue?style=for-the-badge)](docs/)
-[![Issues](https://img.shields.io/badge/🐛_Issues-Report-red?style=for-the-badge)](https://github.com/slicenferqin/xuanpu/issues)
-[![Discussions](https://img.shields.io/badge/💬_Discussions-Join-purple?style=for-the-badge)](https://github.com/slicenferqin/xuanpu/discussions)
-[![Contributing](https://img.shields.io/badge/🤝_Contributing-Guidelines-green?style=for-the-badge)](CONTRIBUTING.md)
-[![Security](https://img.shields.io/badge/🔒_Security-Policy-orange?style=for-the-badge)](SECURITY.md)
-
-</div>
-
-### Get Help
-
-- 📖 Read the [documentation](docs/) for detailed guides
-- 🐛 [Report bugs](https://github.com/slicenferqin/xuanpu/issues/new?template=bug_report.md) with reproduction steps
-- 💡 [Request features](https://github.com/slicenferqin/xuanpu/issues/new?template=feature_request.md) you'd like to see
-- 💬 [Join discussions](https://github.com/slicenferqin/xuanpu/discussions) to connect with the community
-- 🔒 [Report security vulnerabilities](SECURITY.md) responsibly
-
-### Resources
-
-- [User Guide](docs/GUIDE.md) — Getting started and tutorials
-- [FAQ](docs/FAQ.md) — Common questions and troubleshooting
-- [Keyboard Shortcuts](docs/SHORTCUTS.md) — Complete shortcuts reference
-
-## Roadmap
-
-### 🚀 Coming Soon
-
-- **Cross-platform support** — Windows and Linux builds
-- **Plugin system** — Extend Xuanpu with custom integrations
-- **Enhanced Connections** — Multi-way connections, connection groups, smart suggestions
-- **Cloud sync** — Sync settings, sessions, and connection templates across devices
-- **Team features** — Share worktrees and collaborate in real-time
-- **Custom AI models** — Bring your own OpenAI/Anthropic API keys
-- **Terminal tabs** — Multiple terminal sessions per worktree
-- **Git graph visualization** — Visual branch history and merges
-- **Performance profiling** — Built-in tools for optimization
-
-### 🎯 Future Vision
-
-- **Connection Intelligence** — AI-powered connection suggestions based on git history
-- **Connection Marketplace** — Share and discover connection templates
-- **Remote development** — SSH and container-based development
-- **Three-way connections** — Connect and merge multiple branches visually
-- **CI/CD integration** — GitHub Actions, GitLab CI, Jenkins monitoring
-- **Connection automation** — Auto-connect related branches based on patterns
-- **Code review mode** — Special connection type optimized for reviews
-- **Time tracking** — Per-worktree and per-connection activity analytics
-
-Want to influence the roadmap? [Join the discussion](https://github.com/slicenferqin/xuanpu/discussions/categories/ideas) or [contribute](CONTRIBUTING.md)!
-
----
-
-<details>
-<summary><strong>Development</strong></summary>
-
-### Prerequisites
-
-- **Node.js** 20+
-- **pnpm** 9+
-- **Git** 2.20+ (worktree support)
-
-### Setup
-
+### 从源码启动
 ```bash
-git clone https://github.com/anomalyco/hive.git
-cd hive
 pnpm install
 pnpm dev
 ```
 
-### Ghostty Terminal (Optional)
+### 当前平台状态
+- `macOS`：主支持平台
+- `Windows`：已有打包链路，持续验证中
+- `Linux`：目标平台之一，仍在逐步补齐体验
 
-Xuanpu includes an optional native terminal powered by [Ghostty](https://ghostty.org/)'s `libghostty`. This is only needed if you want to work on the embedded terminal feature.
+## 快速开始
+1. 添加本地 git 仓库作为项目
+2. 为当前任务创建独立 worktree
+3. 在 worktree 中启动 Agent session
+4. 在右侧查看文件、diff、运行结果和变更
+5. 必要时通过 connections 把相关 worktree / 仓库连接进来
 
-**Setup:**
+如果你习惯用键盘操作，命令面板、会话切换、侧栏切换、终端与文件区协同会比较顺手。
 
-1. Build `libghostty` from the Ghostty source ([build instructions](https://ghostty.org/docs/install/build)):
-   ```bash
-   cd ~/Documents/dev
-   git clone https://github.com/ghostty-org/ghostty.git
-   cd ghostty
-   zig build -Doptimize=ReleaseFast
-   ```
-   This produces `macos/GhosttyKit.xcframework/macos-arm64_x86_64/libghostty.a`.
+## 仓库现状
+当前仓库是桌面端主仓，核心栈如下：
 
-2. If your Ghostty repo is at `~/Documents/dev/ghostty/`, the build will find it automatically. Otherwise, set the path:
-   ```bash
-   export GHOSTTY_LIB_PATH="/path/to/libghostty.a"
-   ```
+- Electron 33
+- React 19
+- TypeScript 5.7
+- Tailwind CSS 4
+- Zustand 5
+- SQLite / better-sqlite3
 
-3. Rebuild the native addon:
-   ```bash
-   cd src/native && npx node-gyp rebuild
-   ```
+架构上采用三层：
 
-If `libghostty` is not available, Xuanpu still builds and runs -- the Ghostty terminal feature will just be disabled.
+- `src/main/`：主进程、数据库、服务、IPC
+- `src/preload/`：安全桥接层
+- `src/renderer/`：React UI
 
-### Commands
+另外还保留了一套 `headless` 服务入口，使桌面端和自动化/远程控制共用同一套本地核心能力。
 
-| Command           | Description           |
-| ----------------- | --------------------- |
-| `pnpm dev`        | Start with hot reload |
-| `pnpm build`      | Production build      |
-| `pnpm lint`       | ESLint check          |
-| `pnpm lint:fix`   | ESLint auto-fix       |
-| `pnpm format`     | Prettier format       |
-| `pnpm test`       | Run all tests         |
-| `pnpm test:watch` | Watch mode            |
-| `pnpm test:e2e`   | Playwright E2E tests  |
-| `pnpm build:mac`  | Package for macOS     |
+## 当前优先方向
+当前主线的优先级很明确：
 
-### Architecture
+- 持续打磨中文工作流和桌面端交互
+- 完成品牌切换、图标和视觉资产替换
+- 稳定发布链路和安装体验
+- 逐步把“项目中心”升级为“工作台中心”
 
-Xuanpu uses Electron's three-process model with strict sandboxing:
+如果你现在打开仓库，会看到一些仍在演进中的部分，这是正常状态。玄圃正在从早期 fork 产物，过渡到独立产品主线。
 
-```
-┌─────────────────────────────────────────────────────┐
-│                    Main Process                      │
-│               (Node.js + SQLite)                     │
-│                                                      │
-│  ┌──────────┐ ┌──────────┐ ┌───────────────────┐   │
-│  │ Database  │ │   Git    │ │ OpenCode Service  │   │
-│  │ Service   │ │ Service  │ │  (AI Sessions)    │   │
-│  └──────────┘ └──────────┘ └───────────────────┘   │
-│                      │                               │
-│              ┌───────┴───────┐                       │
-│              │  IPC Handlers │                       │
-│              └───────┬───────┘                       │
-└──────────────────────┼──────────────────────────────┘
-                       │ Typed IPC
-┌──────────────────────┼──────────────────────────────┐
-│              ┌───────┴───────┐                       │
-│              │    Preload    │                       │
-│              │   (Bridge)    │                       │
-│              └───────┬───────┘                       │
-└──────────────────────┼──────────────────────────────┘
-                       │ window.* APIs
-┌──────────────────────┼──────────────────────────────┐
-│                 Renderer Process                     │
-│              (React + Tailwind)                      │
-│                                                      │
-│  ┌──────────┐ ┌──────────┐ ┌───────────────────┐   │
-│  │ Zustand   │ │ shadcn/  │ │    Components     │   │
-│  │ Stores    │ │ ui       │ │  (14 domains)     │   │
-│  └──────────┘ └──────────┘ └───────────────────┘   │
-└─────────────────────────────────────────────────────┘
-```
+## 致谢与来源
+玄圃起步于对 [Hive](https://github.com/morapelker/hive) 的 fork / 演化。最初很多工程基础、工作台结构和产品启发都来自 Hive。当前这条产品线已经开始沿着中文工作流、桌面端交互和独立品牌方向持续分化，但对原项目的致谢应该保留。
 
-### Project Structure
+这段信息适合放在 README 的 `致谢与来源`，而不是放在标题、副标题或 Hero 文案里。前者是透明和尊重，后者会削弱玄圃自己的品牌心智。
 
-```
-src/
-├── main/                  # Electron main process (Node.js)
-│   ├── db/                # SQLite database + schema + migrations
-│   ├── ipc/               # IPC handler modules
-│   └── services/          # Git, OpenCode, logger, file services
-├── preload/               # Bridge layer (typed window.* APIs)
-└── renderer/src/          # React SPA
-    ├── components/        # UI organized by domain
-    ├── hooks/             # Custom React hooks
-    ├── lib/               # Utilities, themes, helpers
-    └── stores/            # Zustand state management
-```
+## 贡献
+欢迎贡献，尤其是这些方向：
 
-### Tech Stack
+- 中文文案和本地化体验
+- 桌面端 UI/UX 打磨
+- Windows / Linux 兼容性
+- 测试、发布链路、安装体验
+- 文档与设计资产整理
 
-| Layer     | Technology                                                                       |
-| --------- | -------------------------------------------------------------------------------- |
-| Framework | [Electron 33](https://www.electronjs.org/)                                       |
-| Frontend  | [React 19](https://react.dev/)                                                   |
-| Language  | [TypeScript 5.7](https://www.typescriptlang.org/)                                |
-| Styling   | [Tailwind CSS 4](https://tailwindcss.com/) + [shadcn/ui](https://ui.shadcn.com/) |
-| State     | [Zustand 5](https://zustand.docs.pmnd.rs/)                                       |
-| Database  | [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) (WAL mode)          |
-| AI        | [OpenCode SDK](https://opencode.ai)                                              |
-| Git       | [simple-git](https://github.com/steveukx/git-js)                                 |
-| Build     | [electron-vite](https://electron-vite.org/)                                      |
-
-### Documentation
-
-Detailed docs live in [`docs/`](docs/):
-
-- **[PRDs](docs/prd/)** -- Product requirements
-- **[Implementation](docs/implementation/)** -- Technical guides
-- **[Specs](docs/specs/)** -- Feature specifications
-- **[Plans](docs/plans/)** -- Active implementation plans
-
-</details>
-
-## Contributing
-
-We love contributions! Xuanpu is built by developers, for developers, and we welcome improvements of all kinds.
-
-### Ways to Contribute
-
-- 🐛 **Report bugs** with clear reproduction steps
-- 💡 **Suggest features** that would improve your workflow
-- 📝 **Improve documentation** to help others get started
-- 🎨 **Submit UI/UX improvements** for better usability
-- 🔧 **Fix bugs** from our issue tracker
-- ⚡ **Optimize performance** in critical paths
-- 🧪 **Add tests** to improve coverage
-- 🌐 **Translate** the app to your language
-
-Before contributing, please read our [Contributing Guidelines](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md).
-
-### Quick Contribution Guide
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Run tests (`pnpm test`) and linting (`pnpm lint`)
-5. Commit with a descriptive message
-6. Push to your fork
-7. Open a Pull Request
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
-
-## License
-
-[MIT](LICENSE) © 2024 morapelker
-
-Xuanpu is open source software licensed under the MIT License. See the [LICENSE](LICENSE) file for full details.
+## 许可
+本项目基于 [MIT License](./LICENSE) 开源。
