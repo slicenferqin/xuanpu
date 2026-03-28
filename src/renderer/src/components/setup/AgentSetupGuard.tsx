@@ -1,93 +1,75 @@
 import { useEffect, useState } from 'react'
 import { useSettingsStore } from '@/stores/useSettingsStore'
-import { AgentNotFoundDialog } from './AgentNotFoundDialog'
-import { AgentPickerDialog } from './AgentPickerDialog'
+import { AgentSetupWizard } from './AgentSetupWizard'
 
-type SetupStatus = 'detecting' | 'none-found' | 'choose' | 'done'
+type WizardAgentId = 'opencode' | 'claude-code' | 'codex' | 'terminal'
 
 export function AgentSetupGuard(): React.JSX.Element | null {
   const initialSetupComplete = useSettingsStore((s) => s.initialSetupComplete)
   const isLoading = useSettingsStore((s) => s.isLoading)
   const updateSetting = useSettingsStore((s) => s.updateSetting)
 
-  const [status, setStatus] = useState<SetupStatus>('detecting')
-  const [detectedSdks, setDetectedSdks] = useState<{
-    opencode: boolean
-    claude: boolean
-    codex: boolean
-  } | null>(null)
+  const [doctorResult, setDoctorResult] = useState<OnboardingDoctorResult | null>(null)
+  const [doctorLoading, setDoctorLoading] = useState(true)
+  const [doctorError, setDoctorError] = useState<string | null>(null)
+  const [refreshTick, setRefreshTick] = useState(0)
 
   useEffect(() => {
     if (isLoading || initialSetupComplete) return
 
     let cancelled = false
 
-    window.systemOps
-      .detectAgentSdks()
-      .then((result) => {
+    async function runDoctor(): Promise<void> {
+      setDoctorLoading(true)
+      setDoctorError(null)
+
+      try {
+        const result = await window.systemOps.runOnboardingDoctor()
         if (cancelled) return
-
-        setDetectedSdks(result)
-
-        const { opencode, claude, codex } = result
-        const found: Array<'opencode' | 'claude-code' | 'codex'> = []
-        if (opencode) found.push('opencode')
-        if (claude) found.push('claude-code')
-        if (codex) found.push('codex')
-
-        if (found.length === 0) {
-          setStatus('none-found')
-        } else if (found.length === 1) {
-          // Exactly one found — auto-select it
-          updateSetting('defaultAgentSdk', found[0])
-          updateSetting('initialSetupComplete', true)
-          window.analyticsOps.track('onboarding_completed', {
-            sdk: found[0],
-            auto_selected: true
-          })
-          setStatus('done')
-        } else {
-          // Multiple found — let user choose
-          setStatus('choose')
+        setDoctorResult(result)
+      } catch (error) {
+        if (cancelled) return
+        setDoctorResult(null)
+        setDoctorError(error instanceof Error ? error.message : String(error))
+      } finally {
+        if (!cancelled) {
+          setDoctorLoading(false)
         }
-      })
-      .catch((error) => {
-        console.error('Agent SDK detection failed:', error)
-        // Fail open: let user configure later in Settings
-        updateSetting('initialSetupComplete', true)
-        setStatus('done')
-      })
+      }
+    }
+
+    void runDoctor()
 
     return () => {
       cancelled = true
     }
-  }, [isLoading, initialSetupComplete, updateSetting])
+  }, [isLoading, initialSetupComplete, refreshTick])
 
-  // Already set up, still loading, or detection in progress
-  if (initialSetupComplete || isLoading || status === 'detecting' || status === 'done') {
+  if (initialSetupComplete || isLoading) {
     return null
   }
 
-  if (status === 'none-found') {
-    return <AgentNotFoundDialog />
+  function completeSetup(sdk: WizardAgentId): void {
+    updateSetting('defaultAgentSdk', sdk)
+    updateSetting('initialSetupComplete', true)
+
+    const readyAgents = doctorResult?.agents.filter((agent) => agent.selectable).length ?? 0
+
+    window.analyticsOps.track('onboarding_completed', {
+      sdk,
+      auto_selected: false,
+      wizard: true,
+      ready_agents: readyAgents
+    })
   }
 
-  if (status === 'choose' && detectedSdks) {
-    return (
-      <AgentPickerDialog
-        availableSdks={detectedSdks}
-        onSelect={(sdk) => {
-          updateSetting('defaultAgentSdk', sdk)
-          updateSetting('initialSetupComplete', true)
-          window.analyticsOps.track('onboarding_completed', {
-            sdk,
-            auto_selected: false
-          })
-          setStatus('done')
-        }}
-      />
-    )
-  }
-
-  return null
+  return (
+    <AgentSetupWizard
+      result={doctorResult}
+      loading={doctorLoading}
+      error={doctorError}
+      onRefresh={() => setRefreshTick((value) => value + 1)}
+      onComplete={completeSetup}
+    />
+  )
 }

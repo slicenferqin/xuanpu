@@ -698,6 +698,146 @@ export const messages: Record<AppLocale, MessageTree> = {
         }
       }
     },
+    onboardingWizard: {
+      title: 'Developer Readiness',
+      subtitle:
+        'Check your environment, pick a default agent, and make the first run feel clean for your team.',
+      headerTitle: 'First-launch setup',
+      headerDescription: 'Hive checks the local toolchain and helps you choose a sensible default.',
+      steps: {
+        inspect: '1. Check environment',
+        inspectDescription: 'Verify the machine is ready for local AI workflows.',
+        choose: '2. Choose default agent',
+        chooseDescription: 'Pick the provider new sessions should use by default.'
+      },
+      summary: {
+        environmentReady: 'Environment',
+        agentReady: 'Ready agents',
+        detectedAgents: 'Installed CLIs',
+        selected: 'Selection',
+        pending: 'Pending selection',
+        pendingDescription: 'Choose a ready agent, or continue in Terminal mode for now.'
+      },
+      badges: {
+        ready: 'Ready',
+        warning: 'Needs attention',
+        missing: 'Not installed',
+        recommended: 'Recommended',
+        selected: 'Selected'
+      },
+      actions: {
+        refresh: 'Re-check',
+        retry: 'Try again',
+        back: 'Back',
+        next: 'Next',
+        useTerminal: 'Use Terminal mode',
+        openDocs: 'Open docs',
+        runInTerminal: 'Open in Terminal',
+        copyCommand: 'Copy command',
+        quit: 'Quit app',
+        start: 'Start with this setup'
+      },
+      loading: {
+        title: 'Checking your local setup',
+        description: 'Verifying core tools, installed CLIs, and login state.'
+      },
+      error: {
+        title: 'The environment check could not complete',
+        description: 'Retry the check, or continue with Terminal mode as a fallback.'
+      },
+      environment: {
+        title: 'Core tools',
+        description: 'These checks help your teammates land in a working setup faster.',
+        git: {
+          title: 'Git',
+          ready: 'Detected {version}',
+          missing: 'Required for cloning, branches, and diffs.'
+        },
+        node: {
+          title: 'Node.js',
+          ready: 'Detected {version}',
+          outdated: 'Detected {version}. Node 18+ is recommended.',
+          missing: 'Needed to install Claude Code or Codex.'
+        },
+        homebrew: {
+          title: 'Homebrew',
+          ready: 'Detected {version}',
+          missing: 'Recommended on macOS for one-command installs.'
+        },
+        xcodeCli: {
+          title: 'Xcode Command Line Tools',
+          ready: 'Installed',
+          missing: 'Recommended for Git and common local toolchains on macOS.'
+        }
+      },
+      agents: {
+        title: 'Available agents',
+        description: 'Choose a native agent when it is ready, or fall back to Terminal mode.',
+        claudeCode: {
+          title: 'Claude Code',
+          description: "Anthropic's local coding agent with strong default planning workflow.",
+          ready: 'Installed and login credentials were detected.',
+          loginRequired: 'Installed, but you need to finish the Claude login flow first.',
+          authUnknown: 'Installed, but Hive could not confirm the current login state.',
+          missing: 'Claude Code is not installed yet.'
+        },
+        codex: {
+          title: 'Codex',
+          description: "OpenAI's local coding agent for terminal-first development.",
+          ready: 'Installed and ready to use.',
+          loginRequired: 'Installed, but Codex needs to be authenticated first.',
+          authUnknown: 'Installed. Hive could not verify auth, but you can still choose it.',
+          missing: 'Codex is not installed yet.'
+        },
+        opencode: {
+          title: 'OpenCode',
+          description: 'Open-source coding agent with flexible provider routing.',
+          ready: 'Installed. Provider access is finalized when you start a session.',
+          loginRequired: 'Installed, but provider setup still needs attention.',
+          authUnknown: 'Installed. Provider access will be checked inside the first session.',
+          missing: 'OpenCode is not installed yet.'
+        },
+        terminal: {
+          title: 'Terminal mode',
+          description: 'Use Hive as a project workspace first, then connect an agent later.',
+          detail:
+            'Terminal mode skips native agent setup for now and still gives you projects, worktrees, and the integrated terminal.'
+        }
+      },
+      helper: {
+        selectedReady: 'New sessions will use {agent} by default after you continue.',
+        fallbackTitle: 'Fallback path',
+        installTitle: 'Install guide',
+        loginTitle: 'Login guide',
+        selectedTitle: 'Current choice',
+        whyTitle: 'Notes',
+        recommendedDescription:
+          'Hive recommends {agent} because it is the best fit among the tools detected on this machine.',
+        terminalDescription:
+          'Terminal mode is a safe fallback. You can switch to Claude Code, Codex, or OpenCode later in Settings.',
+        commandLabel: 'Suggested command',
+        installDescription: 'Install {agent}, then run the check again.',
+        loginDescription: 'Complete the login flow for {agent}, then run the check again.',
+        environmentReady: 'Core environment is ready. Continue to choose the default agent.',
+        environmentNeedsAttention:
+          '{count} environment item(s) still need attention, but you can continue.',
+        agentReadyDescription: '{agent} is ready. You can set it as the default now.',
+        agentNotReady: 'Not selectable yet. Open the guidance below to finish setup.',
+        authUnknownDescription:
+          'Hive could not verify the current auth state for {agent}, but you can already select it if you want to proceed.',
+        loginHintClaude: 'Launch Claude Code and follow the interactive sign-in flow.',
+        loginHintCodex: 'Run the login command and complete the ChatGPT or API-key authentication flow.',
+        loginHintOpencode:
+          'Launch OpenCode, then finish provider setup from the interactive session.'
+      },
+      toasts: {
+        commandCopied: 'Command copied to clipboard',
+        docsOpened: 'Opened the official documentation',
+        terminalOpened: 'Opened the command in the system terminal',
+        actionFailed: 'Action failed',
+        selectedAgentRequired: 'Select a ready agent, or continue with Terminal mode.'
+      }
+    },
     sessionView: {
       loading: {
         title: 'Connecting to session...',
@@ -732,10 +872,19 @@ export const messages: Record<AppLocale, MessageTree> = {
       },
       composer: {
         waitingPermissionResponse: 'Waiting for permission response...',
+        waitingQuestionResponse: 'Waiting for your answer...',
+        waitingCommandApprovalResponse: 'Waiting for command approval response...',
         planFeedbackPlaceholder: 'Send feedback to revise the plan...',
         messagePlaceholder: 'Type your message...',
+        blockedByQuestionTitle: 'Answer the current question to continue',
+        blockedByPermissionTitle: 'Respond to the current permission request',
+        blockedByCommandApprovalTitle: 'Review the current command approval request',
+        blockedHint: 'The chat box will resume after this interaction is resolved.',
         inputAriaLabel: 'Message input',
         planFeedbackHint: 'Enter to send feedback to revise the plan',
+        planModeLabel: 'Plan Mode',
+        activatePlanMode: 'Enter Plan',
+        returnToBuildMode: 'Back to Build',
         changeVariantHint: '{shortcut} to change variant, Shift+Enter for new line',
         stopStreaming: 'Stop streaming',
         sendFeedback: 'Send feedback',
@@ -1027,6 +1176,15 @@ export const messages: Record<AppLocale, MessageTree> = {
       disabled: 'disabled',
       ariaLabel: 'Fast mode {state}'
     },
+    sessionTaskTracker: {
+      title: '{total} tasks, {completed} completed',
+      pending: '{count} pending',
+      cancelled: '{count} cancelled',
+      allDone: 'All tasks completed',
+      more: '{count} more tasks',
+      expand: 'Expand tasks',
+      collapse: 'Collapse tasks'
+    },
     toolCard: {
       labels: {
         bash: 'Bash',
@@ -1081,7 +1239,7 @@ export const messages: Record<AppLocale, MessageTree> = {
     },
     bottomPanel: {
       tabs: {
-        setup: 'Setup',
+        setup: 'Initialize',
         run: 'Run',
         terminal: 'Terminal'
       },
@@ -2493,6 +2651,142 @@ export const messages: Record<AppLocale, MessageTree> = {
         }
       }
     },
+    onboardingWizard: {
+      title: '开发环境就绪引导',
+      subtitle: '先检查本机环境，再选择默认 Agent，把第一次启动做得顺滑、清楚、可交付。',
+      headerTitle: '首次启动配置',
+      headerDescription: 'Hive 会检查本地工具链，并帮你选一个合理的默认 Agent。',
+      steps: {
+        inspect: '1. 检查环境',
+        inspectDescription: '确认这台机器已经具备本地 AI 开发的基本条件。',
+        choose: '2. 选择默认 Agent',
+        chooseDescription: '决定新会话默认使用哪个 Agent。'
+      },
+      summary: {
+        environmentReady: '环境项',
+        agentReady: '可直接使用的 Agent',
+        detectedAgents: '已安装 CLI',
+        selected: '当前选择',
+        pending: '还未确定',
+        pendingDescription: '先选一个可用 Agent，或者先用终端模式继续。'
+      },
+      badges: {
+        ready: '已就绪',
+        warning: '需处理',
+        missing: '未安装',
+        recommended: '推荐',
+        selected: '已选中'
+      },
+      actions: {
+        refresh: '重新检测',
+        retry: '重试检测',
+        back: '上一步',
+        next: '下一步',
+        useTerminal: '使用终端模式',
+        openDocs: '查看文档',
+        runInTerminal: '在终端中打开',
+        copyCommand: '复制命令',
+        quit: '退出应用',
+        start: '使用当前配置开始'
+      },
+      loading: {
+        title: '正在检查本地环境',
+        description: '正在验证核心工具、已安装 CLI，以及当前登录状态。'
+      },
+      error: {
+        title: '环境检查未能完成',
+        description: '你可以重新检测，或者先用终端模式继续。'
+      },
+      environment: {
+        title: '基础工具',
+        description: '这些检查能让你的同事更快进入可工作的初始状态。',
+        git: {
+          title: 'Git',
+          ready: '已检测到 {version}',
+          missing: '克隆、分支和 Diff 等能力都依赖 Git。'
+        },
+        node: {
+          title: 'Node.js',
+          ready: '已检测到 {version}',
+          outdated: '已检测到 {version}，建议升级到 Node 18 及以上。',
+          missing: '安装 Claude Code 或 Codex 需要 Node.js。'
+        },
+        homebrew: {
+          title: 'Homebrew',
+          ready: '已检测到 {version}',
+          missing: '在 macOS 上推荐使用 Homebrew 做一键安装。'
+        },
+        xcodeCli: {
+          title: 'Xcode Command Line Tools',
+          ready: '已安装',
+          missing: '在 macOS 上推荐安装，便于 Git 和常见本地工具链正常工作。'
+        }
+      },
+      agents: {
+        title: '可用 Agent',
+        description: '优先选择已就绪的原生 Agent；如果暂时没有，也可以先走终端模式。',
+        claudeCode: {
+          title: 'Claude Code',
+          description: 'Anthropic 的本地编码 Agent，默认规划体验比较成熟。',
+          ready: '已安装，并且检测到了登录凭证。',
+          loginRequired: '已安装，但还需要先完成 Claude 的登录流程。',
+          authUnknown: '已安装，但 Hive 暂时无法确认当前登录状态。',
+          missing: '当前还没有安装 Claude Code。'
+        },
+        codex: {
+          title: 'Codex',
+          description: 'OpenAI 的本地编码 Agent，适合终端优先的开发流程。',
+          ready: '已安装，可以直接使用。',
+          loginRequired: '已安装，但还需要先完成 Codex 登录。',
+          authUnknown: '已安装。Hive 暂时无法确认登录状态，但你现在也可以直接选它。',
+          missing: '当前还没有安装 Codex。'
+        },
+        opencode: {
+          title: 'OpenCode',
+          description: '开源编码 Agent，Provider 路由更灵活。',
+          ready: '已安装。模型接入会在首次会话里完成。',
+          loginRequired: '已安装，但 Provider 配置还需要处理。',
+          authUnknown: '已安装。Provider 可用性会在首次会话里确认。',
+          missing: '当前还没有安装 OpenCode。'
+        },
+        terminal: {
+          title: '终端模式',
+          description: '先把 Hive 当作项目工作台使用，之后再接入 Agent。',
+          detail:
+            '终端模式会先跳过原生 Agent 配置，但你仍然可以使用项目、worktree 和集成终端这些核心能力。'
+        }
+      },
+      helper: {
+        selectedReady: '继续后，新会话会默认使用 {agent}。',
+        fallbackTitle: '兜底路径',
+        installTitle: '安装指引',
+        loginTitle: '登录指引',
+        selectedTitle: '当前选择',
+        whyTitle: '说明',
+        recommendedDescription: 'Hive 推荐 {agent}，因为它是当前这台机器上最适合直接开箱即用的方案。',
+        terminalDescription:
+          '终端模式是一个安全兜底。之后你仍然可以在设置里切换到 Claude Code、Codex 或 OpenCode。',
+        commandLabel: '建议命令',
+        installDescription: '先安装 {agent}，然后再重新跑一次检测。',
+        loginDescription: '先完成 {agent} 的登录流程，然后再重新跑一次检测。',
+        environmentReady: '基础环境已经就绪，可以继续选择默认 Agent。',
+        environmentNeedsAttention: '还有 {count} 项环境检查需要处理，但你仍然可以继续。',
+        agentReadyDescription: '{agent} 已经可用，现在就可以把它设为默认 Agent。',
+        agentNotReady: '它暂时还不能直接选中。先按下方指引完成安装或登录。',
+        authUnknownDescription:
+          'Hive 暂时无法确认 {agent} 的登录状态，但如果你愿意，也可以现在就把它设成默认。',
+        loginHintClaude: '先启动 Claude Code，然后按交互提示完成登录。',
+        loginHintCodex: '执行登录命令，并完成 ChatGPT 或 API Key 认证流程。',
+        loginHintOpencode: '先启动 OpenCode，然后在交互界面里完成 Provider 配置。'
+      },
+      toasts: {
+        commandCopied: '命令已复制到剪贴板',
+        docsOpened: '已打开官方文档',
+        terminalOpened: '已在系统终端中打开命令',
+        actionFailed: '操作失败',
+        selectedAgentRequired: '先选择一个可用 Agent，或者改用终端模式继续。'
+      }
+    },
     sessionView: {
       loading: {
         title: '正在连接会话...',
@@ -2527,10 +2821,19 @@ export const messages: Record<AppLocale, MessageTree> = {
       },
       composer: {
         waitingPermissionResponse: '正在等待授权回复...',
+        waitingQuestionResponse: '正在等待你的回答...',
+        waitingCommandApprovalResponse: '正在等待命令审批回复...',
         planFeedbackPlaceholder: '输入反馈以修改计划...',
         messagePlaceholder: '输入你的消息...',
+        blockedByQuestionTitle: '先回答当前问题，再继续对话',
+        blockedByPermissionTitle: '先处理当前授权请求',
+        blockedByCommandApprovalTitle: '先处理当前命令审批请求',
+        blockedHint: '完成上方交互后，聊天输入区会自动恢复。',
         inputAriaLabel: '消息输入框',
         planFeedbackHint: '按 Enter 发送反馈以修改计划',
+        planModeLabel: 'Plan模式',
+        activatePlanMode: '进入 Plan',
+        returnToBuildMode: '返回 Build',
         changeVariantHint: '按 {shortcut} 切换变体，Shift+Enter 换行',
         stopStreaming: '停止输出',
         sendFeedback: '发送反馈',
@@ -2821,6 +3124,15 @@ export const messages: Record<AppLocale, MessageTree> = {
       disabled: '已禁用',
       ariaLabel: '快速模式{state}'
     },
+    sessionTaskTracker: {
+      title: '共 {total} 个任务，已完成 {completed} 个',
+      pending: '剩余 {count} 项待处理',
+      cancelled: '已取消 {count} 项',
+      allDone: '全部任务已完成',
+      more: '还有 {count} 项',
+      expand: '展开任务',
+      collapse: '收起任务'
+    },
     toolCard: {
       labels: {
         bash: 'Bash',
@@ -2875,7 +3187,7 @@ export const messages: Record<AppLocale, MessageTree> = {
     },
     bottomPanel: {
       tabs: {
-        setup: 'Setup',
+        setup: '初始化',
         run: '运行',
         terminal: '终端'
       },

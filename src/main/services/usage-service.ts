@@ -63,6 +63,81 @@ async function readAccessToken(): Promise<string | null> {
   return readFromFile()
 }
 
+async function checkClaudeAuthStatusCommand(): Promise<'authenticated' | 'unauthenticated' | null> {
+  try {
+    const stdout = await new Promise<string>((resolve, reject) => {
+      execFile('claude', ['auth', 'status', '--json'], { timeout: 5000 }, (error, out) => {
+        if (error) reject(error)
+        else resolve(out.trim())
+      })
+    })
+
+    if (!stdout) return null
+
+    const parsed = JSON.parse(stdout) as { loggedIn?: boolean }
+    if (typeof parsed.loggedIn === 'boolean') {
+      return parsed.loggedIn ? 'authenticated' : 'unauthenticated'
+    }
+  } catch {
+    // Fall through to legacy checks
+  }
+
+  return null
+}
+
+async function hasClaudeSettingsCredential(): Promise<boolean> {
+  const candidates = [
+    join(homedir(), '.claude', 'settings.json'),
+    join(homedir(), '.claude', 'settings.local.json')
+  ]
+
+  for (const filePath of candidates) {
+    if (!existsSync(filePath)) continue
+
+    try {
+      const raw = await readFile(filePath, 'utf-8')
+      const parsed = JSON.parse(raw) as {
+        env?: Record<string, string | null | undefined>
+      }
+      const env = parsed.env ?? {}
+
+      if (
+        typeof env.ANTHROPIC_API_KEY === 'string' ||
+        typeof env.ANTHROPIC_AUTH_TOKEN === 'string'
+      ) {
+        if ((env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN || '').trim().length > 0) {
+          return true
+        }
+      }
+    } catch {
+      // Ignore malformed local config and continue
+    }
+  }
+
+  return false
+}
+
+async function hasClaudeEnvCredential(): Promise<boolean> {
+  const directCandidates = [process.env.ANTHROPIC_API_KEY, process.env.ANTHROPIC_AUTH_TOKEN]
+  return directCandidates.some((value) => typeof value === 'string' && value.trim().length > 0)
+}
+
+export async function checkClaudeAuth(): Promise<'authenticated' | 'unauthenticated'> {
+  const statusFromCli = await checkClaudeAuthStatusCommand()
+  if (statusFromCli) return statusFromCli
+
+  if (await hasClaudeEnvCredential()) {
+    return 'authenticated'
+  }
+
+  if (await hasClaudeSettingsCredential()) {
+    return 'authenticated'
+  }
+
+  const token = await readAccessToken()
+  return token ? 'authenticated' : 'unauthenticated'
+}
+
 export async function fetchClaudeUsage(): Promise<UsageResult> {
   const token = await readAccessToken()
   if (!token) {

@@ -31,6 +31,10 @@ import { buildMenu, updateMenuState } from './menu'
 import type { MenuState } from './menu'
 import { createLogger, getLogDir } from './services/logger'
 import { detectAgentSdks } from './services/system-info'
+import {
+  openCommandInSystemTerminal,
+  runOnboardingDoctor
+} from './services/onboarding-doctor'
 import { createResponseLog, appendResponseLog } from './services/response-logger'
 import { notificationService } from './services/notification-service'
 import { updaterService } from './services/updater'
@@ -337,6 +341,29 @@ function registerSystemHandlers(): void {
   ipcMain.handle('system:detectAgentSdks', () => {
     return detectAgentSdks()
   })
+
+  ipcMain.handle('system:runOnboardingDoctor', () => {
+    return runOnboardingDoctor()
+  })
+
+  ipcMain.handle(
+    'system:openCommandInTerminal',
+    async (
+      _event,
+      command: string,
+      options?: { cwd?: string }
+    ): Promise<{ success: boolean; error?: string }> => {
+      try {
+        await openCommandInSystemTerminal(command, options)
+        return { success: true }
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to open command in terminal'
+        }
+      }
+    }
+  )
 
   // Quit the app (needed for macOS where window.close() doesn't quit)
   ipcMain.handle('system:quitApp', () => {

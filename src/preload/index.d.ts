@@ -155,6 +155,35 @@ interface SessionSearchOptions {
   includeArchived?: boolean
 }
 
+type OnboardingStatus = 'ready' | 'warning' | 'missing'
+type OnboardingEnvironmentReason = 'installed' | 'missing' | 'outdated'
+type OnboardingAgentReason = 'ready' | 'missing' | 'login_required' | 'auth_unknown'
+type OnboardingAgentAuthStatus = 'authenticated' | 'unauthenticated' | 'unknown' | 'not_applicable'
+
+interface OnboardingEnvironmentCheck {
+  id: 'git' | 'node' | 'homebrew' | 'xcode-cli'
+  status: OnboardingStatus
+  reason: OnboardingEnvironmentReason
+  version: string | null
+}
+
+interface OnboardingAgentStatus {
+  id: 'claude-code' | 'codex' | 'opencode'
+  status: OnboardingStatus
+  reason: OnboardingAgentReason
+  installed: boolean
+  selectable: boolean
+  version: string | null
+  authStatus: OnboardingAgentAuthStatus
+}
+
+interface OnboardingDoctorResult {
+  platform: NodeJS.Platform
+  environmentChecks: OnboardingEnvironmentCheck[]
+  agents: OnboardingAgentStatus[]
+  recommendedAgent: 'claude-code' | 'codex' | 'opencode' | 'terminal'
+}
+
 declare global {
   interface GhosttyTerminalConfig {
     fontFamily?: string
@@ -462,6 +491,11 @@ declare global {
       }>
       isLogMode: () => Promise<boolean>
       detectAgentSdks: () => Promise<{ opencode: boolean; claude: boolean; codex: boolean }>
+      runOnboardingDoctor: () => Promise<OnboardingDoctorResult>
+      openCommandInTerminal: (
+        command: string,
+        options?: { cwd?: string }
+      ) => Promise<{ success: boolean; error?: string }>
       quitApp: () => Promise<void>
       openInApp: (appName: string, path: string) => Promise<{ success: boolean; error?: string }>
       openInChrome: (

@@ -419,9 +419,20 @@ const systemOps = {
   // Check if response logging is enabled (--log flag)
   isLogMode: (): Promise<boolean> => ipcRenderer.invoke('system:isLogMode'),
 
-  // Detect which agent SDKs (opencode, claude) are installed on the system
-  detectAgentSdks: (): Promise<{ opencode: boolean; claude: boolean }> =>
+  // Detect which agent SDKs are installed on the system
+  detectAgentSdks: (): Promise<{ opencode: boolean; claude: boolean; codex: boolean }> =>
     ipcRenderer.invoke('system:detectAgentSdks'),
+
+  // Run the first-launch onboarding doctor
+  runOnboardingDoctor: (): Promise<OnboardingDoctorResult> =>
+    ipcRenderer.invoke('system:runOnboardingDoctor'),
+
+  // Open a command in the user's system terminal
+  openCommandInTerminal: (
+    command: string,
+    options?: { cwd?: string }
+  ): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('system:openCommandInTerminal', command, options),
 
   // Quit the app (needed for macOS where window.close() doesn't quit)
   quitApp: (): Promise<void> => ipcRenderer.invoke('system:quitApp'),
