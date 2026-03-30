@@ -16,10 +16,26 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # macOS ARM64 — native arm64 runner, no cross-compilation needed
           - os: macos-latest
             platform: mac
+            arch: arm64
+            eb_flags: --mac --arm64
+          # macOS x64 — Intel runner to build native modules natively
+          - os: macos-13
+            platform: mac
+            arch: x64
+            eb_flags: --mac --x64
+          # Windows x64 — native x64 runner
           - os: windows-latest
             platform: win
+            arch: x64
+            eb_flags: --win --x64
+          # Windows ARM64 — cross-compile on x64 runner
+          - os: windows-latest
+            platform: win
+            arch: arm64
+            eb_flags: --win --arm64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -74,16 +90,9 @@ jobs:
             echo "ghostty.node exists from native build"
           fi
 
-      # ── Package ──
-      - name: Package (macOS)
-        if: matrix.platform == 'mac'
-        run: pnpm exec electron-builder --mac --publish always
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Package (Windows)
-        if: matrix.platform == 'win'
-        run: pnpm exec electron-builder --win --publish always
+      # ── Package — each job builds ONE arch only ──
+      - name: Package (${{ matrix.platform }} ${{ matrix.arch }})
+        run: pnpm exec electron-builder ${{ matrix.eb_flags }} --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -94,5 +103,3 @@ jobs:
         run: |
           echo "=== dist contents ==="
           ls -lh dist/ 2>/dev/null || echo "dist/ not found"
-          echo "=== .node files in dist ==="
-          find dist -name '*.node' 2>/dev/null || echo "No .node files in dist"

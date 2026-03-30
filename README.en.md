@@ -58,8 +58,10 @@ Download the latest build from [GitHub Releases](https://github.com/slicenferqin
 
 | Platform | File | Note |
 |----------|------|------|
-| macOS (Apple Silicon) | `Xuanpu-x.x.x-arm64.dmg` | M1 / M2 / M3 / M4; Intel Macs run via Rosetta 2 |
-| Windows | `Xuanpu-Setup-x.x.x.exe` | 64-bit installer |
+| macOS (Apple Silicon) | `Xuanpu-x.x.x-arm64.dmg` | M1 / M2 / M3 / M4 |
+| macOS (Intel) | `Xuanpu-x.x.x.dmg` | Intel Mac |
+| Windows (x64) | `Xuanpu-Setup-x.x.x.exe` | 64-bit installer |
+| Windows (ARM) | `Xuanpu-Setup-x.x.x-arm64.exe` | ARM64 installer |
 
 > **macOS note**: The current build is unsigned. On first launch macOS will show an "unidentified developer" warning.
 > Run this in Terminal, then reopen the app:

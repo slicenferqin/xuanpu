@@ -66,8 +66,10 @@
 
 | 平台 | 文件 | 说明 |
 |------|------|------|
-| macOS (Apple Silicon) | `Xuanpu-x.x.x-arm64.dmg` | M1 / M2 / M3 / M4，Intel Mac 通过 Rosetta 2 运行 |
-| Windows | `Xuanpu-Setup-x.x.x.exe` | 64-bit 安装包 |
+| macOS (Apple Silicon) | `Xuanpu-x.x.x-arm64.dmg` | M1 / M2 / M3 / M4 |
+| macOS (Intel) | `Xuanpu-x.x.x.dmg` | Intel Mac |
+| Windows (x64) | `Xuanpu-Setup-x.x.x.exe` | 64-bit 安装包 |
+| Windows (ARM) | `Xuanpu-Setup-x.x.x-arm64.exe` | ARM64 安装包 |
 
 > **macOS 安装提示**：当前版本未经 Apple 签名，首次打开时会提示"无法验证开发者"。
 > 请在终端执行以下命令后重新打开：
