@@ -8,7 +8,7 @@
     <a href="https://github.com/slicenferqin/xuanpu/releases/latest"><img src="https://img.shields.io/github/v/release/slicenferqin/xuanpu?style=flat-square&logo=github&label=version" alt="Latest Release" /></a>
     <a href="https://github.com/slicenferqin/xuanpu/releases"><img src="https://img.shields.io/github/downloads/slicenferqin/xuanpu/total?style=flat-square&logo=github" alt="Downloads" /></a>
     <a href="https://github.com/slicenferqin/xuanpu/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/slicenferqin/xuanpu/release.yml?style=flat-square&logo=github-actions&label=build" alt="Build Status" /></a>
-    <a href="#"><img src="https://img.shields.io/badge/macOS-first-111827?style=flat-square&logo=apple&logoColor=white" alt="macOS first" /></a>
+    <a href="#"><img src="https://img.shields.io/badge/macOS_%7C_Windows-111827?style=flat-square&logo=apple&logoColor=white" alt="macOS | Windows" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License" /></a>
   </p>
 </div>
@@ -64,12 +64,21 @@
 ### 直接下载
 从 [GitHub Releases](https://github.com/slicenferqin/xuanpu/releases/latest) 下载最新构建。
 
+| 平台 | 文件 | 说明 |
+|------|------|------|
+| macOS (Apple Silicon) | `Xuanpu-x.x.x-arm64.dmg` | M1 / M2 / M3 / M4 |
+| macOS (Intel) | `Xuanpu-x.x.x.dmg` | Intel Mac |
+| Windows | `Xuanpu-Setup-x.x.x.exe` | 64-bit 安装包 |
+
 > **macOS 安装提示**：当前版本未经 Apple 签名，首次打开时会提示"无法验证开发者"。
 > 请在终端执行以下命令后重新打开：
 > ```bash
 > xattr -cr /Applications/Xuanpu.app
 > ```
 > 或者：系统设置 → 隐私与安全性 → 点击「仍要打开」。
+>
+> **Windows 安装提示**：安装包未签名，Windows SmartScreen 可能会弹出警告。
+> 点击「更多信息」→「仍要运行」即可。
 
 ### 从源码启动
 ```bash

@@ -8,7 +8,7 @@
     <a href="https://github.com/slicenferqin/xuanpu/releases/latest"><img src="https://img.shields.io/github/v/release/slicenferqin/xuanpu?style=flat-square&logo=github&label=version" alt="Latest Release" /></a>
     <a href="https://github.com/slicenferqin/xuanpu/releases"><img src="https://img.shields.io/github/downloads/slicenferqin/xuanpu/total?style=flat-square&logo=github" alt="Downloads" /></a>
     <a href="https://github.com/slicenferqin/xuanpu/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/slicenferqin/xuanpu/release.yml?style=flat-square&logo=github-actions&label=build" alt="Build Status" /></a>
-    <a href="#"><img src="https://img.shields.io/badge/macOS-first-111827?style=flat-square&logo=apple&logoColor=white" alt="macOS first" /></a>
+    <a href="#"><img src="https://img.shields.io/badge/macOS_%7C_Windows-111827?style=flat-square&logo=apple&logoColor=white" alt="macOS | Windows" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License" /></a>
   </p>
 </div>
@@ -56,12 +56,21 @@ That is why `AI-native workbench` is a more accurate category than `IDE`.
 ### Releases
 Download the latest build from [GitHub Releases](https://github.com/slicenferqin/xuanpu/releases/latest).
 
+| Platform | File | Note |
+|----------|------|------|
+| macOS (Apple Silicon) | `Xuanpu-x.x.x-arm64.dmg` | M1 / M2 / M3 / M4 |
+| macOS (Intel) | `Xuanpu-x.x.x.dmg` | Intel Mac |
+| Windows | `Xuanpu-Setup-x.x.x.exe` | 64-bit installer |
+
 > **macOS note**: The current build is unsigned. On first launch macOS will show an "unidentified developer" warning.
 > Run this in Terminal, then reopen the app:
 > ```bash
 > xattr -cr /Applications/Xuanpu.app
 > ```
 > Or: System Settings → Privacy & Security → click "Open Anyway".
+>
+> **Windows note**: The installer is unsigned. Windows SmartScreen may show a warning.
+> Click "More info" → "Run anyway".
 
 ### Run From Source
 ```bash
@@ -70,8 +79,8 @@ pnpm dev
 ```
 
 ### Platform Status
-- `macOS`: primary platform
-- `Windows`: packaging pipeline exists and is being stabilized
+- `macOS`: primary platform, full feature set including Ghostty terminal
+- `Windows`: supported — all core features work; Ghostty terminal is macOS-only
 - `Linux`: planned target, still evolving
 
 ## Repo Status

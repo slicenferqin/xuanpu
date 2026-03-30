@@ -12,7 +12,15 @@ permissions:
 jobs:
   build:
     if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.ref_name, '-canary.') }}
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac
+          - os: windows-latest
+            platform: win
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -21,7 +29,9 @@ jobs:
           node-version: 20
           cache: pnpm
 
-      - name: Download libghostty (optional)
+      # ── macOS: optional Ghostty native addon ──
+      - name: Download libghostty (optional, macOS only)
+        if: matrix.platform == 'mac'
         continue-on-error: true
         id: ghostty
         run: |
@@ -31,23 +41,27 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - run: pip3 install --break-system-packages setuptools
+      # macOS runners may lack setuptools for node-gyp
+      - name: Ensure setuptools (macOS)
+        if: matrix.platform == 'mac'
+        run: pip3 install --break-system-packages setuptools
+
       - run: pnpm install --frozen-lockfile
 
       - name: Build Ghostty native addon
-        if: steps.ghostty.outputs.available == 'true'
+        if: matrix.platform == 'mac' && steps.ghostty.outputs.available == 'true'
         run: pnpm build:native
         env:
           GHOSTTY_LIB_PATH: ${{ github.workspace }}/vendor/libghostty.a
 
       - run: pnpm build
         env:
-          GHOSTTY_LIB_PATH: ${{ steps.ghostty.outputs.available == 'true' && format('{0}/vendor/libghostty.a', github.workspace) || '' }}
+          GHOSTTY_LIB_PATH: ${{ matrix.platform == 'mac' && steps.ghostty.outputs.available == 'true' && format('{0}/vendor/libghostty.a', github.workspace) || '' }}
 
-      - name: Ensure ghostty.node exists for electron-builder extraResources
+      # macOS: electron-builder.yml mac.extraResources references ghostty.node
+      - name: Ensure ghostty.node placeholder (macOS)
+        if: matrix.platform == 'mac'
         run: |
-          # electron-builder.yml references this in extraResources.
-          # If ghostty wasn't built, create an empty placeholder so packaging doesn't fail.
           if [ ! -f src/native/build/Release/ghostty.node ]; then
             mkdir -p src/native/build/Release
             touch src/native/build/Release/ghostty.node
@@ -56,21 +70,25 @@ jobs:
             echo "ghostty.node exists from native build"
           fi
 
-      - run: pnpm exec electron-builder --mac --publish always
+      # ── Package ──
+      - name: Package (macOS)
+        if: matrix.platform == 'mac'
+        run: pnpm exec electron-builder --mac --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Signing disabled — unsigned build for now.
-          # Uncomment below when Apple Developer certificate is configured:
-          # CSC_LINK: ${{ secrets.CSC_LINK }}
-          # CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          # APPLE_ID: ${{ secrets.APPLE_ID }}
-          # APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
-      - name: Verify packaged app contents
+      - name: Package (Windows)
+        if: matrix.platform == 'win'
+        run: pnpm exec electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Verify ──
+      - name: Verify build output
         if: always()
+        shell: bash
         run: |
           echo "=== dist contents ==="
-          ls -lh dist/*.dmg dist/*.zip 2>/dev/null || echo "No DMG/ZIP in dist"
+          ls -lh dist/ 2>/dev/null || echo "dist/ not found"
           echo "=== .node files in dist ==="
           find dist -name '*.node' 2>/dev/null || echo "No .node files in dist"
