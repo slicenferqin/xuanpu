@@ -7,6 +7,8 @@ import { CompactionPill } from './CompactionPill'
 import { cn } from '@/lib/utils'
 import type { StreamingPart } from './SessionView'
 import { isTodoWriteTool } from './tools/todo-utils'
+import { stripTaskNotifications } from '@/lib/content-sanitizer'
+import { useMemo } from 'react'
 
 interface AssistantCanvasProps {
   content: string
@@ -150,8 +152,23 @@ export function AssistantCanvas({
   parts,
   cwd
 }: AssistantCanvasProps): React.JSX.Element {
-  const hasParts = parts && parts.length > 0
-  const shouldUseCompactToolSpacing = hasToolParts(parts)
+  // Strip embedded <task-notification> blocks from content and text parts.
+  // Standalone system messages are handled by SystemNotificationBar, but
+  // task-notification text can also appear inline in assistant messages.
+  const cleanContent = useMemo(() => stripTaskNotifications(content), [content])
+  const cleanParts = useMemo(() => {
+    if (!parts) return undefined
+    return parts.map((part) => {
+      if (part.type === 'text' && part.text) {
+        const stripped = stripTaskNotifications(part.text)
+        return stripped !== part.text ? { ...part, text: stripped } : part
+      }
+      return part
+    })
+  }, [parts])
+
+  const hasParts = cleanParts && cleanParts.length > 0
+  const shouldUseCompactToolSpacing = hasToolParts(cleanParts)
 
   return (
     <div
@@ -160,10 +177,10 @@ export function AssistantCanvas({
     >
       <div className="text-sm text-foreground leading-relaxed">
         {hasParts ? (
-          renderParts(parts, isStreaming, cwd, shouldUseCompactToolSpacing)
+          renderParts(cleanParts, isStreaming, cwd, shouldUseCompactToolSpacing)
         ) : (
           <>
-            <MarkdownRenderer content={content} />
+            {cleanContent && <MarkdownRenderer content={cleanContent} />}
             {isStreaming && <StreamingCursor />}
           </>
         )}

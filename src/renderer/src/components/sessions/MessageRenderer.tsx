@@ -1,6 +1,7 @@
 import { Clock3 } from 'lucide-react'
 import { UserBubble } from './UserBubble'
 import { AssistantCanvas } from './AssistantCanvas'
+import { SystemNotificationBar } from './SystemNotificationBar'
 import { CopyMessageButton } from './CopyMessageButton'
 import { ForkMessageButton } from './ForkMessageButton'
 import { PLAN_MODE_PREFIX, ASK_MODE_PREFIX } from '@/lib/constants'
@@ -50,6 +51,12 @@ export function MessageRenderer({
   const fullTimestamp = timestampLabel ? formatFullTimestamp(message.timestamp) : ''
   const hasMeta = !!timestampLabel || !!executionStatus
   const isUserMessage = message.role === 'user'
+
+  // System messages (e.g. task-notification) render as a lightweight
+  // notification bar rather than a full chat bubble.
+  if (message.role === 'system') {
+    return <SystemNotificationBar content={message.content} />
+  }
 
   return (
     <div className="group relative">

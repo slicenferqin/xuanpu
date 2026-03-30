@@ -579,7 +579,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
 
   /** Clear attachments in both React state and the draft store */
   const clearAttachments = useCallback(() => {
-    clearAttachments()
+    setAttachments([])
     useDraftAttachmentStore.getState().clear(sessionId)
   }, [sessionId])
 
@@ -1961,6 +1961,10 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             // Skip user-message echoes; user messages are already rendered locally.
             if (eventRole === 'user') return
 
+            // Skip system messages (task-notification etc.) — they're rendered
+            // as lightweight notification bars from the transcript, not streamed.
+            if (eventRole === 'system') return
+
             // Route child/subagent events into their SubtaskCard
             if (event.childSessionId) {
               let subtaskIdx = childToSubtaskIndexRef.current.get(event.childSessionId)
@@ -2347,6 +2351,9 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             // Skip user-message echoes
             if (eventRole === 'user') return
 
+            // Skip system messages (task-notification etc.)
+            if (eventRole === 'system') return
+
             // Skip child/subagent messages
             if (event.childSessionId) return
 
@@ -2460,6 +2467,11 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                 hasFinalizedCurrentResponseRef.current = false
                 setIsSending(true)
                 setMessages((prev) => [...prev, createLocalMessage('user', followUp)])
+                // Remove the consumed message from the UI queue
+                setQueuedMessages((prev) => {
+                  const idx = prev.findIndex((m) => m.content === followUp)
+                  return idx >= 0 ? [...prev.slice(0, idx), ...prev.slice(idx + 1)] : prev
+                })
                 newPromptPendingRef.current = true
                 messageSendTimes.set(sessionId, Date.now())
                 lastSendMode.set(sessionId, 'build')
@@ -3550,6 +3562,12 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           ...prev,
           { id: crypto.randomUUID(), content: trimmedValue, timestamp: Date.now() }
         ])
+        // Also persist in session store so it gets sent when session goes idle
+        const existing =
+          useSessionStore.getState().pendingFollowUpMessages.get(sessionId) ?? []
+        useSessionStore
+          .getState()
+          .setPendingFollowUpMessages(sessionId, [...existing, trimmedValue])
       }
       setInputValue('')
       inputValueRef.current = ''
@@ -3558,6 +3576,12 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       window.db.session.updateDraft(sessionId, null)
 
       resetAutoScrollState()
+
+      // Queued messages only go into the queue — don't create a local message or send
+      if (isQueuedMessage) {
+        clearAttachments()
+        return
+      }
 
       // Clear any stale command approvals from previous turns
       useCommandApprovalStore.getState().clearSession(sessionId)
