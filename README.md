@@ -73,7 +73,7 @@
 > **macOS 安装提示**：当前版本未经 Apple 签名，首次打开时会提示"无法验证开发者"。
 > 请在终端执行以下命令后重新打开：
 > ```bash
-> xattr -cr /Applications/Xuanpu.app
+> /usr/bin/xattr -cr /Applications/Xuanpu.app
 > ```
 > 或者：系统设置 → 隐私与安全性 → 点击「仍要打开」。
 >
