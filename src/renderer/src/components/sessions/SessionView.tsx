@@ -24,6 +24,7 @@ import { CodexFastToggle } from './CodexFastToggle'
 import { SessionTaskTracker } from './SessionTaskTracker'
 import type { Attachment } from './AttachmentPreview'
 import { buildMessageParts, MAX_ATTACHMENTS } from '@/lib/file-attachment-utils'
+import type { MessagePart } from '@shared/types/opencode'
 import { SlashCommandPopover } from './SlashCommandPopover'
 import { FileMentionPopover } from './FileMentionPopover'
 import { ScrollToBottomFab } from './ScrollToBottomFab'
@@ -120,11 +121,14 @@ export interface OpenCodeMessage {
   timestamp: string
   /** Interleaved parts for assistant messages with tool calls */
   parts?: StreamingPart[]
+  /** File attachments for user messages (images, PDFs, etc.) */
+  attachments?: MessagePart[]
 }
 
 function hasMeaningfulMessagePart(message: OpenCodeMessage): boolean {
   if (message.role === 'system') return false
-  if (message.role === 'user') return message.content.trim().length > 0
+  if (message.role === 'user')
+    return message.content.trim().length > 0 || (message.attachments?.length ?? 0) > 0
 
   if (message.content.trim().length > 0) return true
 
@@ -328,13 +332,25 @@ function extractSessionErrorStderr(data: unknown): string | null {
   return asString(nestedData?.stderr) || asString(record.stderr) || null
 }
 
-function createLocalMessage(role: OpenCodeMessage['role'], content: string): OpenCodeMessage {
+function createLocalMessage(
+  role: OpenCodeMessage['role'],
+  content: string,
+  attachments?: MessagePart[]
+): OpenCodeMessage {
   return {
     id: `local-${crypto.randomUUID()}`,
     role,
     content,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    ...(attachments && attachments.length > 0 ? { attachments } : {})
   }
+}
+
+/** Extract file-type MessageParts from local Attachment state for display in user bubbles */
+function toFilePartsForDisplay(attachments: Attachment[]): MessagePart[] {
+  return attachments
+    .filter((a) => a.kind === 'data')
+    .map((a) => ({ type: 'file' as const, mime: a.mime, url: a.dataUrl, filename: a.name }))
 }
 
 function getLatestTodoSnapshotFromParts(
@@ -3426,7 +3442,11 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           const prefixedQuestion = prAskContext + ASK_MODE_PREFIX + question
 
           // Add user message to UI immediately (before response)
-          setMessages((prev) => [...prev, createLocalMessage('user', prefixedQuestion)])
+          const askFileAttachments = toFilePartsForDisplay(attachments)
+          setMessages((prev) => [
+            ...prev,
+            createLocalMessage('user', prefixedQuestion, askFileAttachments)
+          ])
 
           // Mark that a new prompt is in flight
           newPromptPendingRef.current = true
@@ -3510,6 +3530,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         const currentRevertId = revertMessageID
         setRevertMessageID(null)
         revertDiffRef.current = null
+        const sendFileAttachments = toFilePartsForDisplay(attachments)
         setMessages((prev) => {
           let base = prev
           if (currentRevertId) {
@@ -3518,7 +3539,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               base = prev.slice(0, boundaryIndex)
             }
           }
-          return [...base, createLocalMessage('user', trimmedValue)]
+          return [...base, createLocalMessage('user', trimmedValue, sendFileAttachments)]
         })
 
         // Mark that a new prompt is in flight — prevents finalizeResponse

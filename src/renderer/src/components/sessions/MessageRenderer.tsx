@@ -67,6 +67,7 @@ export function MessageRenderer({
           timestamp={message.timestamp}
           isPlanMode={isPlanMode}
           isAskMode={isAskMode}
+          attachments={message.attachments}
         />
       ) : (
         <AssistantCanvas

@@ -1,17 +1,26 @@
 import { cn } from '@/lib/utils'
+import type { MessagePart } from '@shared/types/opencode'
 
 interface UserBubbleProps {
   content: string
   timestamp?: string
   isPlanMode?: boolean
   isAskMode?: boolean
+  attachments?: MessagePart[]
 }
 
 export function UserBubble({
   content,
   isPlanMode,
-  isAskMode
+  isAskMode,
+  attachments
 }: UserBubbleProps): React.JSX.Element {
+  const imageAttachments =
+    attachments?.filter(
+      (a): a is Extract<MessagePart, { type: 'file' }> =>
+        a.type === 'file' && a.mime.startsWith('image/')
+    ) ?? []
+
   return (
     <div className="flex justify-end px-6 py-4" data-testid="message-user">
       <div
@@ -39,6 +48,18 @@ export function UserBubble({
           >
             ASK
           </span>
+        )}
+        {imageAttachments.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2" data-testid="user-message-images">
+            {imageAttachments.map((att, i) => (
+              <img
+                key={i}
+                src={att.url}
+                alt={att.filename ?? 'image'}
+                className="max-h-48 max-w-full rounded-lg border border-border/50 object-contain"
+              />
+            ))}
+          </div>
         )}
         <p className="text-sm whitespace-pre-wrap leading-relaxed">{content}</p>
       </div>
