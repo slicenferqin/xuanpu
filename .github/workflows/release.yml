@@ -41,10 +41,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # macOS runners may lack setuptools for node-gyp
+      # Python setuptools is needed for node-gyp (distutils removed in Python 3.12+)
       - name: Ensure setuptools (macOS)
         if: matrix.platform == 'mac'
         run: pip3 install --break-system-packages setuptools
+
+      - name: Ensure setuptools (Windows)
+        if: matrix.platform == 'win'
+        run: pip3 install setuptools
 
       - run: pnpm install --frozen-lockfile
 
