@@ -56,6 +56,13 @@ That is why `AI-native workbench` is a more accurate category than `IDE`.
 ### Releases
 Download the latest build from [GitHub Releases](https://github.com/slicenferqin/xuanpu/releases/latest).
 
+> **macOS note**: The current build is unsigned. On first launch macOS will show an "unidentified developer" warning.
+> Run this in Terminal, then reopen the app:
+> ```bash
+> xattr -cr /Applications/Xuanpu.app
+> ```
+> Or: System Settings → Privacy & Security → click "Open Anyway".
+
 ### Run From Source
 ```bash
 pnpm install
