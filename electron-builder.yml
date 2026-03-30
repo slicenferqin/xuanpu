@@ -30,15 +30,13 @@ mac:
   # notarize: true
   identity: null
   gatekeeperAssess: false
+  # NOTE: arch is NOT specified here — it is controlled by CLI flags
+  # (--arm64 or --x64) in the release workflow. Listing both architectures
+  # here causes electron-builder to build BOTH in a single invocation,
+  # which corrupts native modules (the second arch rebuild overwrites the first).
   target:
-    - target: dmg
-      arch:
-        - arm64
-        - x64
-    - target: zip
-      arch:
-        - arm64
-        - x64
+    - dmg
+    - zip
 
 dmg:
   sign: false
@@ -46,15 +44,10 @@ dmg:
 # ── Windows ────────────────────────────────────────────
 win:
   icon: resources/icon.ico
+  # NOTE: arch controlled by CLI flags (--x64 or --arm64) in release workflow.
   target:
-    - target: nsis
-      arch:
-        - x64
-        - arm64
-    - target: zip
-      arch:
-        - x64
-        - arm64
+    - nsis
+    - zip
 
 nsis:
   oneClick: false
