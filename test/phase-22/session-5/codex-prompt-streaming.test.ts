@@ -340,8 +340,7 @@ describe('CodexImplementer.prompt()', () => {
       updateSession: vi.fn(),
       getSession: vi
         .fn()
-        .mockReturnValueOnce({ id: 'hive-session-1', name: 'Fix auth token refresh bug' })
-        .mockReturnValueOnce({ id: 'hive-session-1', name: 'Auth refresh fix' }),
+        .mockReturnValue({ id: 'hive-session-1', name: 'Fix auth token refresh bug', mode: 'build' }),
       getWorktreeBySessionId: vi.fn().mockReturnValue(null)
     }
     impl.setDatabaseService(mockDb as any)
