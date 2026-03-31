@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-export const APP_PRODUCT_NAME = 'Xuanpu'
+export const APP_PRODUCT_NAME = '玄圃'
 export const APP_BUNDLE_ID = 'com.slicenfer.xuanpu'
 export const APP_AUTO_UPDATES_ENABLED = true
 export const APP_CLI_NAME = 'xuanpu-server'

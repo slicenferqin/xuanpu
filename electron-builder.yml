@@ -1,5 +1,5 @@
 appId: com.slicenfer.xuanpu
-productName: 'Xuanpu'
+productName: '玄圃'
 directories:
   buildResources: resources
   output: dist
@@ -54,7 +54,7 @@ nsis:
   perMachine: false
   allowToChangeInstallationDirectory: true
   deleteAppDataOnUninstall: false
-  artifactName: 'Xuanpu-Setup-${version}.${ext}'
+  artifactName: '玄圃-Setup-${version}.${ext}'
 
 # ── Linux ──────────────────────────────────────────────
 linux:
