@@ -693,6 +693,176 @@ describe('Codex Abort & getMessages', () => {
       expect((messages[1] as any).parts[0].text).toBe('Saved assistant reply')
     })
 
+    it('normalizes item-based turns into one user message and one assistant message', async () => {
+      const { CodexImplementer } = await import('../../../src/main/services/codex-implementer')
+      const impl = new CodexImplementer()
+      const internalManager = impl.getManager() as any
+
+      impl.getSessions().set('/test::thread-msg-1', {
+        threadId: 'thread-msg-1',
+        hiveSessionId: 'hive-msg-1',
+        worktreePath: '/test',
+        status: 'ready',
+        messages: [],
+        liveAssistantDraft: null,
+        revertMessageID: null,
+        revertDiff: null,
+        titleGenerated: false
+      })
+
+      internalManager.readThread = vi.fn().mockResolvedValue({
+        thread: {
+          id: 'thread-msg-1',
+          turns: [
+            {
+              id: 'turn-1',
+              createdAt: '2026-01-01T00:00:00Z',
+              updatedAt: '2026-01-01T00:00:10Z',
+              items: [
+                {
+                  type: 'userMessage',
+                  id: 'user-1',
+                  content: [{ type: 'text', text: 'Saved user message' }]
+                },
+                {
+                  type: 'reasoning',
+                  id: 'reasoning-1',
+                  summary: ['Reasoning summary'],
+                  content: ['Reasoning detail']
+                },
+                {
+                  type: 'commandExecution',
+                  id: 'cmd-1',
+                  toolName: 'bash',
+                  status: 'completed',
+                  input: { command: ['pnpm', 'test'] },
+                  output: 'ok'
+                },
+                {
+                  type: 'fileChange',
+                  id: 'edit-1',
+                  name: 'apply_patch',
+                  status: 'completed',
+                  changes: [{ path: 'src/file.ts' }],
+                  output: 'patched'
+                },
+                {
+                  type: 'agentMessage',
+                  id: 'assistant-1',
+                  text: 'Saved assistant reply'
+                }
+              ]
+            }
+          ]
+        }
+      })
+
+      const messages = await impl.getMessages('/test', 'thread-msg-1')
+
+      expect(messages).toHaveLength(2)
+      expect((messages[0] as any).id).toBe('turn-1:user')
+      expect((messages[1] as any).id).toBe('turn-1:assistant')
+      expect((messages[1] as any).parts).toEqual([
+        {
+          type: 'reasoning',
+          text: 'Reasoning summary\nReasoning detail',
+          timestamp: '2026-01-01T00:00:00Z'
+        },
+        {
+          type: 'tool',
+          callID: 'cmd-1',
+          tool: 'bash',
+          state: {
+            status: 'completed',
+            input: { command: ['pnpm', 'test'] },
+            output: 'ok',
+            error: undefined
+          }
+        },
+        {
+          type: 'tool',
+          callID: 'edit-1',
+          tool: 'apply_patch',
+          state: {
+            status: 'completed',
+            input: { changes: [{ path: 'src/file.ts' }] },
+            output: 'patched',
+            error: undefined
+          }
+        },
+        {
+          type: 'text',
+          text: 'Saved assistant reply',
+          timestamp: '2026-01-01T00:00:00Z'
+        }
+      ])
+    })
+
+    it('keeps plan and agentMessage in a single assistant turn', async () => {
+      const { CodexImplementer } = await import('../../../src/main/services/codex-implementer')
+      const impl = new CodexImplementer()
+      const internalManager = impl.getManager() as any
+
+      impl.getSessions().set('/test::thread-msg-1', {
+        threadId: 'thread-msg-1',
+        hiveSessionId: 'hive-msg-1',
+        worktreePath: '/test',
+        status: 'ready',
+        messages: [],
+        liveAssistantDraft: null,
+        revertMessageID: null,
+        revertDiff: null,
+        titleGenerated: false
+      })
+
+      internalManager.readThread = vi.fn().mockResolvedValue({
+        thread: {
+          id: 'thread-msg-1',
+          turns: [
+            {
+              id: 'turn-1',
+              createdAt: '2026-01-01T00:00:00Z',
+              updatedAt: '2026-01-01T00:00:10Z',
+              items: [
+                {
+                  type: 'userMessage',
+                  id: 'user-1',
+                  content: [{ type: 'text', text: 'Saved user message' }]
+                },
+                {
+                  type: 'plan',
+                  id: 'plan-1',
+                  text: 'Generated plan'
+                },
+                {
+                  type: 'agentMessage',
+                  id: 'assistant-1',
+                  text: 'Saved assistant reply'
+                }
+              ]
+            }
+          ]
+        }
+      })
+
+      const messages = await impl.getMessages('/test', 'thread-msg-1')
+
+      expect(messages).toHaveLength(2)
+      expect((messages[1] as any).id).toBe('turn-1:assistant')
+      expect((messages[1] as any).parts).toEqual([
+        {
+          type: 'text',
+          text: 'Generated plan',
+          timestamp: '2026-01-01T00:00:00Z'
+        },
+        {
+          type: 'text',
+          text: 'Saved assistant reply',
+          timestamp: '2026-01-01T00:00:00Z'
+        }
+      ])
+    })
+
     it('returns recovered Codex messages in chronological order', async () => {
       const { CodexImplementer } = await import('../../../src/main/services/codex-implementer')
       const impl = new CodexImplementer()

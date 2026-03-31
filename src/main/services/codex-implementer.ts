@@ -2029,29 +2029,38 @@ export class CodexImplementer implements AgentSdkImplementer {
       const turnTimestamp = asString(turnObj.createdAt) ?? asString(turnObj.updatedAt)
       const items = turnObj.items as unknown[] | undefined
       if (Array.isArray(items) && items.length > 0) {
-        let assistantItemOrdinal = 0
-        let userItemOrdinal = 0
+        const itemTimestamp = turnTimestamp ?? new Date().toISOString()
+        const userParts: Array<{ type: 'text'; text: string; timestamp: string }> = []
+        const assistantParts: Array<
+          | { type: 'text'; text: string; timestamp: string }
+          | { type: 'reasoning'; text: string; timestamp: string }
+          | {
+              type: 'tool'
+              callID: string
+              tool: string
+              state: {
+                status: 'running' | 'completed' | 'error'
+                input?: unknown
+                output?: unknown
+                error?: unknown
+              }
+            }
+        > = []
 
-        const makeUserMessageId = (itemId?: string): string | undefined => {
-          if (!turnId) return itemId
-          if (userItemOrdinal === 0) {
-            userItemOrdinal += 1
-            return `${turnId}:user`
-          }
-          const suffix = itemId ?? `item-${userItemOrdinal + 1}`
-          userItemOrdinal += 1
-          return `${turnId}:user:${suffix}`
+        const normalizeToolStatus = (
+          statusValue: unknown
+        ): 'running' | 'completed' | 'error' => {
+          const status = asString(statusValue)
+          if (status === 'completed') return 'completed'
+          if (status === 'failed' || status === 'error') return 'error'
+          return 'running'
         }
 
-        const makeAssistantMessageId = (itemId?: string): string | undefined => {
-          if (!turnId) return itemId
-          if (assistantItemOrdinal === 0) {
-            assistantItemOrdinal += 1
-            return `${turnId}:assistant`
-          }
-          const suffix = itemId ?? `item-${assistantItemOrdinal + 1}`
-          assistantItemOrdinal += 1
-          return `${turnId}:assistant:${suffix}`
+        const normalizeToolInput = (itemObj: Record<string, unknown>): unknown => {
+          if (itemObj.input !== undefined) return itemObj.input
+          if (Array.isArray(itemObj.changes)) return { changes: itemObj.changes }
+          if (itemObj.command !== undefined) return { command: itemObj.command }
+          return undefined
         }
 
         for (const item of items) {
@@ -2060,17 +2069,15 @@ export class CodexImplementer implements AgentSdkImplementer {
 
           const itemType = asString(itemObj.type)
           const itemId = asString(itemObj.id)
-          const itemTimestamp = turnTimestamp ?? new Date().toISOString()
 
           if (itemType === 'userMessage') {
             const content = itemObj.content as unknown[] | undefined
-            const textParts: unknown[] = []
 
             if (Array.isArray(content)) {
               for (const entry of content) {
                 const entryObj = asObject(entry)
                 if (entryObj?.type === 'text' && typeof entryObj.text === 'string') {
-                  textParts.push({
+                  userParts.push({
                     type: 'text',
                     text: entryObj.text,
                     timestamp: itemTimestamp
@@ -2078,41 +2085,17 @@ export class CodexImplementer implements AgentSdkImplementer {
                 }
               }
             }
-
-            if (textParts.length > 0) {
-              const messageId = makeUserMessageId(itemId)
-              pushMessage(
-                {
-                  ...(messageId ? { id: messageId } : {}),
-                  role: 'user',
-                  parts: textParts,
-                  timestamp: itemTimestamp
-                },
-                itemTimestamp
-              )
-            }
             continue
           }
 
           if (itemType === 'agentMessage' || itemType === 'plan') {
             const text = asString(itemObj.text)
             if (text) {
-              const messageId = makeAssistantMessageId(itemId)
-              pushMessage(
-                {
-                  ...(messageId ? { id: messageId } : {}),
-                  role: 'assistant',
-                  parts: [
-                    {
-                      type: 'text',
-                      text,
-                      timestamp: itemTimestamp
-                    }
-                  ],
-                  timestamp: itemTimestamp
-                },
-                itemTimestamp
-              )
+              assistantParts.push({
+                type: 'text',
+                text,
+                timestamp: itemTimestamp
+              })
             }
             continue
           }
@@ -2127,24 +2110,63 @@ export class CodexImplementer implements AgentSdkImplementer {
             const reasoningText = [...summary, ...content].join('\n').trim()
 
             if (reasoningText) {
-              const messageId = makeAssistantMessageId(itemId)
-              pushMessage(
-                {
-                  ...(messageId ? { id: messageId } : {}),
-                  role: 'assistant',
-                  parts: [
-                    {
-                      type: 'reasoning',
-                      text: reasoningText,
-                      timestamp: itemTimestamp
-                    }
-                  ],
-                  timestamp: itemTimestamp
-                },
-                itemTimestamp
-              )
+              assistantParts.push({
+                type: 'reasoning',
+                text: reasoningText,
+                timestamp: itemTimestamp
+              })
+            }
+            continue
+          }
+
+          if (itemType === 'commandExecution' || itemType === 'fileChange') {
+            const toolStatus = normalizeToolStatus(itemObj.status)
+            const input = normalizeToolInput(itemObj)
+            const output = itemObj.output ?? itemObj.aggregatedOutput
+            const error = itemObj.error ?? (toolStatus === 'error' ? output : undefined)
+
+            if (itemId) {
+              assistantParts.push({
+                type: 'tool',
+                callID: itemId,
+                tool:
+                  asString(itemObj.toolName) ??
+                  asString(itemObj.name) ??
+                  asString(itemObj.type) ??
+                  'unknown',
+                state: {
+                  status: toolStatus,
+                  ...(input !== undefined ? { input } : {}),
+                  ...(output !== undefined && toolStatus !== 'error' ? { output } : {}),
+                  ...(error !== undefined ? { error } : {})
+                }
+              })
             }
           }
+        }
+
+        if (userParts.length > 0) {
+          pushMessage(
+            {
+              ...(turnId ? { id: `${turnId}:user` } : {}),
+              role: 'user',
+              parts: userParts,
+              timestamp: itemTimestamp
+            },
+            itemTimestamp
+          )
+        }
+
+        if (assistantParts.length > 0) {
+          pushMessage(
+            {
+              ...(turnId ? { id: `${turnId}:assistant` } : {}),
+              role: 'assistant',
+              parts: assistantParts,
+              timestamp: itemTimestamp
+            },
+            itemTimestamp
+          )
         }
 
         continue
