@@ -2492,8 +2492,8 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                 .getState()
                 .setSessionStatus(sessionId, currentMode === 'plan' ? 'planning' : 'working')
             } else if (status.type === 'idle') {
-              // Don't overwrite plan_ready — session is blocked waiting for plan approval
-              if (useSessionStore.getState().getPendingPlan(sessionId)) return
+              const pendingPlan = useSessionStore.getState().getPendingPlan(sessionId)
+              const shouldKeepPlanReady = Boolean(pendingPlan) && isCodexSession
 
               // If there are queued follow-up messages, send the next one instead of finalizing
               const followUp = useSessionStore.getState().consumeFollowUpMessage(sessionId)
@@ -2536,6 +2536,9 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                 return
               }
 
+              // Non-Codex sessions still stop here while blocked on plan approval.
+              if (pendingPlan && !shouldKeepPlanReady) return
+
               // Session is done — flush and finalize immediately
               setSessionRetry(null)
               setSessionErrorMessage(null)
@@ -2552,12 +2555,16 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                 void finalizeResponse()
               }
 
-              // Track duration metadata for completed-session status bookkeeping
-              const sendTime = messageSendTimes.get(sessionId)
-              const durationMs = sendTime ? Date.now() - sendTime : 0
-              const word = COMPLETION_WORDS[Math.floor(Math.random() * COMPLETION_WORDS.length)]
-              const statusStore = useWorktreeStatusStore.getState()
-              statusStore.setSessionStatus(sessionId, 'completed', { word, durationMs })
+              if (shouldKeepPlanReady) {
+                useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'plan_ready')
+              } else {
+                // Track duration metadata for completed-session status bookkeeping
+                const sendTime = messageSendTimes.get(sessionId)
+                const durationMs = sendTime ? Date.now() - sendTime : 0
+                const word = COMPLETION_WORDS[Math.floor(Math.random() * COMPLETION_WORDS.length)]
+                const statusStore = useWorktreeStatusStore.getState()
+                statusStore.setSessionStatus(sessionId, 'completed', { word, durationMs })
+              }
             } else if (status.type === 'retry') {
               setIsStreaming(true)
               setIsSending(true)
