@@ -116,6 +116,8 @@ export function useKeyboardShortcuts(): void {
       const target = event.target as HTMLElement
       const isInputFocused =
         target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
+      // Detect xterm.js terminal focus — Tab must pass through for shell completion
+      const isTerminalFocused = !!target.closest('.xterm')
 
       // Build a list of shortcut handlers
       // Each entry: [shortcutId, binding, handler, allowInInput]
@@ -124,6 +126,13 @@ export function useKeyboardShortcuts(): void {
       for (const { binding, handler, allowInInput } of shortcuts) {
         if (!binding) continue
         if (isInputFocused && !allowInInput) continue
+        // When the terminal is focused, let bare Tab through to xterm/PTY for completion
+        if (
+          isTerminalFocused &&
+          binding.key === 'Tab' &&
+          (!binding.modifiers || binding.modifiers.length === 0)
+        )
+          continue
 
         if (eventMatchesBinding(event, binding)) {
           event.preventDefault()

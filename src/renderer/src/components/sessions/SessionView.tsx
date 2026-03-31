@@ -1959,6 +1959,15 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             return
           }
 
+          // CLI compatibility warning (e.g. old Claude CLI missing --thinking)
+          if (event.type === 'session.warning') {
+            const msg =
+              (event.data as Record<string, unknown> | undefined)?.message ??
+              'Claude Code CLI warning'
+            toast.warning(String(msg), { duration: 10000 })
+            return
+          }
+
           // Codex context compaction — no streaming part, just a notification.
           // Show compacting indicator so the user knows what's happening.
           if (event.type === 'session.context_compacted') {
