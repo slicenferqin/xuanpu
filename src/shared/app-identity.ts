@@ -25,9 +25,9 @@ export function getLegacyAppHomeDirs(homeDir: string = homedir()): string[] {
 
 export function getActiveAppHomeDir(homeDir: string = homedir()): string {
   const primaryPath = getAppHomeDir(homeDir)
-  if (existsSync(primaryPath)) return primaryPath
-
-  return getLegacyAppHomeDirs(homeDir).find((dir) => existsSync(dir)) ?? primaryPath
+  // Always use the primary (new) path for creating files/directories.
+  // Legacy paths are only used for one-time database migration.
+  return primaryPath
 }
 
 export function getAppDatabasePath(homeDir: string = homedir()): string {
@@ -56,8 +56,7 @@ export function getLegacyWorktreesBaseDirs(homeDir: string = homedir()): string[
 }
 
 export function getActiveWorktreesBaseDir(homeDir: string = homedir()): string {
-  const primaryPath = getAppWorktreesBaseDir(homeDir)
-  if (existsSync(primaryPath)) return primaryPath
-
-  return getLegacyWorktreesBaseDirs(homeDir).find((dir) => existsSync(dir)) ?? primaryPath
+  // Always use the primary (new) path for creating worktrees.
+  // Existing worktrees in legacy dirs are referenced by full path in the DB.
+  return getAppWorktreesBaseDir(homeDir)
 }
