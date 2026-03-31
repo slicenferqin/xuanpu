@@ -153,6 +153,9 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
   private lspServices = new Map<string, LspService>()
   /** Command filter service for evaluating tool use permissions */
   private commandFilterService = new CommandFilterService()
+  /** Whether the Claude CLI supports the --thinking flag.
+   *  Set to false on first "unknown option '--thinking'" stderr and never re-enabled. */
+  private thinkingSupported = true
   /** Maps pending command approval requestIds to their resolution callbacks */
   private pendingApprovals = new Map<
     string,
@@ -522,13 +525,13 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
         cwd: session.worktreePath,
         permissionMode: sdkPermissionMode,
         abortController: session.abortController,
-        maxThinkingTokens: 31999,
+        ...(this.thinkingSupported ? { maxThinkingTokens: 31999 } : {}),
         model: resolvedModel,
         includePartialMessages: true,
         enableFileCheckpointing: true,
         settingSources: ['user', 'project', 'local'],
         extraArgs: { 'replay-user-messages': null },
-        thinking: { type: 'adaptive' },
+        ...(this.thinkingSupported ? { thinking: { type: 'adaptive' } as const } : {}),
         effort: effortLevel,
         debugFile: join(getActiveAppHomeDir(app.getPath('home')), 'logs', 'claude-debug.log'),
         env: {
@@ -956,6 +959,31 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
       const stderrOutput = session.stderrBuffer.join('').trim() || undefined
+
+      // Detect old Claude CLI that doesn't support --thinking flag.
+      // Disable thinking, warn the user, and transparently retry the prompt.
+      if (this.thinkingSupported && stderrOutput?.includes("unknown option '--thinking'")) {
+        this.thinkingSupported = false
+        log.warn('Claude CLI does not support --thinking, disabling and retrying', {
+          worktreePath,
+          agentSessionId,
+          stderr: stderrOutput
+        })
+        this.sendToRenderer('opencode:stream', {
+          type: 'session.warning',
+          sessionId: session.hiveSessionId,
+          data: {
+            message:
+              'Claude Code CLI 版本过旧，不支持扩展思考（extended thinking）。' +
+              '已自动回退，但建议升级：运行 claude update 或 npm install -g @anthropic-ai/claude-code'
+          }
+        })
+        // Reset session state and retry without --thinking
+        session.query = null
+        session.stderrBuffer = []
+        session.abortController = new AbortController()
+        return this.prompt(worktreePath, agentSessionId, message, modelOverride)
+      }
 
       // Capture any extra properties the SDK may attach to the error
       const errorExtras: Record<string, unknown> = {}
