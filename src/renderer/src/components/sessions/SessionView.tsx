@@ -256,6 +256,15 @@ function hasSuspiciousCodexRoleGrouping(messages: OpenCodeMessage[]): boolean {
   return lastUserIndex < firstAssistantIndex
 }
 
+function isCanonicalCodexTranscript(messages: OpenCodeMessage[]): boolean {
+  return messages.some(
+    (message) =>
+      message.role === 'assistant' &&
+      /^.+:assistant$/.test(message.id) &&
+      (message.parts?.length ?? 0) > 0
+  )
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
@@ -1371,11 +1380,15 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       let loadedFromOpenCode = false
       let codexActivities: SessionActivity[] = []
       const currentStoredStatus = useWorktreeStatusStore.getState().sessionStatuses[sessionId]
+      const sessionIsBusy =
+        currentStoredStatus?.status === 'working' || currentStoredStatus?.status === 'planning'
+      let hasCanonicalDurableCodexTranscript = false
 
       if (isCodexSession) {
         const durableState = await loadCodexDurableState(sessionId)
         loadedMessages = durableState.messages
         codexActivities = durableState.activities
+        hasCanonicalDurableCodexTranscript = isCanonicalCodexTranscript(loadedMessages)
 
         if (options?.preferDurableCodex && hasSuspiciousCodexRoleGrouping(loadedMessages)) {
           for (let attempt = 0; attempt < 4; attempt++) {
@@ -1383,6 +1396,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             const retriedState = await loadCodexDurableState(sessionId)
             loadedMessages = retriedState.messages
             codexActivities = retriedState.activities
+            hasCanonicalDurableCodexTranscript = isCanonicalCodexTranscript(loadedMessages)
             if (!hasSuspiciousCodexRoleGrouping(loadedMessages)) break
           }
         }
@@ -1392,9 +1406,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         isCodexSession &&
         !options?.preferDurableCodex &&
         canUseOpenCodeSource &&
-        (currentStoredStatus?.status === 'working' ||
-          currentStoredStatus?.status === 'planning' ||
-          loadedMessages.length === 0)
+        (loadedMessages.length === 0 || (sessionIsBusy && !hasCanonicalDurableCodexTranscript))
 
       if (
         (!isCodexSession || loadedMessages.length === 0 || preferLiveCodexSource) &&
