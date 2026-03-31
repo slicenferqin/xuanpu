@@ -581,4 +581,135 @@ describe('codex timeline derivation', () => {
       'turn-2:assistant'
     ])
   })
+
+  it('does not synthesize duplicate tool rows when canonical assistant parts already contain the tool', () => {
+    const messages = [
+      {
+        id: 'turn-1:user',
+        role: 'user' as const,
+        content: 'Inspect the repo',
+        timestamp: '2026-03-14T10:00:00.000Z',
+        parts: [{ type: 'text', text: 'Inspect the repo' }]
+      },
+      {
+        id: 'turn-1:assistant',
+        role: 'assistant' as const,
+        content: 'I inspected the repo.',
+        timestamp: '2026-03-14T10:00:10.000Z',
+        parts: [
+          {
+            type: 'tool',
+            callID: 'tool-1',
+            tool: 'Read',
+            state: {
+              status: 'completed',
+              input: { filePath: 'src/index.ts' },
+              output: 'ok'
+            }
+          },
+          {
+            type: 'text',
+            text: 'I inspected the repo.'
+          }
+        ] as any
+      }
+    ]
+
+    const activities: SessionActivity[] = [
+      {
+        id: 'activity-tool-1',
+        session_id: 'session-1',
+        agent_session_id: 'thread-1',
+        thread_id: 'thread-1',
+        turn_id: 'turn-1',
+        item_id: 'tool-1',
+        request_id: null,
+        kind: 'tool.completed',
+        tone: 'tool',
+        summary: 'Read',
+        payload_json: JSON.stringify({
+          item: {
+            toolName: 'Read',
+            input: { filePath: 'src/index.ts' },
+            output: 'ok'
+          }
+        }),
+        sequence: null,
+        created_at: '2026-03-14T10:00:05.000Z'
+      }
+    ]
+
+    const timeline = mergeCodexActivityMessages(messages as any, activities)
+
+    expect(timeline.map((message) => message.id)).toEqual(['turn-1:user', 'turn-1:assistant'])
+    expect(
+      timeline[1]?.parts?.some((part) => part.type === 'tool_use' && part.toolUse?.id === 'tool-1')
+    ).toBe(true)
+  })
+
+  it('does not synthesize a duplicate ExitPlanMode card when canonical transcript already has it', () => {
+    const messages = [
+      {
+        id: 'turn-1:user',
+        role: 'user' as const,
+        content: 'Plan this change',
+        timestamp: '2026-03-14T10:00:00.000Z',
+        parts: [{ type: 'text', text: 'Plan this change' }]
+      },
+      {
+        id: 'turn-1:assistant',
+        role: 'assistant' as const,
+        content: 'Here is the plan.',
+        timestamp: '2026-03-14T10:00:10.000Z',
+        parts: [
+          {
+            type: 'tool',
+            callID: 'plan-tool-1',
+            tool: 'ExitPlanMode',
+            state: {
+              status: 'pending',
+              input: { plan: 'Plan\n\n1. Add the function\n2. Add tests' }
+            }
+          },
+          {
+            type: 'text',
+            text: 'Here is the plan.'
+          }
+        ] as any
+      }
+    ]
+
+    const activities: SessionActivity[] = [
+      {
+        id: 'plan-ready-1',
+        session_id: 'session-1',
+        agent_session_id: 'thread-1',
+        thread_id: 'thread-1',
+        turn_id: 'turn-1',
+        item_id: null,
+        request_id: 'codex-plan:thread-1',
+        kind: 'plan.ready',
+        tone: 'info',
+        summary: 'Plan ready',
+        payload_json: JSON.stringify({
+          plan: 'Plan\n\n1. Add the function\n2. Add tests',
+          toolUseID: 'plan-tool-1'
+        }),
+        sequence: null,
+        created_at: '2026-03-14T10:00:11.000Z'
+      }
+    ]
+
+    const timeline = mergeCodexActivityMessages(messages as any, activities)
+
+    expect(timeline.map((message) => message.id)).toEqual(['turn-1:user', 'turn-1:assistant'])
+    expect(
+      timeline[1]?.parts?.some(
+        (part) =>
+          part.type === 'tool_use' &&
+          part.toolUse?.id === 'plan-tool-1' &&
+          part.toolUse.name === 'ExitPlanMode'
+      )
+    ).toBe(true)
+  })
 })

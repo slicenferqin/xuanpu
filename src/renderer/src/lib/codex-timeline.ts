@@ -323,6 +323,32 @@ function upsertToolPart(
   return existingParts
 }
 
+function normalizeMessageParts(parts: unknown[] | undefined): StreamingPart[] | undefined {
+  if (!Array.isArray(parts)) return undefined
+
+  const normalizedParts = parts
+    .map((part, index) => mapOpencodePartToStreamingPart(part, index))
+    .filter((part): part is StreamingPart => part !== null)
+
+  return normalizedParts.length > 0 ? normalizedParts : undefined
+}
+
+function isCanonicalAssistantMessage(message: OpenCodeMessage): boolean {
+  return message.role === 'assistant' && hasCanonicalTurnScopedId(message.id)
+}
+
+function collectExistingCanonicalToolIds(messages: OpenCodeMessage[]): Set<string> {
+  return new Set(
+    messages.flatMap((message) =>
+      !isCanonicalAssistantMessage(message)
+        ? []
+        : (message.parts ?? [])
+            .filter((part) => part.type === 'tool_use' && !!part.toolUse?.id)
+            .map((part) => part.toolUse!.id)
+    )
+  )
+}
+
 export function mergeCodexActivityMessages(
   baseMessages: OpenCodeMessage[],
   activityRows: SessionActivity[]
@@ -330,15 +356,9 @@ export function mergeCodexActivityMessages(
   const normalizedBaseMessages = normalizeCodexOpenCodeMessages(baseMessages, activityRows)
   const mergedMessages = normalizedBaseMessages.map((message) => ({
     ...message,
-    parts: message.parts ? [...message.parts] : undefined
+    parts: normalizeMessageParts(message.parts as unknown[] | undefined)
   }))
-  const knownToolIds = new Set(
-    mergedMessages.flatMap((message) =>
-      (message.parts ?? [])
-        .filter((part) => part.type === 'tool_use' && !!part.toolUse?.id)
-        .map((part) => part.toolUse!.id)
-    )
-  )
+  const knownToolIds = collectExistingCanonicalToolIds(mergedMessages)
   const firstAssistantIndexByTurnId = new Map<string, number>()
   const turnOrder: string[] = []
 
