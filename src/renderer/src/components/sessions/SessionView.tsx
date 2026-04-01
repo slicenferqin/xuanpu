@@ -1367,6 +1367,21 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       }
     })
 
+    // Restore queued messages from store
+    const followUpMessages =
+      useSessionStore.getState().pendingFollowUpMessages.get(sessionId) ?? []
+    if (followUpMessages.length > 0) {
+      setQueuedMessages(
+        followUpMessages.map((content) => ({
+          id: crypto.randomUUID(),
+          content,
+          timestamp: Date.now()
+        }))
+      )
+    } else {
+      setQueuedMessages([])
+    }
+
     transcriptSourceRef.current = {
       worktreePath: null,
       opencodeSessionId: null
