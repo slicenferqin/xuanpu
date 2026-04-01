@@ -497,7 +497,7 @@ export function Header(): React.JSX.Element {
         <div className="flex items-center gap-3 min-w-0 rounded-xl border border-border/60 bg-muted/35 px-3 py-1.5">
           <img
             src={appLogo}
-            alt="Xuanpu"
+            alt="玄圃"
             className="h-5 w-5 shrink-0 rounded-md"
             draggable={false}
           />
@@ -518,7 +518,7 @@ export function Header(): React.JSX.Element {
               </div>
             </div>
           ) : (
-            <span className="text-sm font-semibold">Xuanpu</span>
+            <span className="text-sm font-semibold">玄圃</span>
           )}
         </div>
         {vimModeEnabled && (

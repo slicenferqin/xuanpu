@@ -59,8 +59,15 @@ scripts/*
 !scripts/prepare-win-deps.sh
 !scripts/codex-app-server-probe.ts
 
-# Claude worktrees
-.claude/worktrees/
+# AI coding tool configs
+.claude/
+.opencode/
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Temporary vite configs
+electron.vite.config.*.mjs
 
 # Windows cross-build cache
 .win-natives/

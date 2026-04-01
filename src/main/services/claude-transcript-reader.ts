@@ -46,6 +46,17 @@ interface ClaudeJsonlEntry {
   isCompactSummary?: boolean
 }
 
+/**
+ * Detect context-continuation summary messages injected by Claude CLI when
+ * resuming from a context-exhausted session. These are synthetic user messages
+ * that do NOT carry the `isCompactSummary` flag.
+ */
+const CONTINUATION_PREFIX = 'This session is being continued from a previous conversation'
+
+function isContextContinuationSummary(text: string): boolean {
+  return text.trimStart().startsWith(CONTINUATION_PREFIX)
+}
+
 function extractTextFromContent(content: ClaudeContentBlock[] | string | undefined): string {
   if (!content) return ''
   if (typeof content === 'string') return content
@@ -229,6 +240,16 @@ export async function readClaudeTranscript(
     // conversation summary after context compaction.
     if (entry.isCompactSummary === true) {
       continue
+    }
+
+    // Skip context-continuation summary — content-based fallback.
+    // Claude CLI injects a synthetic user message when resuming from a
+    // context-exhausted session; it has no isCompactSummary flag.
+    if (entry.type === 'user') {
+      const text = extractTextFromContent(entry.message?.content)
+      if (isContextContinuationSummary(text)) {
+        continue
+      }
     }
 
     // Skip user messages that only contain tool_result blocks

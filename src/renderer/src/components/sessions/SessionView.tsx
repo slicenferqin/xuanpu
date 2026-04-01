@@ -1201,6 +1201,36 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     flushStreamingState()
   }, [flushStreamingState])
 
+  // Transition an ExitPlanMode tool card's status in both streaming parts and
+  // committed messages. The card may live in either location depending on timing.
+  const transitionToolStatus = useCallback(
+    (toolUseID: string, status: 'success' | 'error', error?: string) => {
+      const mapper = (p: StreamingPart): StreamingPart =>
+        p.type === 'tool_use' && p.toolUse?.id === toolUseID
+          ? { ...p, toolUse: { ...p.toolUse!, status, ...(error ? { error } : {}) } }
+          : p
+
+      // Update streaming parts (may still be rendering from here)
+      updateStreamingPartsRef((parts) => parts.map(mapper))
+      immediateFlush()
+
+      // Update committed messages (card may have been moved here)
+      setMessages((prev) =>
+        prev.map((msg) => {
+          if (!msg.parts) return msg
+          let changed = false
+          const updatedParts = msg.parts.map((p) => {
+            const result = mapper(p)
+            if (result !== p) changed = true
+            return result
+          })
+          return changed ? { ...msg, parts: updatedParts } : msg
+        })
+      )
+    },
+    [updateStreamingPartsRef, immediateFlush]
+  )
+
   // Helper to update streaming parts ref only (no state update — caller decides flush strategy)
   const updateStreamingPartsRef = useCallback(
     (updater: (parts: StreamingPart[]) => StreamingPart[]) => {
@@ -2690,13 +2720,29 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               setIsStreaming(true)
               setMessages((currentMessages) => {
                 const currentLast = currentMessages[currentMessages.length - 1]
-                if (
-                  currentLast &&
-                  currentLast.role === 'assistant' &&
-                  currentLast.id === lastMsg.id &&
-                  !currentLast.id.startsWith('local-')
-                ) {
-                  return currentMessages.slice(0, -1)
+                if (currentLast && currentLast.role === 'assistant') {
+                  // Remove if exact ID match (normal case)
+                  // OR if the message's tools overlap with what we're restoring
+                  // to the streaming overlay (handles local-stream-* IDs from
+                  // a previous finalizeResponse / appendStreamedAssistantFallback).
+                  const idMatch = currentLast.id === lastMsg.id
+                  const restoredToolIds = new Set(
+                    restoredParts
+                      .filter((p) => p.type === 'tool_use' && p.toolUse?.id)
+                      .map((p) => p.toolUse!.id)
+                  )
+                  const toolOverlap =
+                    restoredToolIds.size > 0 &&
+                    (currentLast.parts?.some(
+                      (p) =>
+                        p.type === 'tool_use' &&
+                        p.toolUse?.id &&
+                        restoredToolIds.has(p.toolUse.id)
+                    ) ??
+                      false)
+                  if (idMatch || toolOverlap) {
+                    return currentMessages.slice(0, -1)
+                  }
                 }
                 return currentMessages
               })
@@ -3858,14 +3904,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
 
       // Transition ExitPlanMode tool card to "accepted" state
       if (pendingBeforeAction.toolUseID) {
-        updateStreamingPartsRef((parts) =>
-          parts.map((p) =>
-            p.type === 'tool_use' && p.toolUse?.id === pendingBeforeAction.toolUseID
-              ? { ...p, toolUse: { ...p.toolUse!, status: 'success' as const } }
-              : p
-          )
-        )
-        immediateFlush()
+        transitionToolStatus(pendingBeforeAction.toolUseID, 'success')
       }
 
       await useSessionStore.getState().setSessionMode(sessionId, 'build')
@@ -3918,14 +3957,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         setIsStreaming(true)
         setIsSending(true)
         // Transition the ExitPlanMode tool card to "accepted" state
-        updateStreamingPartsRef((parts) =>
-          parts.map((p) =>
-            p.type === 'tool_use' && p.toolUse?.id === pendingBeforeAction.toolUseID
-              ? { ...p, toolUse: { ...p.toolUse!, status: 'success' as const } }
-              : p
-          )
-        )
-        immediateFlush()
+        transitionToolStatus(pendingBeforeAction.toolUseID, 'success')
       } catch (err) {
         toast.error(
           t('sessionView.toasts.planApproveError', {
@@ -3949,8 +3981,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     pendingPlan,
     isClaudeCode,
     sessionRecord?.agent_sdk,
-    updateStreamingPartsRef,
-    immediateFlush,
+    transitionToolStatus,
     t
   ])
 
@@ -3965,14 +3996,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
 
         // Transition ExitPlanMode tool card to "rejected" state
         if (pendingBeforeAction?.toolUseID) {
-          updateStreamingPartsRef((parts) =>
-            parts.map((p) =>
-              p.type === 'tool_use' && p.toolUse?.id === pendingBeforeAction.toolUseID
-                ? { ...p, toolUse: { ...p.toolUse!, status: 'error' as const, error: feedback } }
-                : p
-            )
-          )
-          immediateFlush()
+          transitionToolStatus(pendingBeforeAction.toolUseID, 'error', feedback)
         }
 
         await useSessionStore.getState().setSessionMode(sessionId, 'plan')
@@ -4007,14 +4031,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         }
 
         // Transition the ExitPlanMode tool card to "rejected" state with feedback
-        updateStreamingPartsRef((parts) =>
-          parts.map((p) =>
-            p.type === 'tool_use' && p.toolUse?.id === pendingBeforeAction.toolUseID
-              ? { ...p, toolUse: { ...p.toolUse!, status: 'error' as const, error: feedback } }
-              : p
-          )
-        )
-        immediateFlush()
+        transitionToolStatus(pendingBeforeAction.toolUseID, 'error', feedback)
 
         // The SDK resumes within the same prompt cycle after rejection —
         // it won't emit a new session.status:busy event. Restore status explicitly.
@@ -4037,8 +4054,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       worktreePath,
       pendingPlan,
       isClaudeCode,
-      updateStreamingPartsRef,
-      immediateFlush,
+      transitionToolStatus,
       handleSend,
       t
     ]

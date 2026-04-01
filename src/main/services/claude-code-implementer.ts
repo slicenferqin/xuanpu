@@ -803,6 +803,26 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
           const msgContent = (
             sdkMsg.message as { content?: { type: string; [key: string]: unknown }[] } | undefined
           )?.content
+
+          // Skip context-continuation summary — content-based fallback.
+          // Claude CLI injects a synthetic user message when resuming from a
+          // context-exhausted session; it has no isCompactSummary flag.
+          if (msgType === 'user' && Array.isArray(msgContent)) {
+            const textContent = msgContent
+              .filter((b) => b.type === 'text' && typeof b.text === 'string')
+              .map((b) => b.text as string)
+              .join('')
+            if (
+              textContent
+                .trimStart()
+                .startsWith(
+                  'This session is being continued from a previous conversation'
+                )
+            ) {
+              return
+            }
+          }
+
           const contentBlockTypes = Array.isArray(msgContent) ? msgContent.map((b) => b.type) : []
           const isToolResultOnly =
             msgType === 'user' &&
