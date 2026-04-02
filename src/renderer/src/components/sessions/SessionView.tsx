@@ -1212,6 +1212,14 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     flushStreamingState()
   }, [flushStreamingState])
 
+  // Helper to update streaming parts ref only (no state update — caller decides flush strategy)
+  const updateStreamingPartsRef = useCallback(
+    (updater: (parts: StreamingPart[]) => StreamingPart[]) => {
+      streamingPartsRef.current = updater(streamingPartsRef.current)
+    },
+    []
+  )
+
   // Transition an ExitPlanMode tool card's status in both streaming parts and
   // committed messages. The card may live in either location depending on timing.
   const transitionToolStatus = useCallback(
@@ -1240,14 +1248,6 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       )
     },
     [updateStreamingPartsRef, immediateFlush]
-  )
-
-  // Helper to update streaming parts ref only (no state update — caller decides flush strategy)
-  const updateStreamingPartsRef = useCallback(
-    (updater: (parts: StreamingPart[]) => StreamingPart[]) => {
-      streamingPartsRef.current = updater(streamingPartsRef.current)
-    },
-    []
   )
 
   // Helper: ensure the last part is a text part, or add one (throttled)
@@ -4653,6 +4653,9 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     return userMessages.length > 0 ? userMessages[userMessages.length - 1].id : null
   }, [visibleMessages])
 
+  // Determine if there's streaming content to show
+  const hasStreamingContent = streamingParts.length > 0 || streamingContent.length > 0
+
   const canEditMessage = useCallback(
     (messageId: string) => {
       return messageId === lastUserMessageId && !hasStreamingContent && !isSending
@@ -4702,9 +4705,6 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     if (!hasServerMessages) return
     writeTranscriptCache(sessionId, messages)
   }, [sessionId, messages, sessionRecord?.agent_sdk])
-
-  // Determine if there's streaming content to show
-  const hasStreamingContent = streamingParts.length > 0 || streamingContent.length > 0
 
   const roundTerminalMessageIds = useMemo(
     () => getRoundTerminalMessageIds(visibleMessages),
