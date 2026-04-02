@@ -31,6 +31,7 @@ export interface CreateWorktreeResult {
   branchName?: string
   path?: string
   error?: string
+  pullInfo?: { success: boolean; updated: boolean; commits?: number }
 }
 
 export interface DeleteWorktreeResult {
@@ -271,12 +272,19 @@ export class GitService {
    */
   async createWorktree(
     projectName: string,
-    breedType: BreedType = 'dogs'
+    breedType: BreedType = 'dogs',
+    options?: { autoPull?: boolean }
   ): Promise<CreateWorktreeResult> {
     const MAX_ATTEMPTS = 3
     // Ensure worktrees directory exists and get base branch once — neither changes between retries
     const projectWorktreesDir = this.ensureWorktreesDir(projectName)
     const defaultBranch = await this.getCurrentBranch()
+
+    // Auto-pull base branch before creating worktree
+    let pullInfo: { success: boolean; updated: boolean; commits?: number } | undefined
+    if (options?.autoPull !== false) {
+      pullInfo = await this.pullBaseBranch(defaultBranch)
+    }
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
@@ -313,7 +321,8 @@ export class GitService {
           success: true,
           name: breedName,
           branchName: breedName,
-          path: worktreePath
+          path: worktreePath,
+          pullInfo
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error'
@@ -337,6 +346,79 @@ export class GitService {
     return {
       success: false,
       error: 'Failed to create worktree after 3 attempts due to name collisions'
+    }
+  }
+
+  /**
+   * Pull the latest changes for a base branch from origin.
+   * If the branch is currently checked out, uses `git pull --ff-only`.
+   * If not checked out, uses `git fetch origin branch:branch` to fast-forward.
+   * Returns pull info for user feedback.
+   */
+  async pullBaseBranch(
+    branchName: string
+  ): Promise<{ success: boolean; updated: boolean; commits?: number }> {
+    try {
+      // Check if remote 'origin' exists
+      const remotes = await this.git.getRemotes(true)
+      const origin = remotes.find((r) => r.name === 'origin')
+      if (!origin) {
+        log.info('pullBaseBranch: no origin remote, skipping pull', { branchName })
+        return { success: false, updated: false }
+      }
+
+      // Get current commit before pull for diff count
+      let beforeSha: string | undefined
+      try {
+        beforeSha = (await this.git.revparse([branchName])).trim()
+      } catch {
+        // Branch may not exist locally yet — skip
+        log.info('pullBaseBranch: branch not found locally, skipping', { branchName })
+        return { success: false, updated: false }
+      }
+
+      // Check if the branch is currently checked out (in the main worktree)
+      const currentBranch = await this.getCurrentBranch()
+      const isCheckedOut = currentBranch === branchName
+
+      if (isCheckedOut) {
+        await this.git.pull('origin', branchName, ['--ff-only'])
+      } else {
+        // Fast-forward update without checkout
+        await this.git.fetch('origin', `${branchName}:${branchName}`)
+      }
+
+      // Count new commits
+      let commits = 0
+      try {
+        const afterSha = (await this.git.revparse([branchName])).trim()
+        if (beforeSha && afterSha && beforeSha !== afterSha) {
+          const logOutput = await this.git.raw([
+            'rev-list',
+            '--count',
+            `${beforeSha}..${afterSha}`
+          ])
+          commits = parseInt(logOutput.trim(), 10) || 0
+        }
+      } catch {
+        // Non-critical, just skip count
+      }
+
+      const updated = commits > 0
+      if (updated) {
+        log.info('pullBaseBranch: pulled new commits', { branchName, commits })
+      } else {
+        log.info('pullBaseBranch: already up to date', { branchName })
+      }
+
+      return { success: true, updated, commits }
+    } catch (error) {
+      log.warn(
+        'pullBaseBranch: failed to pull',
+        error instanceof Error ? error : new Error(String(error)),
+        { branchName }
+      )
+      return { success: false, updated: false }
     }
   }
 
@@ -1261,9 +1343,16 @@ export class GitService {
     projectName: string,
     branchName: string,
     breedType: BreedType = 'dogs',
-    prNumber?: number
+    prNumber?: number,
+    options?: { autoPull?: boolean }
   ): Promise<CreateWorktreeResult> {
     try {
+      // Auto-pull base branch (skip for PR checkouts — they fetch their own ref)
+      let pullInfo: { success: boolean; updated: boolean; commits?: number } | undefined
+      if (prNumber == null && options?.autoPull !== false) {
+        pullInfo = await this.pullBaseBranch(branchName)
+      }
+
       // Check if branch is already checked out (skip for PR checkouts —
       // a fork's head ref may collide with a local branch name)
       if (prNumber == null) {
@@ -1324,7 +1413,7 @@ export class GitService {
             // Create a new breed-named branch derived from the selected branch
             await this.git.raw(['worktree', 'add', '-b', breedName, worktreePath, branchName])
           }
-          return { success: true, path: worktreePath, branchName: breedName, name: breedName }
+          return { success: true, path: worktreePath, branchName: breedName, name: breedName, pullInfo }
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Unknown error'
           if (message.toLowerCase().includes('already exists') && attempt < MAX_ATTEMPTS) {

@@ -2236,15 +2236,54 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
       waitStartTime: new Date().toISOString()
     })
 
-    // Block execution with a Promise that waits for user response (no timeout, like questions)
+    // Block execution with a Promise that waits for user response
+    // 60-second timeout: if approval dialog doesn't appear or user doesn't respond, auto-deny
+    const APPROVAL_TIMEOUT_MS = 60_000
     const userResponse = await new Promise<{
       approved: boolean
       remember?: 'allow' | 'block'
       pattern?: string
       patterns?: string[]
+      timeout?: boolean
     }>((resolve) => {
+      // Timeout handler — auto-deny after 60 seconds
+      const timeoutHandle = setTimeout(() => {
+        const pending = this.pendingApprovals.get(requestId)
+        if (pending) {
+          log.warn('APPROVAL FLOW: Timed out waiting for user response', {
+            requestId,
+            commandStr,
+            timeoutMs: APPROVAL_TIMEOUT_MS
+          })
+
+          // Notify renderer about the problem so user sees actionable feedback
+          this.sendToRenderer('opencode:stream', {
+            type: 'command.approval_problem',
+            sessionId: session.hiveSessionId,
+            data: {
+              requestId,
+              commandStr,
+              reason: 'timeout',
+              suggestion:
+                'Approval dialog timed out. Add a matching pattern in Settings > Security, or disable command filtering temporarily.'
+            }
+          })
+
+          // Clear approval UI
+          this.sendToRenderer('opencode:stream', {
+            type: 'command.approval_replied',
+            sessionId: session.hiveSessionId,
+            data: { requestId, id: requestId, approved: false }
+          })
+
+          this.pendingApprovals.delete(requestId)
+          resolve({ approved: false, timeout: true })
+        }
+      }, APPROVAL_TIMEOUT_MS)
+
       this.pendingApprovals.set(requestId, {
         resolve: (response) => {
+          clearTimeout(timeoutHandle)
           log.info('APPROVAL FLOW: User response received', {
             requestId,
             approved: response.approved
@@ -2259,6 +2298,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
 
       // If the session is aborted while waiting, auto-deny
       const onAbort = (): void => {
+        clearTimeout(timeoutHandle)
         const pending = this.pendingApprovals.get(requestId)
         if (pending) {
           log.info('APPROVAL FLOW: Session aborted while approval pending, auto-denying', {

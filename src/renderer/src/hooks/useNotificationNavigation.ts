@@ -3,6 +3,7 @@ import { useProjectStore, useWorktreeStore, useSessionStore } from '@/stores'
 
 export function useNotificationNavigation(): void {
   useEffect(() => {
+    if (!window.systemOps?.onNotificationNavigate) return
     const cleanup = window.systemOps.onNotificationNavigate((data) => {
       const { selectProject } = useProjectStore.getState()
       const { selectWorktree } = useWorktreeStore.getState()

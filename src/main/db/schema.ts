@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 10
+export const CURRENT_SCHEMA_VERSION = 11
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -289,5 +289,32 @@ export const MIGRATIONS: Migration[] = [
     up: `ALTER TABLE worktrees ADD COLUMN github_pr_number INTEGER DEFAULT NULL;
          ALTER TABLE worktrees ADD COLUMN github_pr_url TEXT DEFAULT NULL`,
     down: `-- SQLite cannot drop columns; this is a no-op for safety`
+  },
+  {
+    version: 11,
+    name: 'add_composite_indexes',
+    up: `
+      -- Composite index for session queries by worktree + status + recency
+      CREATE INDEX IF NOT EXISTS idx_sessions_worktree_status
+        ON sessions(worktree_id, status, updated_at DESC);
+
+      -- Composite index for session queries by connection + status + recency
+      CREATE INDEX IF NOT EXISTS idx_sessions_connection_status
+        ON sessions(connection_id, status, updated_at DESC);
+
+      -- Composite index for worktree queries by project + status + access time
+      CREATE INDEX IF NOT EXISTS idx_worktrees_project_status
+        ON worktrees(project_id, status, last_accessed_at DESC);
+
+      -- Composite index for worktree queries by status + message activity
+      CREATE INDEX IF NOT EXISTS idx_worktrees_status_message
+        ON worktrees(status, last_message_at DESC);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_sessions_worktree_status;
+      DROP INDEX IF EXISTS idx_sessions_connection_status;
+      DROP INDEX IF EXISTS idx_worktrees_project_status;
+      DROP INDEX IF EXISTS idx_worktrees_status_message;
+    `
   }
 ]

@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   ChevronDown,
   ChevronRight,
@@ -29,45 +30,16 @@ interface GitStatusPanelProps {
   className?: string
 }
 
-interface CollapsibleSectionProps {
-  title: string
-  count: number
-  defaultOpen?: boolean
-  children: React.ReactNode
-  action?: React.ReactNode
-  testId?: string
-}
+// ── Virtual list item types ──────────────────────────────────
 
-function CollapsibleSection({
-  title,
-  count,
-  defaultOpen = true,
-  children,
-  action,
-  testId
-}: CollapsibleSectionProps): React.JSX.Element {
-  const [isOpen, setIsOpen] = useState(defaultOpen)
+type SectionKey = 'conflicts' | 'staged' | 'modified' | 'untracked'
 
-  if (count === 0) return <></>
+type VirtualGitItem =
+  | { type: 'header'; section: SectionKey; title: string; count: number; isOpen: boolean; testId: string }
+  | { type: 'file'; file: GitFileStatus; isStaged: boolean; section: SectionKey }
 
-  return (
-    <div className="border-b last:border-b-0" data-testid={testId}>
-      <button
-        type="button"
-        className="flex items-center justify-between w-full px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent/50"
-        onClick={() => setIsOpen(!isOpen)}
-      >
-        <span className="flex items-center gap-1">
-          {isOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-          {title}
-          <span className="text-[10px] px-1 py-0.5 rounded bg-muted">{count}</span>
-        </span>
-        {action && <span onClick={(e) => e.stopPropagation()}>{action}</span>}
-      </button>
-      {isOpen && <div className="pb-1">{children}</div>}
-    </div>
-  )
-}
+const SECTION_HEADER_HEIGHT = 28
+const FILE_ITEM_HEIGHT = 26
 
 interface FileItemProps {
   file: GitFileStatus
@@ -76,7 +48,7 @@ interface FileItemProps {
   isStaged: boolean
 }
 
-function FileItem({ file, onToggle, onViewDiff, isStaged }: FileItemProps): React.JSX.Element {
+const FileItem = memo(function FileItem({ file, onToggle, onViewDiff, isStaged }: FileItemProps): React.JSX.Element {
   const { t } = useI18n()
   const statusColors: Record<string, string> = {
     M: 'text-yellow-500',
@@ -124,7 +96,7 @@ function FileItem({ file, onToggle, onViewDiff, isStaged }: FileItemProps): Reac
       </Button>
     </div>
   )
-}
+})
 
 export function GitStatusPanel({
   worktreePath,
@@ -265,6 +237,56 @@ export function GitStatusPanel({
 
   const hasConflicts = conflictedFiles.length > 0
 
+  // ── Section collapse state ──────────────────────────────────
+  const [collapsedSections, setCollapsedSections] = useState<Set<SectionKey>>(new Set())
+  const toggleSection = useCallback((section: SectionKey) => {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev)
+      if (next.has(section)) next.delete(section)
+      else next.add(section)
+      return next
+    })
+  }, [])
+
+  // ── Build flat virtual items ──────────────────────────────────
+  const virtualItems = useMemo<VirtualGitItem[]>(() => {
+    const items: VirtualGitItem[] = []
+
+    const addSection = (
+      section: SectionKey,
+      title: string,
+      files: GitFileStatus[],
+      isStaged: boolean,
+      testId: string
+    ): void => {
+      if (files.length === 0) return
+      const isOpen = !collapsedSections.has(section)
+      items.push({ type: 'header', section, title, count: files.length, isOpen, testId })
+      if (isOpen) {
+        for (const file of files) {
+          items.push({ type: 'file', file, isStaged, section })
+        }
+      }
+    }
+
+    addSection('conflicts', t('gitStatusPanel.sections.conflicts'), conflictedFiles, false, 'git-conflicts-section')
+    addSection('staged', t('gitStatusPanel.sections.staged'), stagedFiles, true, 'git-staged-section')
+    addSection('modified', t('gitStatusPanel.sections.changes'), modifiedFiles, false, 'git-modified-section')
+    addSection('untracked', t('gitStatusPanel.sections.untracked'), untrackedFiles, false, 'git-untracked-section')
+
+    return items
+  }, [collapsedSections, conflictedFiles, stagedFiles, modifiedFiles, untrackedFiles, t])
+
+  // ── Virtualizer ──────────────────────────────────────────────
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const virtualizer = useVirtualizer({
+    count: virtualItems.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: (index) =>
+      virtualItems[index].type === 'header' ? SECTION_HEADER_HEIGHT : FILE_ITEM_HEIGHT,
+    overscan: 10
+  })
+
   const handleFixConflicts = useCallback(async () => {
     if (!worktreePath) return
     setIsFixingConflicts(true)
@@ -397,104 +419,95 @@ export function GitStatusPanel({
           {t('gitStatusPanel.noChanges')}
         </div>
       ) : (
-        <div className="max-h-[200px] overflow-y-auto">
-          {/* Merge Conflicts */}
-          <CollapsibleSection
-            title={t('gitStatusPanel.sections.conflicts')}
-            count={conflictedFiles.length}
-            testId="git-conflicts-section"
+        <div ref={scrollContainerRef} className="max-h-[200px] overflow-y-auto">
+          <div
+            style={{
+              height: `${virtualizer.getTotalSize()}px`,
+              width: '100%',
+              position: 'relative'
+            }}
           >
-            {conflictedFiles.map((file) => (
-              <FileItem
-                key={file.relativePath}
-                file={file}
-                onToggle={handleToggleFile}
-                onViewDiff={handleViewDiff}
-                isStaged={false}
-              />
-            ))}
-          </CollapsibleSection>
-
-          {/* Staged Changes */}
-          <CollapsibleSection
-            title={t('gitStatusPanel.sections.staged')}
-            count={stagedFiles.length}
-            testId="git-staged-section"
-            action={
-              hasStaged && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-5 px-1.5 text-[10px]"
-                  onClick={handleUnstageAll}
-                  title={t('gitStatusPanel.actions.unstageAllTitle')}
-                  data-testid="git-unstage-all"
+            {virtualizer.getVirtualItems().map((virtualRow) => {
+              const item = virtualItems[virtualRow.index]
+              return (
+                <div
+                  key={
+                    item.type === 'header'
+                      ? `hdr-${item.section}`
+                      : `file-${item.section}-${item.file.relativePath}`
+                  }
+                  data-index={virtualRow.index}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${virtualRow.start}px)`
+                  }}
                 >
-                  <Minus className="h-3 w-3 mr-0.5" />
-                  {t('gitStatusPanel.actions.unstageAll')}
-                </Button>
+                  {item.type === 'header' ? (
+                    <div className="border-b last:border-b-0" data-testid={item.testId}>
+                      <button
+                        type="button"
+                        className="flex items-center justify-between w-full px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent/50"
+                        onClick={() => toggleSection(item.section)}
+                      >
+                        <span className="flex items-center gap-1">
+                          {item.isOpen ? (
+                            <ChevronDown className="h-3 w-3" />
+                          ) : (
+                            <ChevronRight className="h-3 w-3" />
+                          )}
+                          {item.title}
+                          <span className="text-[10px] px-1 py-0.5 rounded bg-muted">
+                            {item.count}
+                          </span>
+                        </span>
+                        {/* Section actions */}
+                        {item.section === 'staged' && hasStaged && (
+                          <span onClick={(e) => e.stopPropagation()}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-5 px-1.5 text-[10px]"
+                              onClick={handleUnstageAll}
+                              title={t('gitStatusPanel.actions.unstageAllTitle')}
+                              data-testid="git-unstage-all"
+                            >
+                              <Minus className="h-3 w-3 mr-0.5" />
+                              {t('gitStatusPanel.actions.unstageAll')}
+                            </Button>
+                          </span>
+                        )}
+                        {item.section === 'modified' && hasUnstaged && (
+                          <span onClick={(e) => e.stopPropagation()}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-5 px-1.5 text-[10px]"
+                              onClick={handleStageAll}
+                              title={t('gitStatusPanel.actions.stageAllTitle')}
+                              data-testid="git-stage-all"
+                            >
+                              <Plus className="h-3 w-3 mr-0.5" />
+                              {t('gitStatusPanel.actions.stageAll')}
+                            </Button>
+                          </span>
+                        )}
+                      </button>
+                    </div>
+                  ) : (
+                    <FileItem
+                      file={item.file}
+                      onToggle={handleToggleFile}
+                      onViewDiff={handleViewDiff}
+                      isStaged={item.isStaged}
+                    />
+                  )}
+                </div>
               )
-            }
-          >
-            {stagedFiles.map((file) => (
-              <FileItem
-                key={file.relativePath}
-                file={file}
-                onToggle={handleToggleFile}
-                onViewDiff={handleViewDiff}
-                isStaged={true}
-              />
-            ))}
-          </CollapsibleSection>
-
-          {/* Modified (Unstaged) */}
-          <CollapsibleSection
-            title={t('gitStatusPanel.sections.changes')}
-            count={modifiedFiles.length}
-            testId="git-modified-section"
-            action={
-              hasUnstaged && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-5 px-1.5 text-[10px]"
-                  onClick={handleStageAll}
-                  title={t('gitStatusPanel.actions.stageAllTitle')}
-                  data-testid="git-stage-all"
-                >
-                  <Plus className="h-3 w-3 mr-0.5" />
-                  {t('gitStatusPanel.actions.stageAll')}
-                </Button>
-              )
-            }
-          >
-            {modifiedFiles.map((file) => (
-              <FileItem
-                key={file.relativePath}
-                file={file}
-                onToggle={handleToggleFile}
-                onViewDiff={handleViewDiff}
-                isStaged={false}
-              />
-            ))}
-          </CollapsibleSection>
-
-          {/* Untracked */}
-          <CollapsibleSection
-            title={t('gitStatusPanel.sections.untracked')}
-            count={untrackedFiles.length}
-            testId="git-untracked-section"
-          >
-            {untrackedFiles.map((file) => (
-              <FileItem
-                key={file.relativePath}
-                file={file}
-                onToggle={handleToggleFile}
-                onViewDiff={handleViewDiff}
-                isStaged={false}
-              />
-            ))}
-          </CollapsibleSection>
+            })}
+          </div>
         </div>
       )}
 

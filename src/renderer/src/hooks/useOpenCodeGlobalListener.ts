@@ -14,6 +14,7 @@ import { extractTokens, extractCost, extractModelRef, extractModelUsage } from '
 import { COMPLETION_WORDS } from '@/lib/format-utils'
 import { messageSendTimes } from '@/lib/message-send-times'
 import { checkAutoApprove } from '@/lib/permissionUtils'
+import { toast } from 'sonner'
 
 interface PromptDispatchContext {
   worktreePath: string
@@ -399,6 +400,36 @@ export function useOpenCodeGlobalListener(): void {
             return
           }
 
+
+          // Handle command approval timeout / problem events
+          if (event.type === 'command.approval_problem') {
+            const data = event.data as
+              | { requestId?: string; commandStr?: string; reason?: string; suggestion?: string }
+              | undefined
+            if (data) {
+              console.warn('[useOpenCodeGlobalListener] Command approval problem:', {
+                sessionId,
+                reason: data.reason,
+                command: data.commandStr
+              })
+              toast.warning('Command approval timed out', {
+                description: data.suggestion || 'Add a matching pattern in Settings > Security.',
+                duration: 10_000,
+                action: {
+                  label: 'Open Settings',
+                  onClick: () => {
+                    // Navigate to security settings
+                    useSettingsStore.getState().openSettings('security')
+                  }
+                }
+              })
+              // Clean up any remaining approval UI for this request
+              if (data.requestId) {
+                useCommandApprovalStore.getState().removeApproval(sessionId, data.requestId)
+              }
+            }
+            return
+          }
 
           // Handle plan approval events globally so pending state survives tab switches.
           if (event.type === 'plan.ready') {
