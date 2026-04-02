@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import type { QuestionRequest, QuestionAnswer } from '@/stores/useQuestionStore'
 import { useI18n } from '@/i18n/useI18n'
+import { isComposingKeyboardEvent } from '@/lib/message-composer-shortcuts'
 
 interface QuestionPromptProps {
   request: QuestionRequest
@@ -20,6 +21,7 @@ export function QuestionPrompt({ request, onReply, onReject }: QuestionPromptPro
   const [sending, setSending] = useState(false)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const isImeComposingRef = useRef(false)
 
   const isMultiQuestion = request.questions.length > 1
   const currentQuestion = request.questions[currentTab]
@@ -301,8 +303,21 @@ export function QuestionPrompt({ request, onReply, onReject }: QuestionPromptPro
                 autoFocus
                 value={customInputs[currentTab] || ''}
                 onChange={(e) => handleCustomInputChange(e.target.value)}
+                onCompositionStart={() => {
+                  isImeComposingRef.current = true
+                }}
+                onCompositionEnd={() => {
+                  isImeComposingRef.current = false
+                }}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
+                  if (
+                    e.key === 'Enter' &&
+                    !e.shiftKey &&
+                    !isComposingKeyboardEvent(
+                      e.nativeEvent as KeyboardEvent & { keyCode?: number },
+                      isImeComposingRef.current
+                    )
+                  ) {
                     e.preventDefault()
                     handleCustomSubmit(e)
                   }
