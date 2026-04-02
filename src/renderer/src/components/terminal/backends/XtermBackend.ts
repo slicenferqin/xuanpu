@@ -203,13 +203,10 @@ export class XtermBackend implements TerminalBackend {
         return true
       }
 
-      // Cmd+V — paste
-      if (e.metaKey && e.key === 'v' && !e.shiftKey && e.type === 'keydown') {
-        navigator.clipboard.readText().then((text) => {
-          window.terminalOps.write(this.worktreeId, text)
-        })
-        return false
-      }
+      // Cmd+V — paste: handled natively by the browser/Electron, no manual handler
+      // needed. Adding one causes double-paste. Only Cmd+Shift+V needs explicit
+      // handling because macOS "Paste and Match Style" does not trigger the native
+      // paste event in xterm.
 
       // Cmd+Shift+C — always copy
       if (e.metaKey && e.shiftKey && e.key === 'C' && e.type === 'keydown') {
@@ -220,11 +217,15 @@ export class XtermBackend implements TerminalBackend {
         return false
       }
 
-      // Cmd+Shift+V — always paste
+      // Cmd+Shift+V — paste (no native event for this shortcut on macOS)
       if (e.metaKey && e.shiftKey && e.key === 'V' && e.type === 'keydown') {
-        navigator.clipboard.readText().then((text) => {
-          window.terminalOps.write(this.worktreeId, text)
-        })
+        navigator.clipboard
+          .readText()
+          .catch(() => window.projectOps.readFromClipboard())
+          .then((text) => {
+            if (text) window.terminalOps.write(this.worktreeId, text)
+          })
+          .catch((err) => console.error('Terminal paste failed:', err))
         return false
       }
 

@@ -69,6 +69,7 @@ export interface WorktreeResult {
     created_at: string
     last_accessed_at: string
   }
+  pullInfo?: { success: boolean; updated: boolean; commits?: number }
   error?: string
 }
 
@@ -98,6 +99,21 @@ export function getBreedType(db: DatabaseService): BreedType {
   return 'dogs'
 }
 
+function getAutoPullSetting(db: DatabaseService): boolean {
+  try {
+    const settingsJson = db.getSetting(APP_SETTINGS_DB_KEY)
+    if (settingsJson) {
+      const settings = JSON.parse(settingsJson)
+      if (typeof settings.autoPullBeforeWorktree === 'boolean') {
+        return settings.autoPullBeforeWorktree
+      }
+    }
+  } catch {
+    // Fall back to default
+  }
+  return true // Default: enabled
+}
+
 // ── Operations ──────────────────────────────────────────────────
 
 export async function createWorktreeOp(
@@ -113,8 +129,9 @@ export async function createWorktreeOp(
 
     // Read breed type preference from settings
     const breedType = getBreedType(db)
+    const autoPull = getAutoPullSetting(db)
 
-    const result = await gitService.createWorktree(params.projectName, breedType)
+    const result = await gitService.createWorktree(params.projectName, breedType, { autoPull })
 
     if (!result.success || !result.name || !result.path || !result.branchName) {
       log.warn('Worktree creation failed', {
@@ -149,7 +166,8 @@ export async function createWorktreeOp(
     log.info('Worktree created successfully', { name: result.name, path: result.path })
     return {
       success: true,
-      worktree
+      worktree,
+      pullInfo: result.pullInfo
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
@@ -476,13 +494,15 @@ export async function createWorktreeFromBranchOp(
   try {
     // Read breed type preference from settings
     const breedType = getBreedType(db)
+    const autoPull = getAutoPullSetting(db)
 
     const gitService = createGitService(params.projectPath)
     const result = await gitService.createWorktreeFromBranch(
       params.projectName,
       params.branchName,
       breedType,
-      params.prNumber
+      params.prNumber,
+      { autoPull }
     )
     if (!result.success || !result.path) {
       return { success: false, error: result.error || 'Failed to create worktree from branch' }
@@ -505,7 +525,7 @@ export async function createWorktreeFromBranchOp(
       })
     }
 
-    return { success: true, worktree }
+    return { success: true, worktree, pullInfo: result.pullInfo }
   } catch (error) {
     log.error(
       'Create worktree from branch failed',

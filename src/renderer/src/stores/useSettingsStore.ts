@@ -106,6 +106,9 @@ export interface AppSettings {
 
   // Privacy
   telemetryEnabled: boolean
+
+  // Git
+  autoPullBeforeWorktree: boolean
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -154,7 +157,8 @@ const DEFAULT_SETTINGS: AppSettings = {
     defaultBehavior: 'ask',
     enabled: false
   },
-  telemetryEnabled: true
+  telemetryEnabled: true,
+  autoPullBeforeWorktree: true
 }
 
 interface SettingsState extends AppSettings {

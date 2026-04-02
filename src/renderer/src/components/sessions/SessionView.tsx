@@ -9,15 +9,16 @@ import {
   X,
   Github,
   MessageCircleQuestion,
-  Shield,
-  Minimize2
+  Shield
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { toast } from '@/lib/toast'
-import { MessageRenderer } from './MessageRenderer'
 import { ModelSelector } from './ModelSelector'
-import { QueuedMessageBubble } from './QueuedMessageBubble'
+import {
+  VirtualizedMessageList,
+  type VirtualizedMessageListHandle
+} from './VirtualizedMessageList'
 import { ContextIndicator } from './ContextIndicator'
 import { AttachmentButton } from './AttachmentButton'
 import { AttachmentPreview } from './AttachmentPreview'
@@ -753,7 +754,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   const streamingContentRef = useRef<string>('')
 
   // Refs
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const virtualizedListRef = useRef<VirtualizedMessageListHandle>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomAreaRef = useRef<HTMLDivElement>(null)
@@ -942,9 +943,9 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   // Auto-scroll to bottom when new messages arrive or streaming updates
   const scrollToBottom = useCallback(
     (behavior: ScrollBehavior = isStreaming ? 'instant' : 'smooth') => {
-      if (!messagesEndRef.current) return
+      if (!virtualizedListRef.current) return
       markProgrammaticScroll()
-      messagesEndRef.current.scrollIntoView({ behavior })
+      virtualizedListRef.current.scrollToEnd(behavior)
     },
     [isStreaming, markProgrammaticScroll]
   )
@@ -4659,6 +4660,13 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     [lastUserMessageId, hasStreamingContent, isSending]
   )
 
+  // Callback for the revert banner "Restore" action
+  const handleRedoRevert = useCallback(() => {
+    setInputValue('/redo')
+    inputValueRef.current = '/redo'
+    textareaRef.current?.focus()
+  }, [])
+
   const revertedUserCount = useMemo(() => {
     if (!revertMessageID) return 0
 
@@ -4943,148 +4951,40 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               </div>
             </div>
           ) : (
-            <div className="py-4">
-              {visibleMessages.map((message) => (
-                <MessageRenderer
-                  key={message.id}
-                  message={message}
-                  showTimestamp={roundTerminalMessageIds.has(message.id)}
-                  executionStatus={
-                    currentRoundAnchorId === message.id && !hasStreamingContent
-                      ? executionStatusMeta
-                      : null
-                  }
-                  cwd={worktreePath}
-                  onForkAssistantMessage={handleForkFromAssistantMessage}
-                  forkDisabled={forkingMessageId !== null && forkingMessageId !== message.id}
-                  isForking={forkingMessageId === message.id}
-                  isEditing={editingMessageId === message.id}
-                  isLastUserMessage={message.id === lastUserMessageId}
-                  canEdit={canEditMessage(message.id)}
-                  onEditClick={() => handleEditMessage(message)}
-                  onEditSave={() => handleSaveEdit(message.id)}
-                  onEditCancel={handleCancelEdit}
-                  editingContent={editingMessageId === message.id ? editingContent : undefined}
-                  onEditingContentChange={setEditingContent}
-                />
-              ))}
-              {/* Revert banner — shows when messages have been undone */}
-              {revertMessageID && revertedUserCount > 0 && (
-                <div
-                  className="mx-6 my-3 rounded-lg border border-border/50 bg-muted/30 px-4 py-3"
-                  data-testid="revert-banner"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">
-                      {revertedUserCount === 1
-                        ? t('sessionView.revert.summarySingular')
-                        : t('sessionView.revert.summaryPlural', { count: revertedUserCount })}
-                    </span>
-                    <button
-                      className="text-xs text-primary hover:text-primary/80 font-medium transition-colors"
-                      onClick={() => {
-                        setInputValue('/redo')
-                        inputValueRef.current = '/redo'
-                        textareaRef.current?.focus()
-                      }}
-                    >
-                      {t('sessionView.revert.restore')}
-                    </button>
-                  </div>
-                </div>
-              )}
-              {sessionErrorMessage && (
-                <div
-                  className="mx-6 my-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3"
-                  data-testid="session-error-banner"
-                >
-                  <div className="flex items-start gap-2 text-destructive">
-                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                    <div>
-                      <p className="text-sm font-medium">{t('sessionView.sessionError.title')}</p>
-                      <p className="mt-0.5 text-sm text-destructive/90">{sessionErrorMessage}</p>
-                      {sessionErrorStderr && (
-                        <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-destructive/10 px-2 py-1.5 font-mono text-xs text-destructive/80">
-                          {sessionErrorStderr}
-                        </pre>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-              {sessionRetry && (
-                <div
-                  className="mx-6 my-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3"
-                  data-testid="session-retry-banner"
-                >
-                  <div className="flex items-start gap-2 text-destructive">
-                    <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
-                    <div>
-                      <p className="text-sm font-medium">
-                        {retrySecondsRemaining !== null
-                          ? t('sessionView.retry.withCountdown', {
-                              seconds: retrySecondsRemaining,
-                              attempt: sessionRetry.attempt ?? 1
-                            })
-                          : t('sessionView.retry.withoutCountdown', {
-                              attempt: sessionRetry.attempt ?? 1
-                            })}
-                      </p>
-                      {sessionRetry.message && (
-                        <p className="mt-0.5 text-sm text-destructive/90">{sessionRetry.message}</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-              {/* Streaming message */}
-              {hasStreamingContent && (
-                <MessageRenderer
-                  message={{
-                    id: 'streaming',
-                    role: 'assistant',
-                    content: streamingContent,
-                    timestamp: new Date().toISOString(),
-                    parts: streamingParts
-                  }}
-                  showTimestamp={false}
-                  executionStatus={currentRoundAnchorId === 'streaming' ? executionStatusMeta : null}
-                  isStreaming={isStreaming}
-                  cwd={worktreePath}
-                  onForkAssistantMessage={handleForkFromAssistantMessage}
-                  forkDisabled={true}
-                />
-              )}
-              {/* Typing indicator — shows while busy unless the blinking cursor is visible */}
-              {isSending && !hasVisibleWritingCursor && (
-                <div className="px-6 py-5" data-testid="typing-indicator">
-                  {isCompacting ? (
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <Minimize2 className="h-3.5 w-3.5 shrink-0 animate-pulse" />
-                      <span>{t('sessionView.compacting')}</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce" />
-                      <span
-                        className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce"
-                        style={{ animationDelay: '0.1s' }}
-                      />
-                      <span
-                        className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce"
-                        style={{ animationDelay: '0.2s' }}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-              {/* Queued messages rendered as visible bubbles */}
-              {queuedMessages.map((msg) => (
-                <QueuedMessageBubble key={msg.id} content={msg.content} />
-              ))}
-              {/* Plan content is now rendered inside the ExitPlanMode tool card */}
-              <div ref={messagesEndRef} />
-            </div>
+            <VirtualizedMessageList
+              ref={virtualizedListRef}
+              scrollContainerRef={scrollContainerRef}
+              visibleMessages={visibleMessages}
+              roundTerminalMessageIds={roundTerminalMessageIds}
+              currentRoundAnchorId={currentRoundAnchorId}
+              hasStreamingContent={hasStreamingContent}
+              executionStatusMeta={executionStatusMeta}
+              worktreePath={worktreePath}
+              onForkAssistantMessage={handleForkFromAssistantMessage}
+              forkingMessageId={forkingMessageId}
+              editingMessageId={editingMessageId}
+              lastUserMessageId={lastUserMessageId}
+              canEditMessage={canEditMessage}
+              onEditMessage={handleEditMessage}
+              onSaveEdit={handleSaveEdit}
+              onCancelEdit={handleCancelEdit}
+              editingContent={editingContent}
+              onEditingContentChange={setEditingContent}
+              revertMessageID={revertMessageID}
+              revertedUserCount={revertedUserCount}
+              onRedoRevert={handleRedoRevert}
+              sessionErrorMessage={sessionErrorMessage}
+              sessionErrorStderr={sessionErrorStderr}
+              sessionRetry={sessionRetry}
+              retrySecondsRemaining={retrySecondsRemaining}
+              streamingContent={streamingContent}
+              streamingParts={streamingParts}
+              isStreaming={isStreaming}
+              isSending={isSending}
+              hasVisibleWritingCursor={hasVisibleWritingCursor}
+              isCompacting={isCompacting}
+              queuedMessages={queuedMessages}
+            />
           )}
         </div>
         <PlanReadyImplementFab
