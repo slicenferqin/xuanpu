@@ -1,6 +1,8 @@
-import { readFile } from 'fs/promises'
+import { readFile, stat } from 'fs/promises'
+import { createReadStream } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
+import { createInterface } from 'readline'
 import { createLogger } from './logger'
 
 const log = createLogger({ component: 'ClaudeTranscriptReader' })
@@ -159,6 +161,13 @@ function yieldToEventLoop(): Promise<void> {
 const PARSE_CHUNK_SIZE = 200
 
 /**
+ * Maximum number of JSONL lines to read from the end of large transcripts.
+ * Older entries beyond this limit are not visible in the UI and would only
+ * waste CPU parsing multi-megabyte JSON blobs.
+ */
+const MAX_TAIL_LINES = 1200
+
+/**
  * Read a Claude CLI transcript JSONL file and translate it into the format
  * expected by `mapOpencodeMessagesToSessionViewMessages()`.
  *
@@ -172,9 +181,36 @@ export async function readClaudeTranscript(
   const encoded = encodePath(worktreePath)
   const filePath = join(homedir(), '.claude', 'projects', encoded, `${claudeSessionId}.jsonl`)
 
-  let raw: string
+  /** Size threshold (bytes) above which we stream-read only the tail of the file. */
+  const LARGE_FILE_THRESHOLD = 2 * 1024 * 1024 // 2 MB
+
+  let allLines: string[]
   try {
-    raw = await readFile(filePath, 'utf-8')
+    const fileStat = await stat(filePath)
+    if (fileStat.size > LARGE_FILE_THRESHOLD) {
+      // Large file — stream only the last portion to avoid loading 36MB into memory.
+      // We read lines from the end using a reverse scan of the last ~4MB.
+      const tailBytes = Math.min(fileStat.size, 4 * 1024 * 1024)
+      const startOffset = Math.max(0, fileStat.size - tailBytes)
+      allLines = await new Promise<string[]>((resolve, reject) => {
+        const collected: string[] = []
+        const stream = createReadStream(filePath, {
+          encoding: 'utf-8',
+          start: startOffset
+        })
+        const rl = createInterface({ input: stream, crlfDelay: Infinity })
+        rl.on('line', (line) => collected.push(line))
+        rl.on('close', () => resolve(collected))
+        rl.on('error', reject)
+      })
+      // First line may be partial (we started mid-file), drop it
+      if (startOffset > 0 && allLines.length > 0) {
+        allLines.shift()
+      }
+    } else {
+      const raw = await readFile(filePath, 'utf-8')
+      allLines = raw.split('\n')
+    }
   } catch (err) {
     log.debug('Transcript file not found or unreadable', {
       filePath,
@@ -183,7 +219,11 @@ export async function readClaudeTranscript(
     return []
   }
 
-  const lines = raw.split('\n')
+  // For very large transcripts, only parse the last MAX_TAIL_LINES lines.
+  // Older entries at the top of the file are not visible in the UI and
+  // would take seconds to parse (e.g. 36MB → 4600 lines of 8KB each).
+  const lines =
+    allLines.length > MAX_TAIL_LINES ? allLines.slice(-MAX_TAIL_LINES) : allLines
 
   // Pass 1: Parse all JSONL entries (chunked to avoid blocking main thread)
   const entries: ClaudeJsonlEntry[] = []
@@ -298,7 +338,9 @@ export async function readClaudeTranscript(
 
   log.info('Read Claude transcript', {
     filePath,
-    totalLines: lines.length,
+    totalLines: allLines.length,
+    parsedLines: lines.length,
+    truncated: allLines.length > MAX_TAIL_LINES,
     parsedEntries: entries.length,
     messageCount: messages.length
   })

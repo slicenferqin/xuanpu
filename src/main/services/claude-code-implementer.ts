@@ -1063,47 +1063,53 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
     return true
   }
 
+  /** In-flight transcript reads keyed by agentSessionId — deduplicates concurrent calls */
+  private pendingTranscriptReads = new Map<string, Promise<unknown[]>>()
+
   async getMessages(worktreePath: string, agentSessionId: string): Promise<unknown[]> {
     // First: check in-memory cache
     const session = this.getSession(worktreePath, agentSessionId)
     if (session && session.messages.length > 0) {
       log.info('TOOL_LIFECYCLE: getMessages returning in-memory', {
         agentSessionId,
-        count: session.messages.length,
-        breakdown: session.messages.map((m) => {
-          const msg = m as Record<string, unknown>
-          const parts = msg.parts as Record<string, unknown>[] | undefined
-          return {
-            role: msg.role,
-            partsCount: parts?.length ?? 0,
-            types: parts?.map((p) => p.type) ?? [],
-            hasToolOutput:
-              parts?.some(
-                (p) =>
-                  p.type === 'tool_use' &&
-                  !!(p.toolUse as Record<string, unknown> | undefined)?.output
-              ) ?? false
-          }
-        })
+        count: session.messages.length
       })
       return session.messages
     }
+
+    // Deduplicate: if a transcript read is already in-flight for this session,
+    // wait for the same Promise instead of starting a second file read.
+    const pending = this.pendingTranscriptReads.get(agentSessionId)
+    if (pending) {
+      log.info('getMessages: joining in-flight transcript read', { agentSessionId })
+      return pending
+    }
+
     log.info('getMessages: no in-memory messages, falling back to transcript', {
       agentSessionId,
       sessionFound: !!session
     })
+
     // Fallback: read from JSONL transcript on disk
-    const transcript = await readClaudeTranscript(worktreePath, agentSessionId)
-    // Warm the in-memory cache so future calls (and prompt() hydration)
-    // don't re-read from disk and always have the latest state.
-    if (session && transcript.length > 0) {
-      session.messages = [...transcript]
-      log.info('getMessages: warmed in-memory cache from transcript', {
-        agentSessionId,
-        count: transcript.length
-      })
-    }
-    return transcript
+    const readPromise = readClaudeTranscript(worktreePath, agentSessionId).then((transcript) => {
+      this.pendingTranscriptReads.delete(agentSessionId)
+      // Warm the in-memory cache so future calls (and prompt() hydration)
+      // don't re-read from disk and always have the latest state.
+      if (transcript.length > 0) {
+        const currentSession = this.getSession(worktreePath, agentSessionId)
+        if (currentSession) {
+          currentSession.messages = [...transcript]
+          log.info('getMessages: warmed in-memory cache from transcript', {
+            agentSessionId,
+            count: transcript.length
+          })
+        }
+      }
+      return transcript
+    })
+
+    this.pendingTranscriptReads.set(agentSessionId, readPromise)
+    return readPromise
   }
 
   // ── Models ───────────────────────────────────────────────────────
