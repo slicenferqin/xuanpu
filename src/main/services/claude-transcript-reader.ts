@@ -148,9 +148,21 @@ function translateEntry(entry: ClaudeJsonlEntry, index: number): Record<string, 
 }
 
 /**
+ * Yield to the event loop so IPC and other callbacks can be processed.
+ * Uses setImmediate (macrotask) to let pending I/O and IPC handlers run.
+ */
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve))
+}
+
+/** Number of JSONL lines to process before yielding to the event loop. */
+const PARSE_CHUNK_SIZE = 200
+
+/**
  * Read a Claude CLI transcript JSONL file and translate it into the format
  * expected by `mapOpencodeMessagesToSessionViewMessages()`.
  *
+ * Parsing is chunked to avoid blocking the main thread for large transcripts.
  * Returns `[]` if the file doesn't exist or can't be parsed.
  */
 export async function readClaudeTranscript(
@@ -173,15 +185,21 @@ export async function readClaudeTranscript(
 
   const lines = raw.split('\n')
 
-  // Pass 1: Parse all JSONL entries
+  // Pass 1: Parse all JSONL entries (chunked to avoid blocking main thread)
   const entries: ClaudeJsonlEntry[] = []
-  for (const line of lines) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    try {
-      entries.push(JSON.parse(trimmed) as ClaudeJsonlEntry)
-    } catch {
-      log.debug('Skipping malformed JSONL line', { line: trimmed.slice(0, 100) })
+  for (let offset = 0; offset < lines.length; offset += PARSE_CHUNK_SIZE) {
+    const end = Math.min(offset + PARSE_CHUNK_SIZE, lines.length)
+    for (let k = offset; k < end; k++) {
+      const trimmed = lines[k].trim()
+      if (!trimmed) continue
+      try {
+        entries.push(JSON.parse(trimmed) as ClaudeJsonlEntry)
+      } catch {
+        log.debug('Skipping malformed JSONL line', { line: trimmed.slice(0, 100) })
+      }
+    }
+    if (end < lines.length) {
+      await yieldToEventLoop()
     }
   }
 
@@ -224,11 +242,18 @@ export async function readClaudeTranscript(
       }
       break
     }
+
+    // Yield periodically during pass 2 as well
+    if (i > 0 && i % PARSE_CHUNK_SIZE === 0) {
+      await yieldToEventLoop()
+    }
   }
 
   // Pass 3: Translate entries, skipping tool_result-only and subagent messages
   const messages: unknown[] = []
-  for (const entry of entries) {
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i]
+
     // Skip subagent messages — they have parent_tool_use_id set and belong
     // to child session transcripts, not the main conversation.
     const rawEntry = entry as unknown as Record<string, unknown>
@@ -263,6 +288,11 @@ export async function readClaudeTranscript(
     const translated = translateEntry(entry, messages.length)
     if (translated) {
       messages.push(translated)
+    }
+
+    // Yield periodically during pass 3
+    if (i > 0 && i % PARSE_CHUNK_SIZE === 0) {
+      await yieldToEventLoop()
     }
   }
 

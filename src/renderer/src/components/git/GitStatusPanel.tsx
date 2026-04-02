@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, memo, forwardRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   ChevronDown,
@@ -10,12 +10,21 @@ import {
   Plus,
   Minus,
   FileDiff,
+  FileCode,
+  Copy,
   Loader2,
   AlertTriangle
 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger
+} from '@/components/ui/context-menu'
 import { useGitStore, type GitFileStatus } from '@/stores/useGitStore'
 import { useWorktreeStore } from '@/stores/useWorktreeStore'
 import { useSessionStore } from '@/stores/useSessionStore'
@@ -48,7 +57,10 @@ interface FileItemProps {
   isStaged: boolean
 }
 
-const FileItem = memo(function FileItem({ file, onToggle, onViewDiff, isStaged }: FileItemProps): React.JSX.Element {
+const FileItem = memo(forwardRef<HTMLDivElement, FileItemProps>(function FileItem(
+  { file, onToggle, onViewDiff, isStaged },
+  ref
+): React.JSX.Element {
   const { t } = useI18n()
   const statusColors: Record<string, string> = {
     M: 'text-yellow-500',
@@ -60,6 +72,7 @@ const FileItem = memo(function FileItem({ file, onToggle, onViewDiff, isStaged }
 
   return (
     <div
+      ref={ref}
       className="flex items-center gap-2 px-2 py-0.5 hover:bg-accent/30 group"
       data-testid={`git-file-item-${file.relativePath}`}
     >
@@ -96,7 +109,7 @@ const FileItem = memo(function FileItem({ file, onToggle, onViewDiff, isStaged }
       </Button>
     </div>
   )
-})
+}))
 
 export function GitStatusPanel({
   worktreePath,
@@ -233,6 +246,27 @@ export function GitStatusPanel({
       }
     },
     [worktreePath]
+  )
+
+  const handleOpenSourceFile = useCallback(
+    (file: GitFileStatus) => {
+      if (!worktreePath) return
+      const fullPath = `${worktreePath}/${file.relativePath}`
+      const fileName = file.relativePath.split('/').pop() || file.relativePath
+      const worktreeId = useWorktreeStore.getState().selectedWorktreeId
+      if (worktreeId) {
+        useFileViewerStore.getState().openFile(fullPath, fileName, worktreeId)
+      }
+    },
+    [worktreePath]
+  )
+
+  const handleCopyPath = useCallback(
+    (file: GitFileStatus) => {
+      navigator.clipboard.writeText(file.relativePath)
+      toast.success(t('gitStatusPanel.toasts.pathCopied'))
+    },
+    [t]
   )
 
   const hasConflicts = conflictedFiles.length > 0
@@ -497,12 +531,31 @@ export function GitStatusPanel({
                       </button>
                     </div>
                   ) : (
-                    <FileItem
-                      file={item.file}
-                      onToggle={handleToggleFile}
-                      onViewDiff={handleViewDiff}
-                      isStaged={item.isStaged}
-                    />
+                    <ContextMenu>
+                      <ContextMenuTrigger asChild>
+                        <FileItem
+                          file={item.file}
+                          onToggle={handleToggleFile}
+                          onViewDiff={handleViewDiff}
+                          isStaged={item.isStaged}
+                        />
+                      </ContextMenuTrigger>
+                      <ContextMenuContent className="w-48">
+                        <ContextMenuItem onClick={() => handleOpenSourceFile(item.file)}>
+                          <FileCode className="mr-2 h-4 w-4" />
+                          {t('gitStatusPanel.contextMenu.openSourceFile')}
+                        </ContextMenuItem>
+                        <ContextMenuItem onClick={() => handleViewDiff(item.file)}>
+                          <FileDiff className="mr-2 h-4 w-4" />
+                          {t('gitStatusPanel.contextMenu.viewChanges')}
+                        </ContextMenuItem>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem onClick={() => handleCopyPath(item.file)}>
+                          <Copy className="mr-2 h-4 w-4" />
+                          {t('gitStatusPanel.contextMenu.copyPath')}
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
                   )}
                 </div>
               )

@@ -603,7 +603,13 @@ export const messages: Record<AppLocale, MessageTree> = {
         noWorktreeSelected: 'No worktree selected',
         projectNotFound: 'Could not find project for worktree',
         createSessionError: 'Failed to create session',
-        conflictResolutionError: 'Failed to start conflict resolution'
+        conflictResolutionError: 'Failed to start conflict resolution',
+        pathCopied: 'Path copied to clipboard'
+      },
+      contextMenu: {
+        openSourceFile: 'Open Source File',
+        viewChanges: 'View Changes',
+        copyPath: 'Copy Path'
       }
     },
     projectList: {
@@ -2561,7 +2567,13 @@ export const messages: Record<AppLocale, MessageTree> = {
         noWorktreeSelected: '未选择 worktree',
         projectNotFound: '找不到该 worktree 对应的项目',
         createSessionError: '创建会话失败',
-        conflictResolutionError: '启动冲突修复失败'
+        conflictResolutionError: '启动冲突修复失败',
+        pathCopied: '路径已复制到剪贴板'
+      },
+      contextMenu: {
+        openSourceFile: '打开源文件',
+        viewChanges: '查看变更',
+        copyPath: '复制路径'
       }
     },
     projectList: {
