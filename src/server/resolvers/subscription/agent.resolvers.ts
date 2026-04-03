@@ -1,0 +1,46 @@
+import type { Resolvers } from '../../__generated__/resolvers-types'
+import type { CanonicalAgentEvent } from '../../../shared/types/agent-protocol'
+
+export const agentSubscriptionResolvers: Resolvers = {
+  Subscription: {
+    agentStream: {
+      subscribe: async function* (_parent, args, ctx) {
+        const queue: CanonicalAgentEvent[] = []
+        let resolve: (() => void) | null = null
+        let batchTimer: ReturnType<typeof setTimeout> | null = null
+        const BATCH_MS = 50
+        const sessionFilter = args.sessionIds ? new Set(args.sessionIds) : null
+
+        const flush = () => {
+          batchTimer = null
+          resolve?.()
+        }
+
+        const listener = (event: CanonicalAgentEvent) => {
+          if (sessionFilter && !sessionFilter.has(event.sessionId)) return
+          queue.push(event)
+          if (!batchTimer) {
+            batchTimer = setTimeout(flush, BATCH_MS)
+          }
+        }
+
+        ctx.eventBus.on('agent:stream', listener)
+        try {
+          while (true) {
+            if (queue.length === 0) {
+              await new Promise<void>((r) => {
+                resolve = r
+              })
+            }
+            while (queue.length > 0) {
+              yield { agentStream: queue.shift()! }
+            }
+          }
+        } finally {
+          if (batchTimer) clearTimeout(batchTimer)
+          ctx.eventBus.off('agent:stream', listener)
+        }
+      }
+    }
+  }
+}

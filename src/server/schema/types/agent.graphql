@@ -1,0 +1,136 @@
+scalar JSON
+
+type CanonicalAgentEvent {
+  type: String!
+  sessionId: String!
+  data: JSON!
+  childSessionId: String
+  statusPayload: SessionStatusPayload
+}
+
+type SessionStatusPayload {
+  type: String!
+  attempt: Int
+  message: String
+  next: Int
+}
+
+type PermissionRequest {
+  id: String!
+  sessionID: String!
+  permission: String!
+  patterns: [String!]!
+  metadata: JSON
+  always: [String!]!
+  tool: PermissionTool
+}
+
+type PermissionTool {
+  messageID: String!
+  callID: String!
+}
+
+type AgentCommand {
+  name: String!
+  description: String
+  template: String!
+  agent: String
+  model: String
+  source: String
+  subtask: Boolean
+  hints: [String!]
+}
+
+type AgentCapabilities {
+  supportsUndo: Boolean!
+  supportsRedo: Boolean!
+  supportsCommands: Boolean!
+  supportsPermissionRequests: Boolean!
+  supportsQuestionPrompts: Boolean!
+  supportsModelSelection: Boolean!
+  supportsReconnect: Boolean!
+  supportsPartialStreaming: Boolean!
+}
+
+# --- Inputs ---
+
+input AgentReconnectInput {
+  worktreePath: String!
+  runtimeSessionId: String!
+  hiveSessionId: ID!
+}
+
+input AgentPromptInput {
+  worktreePath: String!
+  runtimeSessionId: String!
+  message: String
+  parts: [MessagePartInput!]
+  model: ModelInput
+}
+
+input MessagePartInput {
+  type: String!
+  text: String
+  mime: String
+  url: String
+  filename: String
+}
+
+input ModelInput {
+  providerID: String!
+  modelID: String!
+  variant: String
+}
+
+input SetModelInput {
+  providerID: String!
+  modelID: String!
+  variant: String
+  runtime: AgentRuntime
+}
+
+input AgentCommandInput {
+  worktreePath: String!
+  runtimeSessionId: String!
+  command: String!
+  args: String!
+  model: ModelInput
+}
+
+input RenameSessionInput {
+  runtimeSessionId: String!
+  title: String!
+  worktreePath: String
+}
+
+input ForkSessionInput {
+  worktreePath: String!
+  runtimeSessionId: String!
+  messageId: String
+}
+
+input QuestionReplyInput {
+  requestId: String!
+  answers: [[String!]!]!
+  worktreePath: String
+}
+
+input PlanApproveInput {
+  worktreePath: String!
+  hiveSessionId: ID!
+  requestId: String
+}
+
+input PlanRejectInput {
+  worktreePath: String!
+  hiveSessionId: ID!
+  feedback: String!
+  requestId: String
+}
+
+input PermissionReplyInput {
+  requestId: String!
+  reply: String!
+  worktreePath: String
+  message: String
+}
