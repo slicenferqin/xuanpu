@@ -25,7 +25,7 @@ const FileSearchDialog = lazy(() =>
 )
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { useVimNavigation } from '@/hooks/useVimNavigation'
-import { useAgentGlobalListener } from '@/hooks/useAgentGlobalListener'
+import { useOpenCodeGlobalListener } from '@/hooks/useOpenCodeGlobalListener'
 import { useNotificationNavigation } from '@/hooks/useNotificationNavigation'
 import { useWindowFocusRefresh } from '@/hooks/useWindowFocusRefresh'
 import { useWorktreeWatcher } from '@/hooks/useWorktreeWatcher'
@@ -74,7 +74,7 @@ export function AppLayout({ children }: AppLayoutProps): React.JSX.Element {
   // Vim-style modal navigation (hjkl, panel shortcuts, file tab cycling)
   useVimNavigation()
   // Global listener for background session events (AI finishes while viewing another project)
-  useAgentGlobalListener()
+  useOpenCodeGlobalListener()
   // Navigate to session when native notification is clicked
   useNotificationNavigation()
   // Refresh git statuses when window regains focus
