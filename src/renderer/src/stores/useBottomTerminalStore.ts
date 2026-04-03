@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { useTerminalStore } from './useTerminalStore'
 
 export interface BottomTerminalTab {
   id: string
@@ -81,8 +82,8 @@ export const useBottomTerminalStore = create<BottomTerminalState>((set, get) => 
 
     const { worktreeId, tabs, index } = found
 
-    // Destroy the PTY for this tab
-    window.terminalOps.destroy(tabId).catch(() => {})
+    // Destroy the PTY for this tab (goes through useTerminalStore to clean up terminal state)
+    useTerminalStore.getState().destroyTerminal(tabId)
 
     const remainingTabs = tabs.filter((t) => t.id !== tabId)
 
@@ -143,7 +144,7 @@ export const useBottomTerminalStore = create<BottomTerminalState>((set, get) => 
     // Destroy PTYs for all other tabs
     for (const tab of tabs) {
       if (tab.id !== tabId) {
-        window.terminalOps.destroy(tab.id).catch(() => {})
+        useTerminalStore.getState().destroyTerminal(tab.id)
       }
     }
 
@@ -201,7 +202,7 @@ export const useBottomTerminalStore = create<BottomTerminalState>((set, get) => 
 
     // Destroy all PTYs for this worktree
     for (const tab of tabs) {
-      window.terminalOps.destroy(tab.id).catch(() => {})
+      useTerminalStore.getState().destroyTerminal(tab.id)
     }
 
     set((state) => {
@@ -262,7 +263,7 @@ export const useBottomTerminalStore = create<BottomTerminalState>((set, get) => 
     const state = get()
     for (const [, tabs] of state.tabsByWorktree) {
       for (const tab of tabs) {
-        window.terminalOps.destroy(tab.id).catch(() => {})
+        useTerminalStore.getState().destroyTerminal(tab.id)
       }
     }
 

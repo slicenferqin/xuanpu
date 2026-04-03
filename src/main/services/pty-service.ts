@@ -238,8 +238,8 @@ class PtyService {
     const pid = instance.pty.pid
     try {
       if (process.platform === 'darwin') {
-        // macOS: use lsof to find the cwd of the process
-        const { stdout } = await execFileAsync('lsof', ['-a', '-d', 'cwd', '-p', String(pid), '-Fn'])
+        // macOS: use lsof to find the cwd of the process (with 2s timeout to avoid blocking)
+        const { stdout } = await execFileAsync('lsof', ['-a', '-d', 'cwd', '-p', String(pid), '-Fn'], { timeout: 2000 })
         // lsof -Fn outputs lines like: p<pid>\nn<path>
         const lines = stdout.split('\n')
         for (const line of lines) {

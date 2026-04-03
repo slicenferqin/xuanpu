@@ -35,8 +35,11 @@ export function TerminalManager({
   const embeddedTerminalBackend = useSettingsStore((s) => s.embeddedTerminalBackend)
   const prevBackendRef = useRef(embeddedTerminalBackend)
 
-  const { ensureDefaultTab, cleanupWorktree, clearAll, tabsByWorktree } =
+  const { ensureDefaultTab, cleanupWorktree, clearAll } =
     useBottomTerminalStore()
+  const tabsByWorktree = useBottomTerminalStore((s) => s.tabsByWorktree)
+  const tabsByWorktreeRef = useRef(tabsByWorktree)
+  tabsByWorktreeRef.current = tabsByWorktree
   const activeTabByWorktree = useBottomTerminalStore((s) => s.activeTabByWorktree)
 
   // Get or create a ref for a tab's terminal
@@ -63,7 +66,7 @@ export function TerminalManager({
     if (prevBackendRef.current !== embeddedTerminalBackend) {
       prevBackendRef.current = embeddedTerminalBackend
       // Destroy all PTYs via existing terminal store, then clear all bottom terminal tabs
-      for (const [, tabs] of tabsByWorktree) {
+      for (const [, tabs] of tabsByWorktreeRef.current) {
         for (const tab of tabs) {
           destroyTerminal(tab.id)
         }
@@ -71,7 +74,7 @@ export function TerminalManager({
       clearAll()
       terminalRefsMap.current.clear()
     }
-  }, [embeddedTerminalBackend, destroyTerminal, tabsByWorktree, clearAll])
+  }, [embeddedTerminalBackend, destroyTerminal, clearAll])
 
   // Clean up terminals for worktrees that no longer exist
   useEffect(() => {
@@ -133,7 +136,7 @@ export function TerminalManager({
             className={isActive ? 'h-full w-full' : 'hidden'}
             data-testid={`terminal-instance-${tabId}`}
           >
-            <TerminalView ref={termRef} worktreeId={tabId} cwd={cwd} isVisible={isActive} />
+            <TerminalView ref={termRef} terminalId={tabId} cwd={cwd} isVisible={isActive} />
           </div>
         )
       })}

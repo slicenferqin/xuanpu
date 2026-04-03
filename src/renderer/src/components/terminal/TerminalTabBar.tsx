@@ -11,6 +11,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger
 } from '@/components/ui/context-menu'
+import { useI18n } from '@/i18n/useI18n'
 
 interface TerminalTabBarProps {
   worktreeId: string
@@ -18,8 +19,7 @@ interface TerminalTabBarProps {
 }
 
 function StatusDot({ tabId }: { tabId: string }): React.JSX.Element {
-  const terminal = useTerminalStore((s) => s.terminals.get(tabId))
-  const status = terminal?.status ?? 'creating'
+  const status = useTerminalStore((s) => s.terminals.get(tabId)?.status ?? 'creating')
 
   return (
     <span
@@ -41,6 +41,8 @@ export function TerminalTabBar({
   const activeTabId = useBottomTerminalStore((s) => s.getActiveTabId(worktreeId))
   const { createTab, closeTab, closeOtherTabs, setActiveTab, renameTab } =
     useBottomTerminalStore()
+
+  const { t } = useI18n()
 
   const pushGhosttySuppression = useLayoutStore((s) => s.pushGhosttySuppression)
   const popGhosttySuppression = useLayoutStore((s) => s.popGhosttySuppression)
@@ -114,7 +116,7 @@ export function TerminalTabBar({
     [commitRename]
   )
 
-  if (tabs.length <= 1 && !tabs.length) return <></>
+  if (!tabs.length) return <></>
 
   return (
     <div className="flex items-center gap-0.5 border-b border-border/40 bg-background/30 px-1 py-0.5">
@@ -175,17 +177,17 @@ export function TerminalTabBar({
             </ContextMenuTrigger>
             <ContextMenuContent>
               <ContextMenuItem onSelect={() => startRename(tab.id, tab.label)}>
-                Rename
+                {t('terminalTabBar.rename')}
               </ContextMenuItem>
               <ContextMenuSeparator />
               <ContextMenuItem onSelect={() => closeTab(tab.id)}>
-                Close
+                {t('terminalTabBar.close')}
               </ContextMenuItem>
               <ContextMenuItem
                 onSelect={() => closeOtherTabs(tab.id)}
                 disabled={tabs.length <= 1}
               >
-                Close Others
+                {t('terminalTabBar.closeOthers')}
               </ContextMenuItem>
             </ContextMenuContent>
           </ContextMenu>
@@ -194,7 +196,7 @@ export function TerminalTabBar({
       <button
         className="flex items-center justify-center rounded-md p-1 text-muted-foreground transition-colors hover:bg-background/60 hover:text-foreground"
         onClick={handleCreateTab}
-        title="New terminal"
+        title={t('terminalTabBar.newTerminal')}
       >
         <Plus className="h-3.5 w-3.5" />
       </button>

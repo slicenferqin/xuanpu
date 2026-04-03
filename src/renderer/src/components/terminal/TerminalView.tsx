@@ -11,7 +11,7 @@ import '@xterm/xterm/css/xterm.css'
 import '@/styles/xterm.css'
 
 interface TerminalViewProps {
-  worktreeId: string
+  terminalId: string
   cwd: string
   isVisible?: boolean
 }
@@ -34,7 +34,7 @@ function createBackend(type: TerminalBackendType): ITerminalBackend {
 }
 
 export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(function TerminalView(
-  { worktreeId, cwd, isVisible = true },
+  { terminalId, cwd, isVisible = true },
   ref
 ) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -160,7 +160,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
       if (!container) return
 
       // Prevent re-initializing for the same worktree+backend combo
-      if (initializedRef.current === worktreeId && activeBackendTypeRef.current === backendType) {
+      if (initializedRef.current === terminalId && activeBackendTypeRef.current === backendType) {
         return
       }
 
@@ -171,11 +171,11 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
       }
 
       // If switching backends on an existing terminal, destroy the old PTY
-      if (initializedRef.current === worktreeId && activeBackendTypeRef.current !== backendType) {
-        await destroyTerminal(worktreeId)
+      if (initializedRef.current === terminalId && activeBackendTypeRef.current !== backendType) {
+        await destroyTerminal(terminalId)
       }
 
-      initializedRef.current = worktreeId
+      initializedRef.current = terminalId
       activeBackendTypeRef.current = backendType
 
       container.innerHTML = ''
@@ -198,7 +198,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
       backend.mount(
         container,
         {
-          worktreeId,
+          terminalId,
           cwd,
           fontFamily: terminalFontFamily || config.fontFamily,
           fontSize: config.fontSize,
@@ -216,7 +216,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
 
       backendRef.current = backend
     },
-    [worktreeId, cwd, destroyTerminal, terminalFontFamily]
+    [terminalId, cwd, destroyTerminal, terminalFontFamily]
   )
 
   // Handle restart — destroy old PTY and re-create terminal
@@ -239,9 +239,9 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
       // Use default shell
     }
 
-    await restartTerminal(worktreeId, cwd, shell)
+    await restartTerminal(terminalId, cwd, shell)
     setupTerminal(embeddedTerminalBackend || 'xterm')
-  }, [worktreeId, cwd, restartTerminal, setupTerminal, embeddedTerminalBackend])
+  }, [terminalId, cwd, restartTerminal, setupTerminal, embeddedTerminalBackend])
 
   // Initialize terminal on mount, and re-create when backend setting changes
   useEffect(() => {
@@ -277,12 +277,12 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
       setTerminalStatus('creating')
       setExitCode(undefined)
 
-      await destroyTerminal(worktreeId)
-      await restartTerminal(worktreeId, cwd)
+      await destroyTerminal(terminalId)
+      await restartTerminal(terminalId, cwd)
       setupTerminal('ghostty')
     }
     restart()
-  }, [ghosttyFontSize, worktreeId, cwd, destroyTerminal, restartTerminal, setupTerminal])
+  }, [ghosttyFontSize, terminalId, cwd, destroyTerminal, restartTerminal, setupTerminal])
 
   // Focus terminal on click
   const handleClick = useCallback(() => {

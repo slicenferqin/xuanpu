@@ -623,6 +623,12 @@ export const messages: Record<AppLocale, MessageTree> = {
         selectWorktree: 'Select a worktree to open a terminal'
       }
     },
+    terminalTabBar: {
+      rename: 'Rename',
+      close: 'Close',
+      closeOthers: 'Close Others',
+      newTerminal: 'New terminal'
+    },
     appLayout: {
       sidebarError: 'Sidebar Error',
       drop: {
@@ -2580,6 +2586,12 @@ export const messages: Record<AppLocale, MessageTree> = {
       empty: {
         selectWorktree: '选择一个 worktree 以打开终端'
       }
+    },
+    terminalTabBar: {
+      rename: '重命名',
+      close: '关闭',
+      closeOthers: '关闭其他',
+      newTerminal: '新建终端'
     },
     appLayout: {
       sidebarError: '侧边栏错误',
