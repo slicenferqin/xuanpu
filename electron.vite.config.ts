@@ -28,6 +28,17 @@ export default defineConfig({
         '@shared': resolve('src/shared')
       }
     },
-    plugins: [react(), tailwindcss()]
+    plugins: [react(), tailwindcss()],
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            monaco: ['monaco-editor', '@monaco-editor/react'],
+            markdown: ['react-markdown', 'remark-gfm'],
+            vendor: ['zustand', '@tanstack/react-virtual', 'cmdk']
+          }
+        }
+      }
+    }
   }
 })

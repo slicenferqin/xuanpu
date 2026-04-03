@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, lazy, Suspense } from 'react'
 import { Loader2 } from 'lucide-react'
-import { SessionTabs, SessionView } from '@/components/sessions'
-import { SessionTerminalView } from '@/components/sessions/SessionTerminalView'
+import { SessionTabs } from '@/components/sessions'
 import { FileViewer } from '@/components/file-viewer'
 import { InlineDiffViewer, ImageDiffView } from '@/components/diff'
 import { isImageFile } from '@shared/types/file-utils'
@@ -14,6 +13,16 @@ import { useI18n } from '@/i18n/useI18n'
 import onboardingBg from '@/assets/onboarding-bg.png'
 import onboardingBgDark from '@/assets/onboarding-bg-dark.png'
 
+const SessionView = lazy(() =>
+  import('@/components/sessions/SessionView').then((m) => ({
+    default: m.SessionView
+  }))
+)
+const SessionTerminalView = lazy(() =>
+  import('@/components/sessions/SessionTerminalView').then((m) => ({
+    default: m.SessionTerminalView
+  }))
+)
 const MonacoDiffView = lazy(() => import('@/components/diff/MonacoDiffView'))
 const WorktreeContextEditor = lazy(() =>
   import('@/components/worktrees/WorktreeContextEditor').then((m) => ({
@@ -41,17 +50,17 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
   const sessionsByWorktree = useSessionStore((state) => state.sessionsByWorktree)
   const sessionsByConnection = useSessionStore((state) => state.sessionsByConnection)
 
-  // Look up the agent_sdk for a given session ID
-  const getAgentSdk = useCallback((sid: string | null): string | null => {
+  // Look up the runtime_id for a given session ID
+  const getAgentRuntime = useCallback((sid: string | null): string | null => {
     if (!sid) return null
     const state = useSessionStore.getState()
     for (const sessions of state.sessionsByWorktree.values()) {
       const found = sessions.find((s) => s.id === sid)
-      if (found) return found.agent_sdk
+      if (found) return found.runtime_id
     }
     for (const sessions of state.sessionsByConnection.values()) {
       const found = sessions.find((s) => s.id === sid)
-      if (found) return found.agent_sdk
+      if (found) return found.runtime_id
     }
     return null
   }, [])
@@ -63,14 +72,14 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
     if (selectedWorktreeId) {
       const sessions = sessionsByWorktree.get(selectedWorktreeId) || []
       for (const s of sessions) {
-        if (s.agent_sdk === 'terminal') terminals.push(s.id)
+        if (s.runtime_id === 'terminal') terminals.push(s.id)
       }
     }
 
     if (selectedConnectionId) {
       const sessions = sessionsByConnection.get(selectedConnectionId) || []
       for (const s of sessions) {
-        if (s.agent_sdk === 'terminal') terminals.push(s.id)
+        if (s.runtime_id === 'terminal') terminals.push(s.id)
       }
     }
 
@@ -121,14 +130,14 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
     }
 
     // Inline connection terminal takes priority
-    if (inlineConnectionSessionId && getAgentSdk(inlineConnectionSessionId) === 'terminal') {
+    if (inlineConnectionSessionId && getAgentRuntime(inlineConnectionSessionId) === 'terminal') {
       if (!activeDiff && !(activeFilePath && !activeFilePath.startsWith('diff:'))) {
         return inlineConnectionSessionId
       }
     }
 
     // Regular active session
-    if (activeSessionId && getAgentSdk(activeSessionId) === 'terminal') {
+    if (activeSessionId && getAgentRuntime(activeSessionId) === 'terminal') {
       if (!activeDiff && !(activeFilePath && !activeFilePath.startsWith('diff:'))) {
         if (!inlineConnectionSessionId) {
           return activeSessionId
@@ -142,7 +151,7 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
     inlineConnectionSessionId,
     activeDiff,
     activeFilePath,
-    getAgentSdk,
+    getAgentRuntime,
     ghosttyOverlaySuppressed
   ])
 
@@ -279,10 +288,14 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
     // Inline connection session view (sticky tab clicked in worktree mode)
     if (inlineConnectionSessionId) {
       // Terminal sessions are handled by the always-mounted section below
-      if (getAgentSdk(inlineConnectionSessionId) === 'terminal') {
+      if (getAgentRuntime(inlineConnectionSessionId) === 'terminal') {
         return null
       }
-      return <SessionView key={inlineConnectionSessionId} sessionId={inlineConnectionSessionId} />
+      return (
+        <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>}>
+          <SessionView key={inlineConnectionSessionId} sessionId={inlineConnectionSessionId} />
+        </Suspense>
+      )
     }
 
     // Worktree or connection selected but no session - show create session prompt
@@ -311,10 +324,14 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
 
     // Session is active - dispatch based on agent SDK
     // Terminal sessions are handled by the always-mounted section below
-    if (getAgentSdk(activeSessionId) === 'terminal') {
+    if (getAgentRuntime(activeSessionId) === 'terminal') {
       return null
     }
-    return <SessionView key={activeSessionId} sessionId={activeSessionId} />
+    return (
+      <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>}>
+        <SessionView key={activeSessionId} sessionId={activeSessionId} />
+      </Suspense>
+    )
   }
 
   return (
@@ -329,7 +346,9 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
         const isActive = visibleTerminalId === sessionId
         return (
           <div key={sessionId} className={isActive ? 'flex-1 flex flex-col min-h-0' : 'hidden'}>
-            <SessionTerminalView sessionId={sessionId} isVisible={isActive} />
+            <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>}>
+              <SessionTerminalView sessionId={sessionId} isVisible={isActive} />
+            </Suspense>
           </div>
         )
       })}

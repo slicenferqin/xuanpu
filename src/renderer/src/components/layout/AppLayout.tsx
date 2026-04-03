@@ -1,18 +1,31 @@
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, lazy, Suspense } from 'react'
 import { Header } from './Header'
 import { LeftSidebar } from './LeftSidebar'
 import { MainPane } from './MainPane'
 import { RightSidebar } from './RightSidebar'
 import { Toaster } from '@/components/ui/sonner'
-import { SessionHistory } from '@/components/sessions/SessionHistory'
-import { CommandPalette } from '@/components/command-palette'
-import { SettingsModal } from '@/components/settings'
-import { AgentSetupGuard } from '@/components/setup'
-import { HelpOverlay } from '@/components/ui/HelpOverlay'
-import { FileSearchDialog } from '@/components/file-search'
+
+const SessionHistory = lazy(() =>
+  import('@/components/sessions/SessionHistory').then((m) => ({ default: m.SessionHistory }))
+)
+const CommandPalette = lazy(() =>
+  import('@/components/command-palette').then((m) => ({ default: m.CommandPalette }))
+)
+const SettingsModal = lazy(() =>
+  import('@/components/settings').then((m) => ({ default: m.SettingsModal }))
+)
+const AgentSetupGuard = lazy(() =>
+  import('@/components/setup').then((m) => ({ default: m.AgentSetupGuard }))
+)
+const HelpOverlay = lazy(() =>
+  import('@/components/ui/HelpOverlay').then((m) => ({ default: m.HelpOverlay }))
+)
+const FileSearchDialog = lazy(() =>
+  import('@/components/file-search').then((m) => ({ default: m.FileSearchDialog }))
+)
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { useVimNavigation } from '@/hooks/useVimNavigation'
-import { useOpenCodeGlobalListener } from '@/hooks/useOpenCodeGlobalListener'
+import { useAgentGlobalListener } from '@/hooks/useAgentGlobalListener'
 import { useNotificationNavigation } from '@/hooks/useNotificationNavigation'
 import { useWindowFocusRefresh } from '@/hooks/useWindowFocusRefresh'
 import { useWorktreeWatcher } from '@/hooks/useWorktreeWatcher'
@@ -61,7 +74,7 @@ export function AppLayout({ children }: AppLayoutProps): React.JSX.Element {
   // Vim-style modal navigation (hjkl, panel shortcuts, file tab cycling)
   useVimNavigation()
   // Global listener for background session events (AI finishes while viewing another project)
-  useOpenCodeGlobalListener()
+  useAgentGlobalListener()
   // Navigate to session when native notification is clicked
   useNotificationNavigation()
   // Refresh git statuses when window regains focus
@@ -196,21 +209,23 @@ export function AppLayout({ children }: AppLayoutProps): React.JSX.Element {
       </div>
       <Toaster />
       {isDragging && <DropOverlay variant={activeSessionId ? 'normal' : 'warning'} />}
-      <ErrorBoundary componentName="SessionHistory" fallback={null}>
-        <SessionHistory />
-      </ErrorBoundary>
-      <ErrorBoundary componentName="CommandPalette" fallback={null}>
-        <CommandPalette />
-      </ErrorBoundary>
-      <ErrorBoundary componentName="SettingsModal" fallback={null}>
-        <SettingsModal />
-      </ErrorBoundary>
-      <ErrorBoundary componentName="FileSearchDialog" fallback={null}>
-        <FileSearchDialog />
-      </ErrorBoundary>
-      <GlobalProjectSettings />
-      <AgentSetupGuard />
-      <HelpOverlay />
+      <Suspense fallback={null}>
+        <ErrorBoundary componentName="SessionHistory" fallback={null}>
+          <SessionHistory />
+        </ErrorBoundary>
+        <ErrorBoundary componentName="CommandPalette" fallback={null}>
+          <CommandPalette />
+        </ErrorBoundary>
+        <ErrorBoundary componentName="SettingsModal" fallback={null}>
+          <SettingsModal />
+        </ErrorBoundary>
+        <ErrorBoundary componentName="FileSearchDialog" fallback={null}>
+          <FileSearchDialog />
+        </ErrorBoundary>
+        <GlobalProjectSettings />
+        <AgentSetupGuard />
+        <HelpOverlay />
+      </Suspense>
     </div>
   )
 }
