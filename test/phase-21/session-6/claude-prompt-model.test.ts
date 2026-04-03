@@ -1,6 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+vi.mock('electron', () => ({
+  app: { getPath: vi.fn(() => '/tmp') },
+  ipcMain: { handle: vi.fn() }
+}))
+
 vi.mock('../../../src/main/services/logger', () => ({
   createLogger: () => ({
     info: vi.fn(),
@@ -10,8 +15,13 @@ vi.mock('../../../src/main/services/logger', () => ({
   })
 }))
 
+const { mockQuery, mockMaybeWithPMR } = vi.hoisted(() => ({
+  mockQuery: vi.fn(),
+  mockMaybeWithPMR: vi.fn(async (options: any) => options)
+}))
+
 vi.mock('../../../src/main/services/claude-sdk-loader', () => ({
-  loadClaudeSDK: vi.fn()
+  loadClaudeSDK: vi.fn().mockResolvedValue({ query: mockQuery })
 }))
 
 vi.mock('../../../src/main/services/claude-transcript-reader', () => ({
@@ -19,19 +29,11 @@ vi.mock('../../../src/main/services/claude-transcript-reader', () => ({
   translateEntry: vi.fn().mockReturnValue(null)
 }))
 
-import { ClaudeCodeImplementer } from '../../../src/main/services/claude-code-implementer'
-import { loadClaudeSDK } from '../../../src/main/services/claude-sdk-loader'
+vi.mock('../../../src/main/services/claude-project-memory-loader', () => ({
+  maybeWithClaudeProjectMemory: mockMaybeWithPMR
+}))
 
-function createMockSDK() {
-  const queryFn = vi.fn().mockImplementation(() => ({
-    [Symbol.asyncIterator]: () => ({
-      next: vi.fn().mockResolvedValue({ done: true, value: undefined })
-    }),
-    interrupt: vi.fn(),
-    close: vi.fn()
-  }))
-  return { query: queryFn }
-}
+import { ClaudeCodeImplementer } from '../../../src/main/services/claude-code-implementer'
 
 function createMockWindow() {
   return {
@@ -42,12 +44,16 @@ function createMockWindow() {
 
 describe('ClaudeCodeImplementer prompt model selection', () => {
   let impl: ClaudeCodeImplementer
-  let mockSDK: ReturnType<typeof createMockSDK>
 
   beforeEach(async () => {
-    vi.resetAllMocks()
-    mockSDK = createMockSDK()
-    vi.mocked(loadClaudeSDK).mockResolvedValue(mockSDK as any)
+    mockQuery.mockImplementation(() => ({
+      [Symbol.asyncIterator]: () => ({
+        next: vi.fn().mockResolvedValue({ done: true, value: undefined })
+      }),
+      interrupt: vi.fn(),
+      close: vi.fn()
+    }))
+    mockMaybeWithPMR.mockImplementation(async (options: any) => options)
 
     impl = new ClaudeCodeImplementer()
     impl.setMainWindow(createMockWindow())
@@ -61,7 +67,7 @@ describe('ClaudeCodeImplementer prompt model selection', () => {
       modelID: 'opus'
     })
 
-    expect(mockSDK.query).toHaveBeenCalledWith(
+    expect(mockQuery).toHaveBeenCalledWith(
       expect.objectContaining({
         options: expect.objectContaining({ model: 'opus' })
       })
@@ -73,7 +79,7 @@ describe('ClaudeCodeImplementer prompt model selection', () => {
 
     await impl.prompt('/test/path', sessionId, 'hello')
 
-    expect(mockSDK.query).toHaveBeenCalledWith(
+    expect(mockQuery).toHaveBeenCalledWith(
       expect.objectContaining({
         options: expect.objectContaining({ model: 'sonnet' })
       })
@@ -87,9 +93,22 @@ describe('ClaudeCodeImplementer prompt model selection', () => {
 
     await impl.prompt('/test/path', sessionId, 'hello')
 
-    expect(mockSDK.query).toHaveBeenCalledWith(
+    expect(mockQuery).toHaveBeenCalledWith(
       expect.objectContaining({
         options: expect.objectContaining({ model: 'haiku' })
+      })
+    )
+  })
+
+  it('prompt calls maybeWithClaudeProjectMemory with options containing cwd and model', async () => {
+    const { sessionId } = await impl.connect('/test/path', 'hive-session-4')
+
+    await impl.prompt('/test/path', sessionId, 'hello')
+
+    expect(mockMaybeWithPMR).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cwd: '/test/path',
+        model: 'sonnet'
       })
     )
   })

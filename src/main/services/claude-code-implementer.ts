@@ -18,6 +18,7 @@ import { CommandFilterService, type CommandFilterSettings } from './command-filt
 import { createLspMcpServerConfig, LspService } from './lsp'
 import { APP_SETTINGS_DB_KEY } from '@shared/types/settings'
 import { getActiveAppHomeDir } from '@shared/app-identity'
+import { maybeWithClaudeProjectMemory } from './claude-project-memory-loader'
 
 const log = createLogger({ component: 'ClaudeCodeImplementer' })
 
@@ -521,7 +522,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
         'high') as Options['effort']
 
       // Build SDK query options
-      const options: Options = {
+      let options: Options = {
         cwd: session.worktreePath,
         permissionMode: sdkPermissionMode,
         abortController: session.abortController,
@@ -562,6 +563,10 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
           error: err instanceof Error ? err.message : String(err)
         })
       }
+
+      // Optionally wrap options with Project Memory Runtime (PMR) context.
+      // Must run after LSP/MCP/allowedTools are finalized, before resume/fork metadata.
+      options = await maybeWithClaudeProjectMemory(options)
 
       // If session is materialized (has real SDK ID), add resume
       if (session.materialized) {
