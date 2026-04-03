@@ -12,6 +12,8 @@ import {
   registerWorktreeHandlers,
   registerOpenCodeHandlers,
   cleanupOpenCode,
+  registerAgentHandlers,
+  cleanupAgentHandlers,
   registerFileTreeHandlers,
   cleanupFileTreeWatchers,
   registerGitFileHandlers,
@@ -41,6 +43,7 @@ import { updaterService } from './services/updater'
 import { ClaudeCodeImplementer } from './services/claude-code-implementer'
 import { CodexImplementer } from './services/codex-implementer'
 import { AgentSdkManager } from './services/agent-sdk-manager'
+import { AgentRuntimeManager } from './services/agent-runtime-manager'
 import { resolveClaudeBinaryPath } from './services/claude-binary-resolver'
 import type { AgentSdkImplementer } from './services/agent-sdk-types'
 import { telemetryService } from './services/telemetry-service'
@@ -642,10 +645,16 @@ app.whenReady().then(async () => {
     const sdkManager = new AgentSdkManager([openCodePlaceholder, claudeImpl, codexImpl])
     sdkManager.setMainWindow(mainWindow)
 
+    // Create the new canonical runtime manager (shares the same implementers)
+    const runtimeManager = new AgentRuntimeManager([openCodePlaceholder, claudeImpl, codexImpl])
+    runtimeManager.setMainWindow(mainWindow)
+
     const databaseService = getDatabase()
 
-    log.info('Registering OpenCode handlers')
+    log.info('Registering OpenCode handlers (legacy)')
     registerOpenCodeHandlers(mainWindow, sdkManager, databaseService)
+    log.info('Registering Agent handlers (canonical)')
+    registerAgentHandlers(mainWindow, runtimeManager, databaseService)
     log.info('Registering FileTree handlers')
     registerFileTreeHandlers(mainWindow)
     log.info('Registering GitFile handlers')
@@ -703,6 +712,8 @@ app.on('will-quit', async () => {
   await cleanupBranchWatchers()
   // Cleanup OpenCode connections
   await cleanupOpenCode()
+  // Cleanup canonical agent handlers
+  await cleanupAgentHandlers()
   // Flush telemetry before closing database
   telemetryService.track('app_session_ended', {
     session_duration_ms: Date.now() - appStartTime

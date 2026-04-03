@@ -1,8 +1,16 @@
 scalar JSON
 
+enum AgentRuntime {
+  opencode
+  claude_code
+  codex
+  terminal
+}
+
 type CanonicalAgentEvent {
   type: String!
   sessionId: String!
+  runtimeId: String
   data: JSON!
   childSessionId: String
   statusPayload: SessionStatusPayload

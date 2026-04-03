@@ -490,7 +490,7 @@ declare global {
         logs: string
       }>
       isLogMode: () => Promise<boolean>
-      detectAgentSdks: () => Promise<{ opencode: boolean; claude: boolean; codex: boolean }>
+      detectAgentRuntimes: () => Promise<{ opencode: boolean; claude: boolean; codex: boolean }>
       runOnboardingDoctor: () => Promise<OnboardingDoctorResult>
       openCommandInTerminal: (
         command: string,
@@ -525,16 +525,16 @@ declare global {
       createResponseLog: (sessionId: string) => Promise<string>
       appendResponseLog: (filePath: string, data: unknown) => Promise<void>
     }
-    opencodeOps: {
-      // Connect to OpenCode for a worktree (lazy starts server if needed)
+    agentOps: {
+      // Connect to agent runtime for a worktree (lazy starts server if needed)
       connect: (
         worktreePath: string,
         hiveSessionId: string
       ) => Promise<{ success: boolean; sessionId?: string; error?: string }>
-      // Reconnect to existing OpenCode session
+      // Reconnect to existing agent session
       reconnect: (
         worktreePath: string,
-        opencodeSessionId: string,
+        sessionId: string,
         hiveSessionId: string
       ) => Promise<{
         success: boolean
@@ -545,7 +545,7 @@ declare global {
       // Accepts either a string message or a MessagePart[] array for rich content (text + file attachments)
       prompt: (
         worktreePath: string,
-        opencodeSessionId: string,
+        sessionId: string,
         messageOrParts: string | MessagePart[],
         model?: { providerID: string; modelID: string; variant?: string },
         options?: { codexFastMode?: boolean }
@@ -553,21 +553,21 @@ declare global {
       // Abort a streaming session
       abort: (
         worktreePath: string,
-        opencodeSessionId: string
+        sessionId: string
       ) => Promise<{ success: boolean; error?: string }>
       // Disconnect session (may kill server if last session for worktree)
       disconnect: (
         worktreePath: string,
-        opencodeSessionId: string
+        sessionId: string
       ) => Promise<{ success: boolean; error?: string }>
-      // Get messages from an OpenCode session
+      // Get messages from an agent session
       getMessages: (
         worktreePath: string,
-        opencodeSessionId: string
+        sessionId: string
       ) => Promise<{ success: boolean; messages: unknown[]; error?: string }>
       // List available models from all configured providers
       listModels: (opts?: {
-        agentSdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+        runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
       }) => Promise<{
         success: boolean
         providers: Record<string, unknown>
@@ -578,13 +578,13 @@ declare global {
         providerID: string
         modelID: string
         variant?: string
-        agentSdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+        runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
       }) => Promise<{ success: boolean; error?: string }>
       // Get model info (name, context limit)
       modelInfo: (
         worktreePath: string,
         modelId: string,
-        agentSdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+        runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
       ) => Promise<{
         success: boolean
         model?: { id: string; name: string; limit: { context: number } }
@@ -637,7 +637,7 @@ declare global {
       // Get session info (revert state)
       sessionInfo: (
         worktreePath: string,
-        opencodeSessionId: string
+        sessionId: string
       ) => Promise<{
         success: boolean
         revertMessageID?: string | null
@@ -647,7 +647,7 @@ declare global {
       // Undo the last assistant turn/message range
       undo: (
         worktreePath: string,
-        opencodeSessionId: string
+        sessionId: string
       ) => Promise<{
         success: boolean
         revertMessageID?: string
@@ -658,12 +658,12 @@ declare global {
       // Redo the last undone message range
       redo: (
         worktreePath: string,
-        opencodeSessionId: string
+        sessionId: string
       ) => Promise<{ success: boolean; revertMessageID?: string | null; error?: string }>
       // Send a slash command to a session via the SDK command endpoint
       command: (
         worktreePath: string,
-        opencodeSessionId: string,
+        sessionId: string,
         command: string,
         args: string,
         model?: { providerID: string; modelID: string; variant?: string }
@@ -672,15 +672,15 @@ declare global {
       commands: (
         worktreePath: string,
         sessionId?: string
-      ) => Promise<{ success: boolean; commands: OpenCodeCommand[]; error?: string }>
-      // Rename a session's title via the OpenCode PATCH API
+      ) => Promise<{ success: boolean; commands: AgentCommand[]; error?: string }>
+      // Rename a session's title via the agent PATCH API
       renameSession: (
-        opencodeSessionId: string,
+        sessionId: string,
         title: string,
         worktreePath?: string
       ) => Promise<{ success: boolean; error?: string }>
       // Get SDK capabilities for the current session
-      capabilities: (opencodeSessionId?: string) => Promise<{
+      capabilities: (sessionId?: string) => Promise<{
         success: boolean
         capabilities?: {
           supportsUndo: boolean
@@ -697,11 +697,11 @@ declare global {
       // Fork an existing session at an optional message boundary
       fork: (
         worktreePath: string,
-        opencodeSessionId: string,
+        sessionId: string,
         messageId?: string
       ) => Promise<{ success: boolean; sessionId?: string; error?: string }>
       // Subscribe to streaming events
-      onStream: (callback: (event: OpenCodeStreamEvent) => void) => () => void
+      onStream: (callback: (event: CanonicalAgentEvent) => void) => () => void
     }
     fileTreeOps: {
       // Scan a directory and return the file tree
@@ -1288,8 +1288,8 @@ declare global {
     exitCode?: number
   }
 
-  // OpenCode command type (slash commands)
-  interface OpenCodeCommand {
+  // Agent command type (slash commands)
+  interface AgentCommand {
     name: string
     description?: string
     template: string
@@ -1328,8 +1328,8 @@ declare global {
     }
   }
 
-  // OpenCode stream event type
-  interface OpenCodeStreamEvent {
+  // Agent stream event type (canonical agent protocol)
+  interface CanonicalAgentEvent {
     type: string
     sessionId: string
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

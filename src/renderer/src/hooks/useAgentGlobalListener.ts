@@ -5,7 +5,7 @@ import { useWorktreeStatusStore } from '@/stores/useWorktreeStatusStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { useQuestionStore } from '@/stores/useQuestionStore'
 import { usePermissionStore } from '@/stores/usePermissionStore'
-import { useCommandApprovalStore, type CommandApprovalRequest } from '@/stores/useCommandApprovalStore'
+import { useCommandApprovalStore } from '@/stores/useCommandApprovalStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useContextStore, type TokenInfo, type SessionModelRef } from '@/stores/useContextStore'
 import { useRecentStore } from '@/stores/useRecentStore'
@@ -18,7 +18,7 @@ import { toast } from 'sonner'
 
 interface PromptDispatchContext {
   worktreePath: string
-  runtimeSessionId: string
+  opencodeSessionId: string
 }
 
 function resolvePromptDispatchContextFromStores(sessionId: string): PromptDispatchContext | null {
@@ -26,7 +26,7 @@ function resolvePromptDispatchContextFromStores(sessionId: string): PromptDispat
 
   for (const [worktreeId, sessions] of sessionState.sessionsByWorktree) {
     const session = sessions.find((s) => s.id === sessionId)
-    if (!session?.runtime_session_id) continue
+    if (!session?.opencode_session_id) continue
 
     const worktreesByProject = useWorktreeStore.getState().worktreesByProject
     for (const worktrees of worktreesByProject.values()) {
@@ -34,7 +34,7 @@ function resolvePromptDispatchContextFromStores(sessionId: string): PromptDispat
       if (worktree?.path) {
         return {
           worktreePath: worktree.path,
-          runtimeSessionId: session.runtime_session_id
+          opencodeSessionId: session.opencode_session_id
         }
       }
     }
@@ -42,7 +42,7 @@ function resolvePromptDispatchContextFromStores(sessionId: string): PromptDispat
 
   for (const [connectionId, sessions] of sessionState.sessionsByConnection) {
     const session = sessions.find((s) => s.id === sessionId)
-    if (!session?.runtime_session_id) continue
+    if (!session?.opencode_session_id) continue
 
     const connection = useConnectionStore
       .getState()
@@ -50,7 +50,7 @@ function resolvePromptDispatchContextFromStores(sessionId: string): PromptDispat
     if (connection?.path) {
       return {
         worktreePath: connection.path,
-        runtimeSessionId: session.runtime_session_id
+        opencodeSessionId: session.opencode_session_id
       }
     }
   }
@@ -71,10 +71,10 @@ async function resolvePromptDispatchContext(
     const dbSession = (await window.db.session.get(sessionId)) as {
       worktree_id?: string | null
       connection_id?: string | null
-      runtime_session_id?: string | null
+      opencode_session_id?: string | null
     } | null
 
-    const dbOpcSessionId = dbSession?.runtime_session_id ?? null
+    const dbOpcSessionId = dbSession?.opencode_session_id ?? null
     if (!dbOpcSessionId) {
       return storeContext
     }
@@ -86,7 +86,7 @@ async function resolvePromptDispatchContext(
       if (dbWorktree?.path) {
         return {
           worktreePath: dbWorktree.path,
-          runtimeSessionId: dbOpcSessionId
+          opencodeSessionId: dbOpcSessionId
         }
       }
     }
@@ -96,13 +96,13 @@ async function resolvePromptDispatchContext(
       if (connectionResult.success && connectionResult.connection?.path) {
         return {
           worktreePath: connectionResult.connection.path,
-          runtimeSessionId: dbOpcSessionId
+          opencodeSessionId: dbOpcSessionId
         }
       }
     }
 
     if (storeContext) {
-      return { ...storeContext, runtimeSessionId: dbOpcSessionId }
+      return { ...storeContext, opencodeSessionId: dbOpcSessionId }
     }
   } catch {
     // DB lookup failed — fall through to store context
@@ -407,7 +407,7 @@ export function useAgentGlobalListener(): void {
               | { requestId?: string; commandStr?: string; reason?: string; suggestion?: string }
               | undefined
             if (data) {
-              console.warn('[useAgentGlobalListener] Command approval problem:', {
+              console.warn('[useOpenCodeGlobalListener] Command approval problem:', {
                 sessionId,
                 reason: data.reason,
                 command: data.commandStr
@@ -503,7 +503,7 @@ export function useAgentGlobalListener(): void {
           if (useSettingsStore.getState().showUsageIndicator) {
             const sessionState = useSessionStore.getState()
             let idleSession: {
-              runtime_id?: string | null
+              agent_sdk?: string | null
               model_provider_id?: string | null
               model_id?: string | null
             } | null = null
@@ -554,7 +554,7 @@ export function useAgentGlobalListener(): void {
                   return
                 }
 
-                if (context.runtimeSessionId.startsWith('pending::')) {
+                if (context.opencodeSessionId.startsWith('pending::')) {
                   useSessionStore.getState().requeueFollowUpMessageFront(sessionId, message)
                   markBackgroundSessionCompleted(sessionId)
                   return
@@ -567,7 +567,7 @@ export function useAgentGlobalListener(): void {
 
                 const result = await window.agentOps.prompt(
                   context.worktreePath,
-                  context.runtimeSessionId,
+                  context.opencodeSessionId,
                   [{ type: 'text', text: message }]
                 )
 
@@ -583,31 +583,32 @@ export function useAgentGlobalListener(): void {
                 markBackgroundSessionCompleted(sessionId)
               } finally {
                 backgroundFollowUpDispatchingRef.current.delete(sessionId)
-
-                if (!deferredIdleWhileDispatchingRef.current.has(sessionId)) {
-                  return
-                }
-
-                deferredIdleWhileDispatchingRef.current.delete(sessionId)
-
-                // If dispatch failed, we've already requeued + set completed above.
-                if (!dispatchSucceeded) return
-
-                // Don't overwrite plan_ready — session is blocked waiting for plan approval
-                if (useSessionStore.getState().getPendingPlan(sessionId)) return
-
-                // Don't overwrite command_approval — session is blocked waiting for command approval
-                const followUpStatus = useWorktreeStatusStore.getState().sessionStatuses[sessionId]
-                if (followUpStatus?.status === 'command_approval') return
-
-                const nextFollowUp = useSessionStore.getState().dequeueFollowUpMessage(sessionId)
-                if (nextFollowUp) {
-                  dispatchBackgroundFollowUp(nextFollowUp)
-                  return
-                }
-
-                markBackgroundSessionCompleted(sessionId)
               }
+
+              // Handle deferred idle events that arrived while dispatching
+              if (!deferredIdleWhileDispatchingRef.current.has(sessionId)) {
+                return
+              }
+
+              deferredIdleWhileDispatchingRef.current.delete(sessionId)
+
+              // If dispatch failed, we've already requeued + set completed above.
+              if (!dispatchSucceeded) return
+
+              // Don't overwrite plan_ready — session is blocked waiting for plan approval
+              if (useSessionStore.getState().getPendingPlan(sessionId)) return
+
+              // Don't overwrite command_approval — session is blocked waiting for command approval
+              const followUpStatus = useWorktreeStatusStore.getState().sessionStatuses[sessionId]
+              if (followUpStatus?.status === 'command_approval') return
+
+              const nextFollowUp = useSessionStore.getState().dequeueFollowUpMessage(sessionId)
+              if (nextFollowUp) {
+                dispatchBackgroundFollowUp(nextFollowUp)
+                return
+              }
+
+              markBackgroundSessionCompleted(sessionId)
             })()
           }
 

@@ -419,9 +419,9 @@ const systemOps = {
   // Check if response logging is enabled (--log flag)
   isLogMode: (): Promise<boolean> => ipcRenderer.invoke('system:isLogMode'),
 
-  // Detect which agent SDKs are installed on the system
-  detectAgentSdks: (): Promise<{ opencode: boolean; claude: boolean; codex: boolean }> =>
-    ipcRenderer.invoke('system:detectAgentSdks'),
+  // Detect which agent runtimes are installed on the system
+  detectAgentRuntimes: (): Promise<{ opencode: boolean; claude: boolean; codex: boolean }> =>
+    ipcRenderer.invoke('system:detectAgentRuntimes'),
 
   // Run the first-launch onboarding doctor
   runOnboardingDoctor: (): Promise<OnboardingDoctorResult> =>
@@ -550,8 +550,8 @@ const loggingOps = {
     ipcRenderer.invoke('logging:appendResponseLog', filePath, data)
 }
 
-// OpenCode SDK operations API
-export interface OpenCodeStreamEvent {
+// Agent operations API (canonical agent protocol)
+export interface CanonicalAgentEvent {
   type: string
   sessionId: string
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1078,30 +1078,30 @@ const gitOps = {
   }> => ipcRenderer.invoke('git:branchFileDiff', worktreePath, branch, filePath)
 }
 
-const opencodeOps = {
-  // Connect to OpenCode for a worktree (lazy starts server if needed)
+const agentOps = {
+  // Connect to agent runtime for a worktree (lazy starts server if needed)
   connect: (
     worktreePath: string,
     hiveSessionId: string
   ): Promise<{ success: boolean; sessionId?: string; error?: string }> =>
-    ipcRenderer.invoke('opencode:connect', worktreePath, hiveSessionId),
+    ipcRenderer.invoke('agent:connect', worktreePath, hiveSessionId),
 
-  // Reconnect to existing OpenCode session
+  // Reconnect to existing agent session
   reconnect: (
     worktreePath: string,
-    opencodeSessionId: string,
+    sessionId: string,
     hiveSessionId: string
   ): Promise<{
     success: boolean
     sessionStatus?: 'idle' | 'busy' | 'retry'
     revertMessageID?: string | null
-  }> => ipcRenderer.invoke('opencode:reconnect', worktreePath, opencodeSessionId, hiveSessionId),
+  }> => ipcRenderer.invoke('agent:reconnect', worktreePath, sessionId, hiveSessionId),
 
   // Send a prompt (response streams via onStream)
   // Accepts either a string message or a MessagePart[] array for rich content (text + file attachments)
   prompt: (
     worktreePath: string,
-    opencodeSessionId: string,
+    sessionId: string,
     messageOrParts:
       | string
       | Array<
@@ -1115,9 +1115,9 @@ const opencodeOps = {
       typeof messageOrParts === 'string'
         ? [{ type: 'text' as const, text: messageOrParts }]
         : messageOrParts
-    return ipcRenderer.invoke('opencode:prompt', {
+    return ipcRenderer.invoke('agent:prompt', {
       worktreePath,
-      sessionId: opencodeSessionId,
+      sessionId,
       parts,
       model,
       options
@@ -1127,32 +1127,32 @@ const opencodeOps = {
   // Abort a streaming session
   abort: (
     worktreePath: string,
-    opencodeSessionId: string
+    sessionId: string
   ): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('opencode:abort', worktreePath, opencodeSessionId),
+    ipcRenderer.invoke('agent:abort', worktreePath, sessionId),
 
   // Disconnect session (may kill server if last session for worktree)
   disconnect: (
     worktreePath: string,
-    opencodeSessionId: string
+    sessionId: string
   ): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('opencode:disconnect', worktreePath, opencodeSessionId),
+    ipcRenderer.invoke('agent:disconnect', worktreePath, sessionId),
 
-  // Get messages from an OpenCode session
+  // Get messages from an agent session
   getMessages: (
     worktreePath: string,
-    opencodeSessionId: string
+    sessionId: string
   ): Promise<{ success: boolean; messages: unknown[]; error?: string }> =>
-    ipcRenderer.invoke('opencode:messages', worktreePath, opencodeSessionId),
+    ipcRenderer.invoke('agent:messages', worktreePath, sessionId),
 
   // List available models from all configured providers
   listModels: (opts?: {
-    agentSdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+    runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
   }): Promise<{
     success: boolean
     providers: Record<string, unknown>
     error?: string
-  }> => ipcRenderer.invoke('opencode:models', opts),
+  }> => ipcRenderer.invoke('agent:models', opts),
 
   // Set the selected model for prompts
   setModel: (
@@ -1160,21 +1160,21 @@ const opencodeOps = {
       providerID: string
       modelID: string
       variant?: string
-      agentSdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+      runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
     } | null
   ): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('opencode:setModel', model),
+    ipcRenderer.invoke('agent:setModel', model),
 
   // Get model info (name, context limit)
   modelInfo: (
     worktreePath: string,
     modelId: string,
-    agentSdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+    runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
   ): Promise<{
     success: boolean
     model?: { id: string; name: string; limit: { context: number } }
     error?: string
-  }> => ipcRenderer.invoke('opencode:modelInfo', { worktreePath, modelId, agentSdk }),
+  }> => ipcRenderer.invoke('agent:modelInfo', { worktreePath, modelId, runtimeId }),
 
   // Reply to a pending question from the AI
   questionReply: (
@@ -1182,14 +1182,14 @@ const opencodeOps = {
     answers: string[][],
     worktreePath?: string
   ): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('opencode:question:reply', { requestId, answers, worktreePath }),
+    ipcRenderer.invoke('agent:question:reply', { requestId, answers, worktreePath }),
 
   // Reject/dismiss a pending question from the AI
   questionReject: (
     requestId: string,
     worktreePath?: string
   ): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('opencode:question:reject', { requestId, worktreePath }),
+    ipcRenderer.invoke('agent:question:reject', { requestId, worktreePath }),
 
   // Approve a pending plan (ExitPlanMode) — unblocks the SDK to implement
   planApprove: (
@@ -1197,7 +1197,7 @@ const opencodeOps = {
     hiveSessionId: string,
     requestId?: string
   ): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('opencode:plan:approve', { worktreePath, hiveSessionId, requestId }),
+    ipcRenderer.invoke('agent:plan:approve', { worktreePath, hiveSessionId, requestId }),
 
   // Reject a pending plan with user feedback — Claude will revise
   planReject: (
@@ -1206,7 +1206,7 @@ const opencodeOps = {
     feedback: string,
     requestId?: string
   ): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('opencode:plan:reject', {
+    ipcRenderer.invoke('agent:plan:reject', {
       worktreePath,
       hiveSessionId,
       feedback,
@@ -1220,13 +1220,13 @@ const opencodeOps = {
     worktreePath?: string,
     message?: string
   ): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('opencode:permission:reply', { requestId, reply, worktreePath, message }),
+    ipcRenderer.invoke('agent:permission:reply', { requestId, reply, worktreePath, message }),
 
   // List all pending permission requests
   permissionList: (
     worktreePath?: string
   ): Promise<{ success: boolean; permissions: unknown[]; error?: string }> =>
-    ipcRenderer.invoke('opencode:permission:list', { worktreePath }),
+    ipcRenderer.invoke('agent:permission:list', { worktreePath }),
 
   // Reply to a pending command approval request (for command filter system)
   commandApprovalReply: (
@@ -1237,7 +1237,7 @@ const opencodeOps = {
     worktreePath?: string,
     patterns?: string[]
   ): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('opencode:commandApprovalReply', {
+    ipcRenderer.invoke('agent:commandApprovalReply', {
       requestId,
       approved,
       remember,
@@ -1249,44 +1249,44 @@ const opencodeOps = {
   // Get session info (revert state)
   sessionInfo: (
     worktreePath: string,
-    opencodeSessionId: string
+    sessionId: string
   ): Promise<{
     success: boolean
     revertMessageID?: string | null
     revertDiff?: string | null
     error?: string
-  }> => ipcRenderer.invoke('opencode:sessionInfo', { worktreePath, sessionId: opencodeSessionId }),
+  }> => ipcRenderer.invoke('agent:sessionInfo', { worktreePath, sessionId }),
 
   // Undo the last assistant turn/message range
   undo: (
     worktreePath: string,
-    opencodeSessionId: string
+    sessionId: string
   ): Promise<{
     success: boolean
     revertMessageID?: string
     restoredPrompt?: string
     revertDiff?: string | null
     error?: string
-  }> => ipcRenderer.invoke('opencode:undo', { worktreePath, sessionId: opencodeSessionId }),
+  }> => ipcRenderer.invoke('agent:undo', { worktreePath, sessionId }),
 
   // Redo the previously undone message range
   redo: (
     worktreePath: string,
-    opencodeSessionId: string
+    sessionId: string
   ): Promise<{ success: boolean; revertMessageID?: string | null; error?: string }> =>
-    ipcRenderer.invoke('opencode:redo', { worktreePath, sessionId: opencodeSessionId }),
+    ipcRenderer.invoke('agent:redo', { worktreePath, sessionId }),
 
   // Send a slash command to a session via the SDK command endpoint
   command: (
     worktreePath: string,
-    opencodeSessionId: string,
+    sessionId: string,
     command: string,
     args: string,
     model?: { providerID: string; modelID: string; variant?: string }
   ): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('opencode:command', {
+    ipcRenderer.invoke('agent:command', {
       worktreePath,
-      sessionId: opencodeSessionId,
+      sessionId,
       command,
       args,
       model
@@ -1309,19 +1309,19 @@ const opencodeOps = {
       hints?: string[]
     }>
     error?: string
-  }> => ipcRenderer.invoke('opencode:commands', { worktreePath, sessionId }),
+  }> => ipcRenderer.invoke('agent:commands', { worktreePath, sessionId }),
 
-  // Rename a session's title via the OpenCode PATCH API
+  // Rename a session's title via the agent PATCH API
   renameSession: (
-    opencodeSessionId: string,
+    sessionId: string,
     title: string,
     worktreePath?: string
   ): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('opencode:renameSession', { opencodeSessionId, title, worktreePath }),
+    ipcRenderer.invoke('agent:renameSession', { sessionId, title, worktreePath }),
 
   // Get SDK capabilities for the current session
   capabilities: (
-    opencodeSessionId?: string
+    sessionId?: string
   ): Promise<{
     success: boolean
     capabilities?: {
@@ -1335,28 +1335,28 @@ const opencodeOps = {
       supportsPartialStreaming: boolean
     }
     error?: string
-  }> => ipcRenderer.invoke('opencode:capabilities', { sessionId: opencodeSessionId }),
+  }> => ipcRenderer.invoke('agent:capabilities', { sessionId }),
 
   // Fork an existing session at an optional message boundary
   fork: (
     worktreePath: string,
-    opencodeSessionId: string,
+    sessionId: string,
     messageId?: string
   ): Promise<{ success: boolean; sessionId?: string; error?: string }> =>
-    ipcRenderer.invoke('opencode:fork', {
+    ipcRenderer.invoke('agent:fork', {
       worktreePath,
-      sessionId: opencodeSessionId,
+      sessionId,
       messageId
     }),
 
   // Subscribe to streaming events
-  onStream: (callback: (event: OpenCodeStreamEvent) => void): (() => void) => {
-    const handler = (_e: Electron.IpcRendererEvent, event: OpenCodeStreamEvent): void => {
+  onStream: (callback: (event: CanonicalAgentEvent) => void): (() => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, event: CanonicalAgentEvent): void => {
       callback(event)
     }
-    ipcRenderer.on('opencode:stream', handler)
+    ipcRenderer.on('agent:stream', handler)
     return () => {
-      ipcRenderer.removeListener('opencode:stream', handler)
+      ipcRenderer.removeListener('agent:stream', handler)
     }
   }
 }
@@ -1748,7 +1748,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('projectOps', projectOps)
     contextBridge.exposeInMainWorld('worktreeOps', worktreeOps)
     contextBridge.exposeInMainWorld('systemOps', systemOps)
-    contextBridge.exposeInMainWorld('opencodeOps', opencodeOps)
+    contextBridge.exposeInMainWorld('agentOps', agentOps)
     contextBridge.exposeInMainWorld('fileTreeOps', fileTreeOps)
     contextBridge.exposeInMainWorld('gitOps', gitOps)
     contextBridge.exposeInMainWorld('settingsOps', settingsOps)
@@ -1773,7 +1773,7 @@ if (process.contextIsolated) {
   // @ts-expect-error (define in dts)
   window.systemOps = systemOps
   // @ts-expect-error (define in dts)
-  window.opencodeOps = opencodeOps
+  window.agentOps = agentOps
   // @ts-expect-error (define in dts)
   window.fileTreeOps = fileTreeOps
   // @ts-expect-error (define in dts)

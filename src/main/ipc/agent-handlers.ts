@@ -815,7 +815,7 @@ export function registerAgentHandlers(
         approved,
         remember,
         pattern,
-        worktreePath,
+        worktreePath: _worktreePath,
         patterns
       }: {
         requestId: string
@@ -889,7 +889,7 @@ export function registerAgentHandlers(
     }
   )
 
-  // Fork an existing OpenCode session at an optional message boundary
+  // Fork an existing session at an optional message boundary
   ipcMain.handle(
     'agent:fork',
     async (
@@ -902,6 +902,7 @@ export function registerAgentHandlers(
     ) => {
       log.info('IPC: agent:fork', { worktreePath, sessionId, messageId })
       try {
+        // TODO: add runtime-aware fork dispatch when non-OpenCode runtimes support it
         const result = await openCodeService.forkSession(worktreePath, sessionId, messageId)
         return { success: true, ...result }
       } catch (error) {

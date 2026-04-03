@@ -893,7 +893,7 @@ export const useSessionStore = create<SessionState>()(
         // Push to agent backend (SDK-aware) — skip for terminal sessions
         try {
           if (agentSdk !== 'terminal') {
-            await window.opencodeOps.setModel({ ...model, agentSdk })
+            await window.agentOps.setModel({ ...model, agentSdk })
           }
         } catch (error) {
           console.error('Failed to push model to agent backend:', error)

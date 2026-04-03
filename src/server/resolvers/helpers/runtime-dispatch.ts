@@ -5,6 +5,10 @@ import type { AgentRuntimeId, AgentRuntimeAdapter } from '../../../main/services
 /** Map GraphQL runtime enum value to internal AgentRuntimeId */
 export function mapGraphQLRuntimeToInternal(gqlRuntime: string): AgentRuntimeId {
   if (gqlRuntime === 'claude_code') return 'claude-code'
+  const valid: AgentRuntimeId[] = ['opencode', 'claude-code', 'codex', 'terminal']
+  if (!valid.includes(gqlRuntime as AgentRuntimeId)) {
+    throw new Error(`Unknown agent runtime: "${gqlRuntime}"`)
+  }
   return gqlRuntime as AgentRuntimeId
 }
 

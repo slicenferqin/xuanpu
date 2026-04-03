@@ -784,7 +784,7 @@ function useMenuStateUpdater(): void {
       return
     }
 
-    window.opencodeOps
+    window.agentOps
       ?.capabilities?.(opencodeSessionId)
       ?.then((result) => {
         window.systemOps.updateMenuState({

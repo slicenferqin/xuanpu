@@ -187,7 +187,7 @@ export const useSessionHistoryStore = create<SessionHistoryState>((set, get) => 
         return []
       }
 
-      const result = await window.opencodeOps.getMessages(
+      const result = await window.agentOps.getMessages(
         worktree.path,
         session.opencode_session_id
       )

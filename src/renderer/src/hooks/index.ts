@@ -1,7 +1,7 @@
 export { useKeyboardShortcut, useCommandK, useCommandP } from './useKeyboardShortcut'
 export { useKeyboardShortcuts } from './useKeyboardShortcuts'
 export { useCommands } from './useCommands'
-export { useOpenCodeGlobalListener } from './useOpenCodeGlobalListener'
+export { useAgentGlobalListener } from './useAgentGlobalListener'
 export { useNotificationNavigation } from './useNotificationNavigation'
 export { usePRDetection } from './usePRDetection'
 export { useFileMentions } from './useFileMentions'

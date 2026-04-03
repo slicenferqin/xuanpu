@@ -10,46 +10,46 @@ type WorktreeCreateResult {
   error: String
 }
 
-# OpenCode Results
-type OpenCodeConnectResult {
+# Agent Results
+type AgentConnectResult {
   success: Boolean!
   sessionId: String
   error: String
 }
 
-type OpenCodeReconnectResult {
+type AgentReconnectResult {
   success: Boolean!
   sessionStatus: String
   revertMessageID: String
   error: String
 }
 
-type OpenCodeMessagesResult {
+type AgentMessagesResult {
   success: Boolean!
   messages: JSON
   error: String
 }
 
-type OpenCodeModelsResult {
+type AgentModelsResult {
   success: Boolean!
   providers: JSON
   error: String
 }
 
-type OpenCodeModelInfoResult {
+type AgentModelInfoResult {
   success: Boolean!
   model: JSON
   error: String
 }
 
-type OpenCodeSessionInfoResult {
+type AgentSessionInfoResult {
   success: Boolean!
   revertMessageID: String
   revertDiff: String
   error: String
 }
 
-type OpenCodeUndoResult {
+type AgentUndoResult {
   success: Boolean!
   revertMessageID: String
   restoredPrompt: String
@@ -57,31 +57,31 @@ type OpenCodeUndoResult {
   error: String
 }
 
-type OpenCodeRedoResult {
+type AgentRedoResult {
   success: Boolean!
   revertMessageID: String
   error: String
 }
 
-type OpenCodeCommandsResult {
+type AgentCommandsResult {
   success: Boolean!
-  commands: [OpenCodeCommand!]!
+  commands: [AgentCommand!]!
   error: String
 }
 
-type OpenCodeCapabilitiesResult {
+type AgentCapabilitiesResult {
   success: Boolean!
-  capabilities: OpenCodeCapabilities
+  capabilities: AgentCapabilities
   error: String
 }
 
-type OpenCodePermissionListResult {
+type AgentPermissionListResult {
   success: Boolean!
   permissions: [PermissionRequest!]!
   error: String
 }
 
-type OpenCodeForkResult {
+type AgentForkResult {
   success: Boolean!
   sessionId: String
   error: String

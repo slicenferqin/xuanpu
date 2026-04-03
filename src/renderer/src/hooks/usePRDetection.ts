@@ -73,8 +73,8 @@ export function usePRDetection(worktreeId: string | null): void {
       }
     }
 
-    const unsubscribe = window.opencodeOps?.onStream
-      ? window.opencodeOps.onStream((event) => {
+    const unsubscribe = window.agentOps?.onStream
+      ? window.agentOps.onStream((event) => {
           const currentCreation = prCreationRef.current
           if (
             !currentCreation ||
@@ -151,7 +151,7 @@ export function usePRDetection(worktreeId: string | null): void {
 
     const checkForPrFromTranscript = async (): Promise<void> => {
       try {
-        const result = await window.opencodeOps.getMessages(worktreePath, opencodeSessionId)
+        const result = await window.agentOps.getMessages(worktreePath, opencodeSessionId)
         if (!result.success || !Array.isArray(result.messages) || cancelled) return
 
         const serialized = JSON.stringify(result.messages)

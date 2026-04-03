@@ -284,7 +284,7 @@ export const useWorktreeStore = create<WorktreeState>((set, get) => ({
         if (status?.status === 'working' || status?.status === 'planning') {
           if (session.opencode_session_id) {
             try {
-              await window.opencodeOps.abort(worktreePath, session.opencode_session_id)
+              await window.agentOps.abort(worktreePath, session.opencode_session_id)
             } catch {
               // Non-critical — session may already be idle
             }
