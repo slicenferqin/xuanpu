@@ -13,6 +13,8 @@ import {
   Trash2,
   EyeOff,
   FileDiff,
+  FileCode,
+  Copy,
   Link
 } from 'lucide-react'
 import { toast } from '@/lib/toast'
@@ -245,6 +247,27 @@ export function ChangesView({
       onFileClick?.(file.relativePath)
     },
     [worktreePath, onFileClick]
+  )
+
+  const handleOpenSourceFile = useCallback(
+    (file: GitFileStatus) => {
+      if (!worktreePath) return
+      const fullPath = `${worktreePath}/${file.relativePath}`
+      const fileName = file.relativePath.split('/').pop() || file.relativePath
+      const worktreeId = useWorktreeStore.getState().selectedWorktreeId
+      if (worktreeId) {
+        useFileViewerStore.getState().openFile(fullPath, fileName, worktreeId)
+      }
+    },
+    [worktreePath]
+  )
+
+  const handleCopyPath = useCallback(
+    (file: GitFileStatus) => {
+      navigator.clipboard.writeText(file.relativePath)
+      toast.success(t('fileTree.changes.pathCopied'))
+    },
+    [t]
   )
 
   // ── Connection mode: load statuses for all member worktrees ──
@@ -533,6 +556,10 @@ export function ChangesView({
                   onStageToggle={handleStageFile}
                   contextMenu={
                     <ContextMenuContent>
+                      <ContextMenuItem onClick={() => handleOpenSourceFile(file)}>
+                        <FileCode className="h-3.5 w-3.5 mr-2" />
+                        {t('fileTree.changes.openSourceFile')}
+                      </ContextMenuItem>
                       <ContextMenuItem onClick={() => handleStageFile(file)}>
                         <Plus className="h-3.5 w-3.5 mr-2" />
                         {t('fileTree.changes.markResolved')}
@@ -540,6 +567,11 @@ export function ChangesView({
                       <ContextMenuItem onClick={() => handleViewDiff(file)}>
                         <FileDiff className="h-3.5 w-3.5 mr-2" />
                         {t('fileTree.changes.openDiff')}
+                      </ContextMenuItem>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem onClick={() => handleCopyPath(file)}>
+                        <Copy className="h-3.5 w-3.5 mr-2" />
+                        {t('fileTree.changes.copyPath')}
                       </ContextMenuItem>
                     </ContextMenuContent>
                   }
@@ -578,6 +610,10 @@ export function ChangesView({
                   onStageToggle={handleUnstageFile}
                   contextMenu={
                     <ContextMenuContent>
+                      <ContextMenuItem onClick={() => handleOpenSourceFile(file)}>
+                        <FileCode className="h-3.5 w-3.5 mr-2" />
+                        {t('fileTree.changes.openSourceFile')}
+                      </ContextMenuItem>
                       <ContextMenuItem onClick={() => handleUnstageFile(file)}>
                         <Minus className="h-3.5 w-3.5 mr-2" />
                         {t('fileTree.changes.unstage')}
@@ -585,6 +621,11 @@ export function ChangesView({
                       <ContextMenuItem onClick={() => handleViewDiff(file)}>
                         <FileDiff className="h-3.5 w-3.5 mr-2" />
                         {t('fileTree.changes.openDiff')}
+                      </ContextMenuItem>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem onClick={() => handleCopyPath(file)}>
+                        <Copy className="h-3.5 w-3.5 mr-2" />
+                        {t('fileTree.changes.copyPath')}
                       </ContextMenuItem>
                     </ContextMenuContent>
                   }
@@ -623,6 +664,10 @@ export function ChangesView({
                   onStageToggle={handleStageFile}
                   contextMenu={
                     <ContextMenuContent>
+                      <ContextMenuItem onClick={() => handleOpenSourceFile(file)}>
+                        <FileCode className="h-3.5 w-3.5 mr-2" />
+                        {t('fileTree.changes.openSourceFile')}
+                      </ContextMenuItem>
                       <ContextMenuItem onClick={() => handleStageFile(file)}>
                         <Plus className="h-3.5 w-3.5 mr-2" />
                         {t('fileTree.changes.stage')}
@@ -638,6 +683,11 @@ export function ChangesView({
                       >
                         <Undo2 className="h-3.5 w-3.5 mr-2" />
                         {t('fileTree.changes.discardChanges')}
+                      </ContextMenuItem>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem onClick={() => handleCopyPath(file)}>
+                        <Copy className="h-3.5 w-3.5 mr-2" />
+                        {t('fileTree.changes.copyPath')}
                       </ContextMenuItem>
                     </ContextMenuContent>
                   }
@@ -663,6 +713,10 @@ export function ChangesView({
                   onStageToggle={handleStageFile}
                   contextMenu={
                     <ContextMenuContent>
+                      <ContextMenuItem onClick={() => handleOpenSourceFile(file)}>
+                        <FileCode className="h-3.5 w-3.5 mr-2" />
+                        {t('fileTree.changes.openSourceFile')}
+                      </ContextMenuItem>
                       <ContextMenuItem onClick={() => handleStageFile(file)}>
                         <Plus className="h-3.5 w-3.5 mr-2" />
                         {t('fileTree.changes.stage')}
@@ -694,6 +748,11 @@ export function ChangesView({
                       >
                         <EyeOff className="h-3.5 w-3.5 mr-2" />
                         {t('fileTree.changes.addToGitignore')}
+                      </ContextMenuItem>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem onClick={() => handleCopyPath(file)}>
+                        <Copy className="h-3.5 w-3.5 mr-2" />
+                        {t('fileTree.changes.copyPath')}
                       </ContextMenuItem>
                     </ContextMenuContent>
                   }
@@ -953,9 +1012,25 @@ const MemberChanges = memo(function MemberChanges({
               onStageToggle={handleUnstageToggle}
               contextMenu={
                 <ContextMenuContent>
+                  <ContextMenuItem onClick={() => {
+                    const fullPath = `${wp}/${file.relativePath}`
+                    const fileName = file.relativePath.split('/').pop() || file.relativePath
+                    useFileViewerStore.getState().openFile(fullPath, fileName, member.worktree_id)
+                  }}>
+                    <FileCode className="h-3.5 w-3.5 mr-2" />
+                    {t('fileTree.changes.openSourceFile')}
+                  </ContextMenuItem>
                   <ContextMenuItem onClick={() => onUnstageFile(wp, file.relativePath)}>
                     <Minus className="h-3.5 w-3.5 mr-2" />
                     {t('fileTree.changes.unstage')}
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem onClick={() => {
+                    navigator.clipboard.writeText(file.relativePath)
+                    toast.success(t('fileTree.changes.pathCopied'))
+                  }}>
+                    <Copy className="h-3.5 w-3.5 mr-2" />
+                    {t('fileTree.changes.copyPath')}
                   </ContextMenuItem>
                 </ContextMenuContent>
               }
@@ -992,6 +1067,14 @@ const MemberChanges = memo(function MemberChanges({
               onStageToggle={handleStageToggle}
               contextMenu={
                 <ContextMenuContent>
+                  <ContextMenuItem onClick={() => {
+                    const fullPath = `${wp}/${file.relativePath}`
+                    const fileName = file.relativePath.split('/').pop() || file.relativePath
+                    useFileViewerStore.getState().openFile(fullPath, fileName, member.worktree_id)
+                  }}>
+                    <FileCode className="h-3.5 w-3.5 mr-2" />
+                    {t('fileTree.changes.openSourceFile')}
+                  </ContextMenuItem>
                   <ContextMenuItem onClick={() => onStageFile(wp, file.relativePath)}>
                     <Plus className="h-3.5 w-3.5 mr-2" />
                     {t('fileTree.changes.stage')}
@@ -1003,6 +1086,14 @@ const MemberChanges = memo(function MemberChanges({
                   >
                     <Undo2 className="h-3.5 w-3.5 mr-2" />
                     {t('fileTree.changes.discardChanges')}
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem onClick={() => {
+                    navigator.clipboard.writeText(file.relativePath)
+                    toast.success(t('fileTree.changes.pathCopied'))
+                  }}>
+                    <Copy className="h-3.5 w-3.5 mr-2" />
+                    {t('fileTree.changes.copyPath')}
                   </ContextMenuItem>
                 </ContextMenuContent>
               }
@@ -1027,9 +1118,25 @@ const MemberChanges = memo(function MemberChanges({
               onStageToggle={handleStageToggle}
               contextMenu={
                 <ContextMenuContent>
+                  <ContextMenuItem onClick={() => {
+                    const fullPath = `${wp}/${file.relativePath}`
+                    const fileName = file.relativePath.split('/').pop() || file.relativePath
+                    useFileViewerStore.getState().openFile(fullPath, fileName, member.worktree_id)
+                  }}>
+                    <FileCode className="h-3.5 w-3.5 mr-2" />
+                    {t('fileTree.changes.openSourceFile')}
+                  </ContextMenuItem>
                   <ContextMenuItem onClick={() => onStageFile(wp, file.relativePath)}>
                     <Plus className="h-3.5 w-3.5 mr-2" />
                     {t('fileTree.changes.stage')}
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem onClick={() => {
+                    navigator.clipboard.writeText(file.relativePath)
+                    toast.success(t('fileTree.changes.pathCopied'))
+                  }}>
+                    <Copy className="h-3.5 w-3.5 mr-2" />
+                    {t('fileTree.changes.copyPath')}
                   </ContextMenuItem>
                 </ContextMenuContent>
               }
