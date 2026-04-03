@@ -129,6 +129,11 @@ interface GitStoreState {
   ) => Promise<{ success: boolean; error?: string }>
 }
 
+// In-flight request dedup maps — prevents duplicate IPC calls when multiple
+// components simultaneously request the same worktree's git status.
+const pendingFileStatuses = new Map<string, Promise<void>>()
+const pendingBranchInfo = new Map<string, Promise<void>>()
+
 export const useGitStore = create<GitStoreState>()((set, get) => ({
   // Initial state
   fileStatusesByWorktree: new Map(),
@@ -161,58 +166,78 @@ export const useGitStore = create<GitStoreState>()((set, get) => ({
   // Diff branch comparison
   selectedDiffBranch: new Map(),
 
-  // Load file statuses for a worktree
+  // Load file statuses for a worktree (deduplicated)
   loadFileStatuses: async (worktreePath: string) => {
-    set({ isLoading: true, error: null })
-    try {
-      const result = await window.gitOps.getFileStatuses(worktreePath)
-      if (!result.success || !result.files) {
+    const pending = pendingFileStatuses.get(worktreePath)
+    if (pending) return pending
+
+    const promise = (async () => {
+      set({ isLoading: true, error: null })
+      try {
+        const result = await window.gitOps.getFileStatuses(worktreePath)
+        if (!result.success || !result.files) {
+          set({
+            error: result.error || 'Failed to load file statuses',
+            isLoading: false
+          })
+          return
+        }
+
+        const files = result.files!
+        const hasConflicts = files.some((f) => f.status === 'C')
+
+        set((state) => {
+          const newMap = new Map(state.fileStatusesByWorktree)
+          newMap.set(worktreePath, files)
+          return {
+            fileStatusesByWorktree: newMap,
+            isLoading: false,
+            conflictsByWorktree: {
+              ...state.conflictsByWorktree,
+              [worktreePath]: hasConflicts
+            }
+          }
+        })
+      } catch (error) {
         set({
-          error: result.error || 'Failed to load file statuses',
+          error: error instanceof Error ? error.message : 'Failed to load file statuses',
           isLoading: false
         })
-        return
+      } finally {
+        pendingFileStatuses.delete(worktreePath)
       }
+    })()
 
-      const files = result.files!
-      const hasConflicts = files.some((f) => f.status === 'C')
-
-      set((state) => {
-        const newMap = new Map(state.fileStatusesByWorktree)
-        newMap.set(worktreePath, files)
-        return {
-          fileStatusesByWorktree: newMap,
-          isLoading: false,
-          conflictsByWorktree: {
-            ...state.conflictsByWorktree,
-            [worktreePath]: hasConflicts
-          }
-        }
-      })
-    } catch (error) {
-      set({
-        error: error instanceof Error ? error.message : 'Failed to load file statuses',
-        isLoading: false
-      })
-    }
+    pendingFileStatuses.set(worktreePath, promise)
+    return promise
   },
 
-  // Load branch info for a worktree
+  // Load branch info for a worktree (deduplicated)
   loadBranchInfo: async (worktreePath: string) => {
-    try {
-      const result = await window.gitOps.getBranchInfo(worktreePath)
-      if (!result.success || !result.branch) {
-        return
-      }
+    const pending = pendingBranchInfo.get(worktreePath)
+    if (pending) return pending
 
-      set((state) => {
-        const newMap = new Map(state.branchInfoByWorktree)
-        newMap.set(worktreePath, result.branch!)
-        return { branchInfoByWorktree: newMap }
-      })
-    } catch (error) {
-      console.error('Failed to load branch info:', error)
-    }
+    const promise = (async () => {
+      try {
+        const result = await window.gitOps.getBranchInfo(worktreePath)
+        if (!result.success || !result.branch) {
+          return
+        }
+
+        set((state) => {
+          const newMap = new Map(state.branchInfoByWorktree)
+          newMap.set(worktreePath, result.branch!)
+          return { branchInfoByWorktree: newMap }
+        })
+      } catch (error) {
+        console.error('Failed to load branch info:', error)
+      } finally {
+        pendingBranchInfo.delete(worktreePath)
+      }
+    })()
+
+    pendingBranchInfo.set(worktreePath, promise)
+    return promise
   },
 
   // Get file statuses for a worktree

@@ -134,6 +134,21 @@ export function registerTerminalHandlers(mainWindow: BrowserWindow): void {
     ptyService.destroy(worktreeId)
   })
 
+  // Get the current working directory of a PTY's child process
+  ipcMain.handle('terminal:getCwd', async (_event, id: string) => {
+    log.info('IPC: terminal:getCwd', { id })
+    try {
+      return await ptyService.getCwd(id)
+    } catch (error) {
+      log.error(
+        'IPC: terminal:getCwd failed',
+        error instanceof Error ? error : new Error(String(error)),
+        { id }
+      )
+      return null
+    }
+  })
+
   // Get Ghostty config for terminal theming
   ipcMain.handle('terminal:getConfig', () => {
     log.info('IPC: terminal:getConfig')

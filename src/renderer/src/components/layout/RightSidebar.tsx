@@ -148,7 +148,7 @@ export function RightSidebar(): React.JSX.Element {
           style={{ flex: `${1 - splitFraction} 1 0%` }}
           data-testid="right-sidebar-bottom"
         >
-          <BottomPanel terminalSlot={terminalManager} isConnectionMode={isConnectionMode} />
+          <BottomPanel terminalSlot={terminalManager} isConnectionMode={isConnectionMode} worktreePath={selectedWorktreePath} />
         </div>
       </aside>
     </div>

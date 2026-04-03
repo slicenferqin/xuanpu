@@ -825,6 +825,7 @@ declare global {
       write: (worktreeId: string, data: string) => void
       resize: (worktreeId: string, cols: number, rows: number) => Promise<void>
       destroy: (worktreeId: string) => Promise<void>
+      getCwd: (id: string) => Promise<string | null>
       onData: (worktreeId: string, callback: (data: string) => void) => () => void
       onExit: (worktreeId: string, callback: (code: number) => void) => () => void
       getConfig: () => Promise<GhosttyTerminalConfig>

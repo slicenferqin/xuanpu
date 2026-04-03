@@ -5,7 +5,8 @@ import {
   useLayoutStore,
   useSessionHistoryStore,
   useCommandPaletteStore,
-  useFileSearchStore
+  useFileSearchStore,
+  useBottomTerminalStore
 } from '@/stores'
 import { useGitStore } from '@/stores/useGitStore'
 import { useShortcutStore } from '@/stores/useShortcutStore'
@@ -313,6 +314,69 @@ function getShortcutHandlers(
       allowInInput: true,
       handler: () => {
         window.dispatchEvent(new CustomEvent('hive:cycle-variant'))
+      }
+    },
+
+    // =====================
+    // Terminal tab shortcuts
+    // =====================
+    {
+      id: 'terminal:new-tab',
+      binding: getEffectiveBinding('terminal:new-tab'),
+      allowInInput: true,
+      handler: () => {
+        const worktreeId = useWorktreeStore.getState().selectedWorktreeId
+        if (!worktreeId) return
+        const worktreePath = getActiveWorktreePath()
+        const store = useBottomTerminalStore.getState()
+        const activeTab = store.getActiveTab(worktreeId)
+        // Try to inherit cwd from active terminal
+        if (activeTab) {
+          window.terminalOps
+            .getCwd(activeTab.id)
+            .then((cwd) => {
+              store.createTab(worktreeId, cwd ?? worktreePath ?? '/')
+            })
+            .catch(() => {
+              store.createTab(worktreeId, worktreePath ?? '/')
+            })
+        } else {
+          store.createTab(worktreeId, worktreePath ?? '/')
+        }
+        // Ensure the bottom panel is showing the terminal tab
+        useLayoutStore.getState().setBottomPanelTab('terminal')
+      }
+    },
+    {
+      id: 'terminal:close-tab',
+      binding: getEffectiveBinding('terminal:close-tab'),
+      allowInInput: true,
+      handler: () => {
+        const worktreeId = useWorktreeStore.getState().selectedWorktreeId
+        if (!worktreeId) return
+        const store = useBottomTerminalStore.getState()
+        const activeTabId = store.getActiveTabId(worktreeId)
+        if (activeTabId) store.closeTab(activeTabId)
+      }
+    },
+    {
+      id: 'terminal:next-tab',
+      binding: getEffectiveBinding('terminal:next-tab'),
+      allowInInput: true,
+      handler: () => {
+        const worktreeId = useWorktreeStore.getState().selectedWorktreeId
+        if (!worktreeId) return
+        useBottomTerminalStore.getState().nextTab(worktreeId)
+      }
+    },
+    {
+      id: 'terminal:prev-tab',
+      binding: getEffectiveBinding('terminal:prev-tab'),
+      allowInInput: true,
+      handler: () => {
+        const worktreeId = useWorktreeStore.getState().selectedWorktreeId
+        if (!worktreeId) return
+        useBottomTerminalStore.getState().prevTab(worktreeId)
       }
     },
 

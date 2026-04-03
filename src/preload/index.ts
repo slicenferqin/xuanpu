@@ -1494,6 +1494,9 @@ const terminalOps = {
   destroy: (worktreeId: string): Promise<void> =>
     ipcRenderer.invoke('terminal:destroy', worktreeId),
 
+  getCwd: (id: string): Promise<string | null> =>
+    ipcRenderer.invoke('terminal:getCwd', id),
+
   onData: (worktreeId: string, callback: (data: string) => void): (() => void) => {
     const channel = `terminal:data:${worktreeId}`
     const handler = (_event: Electron.IpcRendererEvent, data: string): void => {

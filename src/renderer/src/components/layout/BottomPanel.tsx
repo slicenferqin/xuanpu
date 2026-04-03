@@ -15,6 +15,7 @@ import { RunTab } from './RunTab'
 import { toast } from '@/lib/toast'
 import { useGhosttyPromotion } from '@/hooks/useGhosttyPromotion'
 import { useI18n } from '@/i18n/useI18n'
+import { TerminalTabBar } from '@/components/terminal/TerminalTabBar'
 
 const tabs: { id: BottomPanelTab; label: string; keybind: string }[] = [
   { id: 'terminal', label: 'Terminal', keybind: 'T' },
@@ -27,11 +28,14 @@ interface BottomPanelProps {
   terminalSlot: React.ReactNode
   /** When true, only the terminal tab is shown (setup/run are worktree-specific) */
   isConnectionMode?: boolean
+  /** The path of the selected worktree (for terminal tab bar fallback cwd) */
+  worktreePath?: string | null
 }
 
 export function BottomPanel({
   terminalSlot,
-  isConnectionMode
+  isConnectionMode,
+  worktreePath
 }: BottomPanelProps): React.JSX.Element {
   const { t, supportsFirstCharHint } = useI18n()
   const activeTab = useLayoutStore((s) => s.bottomPanelTab)
@@ -223,8 +227,16 @@ export function BottomPanel({
         {effectiveTab === 'run' && <RunTab worktreeId={selectedWorktreeId} />}
         {effectiveTab === 'setup' && <SetupTab worktreeId={selectedWorktreeId} />}
         {/* Terminal slot is always rendered but hidden when not active, preserving PTY state */}
-        <div className={effectiveTab === 'terminal' ? 'h-full w-full' : 'hidden'}>
-          {terminalSlot}
+        <div className={effectiveTab === 'terminal' ? 'h-full w-full flex flex-col' : 'hidden'}>
+          {selectedWorktreeId && worktreePath && (
+            <TerminalTabBar
+              worktreeId={selectedWorktreeId}
+              worktreeCwd={worktreePath}
+            />
+          )}
+          <div className="flex-1 min-h-0">
+            {terminalSlot}
+          </div>
         </div>
       </div>
     </div>

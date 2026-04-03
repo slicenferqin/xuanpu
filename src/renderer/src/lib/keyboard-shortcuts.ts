@@ -63,6 +63,36 @@ export const DEFAULT_SHORTCUTS: ShortcutDefinition[] = [
     defaultBinding: { key: 't', modifiers: ['alt'] }
   },
 
+  // Terminal tab shortcuts
+  {
+    id: 'terminal:new-tab',
+    label: 'New Terminal Tab',
+    description: 'Create a new terminal tab in the bottom panel',
+    category: 'session',
+    defaultBinding: { key: 't', modifiers: ['ctrl', 'shift'] }
+  },
+  {
+    id: 'terminal:close-tab',
+    label: 'Close Terminal Tab',
+    description: 'Close the active terminal tab in the bottom panel',
+    category: 'session',
+    defaultBinding: { key: 'w', modifiers: ['ctrl', 'shift'] }
+  },
+  {
+    id: 'terminal:next-tab',
+    label: 'Next Terminal Tab',
+    description: 'Switch to the next terminal tab',
+    category: 'session',
+    defaultBinding: { key: ']', modifiers: ['ctrl', 'shift'] }
+  },
+  {
+    id: 'terminal:prev-tab',
+    label: 'Previous Terminal Tab',
+    description: 'Switch to the previous terminal tab',
+    category: 'session',
+    defaultBinding: { key: '[', modifiers: ['ctrl', 'shift'] }
+  },
+
   // Navigation shortcuts
   {
     id: 'nav:file-search',

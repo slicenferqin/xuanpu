@@ -538,7 +538,7 @@ export class GitService {
    */
   async getFileStatuses(): Promise<GitStatusResult> {
     try {
-      const status = await this.git.status()
+      const status = await this.git.status(['--untracked-files=normal'])
       const files: GitFileStatus[] = []
       const conflictedSet = new Set(status.conflicted)
 
@@ -643,7 +643,7 @@ export class GitService {
   async discardChanges(filePath: string): Promise<GitOperationResult> {
     try {
       // First check if file is untracked
-      const status = await this.git.status()
+      const status = await this.git.status(['--untracked-files=normal'])
       const isUntracked = status.not_added.includes(filePath)
 
       if (isUntracked) {
@@ -673,7 +673,7 @@ export class GitService {
    */
   async getBranchInfo(): Promise<GitBranchInfoResult> {
     try {
-      const status = await this.git.status()
+      const status = await this.git.status(['--untracked-files=normal'])
       const branchName = status.current || 'HEAD'
 
       // Get tracking branch info
@@ -789,7 +789,7 @@ export class GitService {
       }
 
       // Check if there are staged files
-      const status = await this.git.status()
+      const status = await this.git.status(['--untracked-files=normal'])
       const hasStagedChanges = status.staged.length > 0 || status.created.length > 0
 
       if (!hasStagedChanges) {
@@ -833,7 +833,7 @@ export class GitService {
       }
 
       // Set upstream if not tracking
-      const status = await this.git.status()
+      const status = await this.git.status(['--untracked-files=normal'])
       if (!status.tracking) {
         options.push('--set-upstream')
       }
@@ -1570,7 +1570,7 @@ export class GitService {
 
       // Untracked files: count their lines as additions
       try {
-        const status = await this.git.status()
+        const status = await this.git.status(['--untracked-files=normal'])
         for (const file of status.not_added) {
           if (seen.has(file)) continue
           seen.add(file)

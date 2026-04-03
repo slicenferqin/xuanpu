@@ -35,6 +35,7 @@ export { useCommandApprovalStore, type CommandApprovalRequest } from './useComma
 export { usePromptHistoryStore } from './usePromptHistoryStore'
 export { useSpaceStore } from './useSpaceStore'
 export { useTerminalStore, type TerminalStatus, type TerminalInfo } from './useTerminalStore'
+export { useBottomTerminalStore, type BottomTerminalTab } from './useBottomTerminalStore'
 export { useConnectionStore } from './useConnectionStore'
 export { useRecentStore } from './useRecentStore'
 export { usePinnedStore } from './usePinnedStore'

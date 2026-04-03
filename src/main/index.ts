@@ -209,16 +209,7 @@ function createWindow(): void {
       mainWindow!.webContents.send('shortcut:close-session')
     }
 
-    // Block zoom shortcuts — Ghostty native overlay requires 1:1 coordinate mapping.
-    // Any zoom level breaks the CSS-to-AppKit point sync for the NSView overlay.
-    if (
-      (input.meta || input.control) &&
-      !input.alt &&
-      (input.key === '=' || input.key === '+' || input.key === '-') &&
-      input.type === 'keyDown'
-    ) {
-      event.preventDefault()
-    }
+    // Allow standard zoom shortcuts (Cmd+=/-, Cmd+0) to pass through to Chromium.
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -338,7 +329,7 @@ function registerSystemHandlers(): void {
   })
 
   // Detect which agent SDKs are installed on the system (first-launch setup)
-  ipcMain.handle('system:detectAgentSdks', () => {
+  ipcMain.handle('system:detectAgentRuntimes', () => {
     return detectAgentSdks()
   })
 

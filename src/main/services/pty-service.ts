@@ -1,5 +1,10 @@
 import * as pty from 'node-pty'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
+import { readlink } from 'fs/promises'
 import { createLogger } from './logger'
+
+const execFileAsync = promisify(execFile)
 
 const log = createLogger({ component: 'PtyService' })
 
@@ -219,6 +224,43 @@ class PtyService {
 
   getIds(): string[] {
     return Array.from(this.ptys.keys())
+  }
+
+  /**
+   * Get the current working directory of a PTY's child process.
+   * Uses platform-specific methods to resolve the actual cwd (not just the initial cwd).
+   * Falls back to the initial cwd if the platform method fails.
+   */
+  async getCwd(id: string): Promise<string | null> {
+    const instance = this.ptys.get(id)
+    if (!instance) return null
+
+    const pid = instance.pty.pid
+    try {
+      if (process.platform === 'darwin') {
+        // macOS: use lsof to find the cwd of the process (with 2s timeout to avoid blocking)
+        const { stdout } = await execFileAsync('lsof', ['-a', '-d', 'cwd', '-p', String(pid), '-Fn'], { timeout: 2000 })
+        // lsof -Fn outputs lines like: p<pid>\nn<path>
+        const lines = stdout.split('\n')
+        for (const line of lines) {
+          if (line.startsWith('n') && line.length > 1) {
+            return line.slice(1)
+          }
+        }
+      } else if (process.platform === 'linux') {
+        // Linux: readlink /proc/<pid>/cwd
+        return await readlink(`/proc/${pid}/cwd`)
+      }
+    } catch (err) {
+      log.warn('Failed to get PTY cwd, falling back to initial cwd', {
+        id,
+        pid,
+        error: err instanceof Error ? err.message : String(err)
+      })
+    }
+
+    // Fallback: return the initial cwd from creation time
+    return instance.cwd
   }
 
   /**
