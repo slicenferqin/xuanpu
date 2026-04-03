@@ -214,6 +214,36 @@ export function buildMenu(mainWindow: BrowserWindow, isDev: boolean): Menu {
           click: () => send('menu:focus-main-pane')
         },
         { type: 'separator' },
+        {
+          label: 'Zoom In',
+          accelerator: 'CmdOrCtrl+=',
+          click: () => {
+            if (_mainWindow && !_mainWindow.isDestroyed()) {
+              const current = _mainWindow.webContents.getZoomLevel()
+              _mainWindow.webContents.setZoomLevel(Math.min(current + 0.5, 5))
+            }
+          }
+        },
+        {
+          label: 'Zoom Out',
+          accelerator: 'CmdOrCtrl+-',
+          click: () => {
+            if (_mainWindow && !_mainWindow.isDestroyed()) {
+              const current = _mainWindow.webContents.getZoomLevel()
+              _mainWindow.webContents.setZoomLevel(Math.max(current - 0.5, -5))
+            }
+          }
+        },
+        {
+          label: 'Reset Zoom',
+          accelerator: 'CmdOrCtrl+0',
+          click: () => {
+            if (_mainWindow && !_mainWindow.isDestroyed()) {
+              _mainWindow.webContents.setZoomLevel(0)
+            }
+          }
+        },
+        { type: 'separator' },
         { role: 'togglefullscreen' },
         ...(isDev ? [{ role: 'toggleDevTools' as const }] : [])
       ]

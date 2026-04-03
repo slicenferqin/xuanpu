@@ -209,7 +209,44 @@ function createWindow(): void {
       mainWindow!.webContents.send('shortcut:close-session')
     }
 
-    // Allow standard zoom shortcuts (Cmd+=/-, Cmd+0) to pass through to Chromium.
+    // Zoom In (Cmd+= / Cmd+Shift+=)
+    if (
+      (input.key === '=' || input.key === '+') &&
+      (input.meta || input.control) &&
+      !input.alt &&
+      input.type === 'keyDown'
+    ) {
+      event.preventDefault()
+      const wc = mainWindow!.webContents
+      const current = wc.getZoomLevel()
+      wc.setZoomLevel(Math.min(current + 0.5, 5))
+    }
+
+    // Zoom Out (Cmd+-)
+    if (
+      input.key === '-' &&
+      (input.meta || input.control) &&
+      !input.alt &&
+      !input.shift &&
+      input.type === 'keyDown'
+    ) {
+      event.preventDefault()
+      const wc = mainWindow!.webContents
+      const current = wc.getZoomLevel()
+      wc.setZoomLevel(Math.max(current - 0.5, -5))
+    }
+
+    // Reset Zoom (Cmd+0)
+    if (
+      input.key === '0' &&
+      (input.meta || input.control) &&
+      !input.alt &&
+      !input.shift &&
+      input.type === 'keyDown'
+    ) {
+      event.preventDefault()
+      mainWindow!.webContents.setZoomLevel(0)
+    }
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
