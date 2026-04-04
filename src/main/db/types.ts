@@ -222,6 +222,72 @@ export interface SessionActivityCreate {
   created_at?: string
 }
 
+export interface UsageEntry {
+  id: string
+  session_id: string
+  project_id: string
+  worktree_id: string | null
+  agent_sdk: 'claude-code' | 'codex'
+  source_kind: 'claude-transcript' | 'codex-message'
+  source_message_id: string
+  provider_id: string | null
+  model_id: string | null
+  model_label: string | null
+  input_tokens: number
+  output_tokens: number
+  cache_write_tokens: number
+  cache_read_tokens: number
+  total_tokens: number
+  cost: number
+  occurred_at: string
+  created_at: string
+}
+
+export interface UsageEntryCreate {
+  id?: string
+  session_id: string
+  project_id: string
+  worktree_id?: string | null
+  agent_sdk: 'claude-code' | 'codex'
+  source_kind: 'claude-transcript' | 'codex-message'
+  source_message_id: string
+  provider_id?: string | null
+  model_id?: string | null
+  model_label?: string | null
+  input_tokens?: number
+  output_tokens?: number
+  cache_write_tokens?: number
+  cache_read_tokens?: number
+  total_tokens?: number
+  cost?: number
+  occurred_at: string
+  created_at?: string
+}
+
+export interface UsageSyncState {
+  session_id: string
+  agent_sdk: 'claude-code' | 'codex'
+  source_kind: 'claude-transcript' | 'codex-message'
+  source_ref: string | null
+  source_mtime_ms: number | null
+  status: 'pending' | 'synced' | 'partial' | 'error'
+  entry_count: number
+  last_synced_at: string | null
+  last_error: string | null
+}
+
+export interface UsageSyncStateUpsert {
+  session_id: string
+  agent_sdk: 'claude-code' | 'codex'
+  source_kind: 'claude-transcript' | 'codex-message'
+  source_ref?: string | null
+  source_mtime_ms?: number | null
+  status: 'pending' | 'synced' | 'partial' | 'error'
+  entry_count?: number
+  last_synced_at?: string | null
+  last_error?: string | null
+}
+
 export interface Setting {
   key: string
   value: string

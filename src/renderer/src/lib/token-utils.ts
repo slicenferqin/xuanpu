@@ -1,4 +1,9 @@
 import type { SessionModelRef, TokenInfo } from '@/stores/useContextStore'
+import {
+  extractUsageCost,
+  extractUsageModelRef,
+  extractUsageTokens
+} from '@shared/usage/message'
 
 export interface SelectedModelRef {
   providerID: string
@@ -25,106 +30,37 @@ function firstFiniteNumber(...values: unknown[]): number {
   return 0
 }
 
-/**
- * Extract token info from a parsed message JSON object.
- * Checks multiple paths to handle format differences between SDKs:
- *   - OpenCode: `tokens` / `info.tokens` with `cacheRead`, `cacheWrite`
- *   - Claude Code: `usage` / `info.usage` with `cacheRead`, `cacheCreation`
- * Returns null if no tokens are present or all values are zero.
- */
 export function extractTokens(messageData: Record<string, unknown>): TokenInfo | null {
-  const info = asRecord(messageData.info)
-  const contextWindow = asRecord(messageData.context_window ?? info?.context_window)
-  const currentUsage = asRecord(contextWindow?.current_usage)
-  // OpenCode uses `tokens`/`info.tokens`; Claude Code uses `usage`/`info.usage`
-  const tokens = asRecord(
-    messageData.tokens ?? info?.tokens ?? messageData.usage ?? info?.usage ?? currentUsage
-  )
+  const tokens = extractUsageTokens(messageData)
   if (!tokens) return null
 
-  const cache = asRecord(tokens.cache)
-  const result: TokenInfo = {
-    input: firstFiniteNumber(tokens.input, tokens.input_tokens, tokens.inputTokens),
-    output: firstFiniteNumber(tokens.output, tokens.output_tokens, tokens.outputTokens),
-    reasoning: firstFiniteNumber(tokens.reasoning, tokens.reasoning_tokens, tokens.reasoningTokens),
-    cacheRead: firstFiniteNumber(
-      tokens.cacheRead,
-      tokens.cache_read,
-      tokens.cacheReadInputTokens,
-      tokens.cache_read_input_tokens,
-      cache?.read
-    ),
-    cacheWrite: firstFiniteNumber(
-      tokens.cacheWrite,
-      tokens.cache_write,
-      tokens.cacheWriteInputTokens,
-      tokens.cache_write_input_tokens,
-      cache?.write,
-      // Claude Code SDK uses "cacheCreation" instead of "cacheWrite"
-      tokens.cacheCreation,
-      tokens.cache_creation,
-      tokens.cacheCreationInputTokens,
-      tokens.cache_creation_input_tokens
-    )
-  }
+  const info = asRecord(messageData.info)
+  const rawTokens =
+    asRecord(messageData.tokens) ??
+    asRecord(info?.tokens) ??
+    asRecord(messageData.usage) ??
+    asRecord(info?.usage)
+  const reasoning = rawTokens
+    ? firstFiniteNumber(rawTokens.reasoning, rawTokens.reasoning_tokens, rawTokens.reasoningTokens)
+    : 0
 
-  const total =
-    result.input + result.output + result.reasoning + result.cacheRead + result.cacheWrite
-  return total > 0 ? result : null
+  return {
+    input: tokens.input,
+    output: tokens.output,
+    reasoning,
+    cacheRead: tokens.cacheRead,
+    cacheWrite: tokens.cacheWrite
+  }
 }
 
-/**
- * Extract cost from a parsed OpenCode message JSON object.
- * Checks both top-level `cost` and nested `info.cost` paths.
- * Returns 0 if no cost is present.
- */
 export function extractCost(messageData: Record<string, unknown>): number {
-  const info = asRecord(messageData.info)
-  const cost = messageData.cost ?? info?.cost
-  return typeof cost === 'number' ? cost : 0
+  return extractUsageCost(messageData)
 }
 
-/**
- * Extract provider/model identity from a parsed OpenCode message JSON object.
- * Checks both top-level fields and nested `info` fields.
- */
 export function extractModelRef(messageData: Record<string, unknown>): SessionModelRef | null {
-  const info = asRecord(messageData.info)
-  const modelObj = asRecord(messageData.model) ?? asRecord(info?.model)
-
-  const providerFromModel = modelObj?.providerID
-  const modelFromModel = modelObj?.modelID ?? modelObj?.id
-
-  let providerID =
-    (typeof providerFromModel === 'string' ? providerFromModel : undefined) ??
-    (typeof messageData.providerID === 'string' ? messageData.providerID : undefined) ??
-    (typeof info?.providerID === 'string' ? info.providerID : undefined)
-  let modelID =
-    (typeof modelFromModel === 'string' ? modelFromModel : undefined) ??
-    (typeof messageData.modelID === 'string' ? messageData.modelID : undefined) ??
-    (typeof info?.modelID === 'string' ? info.modelID : undefined)
-
-  const modelString =
-    (typeof messageData.model === 'string' ? messageData.model : undefined) ??
-    (typeof info?.model === 'string' ? info.model : undefined)
-
-  if ((!providerID || !modelID) && modelString) {
-    const [providerPart, modelPart] = modelString.split('/')
-    if (providerPart && modelPart) {
-      providerID = providerID ?? providerPart
-      modelID = modelID ?? modelPart
-    }
-  }
-
-  if (typeof providerID !== 'string' || typeof modelID !== 'string') {
-    return null
-  }
-
-  if (!providerID || !modelID) {
-    return null
-  }
-
-  return { providerID, modelID }
+  const modelRef = extractUsageModelRef(messageData)
+  if (!modelRef?.providerID) return null
+  return { providerID: modelRef.providerID, modelID: modelRef.modelID }
 }
 
 export interface ModelUsageEntry {

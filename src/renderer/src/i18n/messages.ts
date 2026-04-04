@@ -20,6 +20,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         terminal: 'Terminal',
         security: 'Security',
         privacy: 'Privacy',
+        usage: 'Usage',
         shortcuts: 'Shortcuts',
         updates: 'Updates'
       },
@@ -267,6 +268,66 @@ export const messages: Record<AppLocale, MessageTree> = {
           idle: 'Check for Updates',
           busy: 'Checking...'
         }
+      },
+      usage: {
+        title: 'Usage Analytics',
+        description: 'Review local session cost and token usage for Claude and Codex.',
+        actions: {
+          refresh: 'Refresh',
+          resync: 'Resync'
+        },
+        filters: {
+          range: 'Range',
+          engine: 'Engine'
+        },
+        ranges: {
+          today: 'Today',
+          '7d': 'Last 7 Days',
+          '30d': 'Last 30 Days',
+          all: 'All Time'
+        },
+        engines: {
+          all: 'All Engines',
+          'claude-code': 'Claude',
+          codex: 'OpenAI Codex'
+        },
+        summary: {
+          totalCost: 'Total Cost',
+          totalSessions: 'Sessions',
+          totalTokens: 'Tokens',
+          averageCostPerSession: 'Avg Cost / Session'
+        },
+        tokens: {
+          input: 'Input Tokens',
+          output: 'Output Tokens',
+          cacheWrite: 'Cache Write',
+          cacheRead: 'Cache Read'
+        },
+        tabs: {
+          overview: 'Overview',
+          models: 'By Model',
+          projects: 'By Project',
+          sessions: 'Sessions',
+          timeline: 'Timeline'
+        },
+        overview: {
+          topModels: 'Top Models',
+          topProjects: 'Top Projects'
+        },
+        tables: {
+          model: 'Model',
+          project: 'Project',
+          session: 'Session',
+          sessions: 'Sessions',
+          tokens: 'Tokens',
+          cost: 'Cost',
+          lastUsed: 'Last Used'
+        },
+        partial: {
+          partialCount: '{count} sessions have incomplete analytics data.',
+          staleCount: '{count} sessions are being refreshed in the background.'
+        },
+        empty: 'No usage data available for the selected range.'
       }
     },
     fileSearch: {
@@ -908,6 +969,18 @@ export const messages: Record<AppLocale, MessageTree> = {
         sendFeedbackTitle: 'Send feedback to revise the plan',
         queueMessage: 'Queue message',
         sendMessage: 'Send message'
+      },
+      costPill: {
+        title: 'Session Cost',
+        totalCost: 'Total Cost',
+        totalTokens: 'Total Tokens',
+        input: 'Input',
+        output: 'Output',
+        cacheWrite: 'Cache Write',
+        cacheRead: 'Cache Read',
+        model: 'Model',
+        duration: 'Duration',
+        partialData: 'Some historical data could not be synchronized yet.'
       },
       connection: {
         disconnectedPlaceholder:
@@ -2004,6 +2077,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         terminal: '终端',
         security: '安全',
         privacy: '隐私',
+        usage: '使用统计',
         shortcuts: '快捷键',
         updates: '更新'
       },
@@ -2237,6 +2311,66 @@ export const messages: Record<AppLocale, MessageTree> = {
           idle: '检查更新',
           busy: '检查中...'
         }
+      },
+      usage: {
+        title: '使用统计',
+        description: '查看 Claude 与 Codex 的本地会话成本和 Token 使用情况。',
+        actions: {
+          refresh: '刷新',
+          resync: '重新同步'
+        },
+        filters: {
+          range: '时间范围',
+          engine: '引擎'
+        },
+        ranges: {
+          today: '今日',
+          '7d': '最近 7 天',
+          '30d': '最近 30 天',
+          all: '全部'
+        },
+        engines: {
+          all: '全部引擎',
+          'claude-code': 'Claude',
+          codex: 'OpenAI Codex'
+        },
+        summary: {
+          totalCost: '总成本',
+          totalSessions: '会话数',
+          totalTokens: '总 Tokens',
+          averageCostPerSession: '平均成本 / 会话'
+        },
+        tokens: {
+          input: '输入 Tokens',
+          output: '输出 Tokens',
+          cacheWrite: 'Cache 写入',
+          cacheRead: 'Cache 读取'
+        },
+        tabs: {
+          overview: '概览',
+          models: '按模型',
+          projects: '按项目',
+          sessions: '会话',
+          timeline: '时间线'
+        },
+        overview: {
+          topModels: '热门模型',
+          topProjects: '热门项目'
+        },
+        tables: {
+          model: '模型',
+          project: '项目',
+          session: '会话',
+          sessions: '会话数',
+          tokens: 'Tokens',
+          cost: '成本',
+          lastUsed: '最近使用'
+        },
+        partial: {
+          partialCount: '有 {count} 个会话的统计数据还不完整。',
+          staleCount: '有 {count} 个会话正在后台刷新。'
+        },
+        empty: '当前筛选范围内还没有可用的使用数据。'
       }
     },
     fileSearch: {
@@ -2873,6 +3007,18 @@ export const messages: Record<AppLocale, MessageTree> = {
         sendFeedbackTitle: '发送反馈以修改计划',
         queueMessage: '加入队列',
         sendMessage: '发送消息'
+      },
+      costPill: {
+        title: '会话计费',
+        totalCost: '总成本',
+        totalTokens: '总 Tokens',
+        input: '输入',
+        output: '输出',
+        cacheWrite: 'Cache 写入',
+        cacheRead: 'Cache 读取',
+        model: '模型',
+        duration: '时长',
+        partialData: '部分历史数据尚未完成同步。'
       },
       connection: {
         disconnectedPlaceholder: 'OpenCode 未连接。请确认已选中 worktree，并且连接已成功建立。'

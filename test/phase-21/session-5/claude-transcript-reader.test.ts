@@ -11,9 +11,10 @@ vi.mock('../../../src/main/services/logger', () => ({
   })
 }))
 
-import { readFile } from 'fs/promises'
+import { readFile, stat } from 'fs/promises'
 import {
   readClaudeTranscript,
+  readClaudeTranscriptUsage,
   encodePath,
   translateEntry,
   translateContentBlock
@@ -24,6 +25,7 @@ import type {
 } from '../../../src/main/services/claude-transcript-reader'
 
 const mockReadFile = vi.mocked(readFile)
+const mockStat = vi.mocked(stat)
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -64,6 +66,7 @@ function buildJsonl(...entries: object[]): string {
 describe('claude-transcript-reader', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    mockStat.mockResolvedValue({ size: 0, mtimeMs: 123 } as never)
   })
 
   // 1. Path encoding
@@ -399,6 +402,113 @@ describe('claude-transcript-reader', () => {
         cache_creation_input_tokens: 20
       })
       expect(result.model).toBe('anthropic/claude-sonnet-4-5-20250929')
+    })
+
+    it('only attaches derived cost to the final assistant snapshot', async () => {
+      const jsonl = buildJsonl(
+        makeAssistantEntry({
+          uuid: 'assistant-1a',
+          message: {
+            id: 'msg-1',
+            role: 'assistant',
+            model: 'claude-sonnet-4-6',
+            usage: {
+              input_tokens: 100,
+              output_tokens: 20,
+              cache_creation_input_tokens: 0,
+              cache_read_input_tokens: 0
+            },
+            content: [{ type: 'text', text: 'partial' }]
+          } as any
+        }),
+        makeAssistantEntry({
+          uuid: 'assistant-1b',
+          timestamp: '2026-02-14T10:00:02.000Z',
+          message: {
+            id: 'msg-1',
+            role: 'assistant',
+            model: 'claude-sonnet-4-6',
+            usage: {
+              input_tokens: 100,
+              output_tokens: 50,
+              cache_creation_input_tokens: 10,
+              cache_read_input_tokens: 5
+            },
+            content: [{ type: 'text', text: 'final' }]
+          } as any
+        })
+      )
+      mockReadFile.mockResolvedValue(jsonl)
+
+      const result = (await readClaudeTranscript('/Users/mor/project', 'session-123')) as Array<
+        Record<string, unknown>
+      >
+
+      expect(result).toHaveLength(2)
+      expect(result[0].cost).toBeUndefined()
+      expect(result[1].cost).toBeCloseTo(0.001089, 10)
+    })
+
+    it('deduplicates repeated assistant snapshots for usage analytics', async () => {
+      const jsonl = buildJsonl(
+        makeAssistantEntry({
+          uuid: 'assistant-1a',
+          message: {
+            id: 'msg-1',
+            role: 'assistant',
+            model: 'claude-opus-4-6',
+            usage: {
+              input_tokens: 10,
+              output_tokens: 5,
+              cache_creation_input_tokens: 0,
+              cache_read_input_tokens: 0
+            },
+            content: [{ type: 'text', text: 'partial' }]
+          } as any
+        }),
+        makeAssistantEntry({
+          uuid: 'assistant-1b',
+          timestamp: '2026-02-14T10:00:02.000Z',
+          message: {
+            id: 'msg-1',
+            role: 'assistant',
+            model: 'claude-opus-4-6',
+            usage: {
+              input_tokens: 20,
+              output_tokens: 10,
+              cache_creation_input_tokens: 5,
+              cache_read_input_tokens: 2
+            },
+            content: [{ type: 'text', text: 'final' }]
+          } as any
+        }),
+        makeAssistantEntry({
+          uuid: 'assistant-2',
+          timestamp: '2026-02-14T10:00:03.000Z',
+          message: {
+            id: 'msg-2',
+            role: 'assistant',
+            model: 'claude-haiku-4-5',
+            usage: {
+              input_tokens: 30,
+              output_tokens: 12,
+              cache_creation_input_tokens: 0,
+              cache_read_input_tokens: 4
+            },
+            content: [{ type: 'text', text: 'another' }]
+          } as any
+        })
+      )
+      mockReadFile.mockResolvedValue(jsonl)
+
+      const result = await readClaudeTranscriptUsage('/Users/mor/project', 'session-usage')
+
+      expect(result.entries).toHaveLength(2)
+      expect(result.entries[0].sourceMessageId).toBe('msg-1')
+      expect(result.entries[0].totalTokens).toBe(37)
+      expect(result.entries[1].sourceMessageId).toBe('msg-2')
+      expect(result.entries[1].cost).toBeGreaterThan(0)
+      expect(result.mtimeMs).toBe(123)
     })
   })
 })

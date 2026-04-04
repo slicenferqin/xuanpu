@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 11
+export const CURRENT_SCHEMA_VERSION = 12
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -92,6 +92,39 @@ CREATE TABLE IF NOT EXISTS session_activities (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS usage_entries (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  worktree_id TEXT REFERENCES worktrees(id) ON DELETE SET NULL,
+  agent_sdk TEXT NOT NULL,
+  source_kind TEXT NOT NULL,
+  source_message_id TEXT NOT NULL,
+  provider_id TEXT,
+  model_id TEXT,
+  model_label TEXT,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+  total_tokens INTEGER NOT NULL DEFAULT 0,
+  cost REAL NOT NULL DEFAULT 0,
+  occurred_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS usage_sync_state (
+  session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+  agent_sdk TEXT NOT NULL,
+  source_kind TEXT NOT NULL,
+  source_ref TEXT,
+  source_mtime_ms INTEGER,
+  status TEXT NOT NULL DEFAULT 'pending',
+  entry_count INTEGER NOT NULL DEFAULT 0,
+  last_synced_at TEXT,
+  last_error TEXT
+);
+
 -- Settings table
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
@@ -129,6 +162,16 @@ CREATE INDEX IF NOT EXISTS idx_session_activities_session_created
   ON session_activities(session_id, created_at, id);
 CREATE INDEX IF NOT EXISTS idx_session_activities_session_turn
   ON session_activities(session_id, turn_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_entries_session_source
+  ON usage_entries(session_id, source_message_id);
+CREATE INDEX IF NOT EXISTS idx_usage_entries_occurred
+  ON usage_entries(occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_entries_agent_occurred
+  ON usage_entries(agent_sdk, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_entries_project_occurred
+  ON usage_entries(project_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_sync_state_status
+  ON usage_sync_state(status, last_synced_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at);
 CREATE INDEX IF NOT EXISTS idx_projects_accessed ON projects(last_accessed_at);
 CREATE INDEX IF NOT EXISTS idx_project_spaces_space ON project_spaces(space_id);
@@ -157,12 +200,19 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_messages_session;
       DROP INDEX IF EXISTS idx_session_activities_session_turn;
       DROP INDEX IF EXISTS idx_session_activities_session_created;
+      DROP INDEX IF EXISTS idx_usage_sync_state_status;
+      DROP INDEX IF EXISTS idx_usage_entries_project_occurred;
+      DROP INDEX IF EXISTS idx_usage_entries_agent_occurred;
+      DROP INDEX IF EXISTS idx_usage_entries_occurred;
+      DROP INDEX IF EXISTS idx_usage_entries_session_source;
       DROP INDEX IF EXISTS idx_sessions_project;
       DROP INDEX IF EXISTS idx_sessions_worktree;
       DROP INDEX IF EXISTS idx_worktrees_project;
       DROP TABLE IF EXISTS project_spaces;
       DROP TABLE IF EXISTS spaces;
       DROP TABLE IF EXISTS settings;
+      DROP TABLE IF EXISTS usage_sync_state;
+      DROP TABLE IF EXISTS usage_entries;
       DROP TABLE IF EXISTS session_activities;
       DROP TABLE IF EXISTS session_messages;
       DROP TABLE IF EXISTS sessions;
@@ -315,6 +365,64 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_sessions_connection_status;
       DROP INDEX IF EXISTS idx_worktrees_project_status;
       DROP INDEX IF EXISTS idx_worktrees_status_message;
+    `
+  },
+  {
+    version: 12,
+    name: 'add_usage_analytics',
+    up: `
+      CREATE TABLE IF NOT EXISTS usage_entries (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        worktree_id TEXT REFERENCES worktrees(id) ON DELETE SET NULL,
+        agent_sdk TEXT NOT NULL,
+        source_kind TEXT NOT NULL,
+        source_message_id TEXT NOT NULL,
+        provider_id TEXT,
+        model_id TEXT,
+        model_label TEXT,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+        total_tokens INTEGER NOT NULL DEFAULT 0,
+        cost REAL NOT NULL DEFAULT 0,
+        occurred_at TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS usage_sync_state (
+        session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+        agent_sdk TEXT NOT NULL,
+        source_kind TEXT NOT NULL,
+        source_ref TEXT,
+        source_mtime_ms INTEGER,
+        status TEXT NOT NULL DEFAULT 'pending',
+        entry_count INTEGER NOT NULL DEFAULT 0,
+        last_synced_at TEXT,
+        last_error TEXT
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_entries_session_source
+        ON usage_entries(session_id, source_message_id);
+      CREATE INDEX IF NOT EXISTS idx_usage_entries_occurred
+        ON usage_entries(occurred_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_usage_entries_agent_occurred
+        ON usage_entries(agent_sdk, occurred_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_usage_entries_project_occurred
+        ON usage_entries(project_id, occurred_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_usage_sync_state_status
+        ON usage_sync_state(status, last_synced_at);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_usage_sync_state_status;
+      DROP INDEX IF EXISTS idx_usage_entries_project_occurred;
+      DROP INDEX IF EXISTS idx_usage_entries_agent_occurred;
+      DROP INDEX IF EXISTS idx_usage_entries_occurred;
+      DROP INDEX IF EXISTS idx_usage_entries_session_source;
+      DROP TABLE IF EXISTS usage_sync_state;
+      DROP TABLE IF EXISTS usage_entries;
     `
   }
 ]

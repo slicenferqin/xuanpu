@@ -79,6 +79,9 @@ import { PermissionPrompt } from './PermissionPrompt'
 import { CommandApprovalPrompt } from './CommandApprovalPrompt'
 import type { ToolStatus, ToolUseInfo } from './ToolCard'
 import { PLAN_MODE_PREFIX, ASK_MODE_PREFIX, stripPlanModePrefix } from '@/lib/constants'
+import { SessionCostPill } from './SessionCostPill'
+import type { UsageAnalyticsSessionSummary } from '@shared/types/usage-analytics'
+import type { SessionActivity } from '@shared/types/session'
 
 interface SlashCommandInfo {
   name: string
@@ -280,6 +283,7 @@ interface DbSession {
   name: string | null
   status: 'active' | 'completed' | 'error'
   opencode_session_id: string | null
+  agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal'
   model_provider_id: string | null
   model_id: string | null
   model_variant: string | null
@@ -711,6 +715,8 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     return null
   })
   const sessionAgentSdk = sessionRecord?.agent_sdk ?? 'opencode'
+  const supportsUsageAnalytics =
+    sessionAgentSdk === 'claude-code' || sessionAgentSdk === 'codex'
   const globalModel = useSettingsStore((state) => resolveModelForSdk(sessionAgentSdk, state))
   const effectiveModel: SelectedModel | null =
     sessionRecord?.model_provider_id && sessionRecord.model_id
@@ -734,6 +740,11 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
 
   // Pending plan approval (ExitPlanMode blocking tool)
   const pendingPlan = useSessionStore((s) => s.pendingPlans.get(sessionId) ?? null)
+  const sessionCostSnapshot = useContextStore((state) => state.costBySession[sessionId] ?? 0)
+  const sessionTokenSnapshot = useContextStore((state) => state.tokensBySession[sessionId] ?? null)
+  const [sessionUsageSummary, setSessionUsageSummary] = useState<UsageAnalyticsSessionSummary | null>(
+    null
+  )
 
   // Streaming parts - tracks interleaved text and tool use during streaming
   const [streamingParts, setStreamingParts] = useState<StreamingPart[]>([])
@@ -894,6 +905,26 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     const agentSdk = session?.agent_sdk ?? 'opencode'
     return resolveModelForSdk(agentSdk) ?? undefined
   }, [sessionId])
+
+  const refreshSessionUsageSummary = useCallback(async (): Promise<void> => {
+    if (!supportsUsageAnalytics || !window.usageAnalyticsOps?.fetchSessionSummary) {
+      setSessionUsageSummary(null)
+      return
+    }
+
+    try {
+      const result = await window.usageAnalyticsOps.fetchSessionSummary(sessionId)
+      if (!result.success || !result.data) return
+
+      setSessionUsageSummary(result.data)
+
+      if (result.data.total_cost > 0) {
+        useContextStore.getState().setSessionCost(sessionId, result.data.total_cost)
+      }
+    } catch {
+      // Non-fatal — session cost pill falls back to live context store state.
+    }
+  }, [sessionId, supportsUsageAnalytics])
 
   // Extract message role from OpenCode stream payloads across known shapes
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1359,6 +1390,11 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     lastSentPromptRef.current = null
     planXmlDetectionRef.current = { state: 'scanning', buffer: '', cardId: null }
   }, [])
+
+  useEffect(() => {
+    setSessionUsageSummary(null)
+    void refreshSessionUsageSummary()
+  }, [refreshSessionUsageSummary])
 
   // Load session info and connect to OpenCode
   useEffect(() => {
@@ -2507,6 +2543,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             setIsSending(false)
             setIsCompacting(false)
             setQueuedMessages([])
+            void refreshSessionUsageSummary()
             // Clear any stale command approvals when session goes idle
             useCommandApprovalStore.getState().clearSession(sessionId)
 
@@ -2596,6 +2633,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               setIsSending(false)
               setIsCompacting(false)
               setQueuedMessages([])
+              void refreshSessionUsageSummary()
               // Clear any stale command approvals when session goes idle
               useCommandApprovalStore.getState().clearSession(sessionId)
 
@@ -5190,6 +5228,20 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                       sessionId={sessionId}
                       modelId={currentModelId}
                       providerId={currentProviderId}
+                    />
+                    <SessionCostPill
+                      summary={sessionUsageSummary}
+                      fallbackCost={sessionCostSnapshot}
+                      fallbackTokens={
+                        sessionTokenSnapshot
+                          ? {
+                              input: sessionTokenSnapshot.input,
+                              output: sessionTokenSnapshot.output,
+                              cacheRead: sessionTokenSnapshot.cacheRead,
+                              cacheWrite: sessionTokenSnapshot.cacheWrite
+                            }
+                          : null
+                      }
                     />
                     {pendingPlan ? (
                       <span className="text-[12px] text-muted-foreground">

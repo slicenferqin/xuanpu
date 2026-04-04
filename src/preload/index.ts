@@ -1736,6 +1736,14 @@ const usageOps = {
   fetchOpenai: () => ipcRenderer.invoke('usage:fetchOpenai')
 }
 
+const usageAnalyticsOps = {
+  fetchDashboard: (filters: import('../shared/types/usage-analytics').UsageAnalyticsFilters) =>
+    ipcRenderer.invoke('usageAnalytics:fetchDashboard', filters),
+  fetchSessionSummary: (sessionId: string) =>
+    ipcRenderer.invoke('usageAnalytics:fetchSessionSummary', sessionId),
+  resync: () => ipcRenderer.invoke('usageAnalytics:resync')
+}
+
 const analyticsOps = {
   track: (event: string, properties?: Record<string, unknown>) =>
     ipcRenderer.invoke('telemetry:track', event, properties),
@@ -1763,6 +1771,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('updaterOps', updaterOps)
     contextBridge.exposeInMainWorld('connectionOps', connectionOps)
     contextBridge.exposeInMainWorld('usageOps', usageOps)
+    contextBridge.exposeInMainWorld('usageAnalyticsOps', usageAnalyticsOps)
     contextBridge.exposeInMainWorld('analyticsOps', analyticsOps)
   } catch (error) {
     console.error(error)
@@ -1798,6 +1807,8 @@ if (process.contextIsolated) {
   window.connectionOps = connectionOps
   // @ts-expect-error (define in dts)
   window.usageOps = usageOps
+  // @ts-expect-error (define in dts)
+  window.usageAnalyticsOps = usageAnalyticsOps
   // @ts-expect-error (define in dts)
   window.analyticsOps = analyticsOps
 }

@@ -46,6 +46,7 @@ export {
   resolveUsageProvider,
   normalizeUsage
 } from './useUsageStore'
+export { useUsageAnalyticsStore, type UsageAnalyticsTab } from './useUsageAnalyticsStore'
 export { useHintStore } from './useHintStore'
 export { useVimModeStore } from './useVimModeStore'
 export { usePRReviewStore } from './usePRReviewStore'

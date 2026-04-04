@@ -1261,6 +1261,15 @@ declare global {
       fetch: () => Promise<import('../shared/types/usage').UsageResult>
       fetchOpenai: () => Promise<import('../shared/types/usage').OpenAIUsageResult>
     }
+    usageAnalyticsOps: {
+      fetchDashboard: (
+        filters: import('../shared/types/usage-analytics').UsageAnalyticsFilters
+      ) => Promise<import('../shared/types/usage-analytics').UsageAnalyticsDashboardResult>
+      fetchSessionSummary: (
+        sessionId: string
+      ) => Promise<import('../shared/types/usage-analytics').UsageAnalyticsSessionSummaryResult>
+      resync: () => Promise<import('../shared/types/usage-analytics').UsageAnalyticsResyncResult>
+    }
     analyticsOps: {
       track: (event: string, properties?: Record<string, unknown>) => Promise<void>
       setEnabled: (enabled: boolean) => Promise<void>

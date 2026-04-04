@@ -21,6 +21,10 @@ import type {
   SessionMessageUpsertByOpenCode,
   SessionActivity,
   SessionActivityCreate,
+  UsageEntry,
+  UsageEntryCreate,
+  UsageSyncState,
+  UsageSyncStateUpsert,
   Setting,
   SessionSearchOptions,
   SessionWithWorktree,
@@ -133,6 +137,7 @@ export class DatabaseService {
     // exist. This handles partial migrations, merge conflicts, or version
     // skew between worktree builds.
     this.ensureConnectionTables()
+    this.ensureUsageAnalyticsTables()
   }
 
   /**
@@ -221,6 +226,56 @@ export class DatabaseService {
         ON session_activities(session_id, created_at, id);
       CREATE INDEX IF NOT EXISTS idx_session_activities_session_turn
         ON session_activities(session_id, turn_id, created_at);
+    `)
+  }
+
+  private ensureUsageAnalyticsTables(): void {
+    const db = this.getDb()
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS usage_entries (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        worktree_id TEXT REFERENCES worktrees(id) ON DELETE SET NULL,
+        agent_sdk TEXT NOT NULL,
+        source_kind TEXT NOT NULL,
+        source_message_id TEXT NOT NULL,
+        provider_id TEXT,
+        model_id TEXT,
+        model_label TEXT,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+        total_tokens INTEGER NOT NULL DEFAULT 0,
+        cost REAL NOT NULL DEFAULT 0,
+        occurred_at TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS usage_sync_state (
+        session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+        agent_sdk TEXT NOT NULL,
+        source_kind TEXT NOT NULL,
+        source_ref TEXT,
+        source_mtime_ms INTEGER,
+        status TEXT NOT NULL DEFAULT 'pending',
+        entry_count INTEGER NOT NULL DEFAULT 0,
+        last_synced_at TEXT,
+        last_error TEXT
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_entries_session_source
+        ON usage_entries(session_id, source_message_id);
+      CREATE INDEX IF NOT EXISTS idx_usage_entries_occurred
+        ON usage_entries(occurred_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_usage_entries_agent_occurred
+        ON usage_entries(agent_sdk, occurred_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_usage_entries_project_occurred
+        ON usage_entries(project_id, occurred_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_usage_sync_state_status
+        ON usage_sync_state(status, last_synced_at);
     `)
   }
 
@@ -1237,6 +1292,249 @@ export class DatabaseService {
            id ASC`
       )
       .all(sessionId) as SessionActivity[]
+  }
+
+  upsertUsageEntry(data: UsageEntryCreate): UsageEntry {
+    const db = this.getDb()
+    const now = data.created_at ?? new Date().toISOString()
+    const totalTokens =
+      data.total_tokens ??
+      (data.input_tokens ?? 0) +
+        (data.output_tokens ?? 0) +
+        (data.cache_write_tokens ?? 0) +
+        (data.cache_read_tokens ?? 0)
+
+    const id = data.id ?? randomUUID()
+
+    db.prepare(
+      `INSERT INTO usage_entries (
+        id,
+        session_id,
+        project_id,
+        worktree_id,
+        agent_sdk,
+        source_kind,
+        source_message_id,
+        provider_id,
+        model_id,
+        model_label,
+        input_tokens,
+        output_tokens,
+        cache_write_tokens,
+        cache_read_tokens,
+        total_tokens,
+        cost,
+        occurred_at,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(session_id, source_message_id) DO UPDATE SET
+        project_id = excluded.project_id,
+        worktree_id = excluded.worktree_id,
+        agent_sdk = excluded.agent_sdk,
+        source_kind = excluded.source_kind,
+        provider_id = excluded.provider_id,
+        model_id = excluded.model_id,
+        model_label = excluded.model_label,
+        input_tokens = excluded.input_tokens,
+        output_tokens = excluded.output_tokens,
+        cache_write_tokens = excluded.cache_write_tokens,
+        cache_read_tokens = excluded.cache_read_tokens,
+        total_tokens = excluded.total_tokens,
+        cost = excluded.cost,
+        occurred_at = excluded.occurred_at,
+        created_at = excluded.created_at`
+    ).run(
+      id,
+      data.session_id,
+      data.project_id,
+      data.worktree_id ?? null,
+      data.agent_sdk,
+      data.source_kind,
+      data.source_message_id,
+      data.provider_id ?? null,
+      data.model_id ?? null,
+      data.model_label ?? null,
+      data.input_tokens ?? 0,
+      data.output_tokens ?? 0,
+      data.cache_write_tokens ?? 0,
+      data.cache_read_tokens ?? 0,
+      totalTokens,
+      data.cost ?? 0,
+      data.occurred_at,
+      now
+    )
+
+    const row = db
+      .prepare(
+        'SELECT * FROM usage_entries WHERE session_id = ? AND source_message_id = ? LIMIT 1'
+      )
+      .get(data.session_id, data.source_message_id) as UsageEntry | undefined
+
+    if (!row) {
+      throw new Error(`Failed to load usage entry after upsert: ${data.session_id}`)
+    }
+
+    return row
+  }
+
+  deleteUsageEntriesForSession(
+    sessionId: string,
+    sourceKind?: 'claude-transcript' | 'codex-message'
+  ): void {
+    const db = this.getDb()
+    if (sourceKind) {
+      db.prepare('DELETE FROM usage_entries WHERE session_id = ? AND source_kind = ?').run(
+        sessionId,
+        sourceKind
+      )
+      return
+    }
+
+    db.prepare('DELETE FROM usage_entries WHERE session_id = ?').run(sessionId)
+  }
+
+  getUsageEntriesBySession(sessionId: string): UsageEntry[] {
+    const db = this.getDb()
+    return db
+      .prepare('SELECT * FROM usage_entries WHERE session_id = ? ORDER BY occurred_at ASC')
+      .all(sessionId) as UsageEntry[]
+  }
+
+  listUsageEntries(options?: {
+    agentSdks?: Array<'claude-code' | 'codex'>
+    dateFrom?: string | null
+    dateTo?: string | null
+  }): UsageEntry[] {
+    const db = this.getDb()
+    const conditions: string[] = []
+    const values: (string | number)[] = []
+
+    if (options?.agentSdks?.length) {
+      const placeholders = options.agentSdks.map(() => '?').join(', ')
+      conditions.push(`agent_sdk IN (${placeholders})`)
+      values.push(...options.agentSdks)
+    }
+
+    if (options?.dateFrom) {
+      conditions.push('occurred_at >= ?')
+      values.push(options.dateFrom)
+    }
+
+    if (options?.dateTo) {
+      conditions.push('occurred_at < ?')
+      values.push(options.dateTo)
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+
+    return db
+      .prepare(`SELECT * FROM usage_entries ${where} ORDER BY occurred_at DESC`)
+      .all(...values) as UsageEntry[]
+  }
+
+  getUsageAnalyticsSessions(
+    agentSdks?: Array<'claude-code' | 'codex'>
+  ): Array<
+    Session & {
+      project_name: string
+      project_path: string
+      worktree_name: string | null
+      worktree_path: string | null
+    }
+  > {
+    const db = this.getDb()
+    const conditions: string[] = []
+    const values: string[] = []
+
+    if (agentSdks?.length) {
+      const placeholders = agentSdks.map(() => '?').join(', ')
+      conditions.push(`s.agent_sdk IN (${placeholders})`)
+      values.push(...agentSdks)
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+
+    return db
+      .prepare(
+        `SELECT
+          s.*,
+          p.name AS project_name,
+          p.path AS project_path,
+          w.name AS worktree_name,
+          w.path AS worktree_path
+        FROM sessions s
+        JOIN projects p ON s.project_id = p.id
+        LEFT JOIN worktrees w ON s.worktree_id = w.id
+        ${where}
+        ORDER BY s.updated_at DESC`
+      )
+      .all(...values) as Array<
+      Session & {
+        project_name: string
+        project_path: string
+        worktree_name: string | null
+        worktree_path: string | null
+      }
+    >
+  }
+
+  getUsageSyncState(sessionId: string): UsageSyncState | null {
+    const db = this.getDb()
+    const row = db.prepare('SELECT * FROM usage_sync_state WHERE session_id = ?').get(sessionId) as
+      | UsageSyncState
+      | undefined
+    return row ?? null
+  }
+
+  getUsageSyncStates(): UsageSyncState[] {
+    const db = this.getDb()
+    return db.prepare('SELECT * FROM usage_sync_state').all() as UsageSyncState[]
+  }
+
+  upsertUsageSyncState(data: UsageSyncStateUpsert): UsageSyncState {
+    const db = this.getDb()
+    db.prepare(
+      `INSERT INTO usage_sync_state (
+        session_id,
+        agent_sdk,
+        source_kind,
+        source_ref,
+        source_mtime_ms,
+        status,
+        entry_count,
+        last_synced_at,
+        last_error
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(session_id) DO UPDATE SET
+        agent_sdk = excluded.agent_sdk,
+        source_kind = excluded.source_kind,
+        source_ref = excluded.source_ref,
+        source_mtime_ms = excluded.source_mtime_ms,
+        status = excluded.status,
+        entry_count = excluded.entry_count,
+        last_synced_at = excluded.last_synced_at,
+        last_error = excluded.last_error`
+    ).run(
+      data.session_id,
+      data.agent_sdk,
+      data.source_kind,
+      data.source_ref ?? null,
+      data.source_mtime_ms ?? null,
+      data.status,
+      data.entry_count ?? 0,
+      data.last_synced_at ?? null,
+      data.last_error ?? null
+    )
+
+    const row = db
+      .prepare('SELECT * FROM usage_sync_state WHERE session_id = ?')
+      .get(data.session_id) as UsageSyncState | undefined
+
+    if (!row) {
+      throw new Error(`Failed to load usage sync state after upsert: ${data.session_id}`)
+    }
+
+    return row
   }
 
   // Connection operations

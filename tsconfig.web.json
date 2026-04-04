@@ -3,6 +3,7 @@
   "include": [
     "src/renderer/src/**/*",
     "src/renderer/src/**/*.tsx",
+    "src/shared/**/*",
     "src/preload/*.d.ts"
   ],
   "compilerOptions": {
@@ -10,7 +11,8 @@
     "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/renderer/src/*"]
+      "@/*": ["src/renderer/src/*"],
+      "@shared/*": ["src/shared/*"]
     }
   }
 }
