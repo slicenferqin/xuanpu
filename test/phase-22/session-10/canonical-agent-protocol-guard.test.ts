@@ -33,6 +33,11 @@ const allowedLegacyMatches = new Map<string, RegExp[]>([
   [
     path.join(repoRoot, 'src', 'main', 'ipc', 'agent-handlers.ts'),
     [/opencode-service/]
+  ],
+  // preload onStream listens on both agent:stream AND legacy opencode:stream for backward compat
+  [
+    path.join(repoRoot, 'src', 'preload', 'index.ts'),
+    [/opencode:stream/]
   ]
 ])
 

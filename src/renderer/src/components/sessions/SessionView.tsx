@@ -1099,8 +1099,8 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   useEffect(() => {
     const model = getModelForRequests()
     if (!model) return
-    window.agentOps.setModel(model).catch((error) => {
-      console.error('Failed to push session model to OpenCode:', error)
+    window.agentOps.setModel({ ...model, runtimeId: sessionAgentSdk === 'terminal' ? 'opencode' : sessionAgentSdk }).catch((error) => {
+      console.error('Failed to push session model to agent backend:', error)
     })
   }, [
     getModelForRequests,
@@ -1564,6 +1564,17 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             : useCache
               ? cachedMessages
               : loadedMessages
+          console.debug('[MSG_DEBUG] loadMessages setMessages', {
+            loadedCount: loadedMessages.length,
+            loadedRoles: loadedMessages.map((m) => m.role),
+            currentCount: currentMessages.length,
+            currentRoles: currentMessages.map((m) => m.role),
+            cachedCount: cachedMessages.length,
+            keepCurrent,
+            useCache,
+            nextCount: nextMessages.length,
+            nextRoles: nextMessages.map((m) => m.role)
+          })
           return restoreUserAttachments(nextMessages, userAttachmentsRef.current)
         })
       } else {
@@ -1769,6 +1780,14 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               setOpencodeSessionId(newId)
               transcriptSourceRef.current.opencodeSessionId = newId
               useSessionStore.getState().setOpenCodeSessionId(sessionId, newId)
+
+              // Persist to DB so runtime dispatch (getRuntimeIdForSession) can
+              // look up the real SDK session ID instead of the stale pending:: ID.
+              window.db.session
+                .update(sessionId, { opencode_session_id: newId })
+                .catch((err: unknown) => {
+                  console.warn('Failed to persist materialized session ID:', err)
+                })
 
               // On fork, the new session has its own transcript. Clear old
               // messages so the user only sees the local prompt bubble while
@@ -2647,7 +2666,8 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             .setModel({
               providerID: session.model_provider_id,
               modelID: session.model_id,
-              variant: session.model_variant ?? undefined
+              variant: session.model_variant ?? undefined,
+              runtimeId: session.agent_sdk === 'terminal' ? 'opencode' : session.agent_sdk
             })
             .catch((error) => {
               console.error('Failed to hydrate session model from database:', error)
@@ -2835,8 +2855,11 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         // This avoids model-id collisions across providers and lets context usage use
         // the exact model that produced the latest assistant message.
         const fetchModelLimits = (): void => {
+          const runtimeId = sessionRecord?.agent_sdk === 'terminal'
+            ? 'opencode'
+            : (sessionRecord?.agent_sdk ?? 'opencode')
           window.agentOps
-            .listModels()
+            .listModels({ runtimeId })
             .then((result) => {
               const providers = Array.isArray(result.providers)
                 ? result.providers

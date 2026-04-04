@@ -1,6 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+vi.mock('electron', () => ({
+  app: {
+    getPath: vi.fn().mockReturnValue('/tmp')
+  }
+}))
+
 vi.mock('../../../src/main/services/logger', () => ({
   createLogger: () => ({
     info: vi.fn(),
@@ -17,6 +23,10 @@ vi.mock('../../../src/main/services/claude-sdk-loader', () => ({
 vi.mock('../../../src/main/services/claude-transcript-reader', () => ({
   readClaudeTranscript: vi.fn().mockResolvedValue([]),
   translateEntry: vi.fn().mockReturnValue(null)
+}))
+
+vi.mock('../../../src/main/services/claude-project-memory-loader', () => ({
+  maybeWithClaudeProjectMemory: vi.fn(async (options) => options)
 }))
 
 import { ClaudeCodeImplementer } from '../../../src/main/services/claude-code-implementer'

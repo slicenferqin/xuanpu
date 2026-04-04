@@ -36,14 +36,16 @@ export function registerAgentHandlers(
         // Runtime-aware dispatch: route non-OpenCode sessions to their implementer
         if (runtimeManager && dbService) {
           const session = dbService.getSession(hiveSessionId)
+          const runtimeId = session?.agent_sdk
+          log.info('IPC: agent:connect runtime resolution', { hiveSessionId, runtimeId, agentSdk: session?.agent_sdk })
           // Terminal sessions have no AI backend — short-circuit
-          if (session?.runtime_id === 'terminal') {
+          if (runtimeId === 'terminal') {
             return { success: true, sessionId: hiveSessionId }
           }
-          if (session?.runtime_id && session.runtime_id !== 'opencode') {
-            const impl = runtimeManager.getImplementer(session.runtime_id)
+          if (runtimeId && runtimeId !== 'opencode') {
+            const impl = runtimeManager.getImplementer(runtimeId)
             const result = await impl.connect(worktreePath, hiveSessionId)
-            telemetryService.track('session_started', { runtime_id: session.runtime_id })
+            telemetryService.track('session_started', { runtime_id: runtimeId })
             return { success: true, ...result }
           }
         }
@@ -218,6 +220,7 @@ export function registerAgentHandlers(
       // Runtime-aware dispatch: route non-OpenCode sessions to their implementer
       if (runtimeManager && dbService) {
         const runtimeId = dbService.getRuntimeIdForSession(runtimeSessionId)
+        log.info('IPC: agent:prompt runtime resolution', { runtimeSessionId, runtimeId })
         if (runtimeId && runtimeId !== 'opencode' && runtimeId !== 'terminal') {
           const impl = runtimeManager.getImplementer(runtimeId)
           await impl.prompt(worktreePath, runtimeSessionId, messageOrParts, model, options)

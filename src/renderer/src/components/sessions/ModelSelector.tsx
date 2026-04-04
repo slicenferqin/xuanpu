@@ -99,7 +99,7 @@ export function ModelSelector({
 
     async function loadModels(): Promise<void> {
       try {
-        const result = await window.agentOps.listModels({ agentSdk })
+        const result = await window.agentOps.listModels({ runtimeId: agentSdk })
         if (!mounted) return
 
         if (result.success && result.providers) {

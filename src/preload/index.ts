@@ -1350,13 +1350,17 @@ const agentOps = {
     }),
 
   // Subscribe to streaming events
+  // Listen on both canonical (agent:stream) and legacy (opencode:stream) channels
+  // because runtime implementers still emit on the legacy channel.
   onStream: (callback: (event: CanonicalAgentEvent) => void): (() => void) => {
     const handler = (_e: Electron.IpcRendererEvent, event: CanonicalAgentEvent): void => {
       callback(event)
     }
     ipcRenderer.on('agent:stream', handler)
+    ipcRenderer.on('opencode:stream', handler)
     return () => {
       ipcRenderer.removeListener('agent:stream', handler)
+      ipcRenderer.removeListener('opencode:stream', handler)
     }
   }
 }
