@@ -1,6 +1,7 @@
 import type { BrowserWindow } from 'electron'
 
 import type { AgentSdkCapabilities, AgentSdkImplementer, PromptOptions } from './agent-sdk-types'
+import type { AgentRuntimeAdapter } from './agent-runtime-types'
 import { CODEX_CAPABILITIES } from './agent-sdk-types'
 import {
   getAvailableCodexModels,
@@ -113,7 +114,7 @@ export function normalizeCodexMessageTimestamps<T extends { created_at: string }
   })
 }
 
-export class CodexImplementer implements AgentSdkImplementer {
+export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapter {
   readonly id = 'codex' as const
   readonly capabilities: AgentSdkCapabilities = CODEX_CAPABILITIES
 

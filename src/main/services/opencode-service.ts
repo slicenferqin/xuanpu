@@ -5,6 +5,8 @@ import { notificationService } from './notification-service'
 import { getDatabase } from '../db'
 import { autoRenameWorktreeBranch } from './git-service'
 import { getEventBus } from '../../server/event-bus'
+import type { AgentSdkImplementer } from './agent-sdk-types'
+import type { AgentRuntimeAdapter } from './agent-runtime-types'
 
 const log = createLogger({ component: 'OpenCodeService' })
 
@@ -178,7 +180,19 @@ function spawnOpenCodeServer(
   }))
 }
 
-class OpenCodeService {
+class OpenCodeService implements AgentSdkImplementer, AgentRuntimeAdapter {
+  readonly id = 'opencode' as const
+  readonly capabilities = {
+    supportsUndo: true,
+    supportsRedo: true,
+    supportsCommands: true,
+    supportsPermissionRequests: true,
+    supportsQuestionPrompts: true,
+    supportsModelSelection: true,
+    supportsReconnect: true,
+    supportsPartialStreaming: true
+  }
+
   // Single server instance (OpenCode handles multiple directories via query params)
   private instance: OpenCodeInstance | null = null
   private mainWindow: BrowserWindow | null = null

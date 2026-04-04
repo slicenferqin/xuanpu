@@ -145,3 +145,8 @@ export const TERMINAL_CAPABILITIES: AgentRuntimeCapabilities = {
   supportsReconnect: false,
   supportsPartialStreaming: false
 }
+
+// Backward compatibility: AgentSdk* types are aliases of AgentRuntime* types
+export type AgentSdkId = AgentRuntimeId
+export type AgentSdkCapabilities = AgentRuntimeCapabilities
+export type AgentSdkImplementer = AgentRuntimeAdapter

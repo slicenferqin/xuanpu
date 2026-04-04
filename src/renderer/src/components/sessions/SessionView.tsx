@@ -1564,17 +1564,6 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             : useCache
               ? cachedMessages
               : loadedMessages
-          console.debug('[MSG_DEBUG] loadMessages setMessages', {
-            loadedCount: loadedMessages.length,
-            loadedRoles: loadedMessages.map((m) => m.role),
-            currentCount: currentMessages.length,
-            currentRoles: currentMessages.map((m) => m.role),
-            cachedCount: cachedMessages.length,
-            keepCurrent,
-            useCache,
-            nextCount: nextMessages.length,
-            nextRoles: nextMessages.map((m) => m.role)
-          })
           return restoreUserAttachments(nextMessages, userAttachmentsRef.current)
         })
       } else {

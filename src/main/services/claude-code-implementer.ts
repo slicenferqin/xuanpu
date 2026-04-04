@@ -6,7 +6,9 @@ import { join } from 'node:path'
 import { createLogger } from './logger'
 import { notificationService } from './notification-service'
 import { loadClaudeSDK } from './claude-sdk-loader'
+import { maybeWithClaudeProjectMemory } from './claude-project-memory-loader'
 import type { AgentSdkCapabilities, AgentSdkImplementer } from './agent-sdk-types'
+import type { AgentRuntimeAdapter } from './agent-runtime-types'
 import { CLAUDE_CODE_CAPABILITIES } from './agent-sdk-types'
 import type { DatabaseService } from '../db/database'
 import { readClaudeTranscript, translateEntry } from './claude-transcript-reader'
@@ -124,7 +126,7 @@ export interface ClaudeSessionState {
   stderrBuffer: string[]
 }
 
-export class ClaudeCodeImplementer implements AgentSdkImplementer {
+export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeAdapter {
   readonly id = 'claude-code' as const
   readonly capabilities: AgentSdkCapabilities = CLAUDE_CODE_CAPABILITIES
 
@@ -521,7 +523,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
         'high') as Options['effort']
 
       // Build SDK query options
-      const options: Options = {
+      let options: Options = {
         cwd: session.worktreePath,
         permissionMode: sdkPermissionMode,
         abortController: session.abortController,
@@ -562,6 +564,8 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
           error: err instanceof Error ? err.message : String(err)
         })
       }
+
+      options = await maybeWithClaudeProjectMemory(options)
 
       // If session is materialized (has real SDK ID), add resume
       if (session.materialized) {
