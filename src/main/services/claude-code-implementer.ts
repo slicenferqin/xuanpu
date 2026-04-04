@@ -646,6 +646,22 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
         // Log init messages (includes MCP server connection status) and cache slash commands
         // SDK sends init as { type: 'system', subtype: 'init' }
         const msgSubtype = (sdkMessage as Record<string, unknown>).subtype as string | undefined
+
+        // Detect compaction start via system status message.
+        // Fires BEFORE compact_boundary, so the renderer can show a loading
+        // indicator ("正在压缩上下文窗口...") immediately.
+        if (msgType === 'system' && msgSubtype === 'status') {
+          const status = (sdkMessage as Record<string, unknown>).status as string | undefined
+          if (status === 'compacting') {
+            log.info('Compaction started detected via system status message')
+            this.sendToRenderer('opencode:stream', {
+              type: 'session.compaction_started',
+              sessionId: session.hiveSessionId,
+              data: {}
+            })
+          }
+        }
+
         if (msgType === 'system' && msgSubtype === 'init') {
           const initMsg = sdkMessage as Record<string, unknown>
           log.info('Prompt: init message received', {
@@ -963,6 +979,36 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer {
                 session.messages.push(translated)
               }
             }
+          }
+        }
+
+        // Persist compaction boundary as a synthetic assistant message so it
+        // survives the getMessages() → finalizeResponse() reload cycle.
+        // Without this, the CompactionPill would disappear when the renderer
+        // refreshes messages from the in-memory cache on stream completion.
+        if (msgType === 'system') {
+          const subtype = (sdkMessage as Record<string, unknown>).subtype as string | undefined
+          if (subtype === 'compact_boundary') {
+            const meta = (sdkMessage as Record<string, unknown>).compact_metadata as
+              | Record<string, unknown>
+              | undefined
+            session.messages.push({
+              id: `compaction-${randomUUID()}`,
+              role: 'assistant',
+              timestamp: new Date().toISOString(),
+              content: '',
+              parts: [
+                {
+                  type: 'compaction',
+                  auto: meta?.trigger === 'auto'
+                }
+              ]
+            })
+            log.info('Compaction boundary persisted to session.messages', {
+              hiveSessionId: session.hiveSessionId,
+              trigger: meta?.trigger,
+              totalMessages: session.messages.length
+            })
           }
         }
 

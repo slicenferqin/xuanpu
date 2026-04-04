@@ -2040,6 +2040,14 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             return
           }
 
+          // Claude Code compaction started — the SDK sends
+          // system { subtype: 'status', status: 'compacting' } BEFORE
+          // compact_boundary, so we can show a loading indicator immediately.
+          if (event.type === 'session.compaction_started') {
+            setIsCompacting(true)
+            return
+          }
+
           if (event.type === 'message.part.updated') {
             // Skip user-message echoes; user messages are already rendered locally.
             if (eventRole === 'user') return

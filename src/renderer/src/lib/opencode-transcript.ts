@@ -322,6 +322,19 @@ export function mapOpencodeMessagesToSessionViewMessages(messages: unknown[]): O
   const seen = new Set<string>()
   return sorted.filter((msg) => {
     if (msg.role !== 'user') return true
+
+    // Filter out compaction summary — a synthetic user message injected by the
+    // Claude CLI after context compaction.  The backend already filters this in
+    // the main loop (isCompactSummary + text match), but messages loaded via
+    // getMessages() may bypass that filter.
+    if (
+      msg.content
+        .trimStart()
+        .startsWith('This session is being continued from a previous conversation')
+    ) {
+      return false
+    }
+
     const key = msg.content.trim()
     if (seen.has(key)) return false
     seen.add(key)
