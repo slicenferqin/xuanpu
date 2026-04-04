@@ -1229,7 +1229,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           ? { ...p, toolUse: { ...p.toolUse!, status, ...(error ? { error } : {}) } }
           : p
 
-      // Update streaming parts (may still be rendering from here)
+      // Update streaming parts — transition status first for immediate visual feedback
       updateStreamingPartsRef((parts) => parts.map(mapper))
       immediateFlush()
 
@@ -1246,6 +1246,14 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           return changed ? { ...msg, parts: updatedParts } : msg
         })
       )
+
+      // Remove from streaming parts to avoid double-rendering:
+      // the tool card is now in committed messages, so the streaming
+      // overlay no longer needs it.
+      updateStreamingPartsRef((parts) =>
+        parts.filter((p) => !(p.type === 'tool_use' && p.toolUse?.id === toolUseID))
+      )
+      immediateFlush()
     },
     [updateStreamingPartsRef, immediateFlush]
   )
@@ -3666,6 +3674,8 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       }
       setInputValue('')
       inputValueRef.current = ''
+      setShowSlashCommands(false)
+      showSlashCommandsRef.current = false
       fileMentions.clearMentions()
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current)
       window.db.session.updateDraft(sessionId, null)
