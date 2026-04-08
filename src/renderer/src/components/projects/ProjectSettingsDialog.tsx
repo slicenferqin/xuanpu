@@ -12,7 +12,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
-import { useProjectStore } from '@/stores'
+import { useProjectStore, useModelProfileStore } from '@/stores'
 import { LanguageIcon } from './LanguageIcon'
 import { useI18n } from '@/i18n/useI18n'
 
@@ -26,6 +26,7 @@ interface Project {
   run_script: string | null
   archive_script: string | null
   auto_assign_port: boolean
+  model_profile_id: string | null
 }
 
 interface ProjectSettingsDialogProps {
@@ -40,6 +41,7 @@ export function ProjectSettingsDialog({
   onOpenChange
 }: ProjectSettingsDialogProps): React.JSX.Element {
   const { updateProject } = useProjectStore()
+  const { profiles, loadProfiles } = useModelProfileStore()
   const { t } = useI18n()
 
   const [setupScript, setSetupScript] = useState('')
@@ -47,6 +49,7 @@ export function ProjectSettingsDialog({
   const [archiveScript, setArchiveScript] = useState('')
   const [customIcon, setCustomIcon] = useState<string | null>(null)
   const [autoAssignPort, setAutoAssignPort] = useState(false)
+  const [modelProfileId, setModelProfileId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [pickingIcon, setPickingIcon] = useState(false)
 
@@ -58,6 +61,8 @@ export function ProjectSettingsDialog({
       setArchiveScript(project.archive_script ?? '')
       setCustomIcon(project.custom_icon ?? null)
       setAutoAssignPort(project.auto_assign_port ?? false)
+      setModelProfileId(project.model_profile_id ?? null)
+      loadProfiles()
     }
   }, [
     open,
@@ -65,7 +70,9 @@ export function ProjectSettingsDialog({
     project.run_script,
     project.archive_script,
     project.custom_icon,
-    project.auto_assign_port
+    project.auto_assign_port,
+    project.model_profile_id,
+    loadProfiles
   ])
 
   const handlePickIcon = async (): Promise<void> => {
@@ -100,7 +107,8 @@ export function ProjectSettingsDialog({
         run_script: runScript.trim() || null,
         archive_script: archiveScript.trim() || null,
         custom_icon: customIcon,
-        auto_assign_port: autoAssignPort
+        auto_assign_port: autoAssignPort,
+        model_profile_id: modelProfileId
       })
       if (success) {
         toast.success(t('dialogs.projectSettings.saveSuccess'))
@@ -177,6 +185,32 @@ export function ProjectSettingsDialog({
               </div>
               <Switch checked={autoAssignPort} onCheckedChange={setAutoAssignPort} />
             </div>
+          </div>
+
+          {/* Model Profile */}
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">
+              {t('dialogs.projectSettings.modelProfile')}
+            </label>
+            <p className="text-xs text-muted-foreground">
+              {t('dialogs.projectSettings.modelProfileDescription')}
+            </p>
+            <select
+              value={modelProfileId ?? '__none__'}
+              onChange={(e) =>
+                setModelProfileId(e.target.value === '__none__' ? null : e.target.value)
+              }
+              className="flex h-9 w-full rounded-lg border border-input/80 bg-background/70 px-3.5 py-1 text-sm transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/15 focus-visible:border-ring/50"
+            >
+              <option value="__none__">
+                {t('settings.models.profiles.useGlobalDefault')}
+              </option>
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.provider})
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Setup Script */}
