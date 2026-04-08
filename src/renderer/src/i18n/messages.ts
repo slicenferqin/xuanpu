@@ -131,7 +131,35 @@ export const messages: Record<AppLocale, MessageTree> = {
           label: '/ask Command Default',
           description: 'Model used when you run the /ask command for quick questions'
         },
-        useGlobal: 'Use global'
+        useGlobal: 'Use global',
+        profiles: {
+          title: 'Model Profiles',
+          description:
+            'Create named configurations with custom API keys and endpoints. Assign them to projects or worktrees.',
+          add: 'Add Profile',
+          edit: 'Edit Profile',
+          create: 'Create Profile',
+          delete: 'Delete',
+          deleteConfirm:
+            'Delete this profile? Projects and worktrees using it will fall back to the global default.',
+          setDefault: 'Set as Default',
+          removeDefault: 'Remove Default',
+          default: 'Default',
+          name: 'Name',
+          namePlaceholder: 'e.g. Personal, Company',
+          provider: 'Provider',
+          apiKey: 'API Key',
+          apiKeyPlaceholder: 'sk-ant-...',
+          baseUrl: 'Base URL',
+          baseUrlPlaceholder: 'https://api.anthropic.com (optional)',
+          modelId: 'Default Model',
+          modelIdPlaceholder: 'e.g. claude-sonnet-4-20250514 (optional)',
+          advancedSettings: 'Advanced Settings (JSON)',
+          noProfiles: 'No profiles configured. Add one to get started.',
+          useGlobalDefault: 'Use Global Default',
+          useProjectDefault: 'Use Project Default',
+          none: 'None'
+        }
       },
       terminal: {
         embedded: {
@@ -1880,7 +1908,9 @@ export const messages: Record<AppLocale, MessageTree> = {
         save: 'Save',
         saving: 'Saving...',
         saveSuccess: 'Project settings saved',
-        saveError: 'Failed to save project settings'
+        saveError: 'Failed to save project settings',
+        modelProfile: 'Model Profile',
+        modelProfileDescription: 'Select a model profile for this project'
       },
       branchPicker: {
         title: 'New Workspace',
@@ -2183,7 +2213,33 @@ export const messages: Record<AppLocale, MessageTree> = {
           label: '/ask 命令默认模型',
           description: '执行 /ask 命令进行快速提问时使用的模型'
         },
-        useGlobal: '使用全局默认'
+        useGlobal: '使用全局默认',
+        profiles: {
+          title: '模型配置',
+          description: '创建带有自定义 API Key 和端点的命名配置，可分配到项目或 Worktree。',
+          add: '添加配置',
+          edit: '编辑配置',
+          create: '创建配置',
+          delete: '删除',
+          deleteConfirm: '删除此配置？使用它的项目和 Worktree 将回退到全局默认配置。',
+          setDefault: '设为默认',
+          removeDefault: '取消默认',
+          default: '默认',
+          name: '名称',
+          namePlaceholder: '如：个人、公司',
+          provider: '提供商',
+          apiKey: 'API Key',
+          apiKeyPlaceholder: 'sk-ant-...',
+          baseUrl: 'Base URL',
+          baseUrlPlaceholder: 'https://api.anthropic.com（可选）',
+          modelId: '默认模型',
+          modelIdPlaceholder: '如：claude-sonnet-4-20250514（可选）',
+          advancedSettings: '高级设置（JSON）',
+          noProfiles: '暂无配置，添加一个开始使用。',
+          useGlobalDefault: '使用全局默认',
+          useProjectDefault: '使用项目默认',
+          none: '无'
+        }
       },
       terminal: {
         embedded: {
@@ -3919,7 +3975,9 @@ export const messages: Record<AppLocale, MessageTree> = {
         save: '保存',
         saving: '保存中...',
         saveSuccess: '项目设置已保存',
-        saveError: '保存项目设置失败'
+        saveError: '保存项目设置失败',
+        modelProfile: '模型配置',
+        modelProfileDescription: '为此项目选择模型配置'
       },
       branchPicker: {
         title: '新建工作区',
