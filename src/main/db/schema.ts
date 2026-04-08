@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 12
+export const CURRENT_SCHEMA_VERSION = 13
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS projects (
   custom_icon TEXT DEFAULT NULL,
   sort_order INTEGER NOT NULL DEFAULT 0,
   auto_assign_port INTEGER NOT NULL DEFAULT 0,
+  model_profile_id TEXT,
   created_at TEXT NOT NULL,
   last_accessed_at TEXT NOT NULL
 );
@@ -39,6 +40,7 @@ CREATE TABLE IF NOT EXISTS worktrees (
   context TEXT DEFAULT NULL,
   github_pr_number INTEGER DEFAULT NULL,
   github_pr_url TEXT DEFAULT NULL,
+  model_profile_id TEXT,
   created_at TEXT NOT NULL,
   last_accessed_at TEXT NOT NULL
 );
@@ -125,6 +127,20 @@ CREATE TABLE IF NOT EXISTS usage_sync_state (
   last_error TEXT
 );
 
+-- Model profiles table
+CREATE TABLE IF NOT EXISTS model_profiles (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  provider TEXT NOT NULL DEFAULT 'claude',
+  api_key TEXT,
+  base_url TEXT,
+  model_id TEXT,
+  settings_json TEXT DEFAULT '{}',
+  is_default INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 -- Settings table
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
@@ -176,6 +192,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at);
 CREATE INDEX IF NOT EXISTS idx_projects_accessed ON projects(last_accessed_at);
 CREATE INDEX IF NOT EXISTS idx_project_spaces_space ON project_spaces(space_id);
 CREATE INDEX IF NOT EXISTS idx_project_spaces_project ON project_spaces(project_id);
+CREATE INDEX IF NOT EXISTS idx_model_profiles_default ON model_profiles(is_default);
 `
 
 export interface Migration {
@@ -423,6 +440,31 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_usage_entries_session_source;
       DROP TABLE IF EXISTS usage_sync_state;
       DROP TABLE IF EXISTS usage_entries;
+    `
+  },
+  {
+    version: 13,
+    name: 'add_model_profiles',
+    up: `
+      CREATE TABLE IF NOT EXISTS model_profiles (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        provider TEXT NOT NULL DEFAULT 'claude',
+        api_key TEXT,
+        base_url TEXT,
+        model_id TEXT,
+        settings_json TEXT DEFAULT '{}',
+        is_default INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_model_profiles_default ON model_profiles(is_default);
+      ALTER TABLE projects ADD COLUMN model_profile_id TEXT;
+      ALTER TABLE worktrees ADD COLUMN model_profile_id TEXT;
+    `,
+    down: `
+      DROP TABLE IF EXISTS model_profiles;
+      -- SQLite does not support DROP COLUMN in older versions
     `
   }
 ]
