@@ -11,6 +11,7 @@ export interface Project {
   archive_script: string | null
   auto_assign_port: boolean
   sort_order: number
+  model_profile_id: string | null
   created_at: string
   last_accessed_at: string
 }
