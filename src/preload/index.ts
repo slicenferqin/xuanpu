@@ -1751,6 +1751,36 @@ const analyticsOps = {
   isEnabled: () => ipcRenderer.invoke('telemetry:isEnabled') as Promise<boolean>
 }
 
+const modelProfileOps = {
+  list: () => ipcRenderer.invoke('model-profile:list'),
+  get: (id: string) => ipcRenderer.invoke('model-profile:get', id),
+  create: (data: {
+    name: string
+    provider: string
+    api_key?: string | null
+    base_url?: string | null
+    model_id?: string | null
+    settings_json?: string
+    is_default?: boolean
+  }) => ipcRenderer.invoke('model-profile:create', data),
+  update: (
+    id: string,
+    data: {
+      name?: string
+      provider?: string
+      api_key?: string | null
+      base_url?: string | null
+      model_id?: string | null
+      settings_json?: string
+      is_default?: boolean
+    }
+  ) => ipcRenderer.invoke('model-profile:update', id, data),
+  delete: (id: string) => ipcRenderer.invoke('model-profile:delete', id),
+  setDefault: (id: string) => ipcRenderer.invoke('model-profile:set-default', id),
+  resolve: (worktreeId?: string, projectId?: string) =>
+    ipcRenderer.invoke('model-profile:resolve', worktreeId, projectId)
+}
+
 // Use `contextBridge` APIs to expose Electron APIs to
 // renderer only if context isolation is enabled, otherwise
 // just add to the DOM global.
@@ -1773,6 +1803,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('usageOps', usageOps)
     contextBridge.exposeInMainWorld('usageAnalyticsOps', usageAnalyticsOps)
     contextBridge.exposeInMainWorld('analyticsOps', analyticsOps)
+    contextBridge.exposeInMainWorld('modelProfileOps', modelProfileOps)
   } catch (error) {
     console.error(error)
   }
@@ -1811,4 +1842,6 @@ if (process.contextIsolated) {
   window.usageAnalyticsOps = usageAnalyticsOps
   // @ts-expect-error (define in dts)
   window.analyticsOps = analyticsOps
+  // @ts-expect-error (define in dts)
+  window.modelProfileOps = modelProfileOps
 }

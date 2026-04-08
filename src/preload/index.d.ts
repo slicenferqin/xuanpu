@@ -1275,6 +1275,94 @@ declare global {
       setEnabled: (enabled: boolean) => Promise<void>
       isEnabled: () => Promise<boolean>
     }
+    modelProfileOps: {
+      list: () => Promise<
+        Array<{
+          id: string
+          name: string
+          provider: string
+          api_key: string | null
+          base_url: string | null
+          model_id: string | null
+          settings_json: string
+          is_default: boolean
+          created_at: string
+          updated_at: string
+        }>
+      >
+      get: (id: string) => Promise<{
+        id: string
+        name: string
+        provider: string
+        api_key: string | null
+        base_url: string | null
+        model_id: string | null
+        settings_json: string
+        is_default: boolean
+        created_at: string
+        updated_at: string
+      } | null>
+      create: (data: {
+        name: string
+        provider: string
+        api_key?: string | null
+        base_url?: string | null
+        model_id?: string | null
+        settings_json?: string
+        is_default?: boolean
+      }) => Promise<{
+        id: string
+        name: string
+        provider: string
+        api_key: string | null
+        base_url: string | null
+        model_id: string | null
+        settings_json: string
+        is_default: boolean
+        created_at: string
+        updated_at: string
+      }>
+      update: (
+        id: string,
+        data: {
+          name?: string
+          provider?: string
+          api_key?: string | null
+          base_url?: string | null
+          model_id?: string | null
+          settings_json?: string
+          is_default?: boolean
+        }
+      ) => Promise<{
+        id: string
+        name: string
+        provider: string
+        api_key: string | null
+        base_url: string | null
+        model_id: string | null
+        settings_json: string
+        is_default: boolean
+        created_at: string
+        updated_at: string
+      }>
+      delete: (id: string) => Promise<void>
+      setDefault: (id: string) => Promise<void>
+      resolve: (
+        worktreeId?: string,
+        projectId?: string
+      ) => Promise<{
+        id: string
+        name: string
+        provider: string
+        api_key: string | null
+        base_url: string | null
+        model_id: string | null
+        settings_json: string
+        is_default: boolean
+        created_at: string
+        updated_at: string
+      } | null>
+    }
   }
 
   interface GitDiffStatFile {
