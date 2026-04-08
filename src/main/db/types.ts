@@ -35,6 +35,7 @@ export interface ProjectUpdate {
   run_script?: string | null
   archive_script?: string | null
   auto_assign_port?: boolean
+  model_profile_id?: string | null
   last_accessed_at?: string
 }
 
@@ -79,6 +80,7 @@ export interface WorktreeUpdate {
   last_model_id?: string | null
   last_model_variant?: string | null
   pinned?: number
+  model_profile_id?: string | null
   github_pr_number?: number | null
   github_pr_url?: string | null
   last_accessed_at?: string
