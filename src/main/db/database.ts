@@ -139,6 +139,7 @@ export class DatabaseService {
     // skew between worktree builds.
     this.ensureConnectionTables()
     this.ensureUsageAnalyticsTables()
+    this.ensureModelProfileTables()
   }
 
   /**
@@ -278,6 +279,29 @@ export class DatabaseService {
       CREATE INDEX IF NOT EXISTS idx_usage_sync_state_status
         ON usage_sync_state(status, last_synced_at);
     `)
+  }
+
+  private ensureModelProfileTables(): void {
+    const db = this.getDb()
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS model_profiles (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        provider TEXT NOT NULL DEFAULT 'claude',
+        api_key TEXT,
+        base_url TEXT,
+        model_id TEXT,
+        settings_json TEXT DEFAULT '{}',
+        is_default INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_model_profiles_default ON model_profiles(is_default);
+    `)
+
+    this.safeAddColumn('projects', 'model_profile_id', 'TEXT')
+    this.safeAddColumn('worktrees', 'model_profile_id', 'TEXT')
   }
 
   // Settings operations
