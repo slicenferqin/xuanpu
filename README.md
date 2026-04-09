@@ -74,7 +74,7 @@
 > **macOS 安装提示**：当前版本未经 Apple 签名，首次打开时会提示"无法验证开发者"。
 > 请在终端执行以下命令后重新打开：
 > ```bash
-> /usr/bin/xattr -cr /Applications/Xuanpu.app
+> /usr/bin/xattr -cr "/Applications/玄圃.app"
 > ```
 > 或者：系统设置 → 隐私与安全性 → 点击「仍要打开」。
 >
@@ -100,6 +100,25 @@ pnpm dev
 5. 必要时通过 connections 把相关 worktree / 仓库连接进来
 
 如果你习惯用键盘操作，命令面板、会话切换、侧栏切换、终端与文件区协同会比较顺手。
+
+## 下载趋势
+
+> 数据来自 GitHub Releases，每次发版时手动更新。
+
+```mermaid
+xychart-beta
+    title "各版本下载量"
+    x-axis ["v1.1.5", "v1.2.1", "v1.2.2", "v1.2.3", "v1.2.4", "v1.2.5"]
+    y-axis "Downloads" 0 --> 100
+    bar [9, 8, 12, 14, 21, 79]
+```
+
+<p>
+  <a href="https://github.com/slicenferqin/xuanpu/releases"><img src="https://img.shields.io/github/downloads/slicenferqin/xuanpu/total?style=flat-square&label=total%20downloads&color=blue" alt="Total Downloads" /></a>
+  <a href="https://github.com/slicenferqin/xuanpu/releases/latest"><img src="https://img.shields.io/github/downloads/slicenferqin/xuanpu/latest/total?style=flat-square&label=latest%20release&color=brightgreen" alt="Latest Release Downloads" /></a>
+</p>
+
+📊 [查看完整下载统计 →](https://greedeks.github.io/Pulse/?username=slicenferqin&repo=xuanpu)
 
 ## 仓库现状
 当前仓库是桌面端主仓，核心栈如下：

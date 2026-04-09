@@ -66,7 +66,7 @@ Download the latest build from [GitHub Releases](https://github.com/slicenferqin
 > **macOS note**: The current build is unsigned. On first launch macOS will show an "unidentified developer" warning.
 > Run this in Terminal, then reopen the app:
 > ```bash
-> /usr/bin/xattr -cr /Applications/Xuanpu.app
+> /usr/bin/xattr -cr "/Applications/玄圃.app"
 > ```
 > Or: System Settings → Privacy & Security → click "Open Anyway".
 >
@@ -83,6 +83,25 @@ pnpm dev
 - `macOS`: primary platform, full feature set including Ghostty terminal
 - `Windows`: supported — all core features work; Ghostty terminal is macOS-only
 - `Linux`: planned target, still evolving
+
+## Download Trends
+
+> Data from GitHub Releases, updated manually with each release.
+
+```mermaid
+xychart-beta
+    title "Downloads per Release"
+    x-axis ["v1.1.5", "v1.2.1", "v1.2.2", "v1.2.3", "v1.2.4", "v1.2.5"]
+    y-axis "Downloads" 0 --> 100
+    bar [9, 8, 12, 14, 21, 79]
+```
+
+<p>
+  <a href="https://github.com/slicenferqin/xuanpu/releases"><img src="https://img.shields.io/github/downloads/slicenferqin/xuanpu/total?style=flat-square&label=total%20downloads&color=blue" alt="Total Downloads" /></a>
+  <a href="https://github.com/slicenferqin/xuanpu/releases/latest"><img src="https://img.shields.io/github/downloads/slicenferqin/xuanpu/latest/total?style=flat-square&label=latest%20release&color=brightgreen" alt="Latest Release Downloads" /></a>
+</p>
+
+📊 [View full download analytics →](https://greedeks.github.io/Pulse/?username=slicenferqin&repo=xuanpu)
 
 ## Repo Status
 Current stack:
