@@ -989,6 +989,11 @@ export const messages: Record<AppLocale, MessageTree> = {
         queueMessage: 'Queue message',
         sendMessage: 'Send message'
       },
+      queuedBar: {
+        heading: '{count} queued',
+        clearAll: 'Clear all',
+        cancelAriaLabel: 'Remove from queue'
+      },
       costPill: {
         title: 'Session Cost',
         totalCost: 'Total Cost',
@@ -3044,6 +3049,11 @@ export const messages: Record<AppLocale, MessageTree> = {
         sendFeedbackTitle: '发送反馈以修改计划',
         queueMessage: '加入队列',
         sendMessage: '发送消息'
+      },
+      queuedBar: {
+        heading: '已排队 {count}',
+        clearAll: '全部取消',
+        cancelAriaLabel: '从队列移除'
       },
       costPill: {
         title: '会话计费',

@@ -80,6 +80,7 @@ import { CommandApprovalPrompt } from './CommandApprovalPrompt'
 import type { ToolStatus, ToolUseInfo } from './ToolCard'
 import { PLAN_MODE_PREFIX, ASK_MODE_PREFIX, stripPlanModePrefix } from '@/lib/constants'
 import { SessionCostPill } from './SessionCostPill'
+import { QueuedMessagesBar, type QueuedMsg } from './QueuedMessagesBar'
 import type { UsageAnalyticsSessionSummary } from '@shared/types/usage-analytics'
 import type { SessionActivity } from '@shared/types/session'
 
@@ -572,13 +573,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [editingContent, setEditingContent] = useState<string>('')
   const [_editingAttachments, _setEditingAttachments] = useState<MessagePart[]>([])
-  const [queuedMessages, setQueuedMessages] = useState<
-    Array<{
-      id: string
-      content: string
-      timestamp: number
-    }>
-  >([])
+  const [queuedMessages, setQueuedMessages] = useState<QueuedMsg[]>([])
   const [attachments, setAttachments] = useState<Attachment[]>(
     () => useDraftAttachmentStore.getState().restore(sessionId)
   )
@@ -3504,6 +3499,35 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     ]
   )
 
+  // Handle cancelling a single queued message
+  const handleCancelQueuedMessage = useCallback(
+    (id: string) => {
+      let removedContent: string | undefined
+      setQueuedMessages((prev) => {
+        const target = prev.find((m) => m.id === id)
+        removedContent = target?.content
+        return prev.filter((m) => m.id !== id)
+      })
+      // Sync store (keyed by content string, first-match FIFO)
+      if (removedContent !== undefined) {
+        const existing =
+          useSessionStore.getState().pendingFollowUpMessages.get(sessionId) ?? []
+        const idx = existing.indexOf(removedContent)
+        if (idx >= 0) {
+          const next = [...existing.slice(0, idx), ...existing.slice(idx + 1)]
+          useSessionStore.getState().setPendingFollowUpMessages(sessionId, next)
+        }
+      }
+    },
+    [sessionId]
+  )
+
+  // Handle clearing all queued messages
+  const handleClearAllQueuedMessages = useCallback(() => {
+    setQueuedMessages([])
+    useSessionStore.getState().setPendingFollowUpMessages(sessionId, [])
+  }, [sessionId])
+
   // Handle send message
   const handleSend = useCallback(
     async (overrideValue?: string) => {
@@ -5051,7 +5075,6 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               isSending={isSending}
               hasVisibleWritingCursor={hasVisibleWritingCursor}
               isCompacting={isCompacting}
-              queuedMessages={queuedMessages}
             />
           )}
         </div>
@@ -5146,6 +5169,12 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           />
           {/* PR review comment attachments — above the input container */}
           <PrCommentAttachments />
+          {/* Queued follow-up messages — attached above the input box */}
+          <QueuedMessagesBar
+            messages={queuedMessages}
+            onCancel={handleCancelQueuedMessage}
+            onClearAll={handleClearAllQueuedMessages}
+          />
           <div
             className={cn(
               'overflow-hidden rounded-2xl border border-border/80 bg-card/88 shadow-[0_4px_14px_rgba(15,23,42,0.035)] transition-colors duration-200',
