@@ -28,7 +28,23 @@ export const messages: Record<AppLocale, MessageTree> = {
         title: 'Appearance',
         description: 'Choose a theme for the application.',
         darkThemes: 'Dark Themes',
-        lightThemes: 'Light Themes'
+        lightThemes: 'Light Themes',
+        fontSize: {
+          title: 'Font Size',
+          description: 'Adjust text size without changing layout or icons.',
+          presets: {
+            small: 'Small',
+            default: 'Default',
+            medium: 'Medium',
+            large: 'Large',
+            xlarge: 'X-Large'
+          }
+        },
+        uiScale: {
+          title: 'UI Scale',
+          description:
+            'Scale the entire interface, including icons and spacing. You can also use Cmd+/Cmd- shortcuts.'
+        }
       },
       general: {
         title: 'General',
@@ -564,7 +580,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         title: 'Update v{version} available',
         later: 'Later',
         skip: 'Skip this version',
-        download: 'Download'
+        download: 'View Release'
       },
       progress: {
         title: 'Downloading v{version}...'
@@ -972,6 +988,11 @@ export const messages: Record<AppLocale, MessageTree> = {
         sendFeedbackTitle: 'Send feedback to revise the plan',
         queueMessage: 'Queue message',
         sendMessage: 'Send message'
+      },
+      queuedBar: {
+        heading: '{count} queued',
+        clearAll: 'Clear all',
+        cancelAriaLabel: 'Remove from queue'
       },
       costPill: {
         title: 'Session Cost',
@@ -2088,7 +2109,22 @@ export const messages: Record<AppLocale, MessageTree> = {
         title: '外观',
         description: '为应用选择主题。',
         darkThemes: '深色主题',
-        lightThemes: '浅色主题'
+        lightThemes: '浅色主题',
+        fontSize: {
+          title: '字体大小',
+          description: '仅调整文字大小，不影响图标和布局。',
+          presets: {
+            small: '较小',
+            default: '默认',
+            medium: '稍大',
+            large: '较大',
+            xlarge: '最大'
+          }
+        },
+        uiScale: {
+          title: '界面缩放',
+          description: '等比缩放整体界面，包括图标和间距。也可使用 Cmd+/Cmd- 快捷键。'
+        }
       },
       general: {
         title: '通用',
@@ -2610,7 +2646,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         title: '发现 v{version} 更新',
         later: '稍后',
         skip: '跳过此版本',
-        download: '下载'
+        download: '前往下载'
       },
       progress: {
         title: '正在下载 v{version}...'
@@ -3013,6 +3049,11 @@ export const messages: Record<AppLocale, MessageTree> = {
         sendFeedbackTitle: '发送反馈以修改计划',
         queueMessage: '加入队列',
         sendMessage: '发送消息'
+      },
+      queuedBar: {
+        heading: '已排队 {count}',
+        clearAll: '全部取消',
+        cancelAriaLabel: '从队列移除'
       },
       costPill: {
         title: '会话计费',

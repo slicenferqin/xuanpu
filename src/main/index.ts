@@ -223,6 +223,7 @@ function createWindow(): void {
       const wc = mainWindow!.webContents
       const current = wc.getZoomLevel()
       wc.setZoomLevel(Math.min(current + 0.5, 5))
+      mainWindow!.webContents.send('zoom:changed', wc.getZoomLevel())
     }
 
     // Zoom Out (Cmd+-)
@@ -237,6 +238,7 @@ function createWindow(): void {
       const wc = mainWindow!.webContents
       const current = wc.getZoomLevel()
       wc.setZoomLevel(Math.max(current - 0.5, -5))
+      mainWindow!.webContents.send('zoom:changed', wc.getZoomLevel())
     }
 
     // Reset Zoom (Cmd+0)
@@ -249,6 +251,7 @@ function createWindow(): void {
     ) {
       event.preventDefault()
       mainWindow!.webContents.setZoomLevel(0)
+      mainWindow!.webContents.send('zoom:changed', 0)
     }
   })
 
@@ -409,6 +412,24 @@ function registerSystemHandlers(): void {
   // Get the current platform (darwin, win32, linux)
   ipcMain.handle('system:getPlatform', () => {
     return process.platform
+  })
+
+  // Set the UI zoom level (clamped to Electron's -5..5 range)
+  ipcMain.handle('system:setZoomLevel', (_event, level: number) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      const clamped = Math.max(-5, Math.min(5, level))
+      mainWindow.webContents.setZoomLevel(clamped)
+      return { success: true, level: clamped }
+    }
+    return { success: false }
+  })
+
+  // Get the current UI zoom level
+  ipcMain.handle('system:getZoomLevel', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      return mainWindow.webContents.getZoomLevel()
+    }
+    return 0
   })
 
   // Install xuanpu-server shell wrapper to PATH

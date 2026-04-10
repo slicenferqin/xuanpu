@@ -221,6 +221,7 @@ export function buildMenu(mainWindow: BrowserWindow, isDev: boolean): Menu {
             if (_mainWindow && !_mainWindow.isDestroyed()) {
               const current = _mainWindow.webContents.getZoomLevel()
               _mainWindow.webContents.setZoomLevel(Math.min(current + 0.5, 5))
+              _mainWindow.webContents.send('zoom:changed', _mainWindow.webContents.getZoomLevel())
             }
           }
         },
@@ -231,6 +232,7 @@ export function buildMenu(mainWindow: BrowserWindow, isDev: boolean): Menu {
             if (_mainWindow && !_mainWindow.isDestroyed()) {
               const current = _mainWindow.webContents.getZoomLevel()
               _mainWindow.webContents.setZoomLevel(Math.max(current - 0.5, -5))
+              _mainWindow.webContents.send('zoom:changed', _mainWindow.webContents.getZoomLevel())
             }
           }
         },
@@ -240,6 +242,7 @@ export function buildMenu(mainWindow: BrowserWindow, isDev: boolean): Menu {
           click: () => {
             if (_mainWindow && !_mainWindow.isDestroyed()) {
               _mainWindow.webContents.setZoomLevel(0)
+              _mainWindow.webContents.send('zoom:changed', 0)
             }
           }
         },

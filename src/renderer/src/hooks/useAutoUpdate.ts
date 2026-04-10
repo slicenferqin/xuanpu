@@ -45,15 +45,8 @@ export function useAutoUpdate(): void {
                   sonnerToast.dismiss(promptToastId.current)
                   promptToastId.current = null
                 }
-                window.updaterOps.downloadUpdate().catch(() => {})
-                progressToastId.current = sonnerToast.custom(
-                  () =>
-                    createElement(UpdateProgressToast, {
-                      version: data.version,
-                      percent: 0
-                    }),
-                  { duration: Infinity }
-                )
+                const releaseUrl = `https://github.com/slicenferqin/xuanpu/releases/tag/v${data.version}`
+                window.systemOps.openInChrome(releaseUrl)
               },
               onLater: () => {
                 dismissedForSessionRef.current = data.version

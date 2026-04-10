@@ -1,10 +1,20 @@
 import { contextBridge, ipcRenderer, webUtils, webFrame } from 'electron'
 
-// Force 100% zoom — Ghostty's native NSView overlay requires 1:1 CSS-to-AppKit
-// point mapping. Any zoom level breaks coordinate sync and causes misaligned
-// rendering. This also resets zoom for users who accidentally changed it.
-webFrame.setZoomFactor(1)
-webFrame.setVisualZoomLevelLimits(1, 1)
+// Apply persisted UI zoom level from localStorage before first paint to avoid flash.
+// Ghostty's getContainerRect() has visualViewport.scale compensation for non-100% zoom.
+try {
+  const stored = localStorage.getItem('hive-settings')
+  if (stored) {
+    const parsed = JSON.parse(stored)
+    const zoom = parsed?.state?.uiZoomLevel
+    if (typeof zoom === 'number' && zoom !== 0) {
+      const factor = Math.pow(1.2, zoom)
+      webFrame.setZoomFactor(factor)
+    }
+  }
+} catch {
+  // Ignore — keep default 100% zoom
+}
 
 // Typed database API for renderer
 const db = {
@@ -536,7 +546,25 @@ const systemOps = {
     ipcRenderer.invoke('system:uninstallServerFromPath'),
 
   // Get the current platform (darwin, win32, linux)
-  getPlatform: (): Promise<string> => ipcRenderer.invoke('system:getPlatform')
+  getPlatform: (): Promise<string> => ipcRenderer.invoke('system:getPlatform'),
+
+  // Set the UI zoom level (Electron webContents zoom)
+  setZoomLevel: (level: number): Promise<{ success: boolean; level?: number }> =>
+    ipcRenderer.invoke('system:setZoomLevel', level),
+
+  // Get the current UI zoom level
+  getZoomLevel: (): Promise<number> => ipcRenderer.invoke('system:getZoomLevel'),
+
+  // Subscribe to zoom level changes (from keyboard shortcuts or menu)
+  onZoomChanged: (callback: (level: number) => void): (() => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, level: number): void => {
+      callback(level)
+    }
+    ipcRenderer.on('zoom:changed', handler)
+    return () => {
+      ipcRenderer.removeListener('zoom:changed', handler)
+    }
+  }
 }
 
 // Response logging operations API (only functional when --log is active)

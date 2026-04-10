@@ -520,6 +520,9 @@ declare global {
       installServerToPath: () => Promise<{ success: boolean; path?: string; error?: string }>
       uninstallServerFromPath: () => Promise<{ success: boolean; error?: string }>
       getPlatform: () => Promise<string>
+      setZoomLevel: (level: number) => Promise<{ success: boolean; level?: number }>
+      getZoomLevel: () => Promise<number>
+      onZoomChanged: (callback: (level: number) => void) => () => void
     }
     loggingOps: {
       createResponseLog: (sessionId: string) => Promise<string>

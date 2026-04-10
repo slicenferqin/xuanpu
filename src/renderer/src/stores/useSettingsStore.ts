@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { APP_SETTINGS_DB_KEY } from '@shared/types/settings'
 import { DEFAULT_LOCALE, type AppLocale } from '@/i18n/messages'
+import { applyFontScale } from '@/lib/font-size'
 
 // ==========================================
 // Migration helpers
@@ -21,6 +22,9 @@ export function migrateSettingsShape(raw: Record<string, any>): Record<string, a
   delete result.defaultAgentSdk
   return result
 }
+
+// Re-export for convenience
+export { applyFontScale } from '@/lib/font-size'
 
 // ==========================================
 // Types
@@ -128,6 +132,10 @@ export interface AppSettings {
 
   // Git
   autoPullBeforeWorktree: boolean
+
+  // Appearance
+  uiZoomLevel: number
+  uiFontScale: number
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -177,7 +185,9 @@ const DEFAULT_SETTINGS: AppSettings = {
     enabled: false
   },
   telemetryEnabled: true,
-  autoPullBeforeWorktree: true
+  autoPullBeforeWorktree: true,
+  uiZoomLevel: 0,
+  uiFontScale: 1
 }
 
 interface SettingsState extends AppSettings {
@@ -281,7 +291,10 @@ function extractSettings(state: SettingsState): AppSettings {
     skippedUpdateVersion: state.skippedUpdateVersion,
     initialSetupComplete: state.initialSetupComplete,
     commandFilter: state.commandFilter,
-    telemetryEnabled: state.telemetryEnabled
+    telemetryEnabled: state.telemetryEnabled,
+    autoPullBeforeWorktree: state.autoPullBeforeWorktree,
+    uiZoomLevel: state.uiZoomLevel,
+    uiFontScale: state.uiFontScale
   }
 }
 
@@ -494,7 +507,9 @@ export const useSettingsStore = create<SettingsState>()(
         skippedUpdateVersion: state.skippedUpdateVersion,
         initialSetupComplete: state.initialSetupComplete,
         commandFilter: state.commandFilter,
-        telemetryEnabled: state.telemetryEnabled
+        telemetryEnabled: state.telemetryEnabled,
+        uiZoomLevel: state.uiZoomLevel,
+        uiFontScale: state.uiFontScale
       })
     }
   )
@@ -508,8 +523,27 @@ if (typeof window !== 'undefined') {
       .loadFromDatabase()
       .then(() => {
         useSettingsStore.getState().detectAvailableAgentSdks()
+
+        // Apply saved zoom level (Electron webContents zoom)
+        const zoomLevel = useSettingsStore.getState().uiZoomLevel
+        if (zoomLevel !== 0 && window.systemOps?.setZoomLevel) {
+          window.systemOps.setZoomLevel(zoomLevel)
+        }
+
+        // Apply saved font scale (Tailwind CSS variable override)
+        const fontScale = useSettingsStore.getState().uiFontScale
+        if (fontScale !== 1) {
+          applyFontScale(fontScale)
+        }
       })
   }, 200)
+
+  // Sync zoom changes from keyboard shortcuts / menu back into settings
+  if (window.systemOps?.onZoomChanged) {
+    window.systemOps.onZoomChanged((level: number) => {
+      useSettingsStore.getState().updateSetting('uiZoomLevel', level)
+    })
+  }
 
   // Listen for settings updates from main process (e.g., when "Allow always" adds to allowlist)
   window.settingsOps?.onSettingsUpdated((data) => {

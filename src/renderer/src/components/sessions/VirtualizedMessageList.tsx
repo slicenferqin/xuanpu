@@ -1,7 +1,6 @@
 import { forwardRef, useImperativeHandle, useMemo, useCallback } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { MessageRenderer } from './MessageRenderer'
-import { QueuedMessageBubble } from './QueuedMessageBubble'
 import type { OpenCodeMessage, StreamingPart } from './SessionView'
 import { AlertCircle, RefreshCw, Minimize2 } from 'lucide-react'
 import { useI18n } from '@/i18n/useI18n'
@@ -19,12 +18,6 @@ interface SessionRetryState {
   next?: number
 }
 
-interface QueuedMsg {
-  id: string
-  content: string
-  timestamp: number
-}
-
 type VirtualListItem =
   | { type: 'message'; message: OpenCodeMessage; key: string }
   | { type: 'revert-banner'; key: string }
@@ -32,7 +25,6 @@ type VirtualListItem =
   | { type: 'retry-banner'; key: string }
   | { type: 'streaming'; key: string }
   | { type: 'typing'; key: string }
-  | { type: 'queued'; msg: QueuedMsg; key: string }
 
 export interface VirtualizedMessageListHandle {
   scrollToEnd: (behavior?: ScrollBehavior) => void
@@ -75,8 +67,6 @@ export interface VirtualizedMessageListProps {
   isSending: boolean
   hasVisibleWritingCursor: boolean
   isCompacting: boolean
-  // Queued messages
-  queuedMessages: QueuedMsg[]
 }
 
 // ── Component ──────────────────────────────────────────────────
@@ -116,8 +106,7 @@ export const VirtualizedMessageList = forwardRef<
     isStreaming,
     isSending,
     hasVisibleWritingCursor,
-    isCompacting,
-    queuedMessages
+    isCompacting
   } = props
 
   // Build the flat list of virtual items
@@ -154,11 +143,6 @@ export const VirtualizedMessageList = forwardRef<
       result.push({ type: 'typing', key: 'typing-indicator' })
     }
 
-    // 7. Queued messages
-    for (const msg of queuedMessages) {
-      result.push({ type: 'queued', msg, key: `queued-${msg.id}` })
-    }
-
     return result
   }, [
     visibleMessages,
@@ -168,8 +152,7 @@ export const VirtualizedMessageList = forwardRef<
     sessionRetry,
     hasStreamingContent,
     isSending,
-    hasVisibleWritingCursor,
-    queuedMessages
+    hasVisibleWritingCursor
   ])
 
   const virtualizer = useVirtualizer({
@@ -342,9 +325,6 @@ export const VirtualizedMessageList = forwardRef<
               )}
             </div>
           )
-
-        case 'queued':
-          return <QueuedMessageBubble content={item.msg.content} />
 
         default:
           return null

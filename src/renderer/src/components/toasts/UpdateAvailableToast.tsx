@@ -1,4 +1,4 @@
-import { Download } from 'lucide-react'
+import { ExternalLink } from 'lucide-react'
 import { useI18n } from '@/i18n/useI18n'
 
 interface UpdateAvailableToastProps {
@@ -19,7 +19,7 @@ export function UpdateAvailableToast({
   return (
     <div className="flex w-[360px] flex-col gap-3 rounded-xl border border-border bg-background p-4 shadow-xl">
       <div className="flex items-center gap-2">
-        <Download className="h-4 w-4 text-blue-500" />
+        <ExternalLink className="h-4 w-4 text-blue-500" />
         <span className="text-sm font-medium text-foreground">
           {t('updateToast.available.title', { version })}
         </span>
