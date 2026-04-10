@@ -157,7 +157,7 @@ describe('Session 4: Skill Card UI', () => {
       expect(screen.getByText('unknown')).toBeInTheDocument()
     })
 
-    test('skill tool expands to show SkillToolView content', async () => {
+    test('skill tool does NOT expand — content is hidden', async () => {
       const user = userEvent.setup()
       const toolUse: ToolUseInfo = {
         id: 'tool-1',
@@ -171,14 +171,13 @@ describe('Session 4: Skill Card UI', () => {
 
       render(<ToolCard toolUse={toolUse} />)
 
-      // Click to expand
+      // Click to attempt expand
       const button = screen.getByRole('button')
       await user.click(button)
 
-      // Verify expanded content
-      const output = screen.getByTestId('tool-output')
-      expect(output).toBeInTheDocument()
-      expect(screen.getByTestId('skill-tool-view')).toBeInTheDocument()
+      // Verify: no expanded content — skill content stays hidden
+      expect(screen.queryByTestId('tool-output')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('skill-tool-view')).not.toBeInTheDocument()
     })
 
     test('file operations still route correctly alongside skill tools', () => {

@@ -2203,19 +2203,26 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
     const sessionKey = this.getSessionKey(session.worktreePath, session.claudeSessionId)
     this.pendingPlanSessions.set(requestId, sessionKey)
 
+    // Resolve plan content: prefer input.plan from SDK, else read the plan file from disk.
+    // ExitPlanMode doesn't include plan content as a parameter — the SDK writes it to a
+    // .plan / .claude/plans/*.md file, so we must read the latest version from disk.
+    let planContent =
+      typeof input.plan === 'string'
+        ? input.plan
+        : input.plan !== undefined
+          ? JSON.stringify(input.plan, null, 2)
+          : ''
+
+    if (!planContent) {
+      planContent = await this.readPlanFileContent(session.worktreePath)
+    }
+
     // Block execution with a Promise that waits for user response
     const userResponse = await new Promise<{ approved: boolean; feedback?: string }>((resolve) => {
       session.pendingPlanApproval = { requestId, resolve }
 
-      // Emit plan.ready event to renderer — include plan content from tool input
+      // Emit plan.ready event to renderer with plan content read from disk
       // The renderer reads data.id, data.plan, data.toolUseID
-      const planContent =
-        typeof input.plan === 'string'
-          ? input.plan
-          : input.plan !== undefined
-            ? JSON.stringify(input.plan, null, 2)
-            : ''
-
       emitAgentEvent(this.mainWindow, {
         type: 'plan.ready',
         sessionId: session.hiveSessionId,
@@ -2228,8 +2235,10 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
 
       log.info('canUseTool: emitted plan.ready, waiting for approval', {
         requestId,
-        hiveSessionId: session.hiveSessionId
+        hiveSessionId: session.hiveSessionId,
+        hasPlanContent: planContent.length > 0
       })
+
 
       // If the session is aborted while waiting, auto-reject and notify renderer
       const onAbort = (): void => {
@@ -2267,6 +2276,64 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       message: userResponse.feedback || 'The user rejected the plan. Please revise.'
     }
   }
+
+  /**
+   * Reads the most recently modified plan file from the project's .claude/plans/ directory
+   * or a .plan file in the project root. Returns empty string if no plan file is found.
+   */
+  private async readPlanFileContent(worktreePath: string): Promise<string> {
+    const { readFile, readdir, stat } = await import('node:fs/promises')
+    const candidates: { path: string; mtime: number }[] = []
+
+    // 1. Check .claude/plans/*.md (Claude convention)
+    const plansDir = join(worktreePath, '.claude', 'plans')
+    try {
+      const entries = await readdir(plansDir)
+      for (const file of entries.filter((f) => f.endsWith('.md'))) {
+        const filePath = join(plansDir, file)
+        try {
+          const s = await stat(filePath)
+          if (s.isFile()) candidates.push({ path: filePath, mtime: s.mtimeMs })
+        } catch {
+          // skip unreadable files
+        }
+      }
+    } catch {
+      // .claude/plans/ doesn't exist — not an error
+    }
+
+    // 2. Check .plan in project root
+    const rootPlan = join(worktreePath, '.plan')
+    try {
+      const s = await stat(rootPlan)
+      if (s.isFile()) candidates.push({ path: rootPlan, mtime: s.mtimeMs })
+    } catch {
+      // no .plan file — not an error
+    }
+
+    if (candidates.length === 0) return ''
+
+    // Pick the most recently modified file
+    candidates.sort((a, b) => b.mtime - a.mtime)
+    const chosen = candidates[0]
+
+    try {
+      const content = await readFile(chosen.path, 'utf-8')
+      log.info('readPlanFileContent: read plan from disk', {
+        path: chosen.path,
+        length: content.length,
+        candidateCount: candidates.length
+      })
+      return content
+    } catch (err) {
+      log.warn('readPlanFileContent: failed to read plan file', {
+        path: chosen.path,
+        error: err instanceof Error ? err.message : String(err)
+      })
+      return ''
+    }
+  }
+
 
   /**
    * Creates a canUseTool callback for the Claude Agent SDK.
