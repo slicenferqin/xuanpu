@@ -20,6 +20,7 @@ import { CommandFilterService, type CommandFilterSettings } from './command-filt
 import { createLspMcpServerConfig, LspService } from './lsp'
 import { APP_SETTINGS_DB_KEY } from '@shared/types/settings'
 import { getActiveAppHomeDir } from '@shared/app-identity'
+import type { ModelProfile } from '@shared/types/model-profile'
 
 const log = createLogger({ component: 'ClaudeCodeImplementer' })
 
@@ -503,9 +504,11 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       // 'plan' mode uses SDK-native plan mode (ExitPlanMode blocking tool)
       // 'build' mode uses 'default' so canUseTool handles AskUserQuestion
       let sdkPermissionMode: PermissionMode = 'default'
+      let dbSession: { mode?: string; worktree_id?: string | null; project_id?: string } | null =
+        null
       if (this.dbService) {
         try {
-          const dbSession = this.dbService.getSession(session.hiveSessionId)
+          dbSession = this.dbService.getSession(session.hiveSessionId) as typeof dbSession
           if (dbSession?.mode === 'plan') {
             sdkPermissionMode = 'plan'
           }
@@ -514,8 +517,43 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         }
       }
 
+      // Resolve model profile: worktree → project → global default
+      let resolvedProfile: ModelProfile | null = null
+      if (this.dbService && dbSession) {
+        try {
+          resolvedProfile = this.dbService.resolveModelProfile(
+            dbSession.worktree_id ?? undefined,
+            dbSession.project_id
+          )
+        } catch {
+          // Fall through — no profile override
+        }
+      }
+      if (resolvedProfile) {
+        log.info('Using model profile', {
+          profileId: resolvedProfile.id,
+          profileName: resolvedProfile.name,
+          hasApiKey: !!resolvedProfile.api_key,
+          hasBaseUrl: !!resolvedProfile.base_url,
+          modelId: resolvedProfile.model_id
+        })
+      }
+
+      // Parse settings_json from profile for advanced overrides
+      let profileSettings: Record<string, unknown> = {}
+      if (resolvedProfile?.settings_json) {
+        try {
+          profileSettings = JSON.parse(resolvedProfile.settings_json)
+        } catch {
+          log.warn('Invalid settings_json in model profile', {
+            profileId: resolvedProfile.id
+          })
+        }
+      }
+
       // Resolve effort level from variant selection (default per model)
-      const resolvedModel = modelOverride?.modelID ?? this.selectedModel
+      const resolvedModel =
+        modelOverride?.modelID ?? this.selectedModel ?? resolvedProfile?.model_id ?? undefined
       const modelDef = CLAUDE_MODELS.find((m) => m.id === resolvedModel)
       const effortLevel = (modelOverride?.variant ??
         this.selectedVariant ??
@@ -538,7 +576,12 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         debugFile: join(getActiveAppHomeDir(app.getPath('home')), 'logs', 'claude-debug.log'),
         env: {
           ...process.env,
-          CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING: '1'
+          CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING: '1',
+          ...(profileSettings.env && typeof profileSettings.env === 'object'
+            ? (profileSettings.env as Record<string, string>)
+            : {}),
+          ...(resolvedProfile?.api_key ? { ANTHROPIC_API_KEY: resolvedProfile.api_key } : {}),
+          ...(resolvedProfile?.base_url ? { ANTHROPIC_BASE_URL: resolvedProfile.base_url } : {})
         },
         stderr: (data: string) => {
           session.stderrBuffer.push(data)

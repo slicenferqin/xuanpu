@@ -1912,6 +1912,16 @@ export const messages: Record<AppLocale, MessageTree> = {
         modelProfile: 'Model Profile',
         modelProfileDescription: 'Select a model profile for this project'
       },
+      worktreeSettings: {
+        title: 'Workspace Settings',
+        modelProfile: 'Model Profile',
+        modelProfileDescription: 'Override the model profile for this workspace. Falls back to the project profile or global default.',
+        save: 'Save',
+        saving: 'Saving...',
+        cancel: 'Cancel',
+        saveSuccess: 'Workspace settings saved',
+        saveError: 'Failed to save workspace settings'
+      },
       branchPicker: {
         title: 'New Workspace',
         description: 'Select a branch or pull request to create a new workspace from.',
@@ -2003,6 +2013,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         detach: 'Detach',
         addAttachment: 'Add Attachment',
         editContext: 'Edit Context',
+        worktreeSettings: 'Workspace Settings',
         openInTerminal: 'Open in Terminal',
         openInEditor: 'Open in Editor',
         openInFileManager: 'Open in {manager}',
@@ -3979,6 +3990,16 @@ export const messages: Record<AppLocale, MessageTree> = {
         modelProfile: '模型配置',
         modelProfileDescription: '为此项目选择模型配置'
       },
+      worktreeSettings: {
+        title: '工作区设置',
+        modelProfile: '模型配置',
+        modelProfileDescription: '为此工作区覆盖模型配置。未设置时回退到项目配置或全局默认配置。',
+        save: '保存',
+        saving: '保存中...',
+        cancel: '取消',
+        saveSuccess: '工作区设置已保存',
+        saveError: '保存工作区设置失败'
+      },
       branchPicker: {
         title: '新建工作区',
         description: '选择一个分支或 PR，以此创建新的工作区。',
@@ -4070,6 +4091,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         detach: '解除关联',
         addAttachment: '添加附件',
         editContext: '编辑上下文',
+        worktreeSettings: '工作区设置',
         openInTerminal: '在终端中打开',
         openInEditor: '在编辑器中打开',
         openInFileManager: '在 {manager} 中打开',

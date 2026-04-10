@@ -63,6 +63,7 @@ interface Worktree {
   attachments: string // JSON array of Attachment objects
   pinned: number // 0 = not pinned, 1 = pinned
   context: string | null
+  model_profile_id: string | null
   github_pr_number: number | null
   github_pr_url: string | null
   created_at: string
@@ -269,6 +270,7 @@ declare global {
             status?: 'active' | 'archived'
             last_message_at?: number | null
             last_accessed_at?: string
+            model_profile_id?: string | null
           }
         ) => Promise<Worktree | null>
         delete: (id: string) => Promise<boolean>
