@@ -1,6 +1,45 @@
-import { ipcMain } from 'electron'
+import { ipcMain, BrowserWindow } from 'electron'
 import { getDatabase } from '../db/database'
+import { createLogger } from '../services/logger'
+import { syncProfileToClaudeSettings } from '../services/model-profile-sync'
 import type { ModelProfileCreate, ModelProfileUpdate } from '@shared/types/model-profile'
+
+const log = createLogger({ component: 'ModelProfileHandlers' })
+
+/** Send an event to the renderer process (safe if no windows exist yet) */
+function notifyRenderer(channel: string, data: unknown): void {
+  const windows = BrowserWindow.getAllWindows()
+  if (windows.length > 0) {
+    windows[0].webContents.send(channel, data)
+  }
+}
+
+/**
+ * Re-sync settings.local.json for all active worktrees and notify the renderer.
+ * Called when a profile's content changes (update/delete/set-default).
+ */
+function syncAllActiveWorktrees(): void {
+  try {
+    const db = getDatabase()
+    const projects = db.getAllProjects()
+    const allWorktreeIds: string[] = []
+    for (const project of projects) {
+      const worktrees = db.getActiveWorktreesByProject(project.id)
+      for (const wt of worktrees) {
+        const profile = db.resolveModelProfile(wt.id, project.id)
+        syncProfileToClaudeSettings(wt.path, profile)
+        allWorktreeIds.push(wt.id)
+      }
+    }
+    if (allWorktreeIds.length > 0) {
+      notifyRenderer('model-profile:changed', { worktreeIds: allWorktreeIds })
+    }
+  } catch (err) {
+    log.warn('Failed to sync model profile to worktrees', {
+      error: err instanceof Error ? err.message : String(err)
+    })
+  }
+}
 
 export function registerModelProfileHandlers(): void {
   ipcMain.handle('model-profile:list', () => {
@@ -16,15 +55,23 @@ export function registerModelProfileHandlers(): void {
   })
 
   ipcMain.handle('model-profile:update', (_event, id: string, data: ModelProfileUpdate) => {
-    return getDatabase().updateModelProfile(id, data)
+    const result = getDatabase().updateModelProfile(id, data)
+    // Profile content changed — re-sync all worktrees that may use it
+    syncAllActiveWorktrees()
+    return result
   })
 
   ipcMain.handle('model-profile:delete', (_event, id: string) => {
-    return getDatabase().deleteModelProfile(id)
+    const result = getDatabase().deleteModelProfile(id)
+    // Profile removed — re-sync all worktrees (references now nullified)
+    syncAllActiveWorktrees()
+    return result
   })
 
   ipcMain.handle('model-profile:set-default', (_event, id: string) => {
     getDatabase().setDefaultModelProfile(id)
+    // Default changed — re-sync all worktrees that inherit the default
+    syncAllActiveWorktrees()
     return true
   })
 

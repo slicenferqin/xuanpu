@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron'
+import { ipcMain, BrowserWindow } from 'electron'
 import { getDatabase } from '../db'
 import { createLogger } from '../services/logger'
 import { syncProfileToClaudeSettings } from '../services/model-profile-sync'
@@ -16,6 +16,14 @@ import type {
 } from '../db'
 
 const log = createLogger({ component: 'DatabaseHandlers' })
+
+/** Send an event to the renderer process (safe if no windows exist yet) */
+function notifyRenderer(channel: string, data: unknown): void {
+  const windows = BrowserWindow.getAllWindows()
+  if (windows.length > 0) {
+    windows[0].webContents.send(channel, data)
+  }
+}
 
 export function registerDatabaseHandlers(): void {
   log.info('Registering database handlers')
@@ -76,10 +84,12 @@ export function registerDatabaseHandlers(): void {
     if (data.model_profile_id !== undefined) {
       try {
         const worktrees = db.getActiveWorktreesByProject(id)
+        const worktreeIds = worktrees.map(wt => wt.id)
         for (const wt of worktrees) {
           const profile = db.resolveModelProfile(wt.id, id)
           syncProfileToClaudeSettings(wt.path, profile)
         }
+        notifyRenderer('model-profile:changed', { worktreeIds })
       } catch (err) {
         log.warn('Failed to sync model profile to worktrees on project update', {
           projectId: id,
@@ -139,6 +149,7 @@ export function registerDatabaseHandlers(): void {
       try {
         const profile = db.resolveModelProfile(id, result.project_id)
         syncProfileToClaudeSettings(result.path, profile)
+        notifyRenderer('model-profile:changed', { worktreeIds: [id] })
       } catch (err) {
         log.warn('Failed to sync model profile on worktree update', {
           worktreeId: id,

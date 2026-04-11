@@ -31,6 +31,7 @@ import { useWindowFocusRefresh } from '@/hooks/useWindowFocusRefresh'
 import { useWorktreeWatcher } from '@/hooks/useWorktreeWatcher'
 import { useConnectionWatcher } from '@/hooks/useConnectionWatcher'
 import { useAutoUpdate } from '@/hooks/useAutoUpdate'
+import { useModelProfileSync } from '@/hooks/useModelProfileSync'
 import { ErrorBoundary, ErrorFallback } from '@/components/error'
 import { ProjectSettingsDialog } from '@/components/projects/ProjectSettingsDialog'
 import { useProjectStore } from '@/stores/useProjectStore'
@@ -85,6 +86,8 @@ export function AppLayout({ children }: AppLayoutProps): React.JSX.Element {
   useConnectionWatcher()
   // Auto-update notifications
   useAutoUpdate()
+  // Notify when model profile changes are synced to settings.local.json
+  useModelProfileSync()
 
   // Drag-and-drop from Finder
   const activeSessionId = useSessionStore((s) => s.activeSessionId)

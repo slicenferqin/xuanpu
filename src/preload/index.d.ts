@@ -783,6 +783,9 @@ declare global {
         error?: string
       }>
       onSettingsUpdated: (callback: (data: unknown) => void) => () => void
+      onModelProfileChanged: (
+        callback: (data: { worktreeIds: string[] }) => void
+      ) => () => void
     }
     scriptOps: {
       runSetup: (

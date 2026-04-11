@@ -1482,6 +1482,20 @@ const settingsOps = {
     return () => {
       ipcRenderer.removeListener('settings:updated', handler)
     }
+  },
+
+  // Listen for model profile changes (profile assigned/edited/deleted)
+  onModelProfileChanged: (
+    callback: (data: { worktreeIds: string[] }) => void
+  ): (() => void) => {
+    const handler = (
+      _event: unknown,
+      data: { worktreeIds: string[] }
+    ): void => callback(data)
+    ipcRenderer.on('model-profile:changed', handler)
+    return () => {
+      ipcRenderer.removeListener('model-profile:changed', handler)
+    }
   }
 }
 

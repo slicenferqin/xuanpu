@@ -1920,7 +1920,8 @@ export const messages: Record<AppLocale, MessageTree> = {
         saving: 'Saving...',
         cancel: 'Cancel',
         saveSuccess: 'Workspace settings saved',
-        saveError: 'Failed to save workspace settings'
+        saveError: 'Failed to save workspace settings',
+        profileSynced: 'Model profile updated — next message will use new settings'
       },
       branchPicker: {
         title: 'New Workspace',
@@ -3998,7 +3999,8 @@ export const messages: Record<AppLocale, MessageTree> = {
         saving: '保存中...',
         cancel: '取消',
         saveSuccess: '工作区设置已保存',
-        saveError: '保存工作区设置失败'
+        saveError: '保存工作区设置失败',
+        profileSynced: '模型配置已更新 — 下一条消息将使用新设置'
       },
       branchPicker: {
         title: '新建工作区',
