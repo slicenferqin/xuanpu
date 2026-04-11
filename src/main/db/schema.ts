@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 13
+export const CURRENT_SCHEMA_VERSION = 15
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -135,6 +135,9 @@ CREATE TABLE IF NOT EXISTS model_profiles (
   api_key TEXT,
   base_url TEXT,
   model_id TEXT,
+  openai_api_key TEXT,
+  openai_base_url TEXT,
+  codex_config_toml TEXT,
   settings_json TEXT DEFAULT '{}',
   is_default INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
@@ -464,6 +467,27 @@ export const MIGRATIONS: Migration[] = [
     `,
     down: `
       DROP TABLE IF EXISTS model_profiles;
+      -- SQLite does not support DROP COLUMN in older versions
+    `
+  },
+  {
+    version: 14,
+    name: 'add_openai_profile_fields',
+    up: `
+      ALTER TABLE model_profiles ADD COLUMN openai_api_key TEXT;
+      ALTER TABLE model_profiles ADD COLUMN openai_base_url TEXT;
+    `,
+    down: `
+      -- SQLite does not support DROP COLUMN in older versions
+    `
+  },
+  {
+    version: 15,
+    name: 'add_codex_config_toml',
+    up: `
+      ALTER TABLE model_profiles ADD COLUMN codex_config_toml TEXT;
+    `,
+    down: `
       -- SQLite does not support DROP COLUMN in older versions
     `
   }

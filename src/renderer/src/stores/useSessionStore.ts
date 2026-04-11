@@ -284,8 +284,19 @@ export const useSessionStore = create<SessionState>()(
         try {
           // Resolve default agent SDK from settings
           const { useSettingsStore } = await import('./useSettingsStore')
+
+          // If no explicit override, check the worktree's model profile for provider hint
+          let profileSdk: 'claude-code' | 'codex' | undefined
+          if (!agentSdkOverride) {
+            try {
+              const profile = await window.modelProfileOps.resolve(worktreeId, projectId)
+              if (profile?.provider === 'codex') profileSdk = 'codex'
+              else if (profile?.provider === 'claude') profileSdk = 'claude-code'
+            } catch { /* fall through to global default */ }
+          }
+
           const defaultAgentSdk =
-            agentSdkOverride ?? useSettingsStore.getState().defaultAgentSdk ?? 'opencode'
+            agentSdkOverride ?? profileSdk ?? useSettingsStore.getState().defaultAgentSdk ?? 'opencode'
 
           const isTerminal = defaultAgentSdk === 'terminal'
 
@@ -293,12 +304,23 @@ export const useSessionStore = create<SessionState>()(
           let defaultModel: { providerID: string; modelID: string; variant?: string } | null = null
 
           if (!isTerminal) {
+            // Priority 0: model_id from the resolved model profile
+            if (profileSdk && !agentSdkOverride) {
+              try {
+                const profile = await window.modelProfileOps.resolve(worktreeId, projectId)
+                if (profile?.model_id) {
+                  const providerID = profile.provider === 'codex' ? 'openai' : 'anthropic'
+                  defaultModel = { providerID, modelID: profile.model_id }
+                }
+              } catch { /* fall through */ }
+            }
+
             const { resolveModelForSdk } = await import('./useSettingsStore')
             const configuredDefaultSdk = useSettingsStore.getState().defaultAgentSdk ?? 'opencode'
 
             // Priority 1: mode-specific default (only when session SDK matches the
             // configured default — mode defaults are set in that SDK's context)
-            if (defaultAgentSdk === configuredDefaultSdk) {
+            if (!defaultModel && defaultAgentSdk === configuredDefaultSdk) {
               const modeModel = useSettingsStore.getState().getModelForMode(initialMode ?? 'build')
               if (modeModel) {
                 defaultModel = modeModel

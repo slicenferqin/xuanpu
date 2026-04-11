@@ -2,9 +2,16 @@ import { ipcMain, BrowserWindow } from 'electron'
 import { getDatabase } from '../db/database'
 import { createLogger } from '../services/logger'
 import { syncProfileToClaudeSettings } from '../services/model-profile-sync'
+import type { CodexImplementer } from '../services/codex-implementer'
 import type { ModelProfileCreate, ModelProfileUpdate } from '@shared/types/model-profile'
 
 const log = createLogger({ component: 'ModelProfileHandlers' })
+
+let codexImpl: CodexImplementer | null = null
+
+export function setCodexImplementer(impl: CodexImplementer): void {
+  codexImpl = impl
+}
 
 /** Send an event to the renderer process (safe if no windows exist yet) */
 function notifyRenderer(channel: string, data: unknown): void {
@@ -33,6 +40,7 @@ function syncAllActiveWorktrees(): void {
     }
     if (allWorktreeIds.length > 0) {
       notifyRenderer('model-profile:changed', { worktreeIds: allWorktreeIds })
+      if (codexImpl) codexImpl.onModelProfileChanged(allWorktreeIds)
     }
   } catch (err) {
     log.warn('Failed to sync model profile to worktrees', {

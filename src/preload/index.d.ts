@@ -1289,6 +1289,9 @@ declare global {
           api_key: string | null
           base_url: string | null
           model_id: string | null
+          openai_api_key: string | null
+          openai_base_url: string | null
+          codex_config_toml: string | null
           settings_json: string
           is_default: boolean
           created_at: string
@@ -1302,6 +1305,9 @@ declare global {
         api_key: string | null
         base_url: string | null
         model_id: string | null
+        openai_api_key: string | null
+        openai_base_url: string | null
+        codex_config_toml: string | null
         settings_json: string
         is_default: boolean
         created_at: string
@@ -1313,6 +1319,9 @@ declare global {
         api_key?: string | null
         base_url?: string | null
         model_id?: string | null
+        openai_api_key?: string | null
+        openai_base_url?: string | null
+        codex_config_toml?: string | null
         settings_json?: string
         is_default?: boolean
       }) => Promise<{
@@ -1322,6 +1331,9 @@ declare global {
         api_key: string | null
         base_url: string | null
         model_id: string | null
+        openai_api_key: string | null
+        openai_base_url: string | null
+        codex_config_toml: string | null
         settings_json: string
         is_default: boolean
         created_at: string
@@ -1335,6 +1347,9 @@ declare global {
           api_key?: string | null
           base_url?: string | null
           model_id?: string | null
+          openai_api_key?: string | null
+          openai_base_url?: string | null
+          codex_config_toml?: string | null
           settings_json?: string
           is_default?: boolean
         }
@@ -1345,6 +1360,9 @@ declare global {
         api_key: string | null
         base_url: string | null
         model_id: string | null
+        openai_api_key: string | null
+        openai_base_url: string | null
+        codex_config_toml: string | null
         settings_json: string
         is_default: boolean
         created_at: string
@@ -1362,6 +1380,9 @@ declare global {
         api_key: string | null
         base_url: string | null
         model_id: string | null
+        openai_api_key: string | null
+        openai_base_url: string | null
+        codex_config_toml: string | null
         settings_json: string
         is_default: boolean
         created_at: string

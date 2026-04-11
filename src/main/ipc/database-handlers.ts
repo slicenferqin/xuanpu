@@ -3,6 +3,7 @@ import { getDatabase } from '../db'
 import { createLogger } from '../services/logger'
 import { syncProfileToClaudeSettings } from '../services/model-profile-sync'
 import { telemetryService } from '../services/telemetry-service'
+import type { CodexImplementer } from '../services/codex-implementer'
 import type {
   ProjectCreate,
   ProjectUpdate,
@@ -16,6 +17,12 @@ import type {
 } from '../db'
 
 const log = createLogger({ component: 'DatabaseHandlers' })
+
+let codexImpl: CodexImplementer | null = null
+
+export function setCodexImplementerForDbHandlers(impl: CodexImplementer): void {
+  codexImpl = impl
+}
 
 /** Send an event to the renderer process (safe if no windows exist yet) */
 function notifyRenderer(channel: string, data: unknown): void {
@@ -90,6 +97,7 @@ export function registerDatabaseHandlers(): void {
           syncProfileToClaudeSettings(wt.path, profile)
         }
         notifyRenderer('model-profile:changed', { worktreeIds })
+        if (codexImpl) codexImpl.onModelProfileChanged(worktreeIds)
       } catch (err) {
         log.warn('Failed to sync model profile to worktrees on project update', {
           projectId: id,
@@ -150,6 +158,7 @@ export function registerDatabaseHandlers(): void {
         const profile = db.resolveModelProfile(id, result.project_id)
         syncProfileToClaudeSettings(result.path, profile)
         notifyRenderer('model-profile:changed', { worktreeIds: [id] })
+        if (codexImpl) codexImpl.onModelProfileChanged([id])
       } catch (err) {
         log.warn('Failed to sync model profile on worktree update', {
           worktreeId: id,

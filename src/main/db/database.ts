@@ -302,6 +302,9 @@ export class DatabaseService {
 
     this.safeAddColumn('projects', 'model_profile_id', 'TEXT')
     this.safeAddColumn('worktrees', 'model_profile_id', 'TEXT')
+    this.safeAddColumn('model_profiles', 'openai_api_key', 'TEXT')
+    this.safeAddColumn('model_profiles', 'openai_base_url', 'TEXT')
+    this.safeAddColumn('model_profiles', 'codex_config_toml', 'TEXT')
   }
 
   // Settings operations
@@ -361,6 +364,9 @@ export class DatabaseService {
       api_key: data.api_key ?? null,
       base_url: data.base_url ?? null,
       model_id: data.model_id ?? null,
+      openai_api_key: data.openai_api_key ?? null,
+      openai_base_url: data.openai_base_url ?? null,
+      codex_config_toml: data.codex_config_toml ?? null,
       settings_json: data.settings_json ?? '{}',
       is_default: data.is_default ?? false,
       created_at: now,
@@ -372,8 +378,8 @@ export class DatabaseService {
     }
 
     db.prepare(
-      `INSERT INTO model_profiles (id, name, provider, api_key, base_url, model_id, settings_json, is_default, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO model_profiles (id, name, provider, api_key, base_url, model_id, openai_api_key, openai_base_url, codex_config_toml, settings_json, is_default, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       profile.id,
       profile.name,
@@ -381,6 +387,9 @@ export class DatabaseService {
       profile.api_key,
       profile.base_url,
       profile.model_id,
+      profile.openai_api_key,
+      profile.openai_base_url,
+      profile.codex_config_toml,
       profile.settings_json,
       profile.is_default ? 1 : 0,
       profile.created_at,
@@ -417,6 +426,18 @@ export class DatabaseService {
     if (data.model_id !== undefined) {
       updates.push('model_id = ?')
       values.push(data.model_id)
+    }
+    if (data.openai_api_key !== undefined) {
+      updates.push('openai_api_key = ?')
+      values.push(data.openai_api_key)
+    }
+    if (data.openai_base_url !== undefined) {
+      updates.push('openai_base_url = ?')
+      values.push(data.openai_base_url)
+    }
+    if (data.codex_config_toml !== undefined) {
+      updates.push('codex_config_toml = ?')
+      values.push(data.codex_config_toml)
     }
     if (data.settings_json !== undefined) {
       updates.push('settings_json = ?')

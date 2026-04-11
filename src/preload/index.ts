@@ -1779,6 +1779,9 @@ const modelProfileOps = {
     api_key?: string | null
     base_url?: string | null
     model_id?: string | null
+    openai_api_key?: string | null
+    openai_base_url?: string | null
+    codex_config_toml?: string | null
     settings_json?: string
     is_default?: boolean
   }) => ipcRenderer.invoke('model-profile:create', data),
@@ -1790,6 +1793,9 @@ const modelProfileOps = {
       api_key?: string | null
       base_url?: string | null
       model_id?: string | null
+      openai_api_key?: string | null
+      openai_base_url?: string | null
+      codex_config_toml?: string | null
       settings_json?: string
       is_default?: boolean
     }

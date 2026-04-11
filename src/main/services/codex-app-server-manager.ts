@@ -97,6 +97,7 @@ export interface CodexStartSessionOptions {
   resumeCursor?: string
   codexBinaryPath?: string
   codexHomePath?: string
+  env?: Record<string, string>
 }
 
 // ── Turn input ────────────────────────────────────────────────────
@@ -351,7 +352,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         cwd: resolvedCwd,
         env: {
           ...process.env,
-          ...(options.codexHomePath ? { CODEX_HOME: options.codexHomePath } : {})
+          ...(options.codexHomePath ? { CODEX_HOME: options.codexHomePath } : {}),
+          ...(options.env ?? {})
         },
         stdio: ['pipe', 'pipe', 'pipe'],
         shell: process.platform === 'win32'

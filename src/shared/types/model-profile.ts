@@ -1,4 +1,4 @@
-export type ModelProvider = 'claude'
+export type ModelProvider = 'claude' | 'codex'
 
 export interface ModelProfile {
   id: string
@@ -7,6 +7,9 @@ export interface ModelProfile {
   api_key: string | null
   base_url: string | null
   model_id: string | null
+  openai_api_key: string | null
+  openai_base_url: string | null
+  codex_config_toml: string | null
   settings_json: string
   is_default: boolean
   created_at: string
@@ -19,6 +22,9 @@ export interface ModelProfileCreate {
   api_key?: string | null
   base_url?: string | null
   model_id?: string | null
+  openai_api_key?: string | null
+  openai_base_url?: string | null
+  codex_config_toml?: string | null
   settings_json?: string
   is_default?: boolean
 }
@@ -29,6 +35,9 @@ export interface ModelProfileUpdate {
   api_key?: string | null
   base_url?: string | null
   model_id?: string | null
+  openai_api_key?: string | null
+  openai_base_url?: string | null
+  codex_config_toml?: string | null
   settings_json?: string
   is_default?: boolean
 }

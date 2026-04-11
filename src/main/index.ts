@@ -30,6 +30,8 @@ import {
   registerUsageHandlers,
   registerModelProfileHandlers
 } from './ipc'
+import { setCodexImplementer } from './ipc/model-profile-handlers'
+import { setCodexImplementerForDbHandlers } from './ipc/database-handlers'
 import { buildMenu, updateMenuState } from './menu'
 import type { MenuState } from './menu'
 import { createLogger, getLogDir } from './services/logger'
@@ -681,6 +683,8 @@ app.whenReady().then(async () => {
     } satisfies AgentSdkImplementer
     const codexImpl = new CodexImplementer()
     codexImpl.setDatabaseService(getDatabase())
+    setCodexImplementer(codexImpl)
+    setCodexImplementerForDbHandlers(codexImpl)
     const sdkManager = new AgentSdkManager([openCodePlaceholder, claudeImpl, codexImpl])
     sdkManager.setMainWindow(mainWindow)
 
