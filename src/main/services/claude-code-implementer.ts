@@ -83,6 +83,13 @@ function syncProfileToClaudeSettings(
   // Write back with restrictive permissions (contains API key)
   mkdirSync(claudeDir, { recursive: true })
   writeFileSync(settingsPath, JSON.stringify(settings, null, 2), { mode: 0o600 })
+
+  log.info('Synced model profile to .claude/settings.local.json', {
+    path: settingsPath,
+    hasApiKey: !!env.ANTHROPIC_API_KEY,
+    baseUrl: env.ANTHROPIC_BASE_URL ?? '(not set)',
+    envKeys: Object.keys(env)
+  })
 }
 
 const CLAUDE_EFFORT_VARIANTS = { low: {}, medium: {}, high: {} }
@@ -597,6 +604,13 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
           hasApiKey: !!resolvedProfile.api_key,
           baseUrl: resolvedProfile.base_url ?? '(default)',
           modelId: resolvedProfile.model_id
+        })
+      } else {
+        log.info('No model profile resolved', {
+          hasDbService: !!this.dbService,
+          hasDbSession: !!dbSession,
+          worktreeId: dbSession?.worktree_id ?? null,
+          projectId: dbSession?.project_id ?? null
         })
       }
 
