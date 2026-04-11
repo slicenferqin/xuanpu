@@ -1,0 +1,290 @@
+/**
+ * Session Runtime Store — Phase 1
+ *
+ * Per-session runtime state that survives tab switches and component remounts.
+ * This is the **Runtime Layer** truth source for transient session state:
+ *   lifecycle, interrupt queue, unread count, activity timestamps.
+ *
+ * **Not** the durable layer (DB) or view layer (scroll position, etc.).
+ *
+ * The `useAgentEventBridge` hook is the sole writer; React components are readers.
+ */
+
+import { create } from 'zustand'
+import type { CanonicalAgentEvent } from '@shared/types/agent-protocol'
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export type SessionLifecycle = 'idle' | 'busy' | 'retry' | 'error' | 'materializing'
+
+export type InterruptType = 'question' | 'permission' | 'command_approval' | 'plan'
+
+export interface InterruptItem {
+  type: InterruptType
+  id: string
+  sessionId: string
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data: any
+  timestamp: number
+}
+
+export interface SessionRuntimeState {
+  lifecycle: SessionLifecycle
+  inProgress: boolean
+  unreadCount: number
+  commandsAvailable: boolean
+  lastActivityAt: number
+  retryInfo: {
+    attempt: number
+    message?: string
+    next?: number
+  } | null
+}
+
+const DEFAULT_SESSION_STATE: SessionRuntimeState = {
+  lifecycle: 'idle',
+  inProgress: false,
+  unreadCount: 0,
+  commandsAvailable: false,
+  lastActivityAt: 0,
+  retryInfo: null
+}
+
+// ---------------------------------------------------------------------------
+// Per-session event callback registry (module-level, NOT reactive state)
+// ---------------------------------------------------------------------------
+
+type EventCallback = (event: CanonicalAgentEvent) => void
+const _sessionEventCallbacks = new Map<string, Set<EventCallback>>()
+
+// ---------------------------------------------------------------------------
+// Store
+// ---------------------------------------------------------------------------
+
+interface SessionRuntimeStoreState {
+  /** Per-session runtime state. */
+  sessions: Map<string, SessionRuntimeState>
+  /** Per-session HITL interrupt queue (unified: question/permission/approval/plan). */
+  interruptQueues: Map<string, InterruptItem[]>
+}
+
+interface SessionRuntimeStoreActions {
+  // Session state
+  getSession(sessionId: string): SessionRuntimeState
+  setLifecycle(sessionId: string, lifecycle: SessionLifecycle): void
+  setRetryInfo(
+    sessionId: string,
+    info: { attempt: number; message?: string; next?: number } | null
+  ): void
+  setInProgress(sessionId: string, value: boolean): void
+  setCommandsAvailable(sessionId: string, value: boolean): void
+  touchActivity(sessionId: string): void
+
+  // Unread
+  incrementUnread(sessionId: string): void
+  clearUnread(sessionId: string): void
+
+  // Interrupt queue
+  pushInterrupt(sessionId: string, item: Omit<InterruptItem, 'timestamp'>): void
+  removeInterrupt(sessionId: string, id: string): void
+  getInterruptQueue(sessionId: string): InterruptItem[]
+  getFirstInterrupt(sessionId: string): InterruptItem | null
+  getInterruptsByType(sessionId: string, type: InterruptType): InterruptItem[]
+  clearSessionInterrupts(sessionId: string): void
+
+  // Per-session event dispatch (for SessionView streaming)
+  subscribeToSessionEvents(sessionId: string, cb: EventCallback): () => void
+  dispatchToSession(sessionId: string, event: CanonicalAgentEvent): void
+
+  // Cleanup
+  clearSession(sessionId: string): void
+}
+
+export type SessionRuntimeStore = SessionRuntimeStoreState & SessionRuntimeStoreActions
+
+function ensureSession(
+  sessions: Map<string, SessionRuntimeState>,
+  sessionId: string
+): SessionRuntimeState {
+  return sessions.get(sessionId) ?? { ...DEFAULT_SESSION_STATE }
+}
+
+export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) => ({
+  // -- State --
+  sessions: new Map(),
+  interruptQueues: new Map(),
+
+  // -- Session state --
+  getSession(sessionId) {
+    return ensureSession(get().sessions, sessionId)
+  },
+
+  setLifecycle(sessionId, lifecycle) {
+    set((state) => {
+      const sessions = new Map(state.sessions)
+      const existing = ensureSession(sessions, sessionId)
+      sessions.set(sessionId, {
+        ...existing,
+        lifecycle,
+        inProgress: lifecycle === 'busy' || lifecycle === 'retry',
+        lastActivityAt: Date.now()
+      })
+      return { sessions }
+    })
+  },
+
+  setRetryInfo(sessionId, info) {
+    set((state) => {
+      const sessions = new Map(state.sessions)
+      const existing = ensureSession(sessions, sessionId)
+      sessions.set(sessionId, { ...existing, retryInfo: info })
+      return { sessions }
+    })
+  },
+
+  setInProgress(sessionId, value) {
+    set((state) => {
+      const sessions = new Map(state.sessions)
+      const existing = ensureSession(sessions, sessionId)
+      sessions.set(sessionId, { ...existing, inProgress: value })
+      return { sessions }
+    })
+  },
+
+  setCommandsAvailable(sessionId, value) {
+    set((state) => {
+      const sessions = new Map(state.sessions)
+      const existing = ensureSession(sessions, sessionId)
+      sessions.set(sessionId, { ...existing, commandsAvailable: value })
+      return { sessions }
+    })
+  },
+
+  touchActivity(sessionId) {
+    set((state) => {
+      const sessions = new Map(state.sessions)
+      const existing = ensureSession(sessions, sessionId)
+      sessions.set(sessionId, { ...existing, lastActivityAt: Date.now() })
+      return { sessions }
+    })
+  },
+
+  // -- Unread --
+  incrementUnread(sessionId) {
+    set((state) => {
+      const sessions = new Map(state.sessions)
+      const existing = ensureSession(sessions, sessionId)
+      sessions.set(sessionId, {
+        ...existing,
+        unreadCount: existing.unreadCount + 1
+      })
+      return { sessions }
+    })
+  },
+
+  clearUnread(sessionId) {
+    set((state) => {
+      const sessions = new Map(state.sessions)
+      const existing = ensureSession(sessions, sessionId)
+      if (existing.unreadCount === 0) return state
+      sessions.set(sessionId, { ...existing, unreadCount: 0 })
+      return { sessions }
+    })
+  },
+
+  // -- Interrupt queue --
+  pushInterrupt(sessionId, item) {
+    set((state) => {
+      const queues = new Map(state.interruptQueues)
+      const queue = [...(queues.get(sessionId) ?? [])]
+      // Deduplicate by id
+      if (queue.some((q) => q.id === item.id)) return state
+      queue.push({ ...item, timestamp: Date.now() })
+      queues.set(sessionId, queue)
+      return { interruptQueues: queues }
+    })
+  },
+
+  removeInterrupt(sessionId, id) {
+    set((state) => {
+      const queues = new Map(state.interruptQueues)
+      const queue = queues.get(sessionId)
+      if (!queue) return state
+      const filtered = queue.filter((item) => item.id !== id)
+      if (filtered.length === queue.length) return state
+      if (filtered.length === 0) {
+        queues.delete(sessionId)
+      } else {
+        queues.set(sessionId, filtered)
+      }
+      return { interruptQueues: queues }
+    })
+  },
+
+  getInterruptQueue(sessionId) {
+    return get().interruptQueues.get(sessionId) ?? []
+  },
+
+  getFirstInterrupt(sessionId) {
+    const queue = get().interruptQueues.get(sessionId)
+    return queue?.[0] ?? null
+  },
+
+  getInterruptsByType(sessionId, type) {
+    const queue = get().interruptQueues.get(sessionId) ?? []
+    return queue.filter((item) => item.type === type)
+  },
+
+  clearSessionInterrupts(sessionId) {
+    set((state) => {
+      const queues = new Map(state.interruptQueues)
+      if (!queues.has(sessionId)) return state
+      queues.delete(sessionId)
+      return { interruptQueues: queues }
+    })
+  },
+
+  // -- Per-session event dispatch --
+  subscribeToSessionEvents(sessionId, cb) {
+    let callbackSet = _sessionEventCallbacks.get(sessionId)
+    if (!callbackSet) {
+      callbackSet = new Set()
+      _sessionEventCallbacks.set(sessionId, callbackSet)
+    }
+    callbackSet.add(cb)
+    return () => {
+      const s = _sessionEventCallbacks.get(sessionId)
+      if (s) {
+        s.delete(cb)
+        if (s.size === 0) _sessionEventCallbacks.delete(sessionId)
+      }
+    }
+  },
+
+  dispatchToSession(sessionId, event) {
+    const callbacks = _sessionEventCallbacks.get(sessionId)
+    if (callbacks) {
+      for (const cb of callbacks) {
+        try {
+          cb(event)
+        } catch (e) {
+          console.error('[SessionRuntimeStore] callback error:', e)
+        }
+      }
+    }
+  },
+
+  // -- Cleanup --
+  clearSession(sessionId) {
+    set((state) => {
+      const sessions = new Map(state.sessions)
+      const queues = new Map(state.interruptQueues)
+      sessions.delete(sessionId)
+      queues.delete(sessionId)
+      return { sessions, interruptQueues: queues }
+    })
+    _sessionEventCallbacks.delete(sessionId)
+  }
+}))

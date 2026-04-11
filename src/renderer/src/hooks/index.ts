@@ -2,6 +2,7 @@ export { useKeyboardShortcut, useCommandK, useCommandP } from './useKeyboardShor
 export { useKeyboardShortcuts } from './useKeyboardShortcuts'
 export { useCommands } from './useCommands'
 export { useAgentGlobalListener } from './useAgentGlobalListener'
+export { useAgentEventBridge } from './useAgentEventBridge'
 export { useNotificationNavigation } from './useNotificationNavigation'
 export { usePRDetection } from './usePRDetection'
 export { useFileMentions } from './useFileMentions'

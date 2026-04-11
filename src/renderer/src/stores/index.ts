@@ -53,3 +53,10 @@ export { usePRReviewStore } from './usePRReviewStore'
 export { useDropAttachmentStore } from './useDropAttachmentStore'
 export { useDraftAttachmentStore } from './useDraftAttachmentStore'
 export { useFilterStore, COLON_COMMANDS, type ColonCommand } from './useFilterStore'
+export {
+  useSessionRuntimeStore,
+  type SessionLifecycle,
+  type InterruptType,
+  type InterruptItem,
+  type SessionRuntimeState
+} from './useSessionRuntimeStore'
