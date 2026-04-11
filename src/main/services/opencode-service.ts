@@ -7,6 +7,7 @@ import { autoRenameWorktreeBranch } from './git-service'
 import { getEventBus } from '../../server/event-bus'
 import type { AgentSdkImplementer } from './agent-sdk-types'
 import type { AgentRuntimeAdapter } from './agent-runtime-types'
+import { emitAgentEvent } from '@shared/lib/normalize-agent-event'
 
 const log = createLogger({ component: 'OpenCodeService' })
 
@@ -1240,7 +1241,7 @@ class OpenCodeService implements AgentSdkImplementer, AgentRuntimeAdapter {
         : {})
     }
 
-    this.sendToRenderer('opencode:stream', streamEvent)
+    emitAgentEvent(this.mainWindow, streamEvent)
   }
 
   /**

@@ -96,7 +96,44 @@ export interface AgentPlanResolvedData {
   id?: string
 }
 
-export type CanonicalAgentEvent =
+// ---------------------------------------------------------------------------
+// Event Envelope — added by every emitAgentEvent() call and by the preload
+// normalizer for legacy events that lack these fields.
+// ---------------------------------------------------------------------------
+export interface EventEnvelope {
+  /** Unique identifier for deduplication (UUID v4). */
+  eventId: string
+  /** Monotonically increasing counter per session, for ordering. */
+  sessionSequence: number
+  /** Which IPC channel the event arrived on (set by preload normalizer). */
+  sourceChannel?: 'agent:stream' | 'opencode:stream'
+}
+
+// ---------------------------------------------------------------------------
+// Model limits data — emitted by Claude Code implementer on session init
+// ---------------------------------------------------------------------------
+export interface AgentModelLimitsData {
+  models: Array<{
+    modelID: string
+    providerID: string
+    contextLimit: number
+  }>
+}
+
+// ---------------------------------------------------------------------------
+// Command approval problem data
+// ---------------------------------------------------------------------------
+export interface AgentCommandApprovalProblemData {
+  requestId: string
+  commandStr: string
+  reason: string
+  suggestion?: string
+}
+
+// ---------------------------------------------------------------------------
+// Canonical Agent Event — the union consumed by renderer
+// ---------------------------------------------------------------------------
+export type CanonicalAgentEvent = EventEnvelope & (
   | {
       type: 'session.materialized'
       sessionId: string
@@ -109,6 +146,7 @@ export type CanonicalAgentEvent =
       sessionId: string
       runtimeId?: SharedAgentRuntimeId
       data: { status: AgentStatusPayload }
+      /** Canonical location for status payload (normalizer ensures this). */
       statusPayload?: AgentStatusPayload
       childSessionId?: string
     }
@@ -120,10 +158,29 @@ export type CanonicalAgentEvent =
       childSessionId?: string
     }
   | {
-      type: 'session.warning' | 'session.error' | 'session.context_compacted'
+      type:
+        | 'session.warning'
+        | 'session.error'
+        | 'session.context_compacted'
+        | 'session.compaction_started'
+        | 'session.idle'
       sessionId: string
       runtimeId?: SharedAgentRuntimeId
       data: Record<string, unknown>
+      childSessionId?: string
+    }
+  | {
+      type: 'session.commands_available'
+      sessionId: string
+      runtimeId?: SharedAgentRuntimeId
+      data: Record<string, unknown>
+      childSessionId?: string
+    }
+  | {
+      type: 'session.model_limits'
+      sessionId: string
+      runtimeId?: SharedAgentRuntimeId
+      data: AgentModelLimitsData
       childSessionId?: string
     }
   | {
@@ -183,6 +240,13 @@ export type CanonicalAgentEvent =
       childSessionId?: string
     }
   | {
+      type: 'command.approval_problem'
+      sessionId: string
+      runtimeId?: SharedAgentRuntimeId
+      data: AgentCommandApprovalProblemData
+      childSessionId?: string
+    }
+  | {
       type: 'plan.ready'
       sessionId: string
       runtimeId?: SharedAgentRuntimeId
@@ -196,6 +260,14 @@ export type CanonicalAgentEvent =
       data: AgentPlanResolvedData
       childSessionId?: string
     }
+)
+
+// ---------------------------------------------------------------------------
+// Legacy event shape — what implementers emit before the envelope is added.
+// Used by emitAgentEvent() and normalizeAgentEvent() as input type.
+// ---------------------------------------------------------------------------
+export type RawAgentEvent = Omit<CanonicalAgentEvent, keyof EventEnvelope> &
+  Partial<EventEnvelope>
 
 export interface AgentCommand {
   name: string

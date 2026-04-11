@@ -20,6 +20,7 @@ import { CommandFilterService, type CommandFilterSettings } from './command-filt
 import { createLspMcpServerConfig, LspService } from './lsp'
 import { APP_SETTINGS_DB_KEY } from '@shared/types/settings'
 import { getActiveAppHomeDir } from '@shared/app-identity'
+import { emitAgentEvent } from '@shared/lib/normalize-agent-event'
 
 const log = createLogger({ component: 'ClaudeCodeImplementer' })
 
@@ -658,7 +659,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
           const status = (sdkMessage as Record<string, unknown>).status as string | undefined
           if (status === 'compacting') {
             log.info('Compaction started detected via system status message')
-            this.sendToRenderer('opencode:stream', {
+            emitAgentEvent(this.mainWindow, {
               type: 'session.compaction_started',
               sessionId: session.hiveSessionId,
               data: {}
@@ -714,14 +715,14 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
           }
 
           // Notify renderer that commands are now available for fetching
-          this.sendToRenderer('opencode:stream', {
+          emitAgentEvent(this.mainWindow, {
             type: 'session.commands_available',
             sessionId: session.hiveSessionId,
             data: {}
           })
 
           // Send Claude model limits so the renderer can populate contextStore
-          this.sendToRenderer('opencode:stream', {
+          emitAgentEvent(this.mainWindow, {
             type: 'session.model_limits',
             sessionId: session.hiveSessionId,
             data: {
@@ -790,7 +791,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
           // Include wasFork so the renderer knows whether to clear old messages.
           // wasFork is true ONLY for explicit fork requests (undo+resend), not
           // for normal SDK session ID changes during resume.
-          this.sendToRenderer('opencode:stream', {
+          emitAgentEvent(this.mainWindow, {
             type: 'session.materialized',
             sessionId: session.hiveSessionId,
             data: { newSessionId: sdkSessionId, wasFork: !wasPending && wasForkRequest }
@@ -1039,7 +1040,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
           agentSessionId,
           stderr: stderrOutput
         })
-        this.sendToRenderer('opencode:stream', {
+        emitAgentEvent(this.mainWindow, {
           type: 'session.warning',
           sessionId: session.hiveSessionId,
           data: {
@@ -1077,7 +1078,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         }
       )
 
-      this.sendToRenderer('opencode:stream', {
+      emitAgentEvent(this.mainWindow, {
         type: 'session.error',
         sessionId: session.hiveSessionId,
         data: { error: errorMessage, stderr: stderrOutput }
@@ -1247,7 +1248,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
     session.pendingQuestion.resolve({ answers })
 
     // Emit question.replied so the renderer removes the QuestionPrompt
-    this.sendToRenderer('opencode:stream', {
+    emitAgentEvent(this.mainWindow, {
       type: 'question.replied',
       sessionId: session.hiveSessionId,
       data: { requestId, id: requestId }
@@ -1274,7 +1275,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
     session.pendingQuestion.resolve({ answers: [], rejected: true })
 
     // Emit question.rejected so the renderer removes the QuestionPrompt
-    this.sendToRenderer('opencode:stream', {
+    emitAgentEvent(this.mainWindow, {
       type: 'question.rejected',
       sessionId: session.hiveSessionId,
       data: { requestId, id: requestId }
@@ -1377,7 +1378,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
     this.pendingPlanSessions.delete(resolvedRequestId)
 
     // Emit plan.resolved so the renderer clears the plan UI
-    this.sendToRenderer('opencode:stream', {
+    emitAgentEvent(this.mainWindow, {
       type: 'plan.resolved',
       sessionId: hiveSessionId,
       data: { approved: true }
@@ -1423,7 +1424,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
     this.pendingPlanSessions.delete(resolvedRequestId)
 
     // Emit plan.resolved so the renderer clears the plan UI
-    this.sendToRenderer('opencode:stream', {
+    emitAgentEvent(this.mainWindow, {
       type: 'plan.resolved',
       sessionId: hiveSessionId,
       data: { approved: false, feedback }
@@ -1790,7 +1791,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       // 2. Notify renderer with session.updated event (same format as OpenCode)
       // The renderer's SessionView.tsx and useOpenCodeGlobalListener.ts both
       // read: event.data?.info?.title || event.data?.title
-      this.sendToRenderer('opencode:stream', {
+      emitAgentEvent(this.mainWindow, {
         type: 'session.updated',
         sessionId: session.hiveSessionId,
         data: {
@@ -1929,7 +1930,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
             ? JSON.stringify(input.plan, null, 2)
             : ''
 
-      this.sendToRenderer('opencode:stream', {
+      emitAgentEvent(this.mainWindow, {
         type: 'plan.ready',
         sessionId: session.hiveSessionId,
         data: {
@@ -1951,7 +1952,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
           session.pendingPlanApproval = null
           this.pendingPlanSessions.delete(requestId)
           // Notify renderer to clear stale pending plan UI
-          this.sendToRenderer('opencode:stream', {
+          emitAgentEvent(this.mainWindow, {
             type: 'plan.resolved',
             sessionId: session.hiveSessionId,
             data: { approved: false, aborted: true }
@@ -2099,7 +2100,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
           }
 
           // Emit question.asked event to renderer (matches OpenCode event format)
-          this.sendToRenderer('opencode:stream', {
+          emitAgentEvent(this.mainWindow, {
             type: 'question.asked',
             sessionId: session.hiveSessionId,
             data: questionRequest
@@ -2279,7 +2280,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       requestId,
       sessionId: session.hiveSessionId
     })
-    this.sendToRenderer('opencode:stream', {
+    emitAgentEvent(this.mainWindow, {
       type: 'command.approval_needed',
       sessionId: session.hiveSessionId,
       data: approvalRequest
@@ -2313,7 +2314,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
           })
 
           // Notify renderer about the problem so user sees actionable feedback
-          this.sendToRenderer('opencode:stream', {
+          emitAgentEvent(this.mainWindow, {
             type: 'command.approval_problem',
             sessionId: session.hiveSessionId,
             data: {
@@ -2326,7 +2327,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
           })
 
           // Clear approval UI
-          this.sendToRenderer('opencode:stream', {
+          emitAgentEvent(this.mainWindow, {
             type: 'command.approval_replied',
             sessionId: session.hiveSessionId,
             data: { requestId, id: requestId, approved: false }
@@ -2362,7 +2363,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
           })
 
           // Send command.approval_replied event to clear the UI state
-          this.sendToRenderer('opencode:stream', {
+          emitAgentEvent(this.mainWindow, {
             type: 'command.approval_replied',
             sessionId: pending.hiveSessionId,
             data: { requestId, id: requestId, approved: false }
@@ -2541,7 +2542,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
 
     // Send command.approval_replied event to renderer so it can clear the pending approval
     // We know which session this approval belongs to from the stored data
-    this.sendToRenderer('opencode:stream', {
+    emitAgentEvent(this.mainWindow, {
       type: 'command.approval_replied',
       sessionId: pendingApproval.hiveSessionId,
       data: { requestId, id: requestId, approved }
@@ -2556,7 +2557,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
     extra?: { attempt?: number; message?: string; next?: number }
   ): void {
     const statusPayload = { type: status, ...extra }
-    this.sendToRenderer('opencode:stream', {
+    emitAgentEvent(this.mainWindow, {
       type: 'session.status',
       sessionId: hiveSessionId,
       data: { status: statusPayload },
@@ -2633,7 +2634,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
 
             if (deltaType === 'text_delta') {
               const text = delta.text as string
-              this.sendToRenderer('opencode:stream', {
+              emitAgentEvent(this.mainWindow, {
                 type: 'message.part.updated',
                 sessionId: hiveSessionId,
                 childSessionId,
@@ -2644,7 +2645,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
               })
             } else if (deltaType === 'thinking_delta') {
               const thinking = delta.thinking as string
-              this.sendToRenderer('opencode:stream', {
+              emitAgentEvent(this.mainWindow, {
                 type: 'message.part.updated',
                 sessionId: hiveSessionId,
                 childSessionId,
@@ -2699,7 +2700,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
                   inputJson: ''
                 })
               }
-              this.sendToRenderer('opencode:stream', {
+              emitAgentEvent(this.mainWindow, {
                 type: 'message.part.updated',
                 sessionId: hiveSessionId,
                 childSessionId,
@@ -2741,7 +2742,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
                     parsedInput = tool.inputJson
                   }
                 }
-                this.sendToRenderer('opencode:stream', {
+                emitAgentEvent(this.mainWindow, {
                   type: 'message.part.updated',
                   sessionId: hiveSessionId,
                   childSessionId,
@@ -2781,7 +2782,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
           contentBlocks: Array.isArray(innerContent) ? innerContent.length : 0,
           hasUsage: !!usage
         })
-        this.sendToRenderer('opencode:stream', {
+        emitAgentEvent(this.mainWindow, {
           type: 'message.updated',
           sessionId: hiveSessionId,
           childSessionId,
@@ -2812,7 +2813,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
           for (const block of innerContent) {
             const b = block as Record<string, unknown>
             if (b.type === 'tool_use') {
-              this.sendToRenderer('opencode:stream', {
+              emitAgentEvent(this.mainWindow, {
                 type: 'message.part.updated',
                 sessionId: hiveSessionId,
                 childSessionId,
@@ -2848,7 +2849,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         // but that duplicated text already streamed via stream_event deltas.
         // Removed to fix duplicate message display.
 
-        this.sendToRenderer('opencode:stream', {
+        emitAgentEvent(this.mainWindow, {
           type: 'message.updated',
           sessionId: hiveSessionId,
           childSessionId,
@@ -2909,7 +2910,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
                 hasOutput: !!output,
                 outputLength: output?.length ?? 0
               })
-              this.sendToRenderer('opencode:stream', {
+              emitAgentEvent(this.mainWindow, {
                 type: 'message.part.updated',
                 sessionId: hiveSessionId,
                 childSessionId,
@@ -2937,7 +2938,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         const subtype = msg.subtype as string | undefined
         if (subtype === 'compact_boundary') {
           const meta = msg.compact_metadata as Record<string, unknown> | undefined
-          this.sendToRenderer('opencode:stream', {
+          emitAgentEvent(this.mainWindow, {
             type: 'message.part.updated',
             sessionId: hiveSessionId,
             childSessionId,
@@ -2956,7 +2957,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       case 'tool_progress': {
         const toolId = msg.tool_use_id as string
         const toolName = msg.tool_name as string
-        this.sendToRenderer('opencode:stream', {
+        emitAgentEvent(this.mainWindow, {
           type: 'message.part.updated',
           sessionId: hiveSessionId,
           childSessionId,
@@ -2974,7 +2975,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
 
       case 'tool_use': {
         log.info('emitSdkMessage: tool_use', { hiveSessionId, messageIndex })
-        this.sendToRenderer('opencode:stream', {
+        emitAgentEvent(this.mainWindow, {
           type: 'message.part.updated',
           sessionId: hiveSessionId,
           childSessionId,

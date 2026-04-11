@@ -17,6 +17,7 @@ import { asNumber, asObject, asString } from './codex-utils'
 import { generateCodexSessionTitle } from './codex-session-title'
 import type { DatabaseService } from '../db/database'
 import { autoRenameWorktreeBranch } from './git-service'
+import { emitAgentEvent } from '@shared/lib/normalize-agent-event'
 
 const log = createLogger({ component: 'CodexImplementer' })
 
@@ -200,7 +201,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
 
       const modelID = resolveCodexModelSlug(asString(payload?.model) ?? this.selectedModel)
 
-      this.sendToRenderer('opencode:stream', {
+      emitAgentEvent(this.mainWindow, {
         type: 'session.context_usage',
         sessionId: targetSession.hiveSessionId,
         data: {
@@ -224,7 +225,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     if (event.kind === 'notification' && event.method === 'thread/compacted') {
       if (!targetSession) return
 
-      this.sendToRenderer('opencode:stream', {
+      emitAgentEvent(this.mainWindow, {
         type: 'session.context_compacted',
         sessionId: targetSession.hiveSessionId,
         data: {}
@@ -254,7 +255,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       })
 
       const payload = asObject(event.payload)
-      this.sendToRenderer('opencode:stream', {
+      emitAgentEvent(this.mainWindow, {
         type: 'permission.asked',
         sessionId: targetSession.hiveSessionId,
         data: this.toPermissionRequest(
@@ -281,7 +282,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       const payload = asObject(event.payload)
       const questions = (payload?.questions ?? []) as unknown[]
 
-      this.sendToRenderer('opencode:stream', {
+      emitAgentEvent(this.mainWindow, {
         type: 'question.asked',
         sessionId: targetSession.hiveSessionId,
         data: {
@@ -355,7 +356,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     this.sessions.set(key, state)
 
     // Notify renderer that the session has materialized
-    this.sendToRenderer('opencode:stream', {
+    emitAgentEvent(this.mainWindow, {
       type: 'session.materialized',
       sessionId: hiveSessionId,
       data: { newSessionId: threadId, wasFork: false }
@@ -521,7 +522,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       const immediateTitle = truncateForImmediateTitle(text)
       if (immediateTitle && this.dbService) {
         this.dbService.updateSession(session.hiveSessionId, { name: immediateTitle })
-        this.sendToRenderer('opencode:stream', {
+        emitAgentEvent(this.mainWindow, {
           type: 'session.updated',
           sessionId: session.hiveSessionId,
           data: { title: immediateTitle, info: { title: immediateTitle } }
@@ -581,7 +582,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         ) {
           continue
         }
-        this.sendToRenderer('opencode:stream', streamEvent)
+        emitAgentEvent(this.mainWindow, streamEvent)
         this.updateLiveAssistantDraftFromStreamEvent(session, streamEvent)
       }
 
@@ -752,7 +753,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
           turnId: completedTurnId,
           payload: { plan: pendingPlanText, toolUseID }
         })
-        this.sendToRenderer('opencode:stream', {
+        emitAgentEvent(this.mainWindow, {
           type: 'plan.ready',
           sessionId: session.hiveSessionId,
           data: {
@@ -783,7 +784,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
 
       session.status = 'error'
       session.liveAssistantDraft = null
-      this.sendToRenderer('opencode:stream', {
+      emitAgentEvent(this.mainWindow, {
         type: 'session.error',
         sessionId: session.hiveSessionId,
         data: { error: errorMessage }
@@ -984,7 +985,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       })
     }
 
-    this.sendToRenderer('opencode:stream', {
+    emitAgentEvent(this.mainWindow, {
       type: 'question.replied',
       sessionId: pending.hiveSessionId,
       data: { requestId, id: requestId }
@@ -1017,7 +1018,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       })
     }
 
-    this.sendToRenderer('opencode:stream', {
+    emitAgentEvent(this.mainWindow, {
       type: 'question.rejected',
       sessionId: pending.hiveSessionId,
       data: { requestId, id: requestId }
@@ -1055,7 +1056,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       })
     }
 
-    this.sendToRenderer('opencode:stream', {
+    emitAgentEvent(this.mainWindow, {
       type: 'permission.replied',
       sessionId: pending.hiveSessionId,
       data: { requestId, id: requestId, decision }
@@ -1181,7 +1182,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     session.revertDiff = null
 
     // Emit session info update to renderer
-    this.sendToRenderer('opencode:stream', {
+    emitAgentEvent(this.mainWindow, {
       type: 'session.updated',
       sessionId: session.hiveSessionId,
       data: { revertMessageID }
@@ -1366,7 +1367,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
 
       const modelID = resolveCodexModelSlug(this.selectedModel)
 
-      this.sendToRenderer('opencode:stream', {
+      emitAgentEvent(this.mainWindow, {
         type: 'session.context_usage',
         sessionId: session.hiveSessionId,
         data: {
@@ -1537,7 +1538,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     extra?: { attempt?: number; message?: string; next?: number }
   ): void {
     const statusPayload = { type: status, ...extra }
-    this.sendToRenderer('opencode:stream', {
+    emitAgentEvent(this.mainWindow, {
       type: 'session.status',
       sessionId: hiveSessionId,
       data: { status: statusPayload },
@@ -1915,7 +1916,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     }
 
     if (titleChanged) {
-      this.sendToRenderer('opencode:stream', {
+      emitAgentEvent(this.mainWindow, {
         type: 'session.updated',
         sessionId: session.hiveSessionId,
         data: { title: trimmedTitle, info: { title: trimmedTitle } }
