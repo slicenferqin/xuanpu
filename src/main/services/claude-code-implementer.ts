@@ -534,7 +534,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
           profileId: resolvedProfile.id,
           profileName: resolvedProfile.name,
           hasApiKey: !!resolvedProfile.api_key,
-          hasBaseUrl: !!resolvedProfile.base_url,
+          baseUrl: resolvedProfile.base_url ?? '(default)',
           modelId: resolvedProfile.model_id
         })
       }
@@ -636,7 +636,9 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         forkSession: !!options.forkSession,
         resumeSessionAt: options.resumeSessionAt ?? null,
         cwd: options.cwd,
-        hasFileAttachments: !!contentBlocks
+        hasFileAttachments: !!contentBlocks,
+        anthropicBaseUrl: options.env?.ANTHROPIC_BASE_URL ?? '(system default)',
+        hasApiKeyOverride: !!resolvedProfile?.api_key
       })
 
       // When file attachments are present, use AsyncIterable<SDKUserMessage> prompt path
