@@ -44,7 +44,7 @@
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "pnpm run build && electron-builder --dir",
     "build:win": "pnpm run build && electron-builder --win",
-    "build:mac": "test -f .env.signing && . ./.env.signing; pnpm run build && electron-builder --mac",
+    "build:mac": "test -f .env.signing && . ./.env.signing; pnpm run build && electron-builder --mac && sh scripts/post-build-mac.sh",
     "build:mac:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false pnpm run build && electron-builder --mac",
     "build:linux": "pnpm run build && electron-builder --linux",
     "lint": "eslint . --ext .ts,.tsx",
