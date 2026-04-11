@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import { getDatabase } from '../db'
 import { createLogger } from '../services/logger'
+import { syncProfileToClaudeSettings } from '../services/model-profile-sync'
 import { telemetryService } from '../services/telemetry-service'
 import type {
   ProjectCreate,
@@ -68,7 +69,26 @@ export function registerDatabaseHandlers(): void {
   })
 
   ipcMain.handle('db:project:update', (_event, id: string, data: ProjectUpdate) => {
-    return getDatabase().updateProject(id, data)
+    const db = getDatabase()
+    const result = db.updateProject(id, data)
+
+    // When model_profile_id changes, sync to all active worktrees of this project
+    if (data.model_profile_id !== undefined) {
+      try {
+        const worktrees = db.getActiveWorktreesByProject(id)
+        for (const wt of worktrees) {
+          const profile = db.resolveModelProfile(wt.id, id)
+          syncProfileToClaudeSettings(wt.path, profile)
+        }
+      } catch (err) {
+        log.warn('Failed to sync model profile to worktrees on project update', {
+          projectId: id,
+          error: err instanceof Error ? err.message : String(err)
+        })
+      }
+    }
+
+    return result
   })
 
   ipcMain.handle('db:project:delete', (_event, id: string) => {
@@ -111,7 +131,23 @@ export function registerDatabaseHandlers(): void {
   })
 
   ipcMain.handle('db:worktree:update', (_event, id: string, data: WorktreeUpdate) => {
-    return getDatabase().updateWorktree(id, data)
+    const db = getDatabase()
+    const result = db.updateWorktree(id, data)
+
+    // When model_profile_id changes, sync to this worktree's .claude/settings.local.json
+    if (data.model_profile_id !== undefined && result) {
+      try {
+        const profile = db.resolveModelProfile(id, result.project_id)
+        syncProfileToClaudeSettings(result.path, profile)
+      } catch (err) {
+        log.warn('Failed to sync model profile on worktree update', {
+          worktreeId: id,
+          error: err instanceof Error ? err.message : String(err)
+        })
+      }
+    }
+
+    return result
   })
 
   ipcMain.handle('db:worktree:delete', (_event, id: string) => {
