@@ -2,6 +2,7 @@ import type { BrowserWindow } from 'electron'
 import { app } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 
 import { createLogger } from './logger'
 import { notificationService } from './notification-service'
@@ -23,6 +24,66 @@ import { getActiveAppHomeDir } from '@shared/app-identity'
 import type { ModelProfile } from '@shared/types/model-profile'
 
 const log = createLogger({ component: 'ClaudeCodeImplementer' })
+
+/**
+ * Sync resolved model profile env vars to `<cwd>/.claude/settings.local.json`
+ * so the Claude CLI picks them up natively via its settingSources config.
+ * Merges into existing settings — only touches ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL.
+ */
+function syncProfileToClaudeSettings(
+  worktreePath: string,
+  profile: ModelProfile | null
+): void {
+  const claudeDir = join(worktreePath, '.claude')
+  const settingsPath = join(claudeDir, 'settings.local.json')
+
+  // Read existing settings (preserve user-set keys)
+  let settings: Record<string, unknown> = {}
+  try {
+    if (existsSync(settingsPath)) {
+      settings = JSON.parse(readFileSync(settingsPath, 'utf-8'))
+    }
+  } catch {
+    settings = {}
+  }
+
+  // Ensure env section exists
+  const env: Record<string, string> =
+    settings.env && typeof settings.env === 'object'
+      ? { ...(settings.env as Record<string, string>) }
+      : {}
+
+  // Set or clear managed keys
+  if (profile?.api_key) {
+    env.ANTHROPIC_API_KEY = profile.api_key
+  } else {
+    delete env.ANTHROPIC_API_KEY
+  }
+
+  if (profile?.base_url) {
+    env.ANTHROPIC_BASE_URL = profile.base_url
+  } else {
+    delete env.ANTHROPIC_BASE_URL
+  }
+
+  // Merge settings_json env if present
+  if (profile?.settings_json) {
+    try {
+      const profileSettings = JSON.parse(profile.settings_json)
+      if (profileSettings.env && typeof profileSettings.env === 'object') {
+        Object.assign(env, profileSettings.env as Record<string, string>)
+      }
+    } catch {
+      // invalid JSON, skip
+    }
+  }
+
+  settings.env = env
+
+  // Write back with restrictive permissions (contains API key)
+  mkdirSync(claudeDir, { recursive: true })
+  writeFileSync(settingsPath, JSON.stringify(settings, null, 2), { mode: 0o600 })
+}
 
 const CLAUDE_EFFORT_VARIANTS = { low: {}, medium: {}, high: {} }
 const CLAUDE_OPUS_EFFORT_VARIANTS = { low: {}, medium: {}, high: {}, max: {} }
@@ -539,16 +600,15 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         })
       }
 
-      // Parse settings_json from profile for advanced overrides
-      let profileSettings: Record<string, unknown> = {}
-      if (resolvedProfile?.settings_json) {
-        try {
-          profileSettings = JSON.parse(resolvedProfile.settings_json)
-        } catch {
-          log.warn('Invalid settings_json in model profile', {
-            profileId: resolvedProfile.id
-          })
-        }
+      // Write resolved profile to <worktreePath>/.claude/settings.local.json
+      // so the Claude CLI picks it up natively via settingSources: ['local']
+      try {
+        syncProfileToClaudeSettings(session.worktreePath, resolvedProfile)
+      } catch (err) {
+        log.warn('Failed to sync model profile to .claude/settings.local.json', {
+          worktreePath: session.worktreePath,
+          error: err instanceof Error ? err.message : String(err)
+        })
       }
 
       // Resolve effort level from variant selection (default per model)
@@ -577,9 +637,6 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         env: {
           ...process.env,
           CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING: '1',
-          ...(profileSettings.env && typeof profileSettings.env === 'object'
-            ? (profileSettings.env as Record<string, string>)
-            : {}),
           ...(resolvedProfile?.api_key ? { ANTHROPIC_API_KEY: resolvedProfile.api_key } : {}),
           ...(resolvedProfile?.base_url ? { ANTHROPIC_BASE_URL: resolvedProfile.base_url } : {})
         },
