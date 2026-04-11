@@ -36,9 +36,7 @@ import {
   ContextMenuTrigger,
   ContextMenuSub,
   ContextMenuSubTrigger,
-  ContextMenuSubContent,
-  ContextMenuRadioGroup,
-  ContextMenuRadioItem
+  ContextMenuSubContent
 } from '@/components/ui/context-menu'
 import {
   DropdownMenu,
@@ -48,9 +46,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSub,
   DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem
+  DropdownMenuSubContent
 } from '@/components/ui/dropdown-menu'
 import {
   useWorktreeStore,
@@ -59,8 +55,7 @@ import {
   usePinnedStore,
   useHintStore,
   useVimModeStore,
-  useSettingsStore,
-  useModelProfileStore
+  useSettingsStore
 } from '@/stores'
 import { HintBadge } from '@/components/ui/HintBadge'
 import { useGitStore } from '@/stores/useGitStore'
@@ -150,9 +145,6 @@ export function WorktreeItem({
   const { t } = useI18n()
 
   // Model profile state
-  const { profiles, loadProfiles } = useModelProfileStore()
-  useEffect(() => { loadProfiles() }, [loadProfiles])
-
   const handleTogglePin = useCallback(async (): Promise<void> => {
     if (isPinned) {
       await unpinWorktree(worktree.id)
@@ -163,11 +155,6 @@ export function WorktreeItem({
 
   const handleEditContext = useCallback(() => {
     useFileViewerStore.getState().openContextEditor(worktree.id)
-  }, [worktree.id])
-
-  const handleModelProfileChange = useCallback(async (value: string) => {
-    const profileId = value === '__inherit__' ? null : value
-    await window.db.worktree.update(worktree.id, { model_profile_id: profileId })
   }, [worktree.id])
 
   const isInConnectionMode = connectionModeActive
@@ -801,27 +788,6 @@ export function WorktreeItem({
                 <Settings className="h-4 w-4 mr-2" />
                 {t('pinned.menu.worktreeSettings')}
               </DropdownMenuItem>
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <Settings className="h-4 w-4 mr-2" />
-                  {t('pinned.menu.modelProfile')}
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent>
-                  <DropdownMenuRadioGroup
-                    value={worktree.model_profile_id ?? '__inherit__'}
-                    onValueChange={handleModelProfileChange}
-                  >
-                    <DropdownMenuRadioItem value="__inherit__">
-                      {t('pinned.menu.useProjectDefault')}
-                    </DropdownMenuRadioItem>
-                    {profiles.map((p) => (
-                      <DropdownMenuRadioItem key={p.id} value={p.id}>
-                        {p.name}
-                      </DropdownMenuRadioItem>
-                    ))}
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleOpenInTerminal}>
                 <Terminal className="h-4 w-4 mr-2" />
@@ -953,27 +919,6 @@ export function WorktreeItem({
           <Settings className="h-4 w-4 mr-2" />
           {t('pinned.menu.worktreeSettings')}
         </ContextMenuItem>
-        <ContextMenuSub>
-          <ContextMenuSubTrigger>
-            <Settings className="h-4 w-4 mr-2" />
-            {t('pinned.menu.modelProfile')}
-          </ContextMenuSubTrigger>
-          <ContextMenuSubContent>
-            <ContextMenuRadioGroup
-              value={worktree.model_profile_id ?? '__inherit__'}
-              onValueChange={handleModelProfileChange}
-            >
-              <ContextMenuRadioItem value="__inherit__">
-                {t('pinned.menu.useProjectDefault')}
-              </ContextMenuRadioItem>
-              {profiles.map((p) => (
-                <ContextMenuRadioItem key={p.id} value={p.id}>
-                  {p.name}
-                </ContextMenuRadioItem>
-              ))}
-            </ContextMenuRadioGroup>
-          </ContextMenuSubContent>
-        </ContextMenuSub>
         <ContextMenuSeparator />
         <ContextMenuItem onClick={handleOpenInTerminal}>
           <Terminal className="h-4 w-4 mr-2" />
