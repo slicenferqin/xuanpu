@@ -17,7 +17,8 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     resolve: {
       alias: {
-        '@preload': resolve('src/preload')
+        '@preload': resolve('src/preload'),
+        '@shared': resolve('src/shared')
       }
     }
   },

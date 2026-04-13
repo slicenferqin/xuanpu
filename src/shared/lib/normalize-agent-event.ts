@@ -89,6 +89,18 @@ export function emitAgentEvent(
   } as CanonicalAgentEvent
 
   mainWindow.webContents.send('opencode:stream', envelope)
+
+  // Auto-clean sequence counter when session terminates (P1-3 CR fix)
+  if (event.type === 'session.error') {
+    resetSessionSequence(event.sessionId)
+  } else if (event.type === 'session.status') {
+    const status = (event as Record<string, unknown>).statusPayload as
+      | { type?: string }
+      | undefined
+    if (status?.type === 'idle') {
+      // idle = turn finished, not session end. Keep counter alive.
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -111,8 +123,14 @@ export function normalizeAgentEvent(
   raw: Record<string, unknown>,
   sourceChannel: 'agent:stream' | 'opencode:stream'
 ): CanonicalAgentEvent {
+  // Shallow-copy to avoid mutating the caller's object (P1-2 CR fix)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const event = raw as any
+  const event = { ...raw } as any
+
+  // Deep-copy data if present so nested writes don't leak back
+  if (event.data && typeof event.data === 'object') {
+    event.data = { ...event.data }
+  }
 
   // 1. Ensure envelope fields
   if (!event.eventId) {

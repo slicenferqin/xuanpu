@@ -352,6 +352,78 @@ export const THEME_PRESETS: ThemePreset[] = [
       'sidebar-border': 'hsl(340 12% 88%)',
       'sidebar-ring': 'hsl(340 65% 55%)'
     }
+  },
+
+  // =====================
+  // CATPPUCCIN THEMES (Phase 7)
+  // =====================
+  {
+    id: 'catppuccin-mocha',
+    name: 'Catppuccin Mocha',
+    type: 'dark',
+    colors: {
+      background: 'hsl(240 21% 15%)',
+      foreground: 'hsl(227 68% 88%)',
+      card: 'hsl(240 21% 17%)',
+      'card-foreground': 'hsl(227 68% 88%)',
+      popover: 'hsl(240 21% 17%)',
+      'popover-foreground': 'hsl(227 68% 88%)',
+      primary: 'hsl(267 84% 81%)',
+      'primary-foreground': 'hsl(240 21% 15%)',
+      secondary: 'hsl(240 21% 20%)',
+      'secondary-foreground': 'hsl(227 68% 88%)',
+      muted: 'hsl(240 21% 20%)',
+      'muted-foreground': 'hsl(228 24% 72%)',
+      accent: 'hsl(240 21% 22%)',
+      'accent-foreground': 'hsl(227 68% 88%)',
+      destructive: 'hsl(343 81% 75%)',
+      'destructive-foreground': 'hsl(240 21% 15%)',
+      border: 'hsl(237 16% 23%)',
+      input: 'hsl(237 16% 23%)',
+      ring: 'hsl(267 84% 81%)',
+      sidebar: 'hsl(240 21% 12%)',
+      'sidebar-foreground': 'hsl(228 24% 72%)',
+      'sidebar-primary': 'hsl(267 84% 81%)',
+      'sidebar-primary-foreground': 'hsl(240 21% 15%)',
+      'sidebar-accent': 'hsl(240 21% 18%)',
+      'sidebar-accent-foreground': 'hsl(227 68% 88%)',
+      'sidebar-border': 'hsl(237 16% 23%)',
+      'sidebar-ring': 'hsl(267 84% 81%)'
+    }
+  },
+  {
+    id: 'catppuccin-latte',
+    name: 'Catppuccin Latte',
+    type: 'light',
+    colors: {
+      background: 'hsl(220 23% 95%)',
+      foreground: 'hsl(234 16% 35%)',
+      card: 'hsl(220 23% 95%)',
+      'card-foreground': 'hsl(234 16% 35%)',
+      popover: 'hsl(220 23% 95%)',
+      'popover-foreground': 'hsl(234 16% 35%)',
+      primary: 'hsl(266 85% 58%)',
+      'primary-foreground': 'hsl(220 23% 95%)',
+      secondary: 'hsl(223 16% 90%)',
+      'secondary-foreground': 'hsl(234 16% 35%)',
+      muted: 'hsl(223 16% 90%)',
+      'muted-foreground': 'hsl(233 10% 47%)',
+      accent: 'hsl(223 16% 88%)',
+      'accent-foreground': 'hsl(234 16% 35%)',
+      destructive: 'hsl(347 87% 44%)',
+      'destructive-foreground': 'hsl(220 23% 95%)',
+      border: 'hsl(225 14% 85%)',
+      input: 'hsl(225 14% 85%)',
+      ring: 'hsl(266 85% 58%)',
+      sidebar: 'hsl(220 22% 92%)',
+      'sidebar-foreground': 'hsl(233 10% 47%)',
+      'sidebar-primary': 'hsl(266 85% 58%)',
+      'sidebar-primary-foreground': 'hsl(220 23% 95%)',
+      'sidebar-accent': 'hsl(223 16% 87%)',
+      'sidebar-accent-foreground': 'hsl(234 16% 35%)',
+      'sidebar-border': 'hsl(225 14% 85%)',
+      'sidebar-ring': 'hsl(266 85% 58%)'
+    }
   }
 ]
 

@@ -703,6 +703,10 @@ declare global {
         sessionId: string,
         messageId?: string
       ) => Promise<{ success: boolean; sessionId?: string; error?: string }>
+      // Get unified timeline (durable data from DB)
+      getTimeline: (
+        sessionId: string
+      ) => Promise<import('../shared/lib/timeline-types').TimelineResult>
       // Subscribe to streaming events
       onStream: (callback: (event: CanonicalAgentEvent) => void) => () => void
     }

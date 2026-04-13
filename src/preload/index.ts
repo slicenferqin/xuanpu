@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils, webFrame } from 'electron'
+import { normalizeAgentEvent } from '@shared/lib/normalize-agent-event'
 
 // Apply persisted UI zoom level from localStorage before first paint to avoid flash.
 // Ghostty's getContainerRect() has visualViewport.scale compensation for non-100% zoom.
@@ -1377,17 +1378,27 @@ const agentOps = {
       messageId
     }),
 
+  // Get unified timeline for a session (durable data from DB)
+  getTimeline: (
+    sessionId: string
+  ): Promise<{
+    messages: Array<{
+      id: string
+      role: 'user' | 'assistant' | 'system'
+      content: string
+      timestamp: string
+      parts?: unknown[]
+      attachments?: unknown[]
+    }>
+    compactionMarkers: string[]
+    revertBoundary: string | null
+  }> => ipcRenderer.invoke('session:getTimeline', sessionId),
+
   // Subscribe to streaming events
   // Listen on both canonical (agent:stream) and legacy (opencode:stream) channels
   // because runtime implementers still emit on the legacy channel.
   // Events are normalized through normalizeAgentEvent() to ensure consistent shape.
   onStream: (callback: (event: CanonicalAgentEvent) => void): (() => void) => {
-    const { normalizeAgentEvent } = require('@shared/lib/normalize-agent-event') as {
-      normalizeAgentEvent: (
-        raw: Record<string, unknown>,
-        channel: 'agent:stream' | 'opencode:stream'
-      ) => CanonicalAgentEvent
-    }
     const agentHandler = (
       _e: Electron.IpcRendererEvent,
       event: Record<string, unknown>

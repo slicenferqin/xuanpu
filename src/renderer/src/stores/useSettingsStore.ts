@@ -136,6 +136,9 @@ export interface AppSettings {
   // Appearance
   uiZoomLevel: number
   uiFontScale: number
+
+  // Experimental — Phase 7 feature flag
+  sessionUiV2Enabled: boolean
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -187,7 +190,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   telemetryEnabled: true,
   autoPullBeforeWorktree: true,
   uiZoomLevel: 0,
-  uiFontScale: 1
+  uiFontScale: 1,
+  sessionUiV2Enabled: false
 }
 
 interface SettingsState extends AppSettings {
@@ -294,7 +298,8 @@ function extractSettings(state: SettingsState): AppSettings {
     telemetryEnabled: state.telemetryEnabled,
     autoPullBeforeWorktree: state.autoPullBeforeWorktree,
     uiZoomLevel: state.uiZoomLevel,
-    uiFontScale: state.uiFontScale
+    uiFontScale: state.uiFontScale,
+    sessionUiV2Enabled: state.sessionUiV2Enabled
   }
 }
 
@@ -509,7 +514,8 @@ export const useSettingsStore = create<SettingsState>()(
         commandFilter: state.commandFilter,
         telemetryEnabled: state.telemetryEnabled,
         uiZoomLevel: state.uiZoomLevel,
-        uiFontScale: state.uiFontScale
+        uiFontScale: state.uiFontScale,
+        sessionUiV2Enabled: state.sessionUiV2Enabled
       })
     }
   )

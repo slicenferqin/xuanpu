@@ -110,6 +110,27 @@
   --sidebar-ring: hsl(164 43% 48%);
 }
 
+/* Session-specific semantic tokens (Phase 7) */
+:root {
+  --streaming-cursor: hsl(165 44% 34%);
+  --thinking-bg: hsl(150 12% 93%);
+  --tool-bg: hsl(150 12% 94%);
+  --compaction-bg: hsl(40 70% 95%);
+  --compaction-border: hsl(40 60% 80%);
+  --provider-claude: #fab387;
+  --provider-opencode: #94e2d5;
+  --provider-codex: #74c7ec;
+  --provider-terminal: #7f849c;
+}
+
+.dark {
+  --streaming-cursor: hsl(164 43% 48%);
+  --thinking-bg: hsl(165 9% 13%);
+  --tool-bg: hsl(165 9% 14%);
+  --compaction-bg: hsl(40 30% 15%);
+  --compaction-border: hsl(40 40% 25%);
+}
+
 @layer base {
   * {
     @apply border-border;

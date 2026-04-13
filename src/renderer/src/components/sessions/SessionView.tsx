@@ -52,6 +52,7 @@ import { useCommandApprovalStore } from '@/stores/useCommandApprovalStore'
 import { checkAutoApprove } from '@/lib/permissionUtils'
 import { usePromptHistoryStore } from '@/stores/usePromptHistoryStore'
 import { useWorktreeStore, useDropAttachmentStore, useDraftAttachmentStore } from '@/stores'
+import { useSessionRuntimeStore } from '@/stores/useSessionRuntimeStore'
 import { useProjectStore } from '@/stores/useProjectStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { usePRReviewStore } from '@/stores/usePRReviewStore'
@@ -1464,46 +1465,58 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
 
       let loadedMessages: OpenCodeMessage[] = []
       let loadedFromOpenCode = false
-      let codexActivities: SessionActivity[] = []
-      const currentStoredStatus = useWorktreeStatusStore.getState().sessionStatuses[sessionId]
 
-      if (isCodexSession) {
-        const durableState = await loadCodexDurableState(sessionId)
-        loadedMessages = durableState.messages
-        codexActivities = durableState.activities
+      // Phase 3: Unified timeline loading via main-process IPC.
+      // This replaces the provider-specific loading that previously used:
+      //   - loadCodexDurableState() → DB rows + deriveCodexTimelineMessages
+      //   - window.agentOps.getMessages() → SDK API + mapOpencodeMessagesToSessionViewMessages
+      // The timeline service handles all provider-specific mapping internally.
+      let timelineLoaded = false
+      if (window.agentOps?.getTimeline) {
+        try {
+          let timeline = await window.agentOps.getTimeline(sessionId)
+          loadedMessages = timeline.messages as OpenCodeMessage[]
 
-        if (options?.preferDurableCodex && hasSuspiciousCodexRoleGrouping(loadedMessages)) {
-          for (let attempt = 0; attempt < 4; attempt++) {
-            await delay(100 * (attempt + 1))
-            const retriedState = await loadCodexDurableState(sessionId)
-            loadedMessages = retriedState.messages
-            codexActivities = retriedState.activities
-            if (!hasSuspiciousCodexRoleGrouping(loadedMessages)) break
+          // For codex sessions with preferDurableCodex, retry if suspicious
+          // role grouping detected (DB not yet fully committed)
+          if (
+            isCodexSession &&
+            options?.preferDurableCodex &&
+            hasSuspiciousCodexRoleGrouping(loadedMessages)
+          ) {
+            for (let attempt = 0; attempt < 4; attempt++) {
+              await delay(100 * (attempt + 1))
+              timeline = await window.agentOps.getTimeline(sessionId)
+              loadedMessages = timeline.messages as OpenCodeMessage[]
+              if (!hasSuspiciousCodexRoleGrouping(loadedMessages)) break
+            }
           }
+
+          timelineLoaded = loadedMessages.length > 0
+        } catch (err) {
+          console.warn('[SessionView] getTimeline failed, falling back to legacy loading:', err)
         }
       }
 
-      const preferLiveCodexSource =
-        isCodexSession &&
-        !options?.preferDurableCodex &&
-        canUseOpenCodeSource &&
-        (currentStoredStatus?.status === 'working' ||
-          currentStoredStatus?.status === 'planning' ||
-          loadedMessages.length === 0)
-
-      if (
-        (!isCodexSession || loadedMessages.length === 0 || preferLiveCodexSource) &&
-        canUseOpenCodeSource
-      ) {
+      // Fallback: if the unified timeline returned no messages, try the legacy
+      // loading paths. This handles edge cases where:
+      //   - The SDK has in-memory messages not yet persisted to DB
+      //   - The getTimeline IPC is not yet available (unlikely but defensive)
+      if (!timelineLoaded && canUseOpenCodeSource) {
         const result = await window.agentOps.getMessages(
           sourceWorktreePath,
           sourceOpencodeSessionId
         )
         if (result.success) {
           loadedFromOpenCode = true
-
           const opencodeMessages = Array.isArray(result.messages) ? result.messages : []
+
           if (isCodexSession) {
+            // Codex fallback: load activities from DB for merge
+            let codexActivities: SessionActivity[] = []
+            if (window.db.sessionActivity?.list) {
+              codexActivities = await window.db.sessionActivity.list(sessionId)
+            }
             loadedMessages = mergeCodexActivityMessages(
               mapOpencodeMessagesToSessionViewMessages(opencodeMessages),
               codexActivities
@@ -1512,6 +1525,9 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             loadedMessages = mapOpencodeMessagesToSessionViewMessages(opencodeMessages)
           }
 
+          // Restore token/cost snapshot from raw OpenCode messages.
+          // During streaming, EventBridge handles this via message.updated events,
+          // but on initial load we need to hydrate from the transcript.
           let totalCost = 0
           let snapshotTokens: TokenInfo | null = null
           let snapshotModelRef: SessionModelRef | undefined
@@ -1739,15 +1755,13 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     hasFinalizedCurrentResponseRef.current = false
     planXmlDetectionRef.current = { state: 'scanning', buffer: '', cardId: null }
 
-    // Subscribe to OpenCode stream events SYNCHRONOUSLY before any async work.
-    // This prevents a race condition where session.idle arrives during async
-    // initialization (DB loads, reconnect) and is missed by both this handler
-    // (not yet set up) and the global listener (which skips the active session).
-    const unsubscribe = window.agentOps?.onStream
-      ? window.agentOps.onStream((event) => {
-          // Only handle events for this session
-          if (event.sessionId !== sessionId) return
-
+    // Subscribe to per-session events via the runtime store's callback registry.
+    // The EventBridge (useAgentEventBridge) is the sole onStream subscriber and
+    // dispatches events to per-session callbacks. This replaces the previous
+    // pattern where SessionView had its own onStream subscription.
+    const unsubscribe = useSessionRuntimeStore
+      .getState()
+      .subscribeToSessionEvents(sessionId, (event) => {
           // Guard: generation check — prevents stale closures from processing
           // events when the user has already switched to a different session.
           if (streamGenerationRef.current !== currentGeneration) return
@@ -2670,7 +2684,6 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             }
           }
         })
-      : () => {}
 
     const initializeSession = async (): Promise<void> => {
       if (shouldAbortInit()) return
@@ -3296,7 +3309,19 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
 
       const rawMessages = Array.isArray(transcriptResult.messages) ? transcriptResult.messages : []
       let loadedMessages = mapOpencodeMessagesToSessionViewMessages(rawMessages)
-      if (session.agent_sdk === 'codex') {
+      if (session.agent_sdk === 'codex' && window.agentOps?.getTimeline) {
+        // Phase 3: prefer unified timeline for codex sessions
+        try {
+          const timeline = await window.agentOps.getTimeline(sessionId)
+          if (timeline.messages.length > 0) {
+            loadedMessages = timeline.messages as OpenCodeMessage[]
+          }
+        } catch {
+          // Fallback to legacy merge
+          const durableState = await loadCodexDurableState(sessionId)
+          loadedMessages = mergeCodexActivityMessages(loadedMessages, durableState.activities)
+        }
+      } else if (session.agent_sdk === 'codex') {
         const durableState = await loadCodexDurableState(sessionId)
         loadedMessages = mergeCodexActivityMessages(loadedMessages, durableState.activities)
       }
@@ -3384,6 +3409,22 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   )
 
   const refreshMessagesFromOpenCode = useCallback(async (): Promise<boolean> => {
+    // Phase 3: prefer unified timeline for all session types
+    if (window.agentOps?.getTimeline) {
+      try {
+        const timeline = await window.agentOps.getTimeline(sessionId)
+        if (timeline.messages.length > 0) {
+          setMessages(
+            restoreUserAttachments(timeline.messages as OpenCodeMessage[], userAttachmentsRef.current)
+          )
+          return true
+        }
+      } catch {
+        // Fall through to legacy paths below
+      }
+    }
+
+    // Legacy fallback: codex sessions with durable state + live merge
     if (sessionRecord?.agent_sdk === 'codex') {
       const durableState = await loadCodexDurableState(sessionId)
       if (worktreePath && opencodeSessionId) {

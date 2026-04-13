@@ -9,6 +9,7 @@ import { useSessionStore } from '@/stores/useSessionStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { useFileViewerStore } from '@/stores/useFileViewerStore'
 import { useLayoutStore } from '@/stores/useLayoutStore'
+import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useI18n } from '@/i18n/useI18n'
 import onboardingBg from '@/assets/onboarding-bg.png'
 import onboardingBgDark from '@/assets/onboarding-bg-dark.png'
@@ -29,6 +30,11 @@ const WorktreeContextEditor = lazy(() =>
     default: m.WorktreeContextEditor
   }))
 )
+const SessionShell = lazy(() =>
+  import('@/components/session-hq/SessionShell').then((m) => ({
+    default: m.SessionShell
+  }))
+)
 interface MainPaneProps {
   children?: React.ReactNode
 }
@@ -45,6 +51,7 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
   const contextEditorWorktreeId = useFileViewerStore((state) => state.contextEditorWorktreeId)
   const closedTerminalSessionIds = useSessionStore((state) => state.closedTerminalSessionIds)
   const ghosttyOverlaySuppressed = useLayoutStore((state) => state.ghosttyOverlaySuppressed)
+  const sessionUiV2 = useSettingsStore((state) => state.sessionUiV2Enabled)
 
   // Subscribe to session maps so terminal list stays reactive
   const sessionsByWorktree = useSessionStore((state) => state.sessionsByWorktree)
@@ -293,7 +300,10 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
       }
       return (
         <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>}>
-          <SessionView key={inlineConnectionSessionId} sessionId={inlineConnectionSessionId} />
+          {sessionUiV2
+            ? <SessionShell key={inlineConnectionSessionId} sessionId={inlineConnectionSessionId} />
+            : <SessionView key={inlineConnectionSessionId} sessionId={inlineConnectionSessionId} />
+          }
         </Suspense>
       )
     }
@@ -329,7 +339,10 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
     }
     return (
       <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>}>
-        <SessionView key={activeSessionId} sessionId={activeSessionId} />
+        {sessionUiV2
+          ? <SessionShell key={activeSessionId} sessionId={activeSessionId} />
+          : <SessionView key={activeSessionId} sessionId={activeSessionId} />
+        }
       </Suspense>
     )
   }

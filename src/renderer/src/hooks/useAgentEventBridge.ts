@@ -558,6 +558,18 @@ export function useAgentEventBridge(): void {
             return
           }
 
+          // ----- session.materialized (P1-6 CR fix: handle for background sessions) -----
+          if (event.type === 'session.materialized') {
+            const newId = (event.data as Record<string, unknown>)?.newSessionId as
+              | string
+              | undefined
+            if (newId) {
+              useSessionStore.getState().setOpenCodeSessionId(sessionId, newId)
+            }
+            // Also dispatch to per-session callbacks (SessionShell uses this)
+            return
+          }
+
           // ----- session.status (the main lifecycle signal) -----
           if (event.type !== 'session.status') return
 

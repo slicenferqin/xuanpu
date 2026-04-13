@@ -34,6 +34,7 @@ import { useProjectStore } from '@/stores/useProjectStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useWorktreeStatusStore } from '@/stores/useWorktreeStatusStore'
+import { useSessionRuntimeStore } from '@/stores/useSessionRuntimeStore'
 import { useLayoutStore } from '@/stores/useLayoutStore'
 import { useVimModeStore } from '@/stores/useVimModeStore'
 import { useHintStore } from '@/stores/useHintStore'
@@ -50,6 +51,7 @@ import {
   ContextMenuShortcut,
   ContextMenuTrigger
 } from '@/components/ui/context-menu'
+import { SessionStatusIndicator } from '@/components/layout/SessionStatusIndicator'
 
 interface SessionTabProps {
   sessionId: string
@@ -803,6 +805,9 @@ export function SessionTabs(): React.JSX.Element | null {
     const result = await closeSession(sessionId)
     if (!result.success) {
       toast.error(result.error || t('sessionTabs.errors.closeSession'))
+    } else {
+      // P1-4 CR fix: clean up runtime store to prevent memory leak
+      useSessionRuntimeStore.getState().clearSession(sessionId)
     }
   }
 
@@ -1217,6 +1222,11 @@ export function SessionTabs(): React.JSX.Element | null {
           <ChevronRight className="h-4 w-4" />
         </button>
       )}
+
+      {/* Global session status indicator (Phase 6) */}
+      <SessionStatusIndicator
+        onJumpToSession={(sid) => handleSessionTabClick(sid)}
+      />
     </div>
   )
 }

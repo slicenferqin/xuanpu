@@ -30,6 +30,15 @@ export interface InterruptItem {
   timestamp: number
 }
 
+/** A message queued while the agent is busy (Phase 5 — composer state machine) */
+export interface PendingMessage {
+  id: string
+  content: string
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  attachments: any[]
+  queuedAt: number
+}
+
 export interface SessionRuntimeState {
   lifecycle: SessionLifecycle
   inProgress: boolean
@@ -68,6 +77,8 @@ interface SessionRuntimeStoreState {
   sessions: Map<string, SessionRuntimeState>
   /** Per-session HITL interrupt queue (unified: question/permission/approval/plan). */
   interruptQueues: Map<string, InterruptItem[]>
+  /** Per-session pending message queue (Phase 5 — composer state machine). */
+  pendingMessages: Map<string, PendingMessage[]>
 }
 
 interface SessionRuntimeStoreActions {
@@ -98,6 +109,13 @@ interface SessionRuntimeStoreActions {
   subscribeToSessionEvents(sessionId: string, cb: EventCallback): () => void
   dispatchToSession(sessionId: string, event: CanonicalAgentEvent): void
 
+  // Pending message queue (Phase 5 — composer state machine)
+  queueMessage(sessionId: string, message: PendingMessage): void
+  dequeueMessage(sessionId: string): PendingMessage | null
+  getPendingMessages(sessionId: string): PendingMessage[]
+  getPendingCount(sessionId: string): number
+  clearPendingMessages(sessionId: string): void
+
   // Cleanup
   clearSession(sessionId: string): void
 }
@@ -115,6 +133,7 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
   // -- State --
   sessions: new Map(),
   interruptQueues: new Map(),
+  pendingMessages: new Map(),
 
   // -- Session state --
   getSession(sessionId) {
@@ -276,14 +295,63 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
     }
   },
 
+  // -- Pending message queue (Phase 5) --
+  queueMessage(sessionId, message) {
+    set((state) => {
+      const pending = new Map(state.pendingMessages)
+      const queue = [...(pending.get(sessionId) ?? [])]
+      queue.push(message)
+      pending.set(sessionId, queue)
+      return { pendingMessages: pending }
+    })
+  },
+
+  dequeueMessage(sessionId) {
+    // P1-5 CR fix: read-then-write inside the set() updater to avoid TOCTOU race
+    let first: PendingMessage | null = null
+    set((state) => {
+      const queue = state.pendingMessages.get(sessionId)
+      if (!queue || queue.length === 0) return state
+      const [head, ...rest] = queue
+      first = head
+      const pending = new Map(state.pendingMessages)
+      if (rest.length === 0) {
+        pending.delete(sessionId)
+      } else {
+        pending.set(sessionId, rest)
+      }
+      return { pendingMessages: pending }
+    })
+    return first
+  },
+
+  getPendingMessages(sessionId) {
+    return get().pendingMessages.get(sessionId) ?? []
+  },
+
+  getPendingCount(sessionId) {
+    return get().pendingMessages.get(sessionId)?.length ?? 0
+  },
+
+  clearPendingMessages(sessionId) {
+    set((state) => {
+      const pending = new Map(state.pendingMessages)
+      if (!pending.has(sessionId)) return state
+      pending.delete(sessionId)
+      return { pendingMessages: pending }
+    })
+  },
+
   // -- Cleanup --
   clearSession(sessionId) {
     set((state) => {
       const sessions = new Map(state.sessions)
       const queues = new Map(state.interruptQueues)
+      const pending = new Map(state.pendingMessages)
       sessions.delete(sessionId)
       queues.delete(sessionId)
-      return { sessions, interruptQueues: queues }
+      pending.delete(sessionId)
+      return { sessions, interruptQueues: queues, pendingMessages: pending }
     })
     _sessionEventCallbacks.delete(sessionId)
   }
