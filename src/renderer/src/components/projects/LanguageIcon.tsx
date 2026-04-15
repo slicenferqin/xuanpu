@@ -2,63 +2,32 @@ import { useEffect, useState } from 'react'
 import { FolderGit2 } from 'lucide-react'
 import { useI18n } from '@/i18n/useI18n'
 
-// Bundled language icons (Vite resolves these to hashed asset URLs at build time)
-import typescriptIcon from '@/assets/language-icons/typescript.svg'
-import javascriptIcon from '@/assets/language-icons/javascript.svg'
-import pythonIcon from '@/assets/language-icons/python.svg'
-import goIcon from '@/assets/language-icons/go.png'
-import rustIcon from '@/assets/language-icons/rust.svg'
-import swiftIcon from '@/assets/language-icons/swift.svg'
-import javaIcon from '@/assets/language-icons/java.svg'
-import kotlinIcon from '@/assets/language-icons/kotlin.svg'
-import cIcon from '@/assets/language-icons/c.svg'
-import cppIcon from '@/assets/language-icons/c-plusplus.svg'
-import csharpIcon from '@/assets/language-icons/csharp.svg'
-
 interface LanguageIconProps {
   language: string | null
   customIcon?: string | null
   className?: string
 }
 
-interface LanguageConfig {
-  label: string
-  bg: string
-  text: string
-}
-
-/** Bundled icon URLs keyed by language identifier */
-const BUNDLED_ICONS: Record<string, string> = {
-  typescript: typescriptIcon,
-  javascript: javascriptIcon,
-  python: pythonIcon,
-  go: goIcon,
-  rust: rustIcon,
-  swift: swiftIcon,
-  java: javaIcon,
-  kotlin: kotlinIcon,
-  c: cIcon,
-  cpp: cppIcon,
-  csharp: csharpIcon
-}
-
-/** Fallback colored badges for languages without a bundled icon */
-const LANGUAGE_MAP: Record<string, LanguageConfig> = {
-  typescript: { label: 'TS', bg: 'bg-blue-600', text: 'text-white' },
-  javascript: { label: 'JS', bg: 'bg-yellow-500', text: 'text-black' },
-  python: { label: 'Py', bg: 'bg-sky-600', text: 'text-yellow-300' },
-  go: { label: 'Go', bg: 'bg-cyan-600', text: 'text-white' },
-  rust: { label: 'Rs', bg: 'bg-orange-600', text: 'text-white' },
-  ruby: { label: 'Rb', bg: 'bg-red-600', text: 'text-white' },
-  swift: { label: 'Sw', bg: 'bg-orange-500', text: 'text-white' },
-  java: { label: 'Jv', bg: 'bg-red-500', text: 'text-white' },
-  php: { label: 'PH', bg: 'bg-indigo-500', text: 'text-white' },
-  elixir: { label: 'Ex', bg: 'bg-purple-600', text: 'text-white' },
-  dart: { label: 'Dt', bg: 'bg-teal-500', text: 'text-white' },
-  kotlin: { label: 'Kt', bg: 'bg-violet-600', text: 'text-white' },
-  c: { label: 'C', bg: 'bg-gray-600', text: 'text-white' },
-  cpp: { label: 'C+', bg: 'bg-blue-700', text: 'text-white' },
-  csharp: { label: 'C#', bg: 'bg-green-600', text: 'text-white' }
+/**
+ * Demo4-style colored text labels — clean, minimal, no background containers.
+ * Each language gets a short abbreviation and a distinct color.
+ */
+const LANGUAGE_LABELS: Record<string, { label: string; color: string }> = {
+  typescript: { label: 'TS', color: 'text-blue-500' },
+  javascript: { label: 'JS', color: 'text-yellow-500' },
+  python: { label: 'Py', color: 'text-sky-500' },
+  go: { label: 'Go', color: 'text-cyan-500' },
+  rust: { label: 'Rs', color: 'text-orange-500' },
+  ruby: { label: 'Rb', color: 'text-red-500' },
+  swift: { label: 'Sw', color: 'text-orange-400' },
+  java: { label: 'Jv', color: 'text-red-500' },
+  php: { label: 'PH', color: 'text-indigo-400' },
+  elixir: { label: 'Ex', color: 'text-purple-500' },
+  dart: { label: 'Dt', color: 'text-teal-400' },
+  kotlin: { label: 'Kt', color: 'text-violet-500' },
+  c: { label: 'C', color: 'text-gray-500' },
+  cpp: { label: 'C+', color: 'text-blue-600' },
+  csharp: { label: 'C#', color: 'text-green-500' }
 }
 
 // Module-level cache for user-override icon data URLs (from DB setting)
@@ -181,31 +150,19 @@ export function LanguageIcon({
     )
   }
 
-  // Priority 3: Bundled language icon (shipped with the app)
-  const bundledUrl = BUNDLED_ICONS[language]
-  if (bundledUrl) {
+  // Priority 3: Colored text label (demo4 style)
+  const config = LANGUAGE_LABELS[language]
+  if (config) {
     return (
-      <img
-        src={bundledUrl}
-        alt={language}
+      <span
+        className={`shrink-0 text-[11px] font-semibold leading-none ${config.color}`}
         title={language}
-        className="h-4 w-4 shrink-0 object-contain"
-      />
+      >
+        {config.label}
+      </span>
     )
   }
 
-  // Priority 4: Colored badge fallback
-  const config = LANGUAGE_MAP[language]
-  if (!config) {
-    return <FolderGit2 className={className ?? 'h-4 w-4 text-muted-foreground shrink-0'} />
-  }
-
-  return (
-    <div
-      className={`h-4 w-4 shrink-0 rounded-sm flex items-center justify-center ${config.bg}`}
-      title={language}
-    >
-      <span className={`text-[8px] font-bold leading-none ${config.text}`}>{config.label}</span>
-    </div>
-  )
+  // Fallback: generic folder icon
+  return <FolderGit2 className={className ?? 'h-4 w-4 text-muted-foreground shrink-0'} />
 }

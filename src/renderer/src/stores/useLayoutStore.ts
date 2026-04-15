@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 
 export type BottomPanelTab = 'setup' | 'run' | 'terminal'
+export type TerminalDock = 'right' | 'bottom'
 
 const LEFT_SIDEBAR_DEFAULT = 240
 const LEFT_SIDEBAR_MIN = 200
@@ -10,6 +11,9 @@ const RIGHT_SIDEBAR_DEFAULT = 280
 const SPLIT_FRACTION_DEFAULT = 0.54
 const SPLIT_FRACTION_MIN = 0.15
 const SPLIT_FRACTION_MAX = 0.85
+const BOTTOM_DOCK_HEIGHT_DEFAULT = 250
+const BOTTOM_DOCK_HEIGHT_MIN = 120
+const BOTTOM_DOCK_HEIGHT_MAX = 600
 
 // Module-level Set to track suppression keys — kept outside Zustand state
 // because Set cannot be serialized by the persist middleware.
@@ -21,6 +25,8 @@ interface LayoutState {
   rightSidebarWidth: number
   rightSidebarCollapsed: boolean
   bottomPanelTab: BottomPanelTab
+  terminalDock: TerminalDock
+  bottomDockHeight: number
   ghosttyOverlaySuppressed: boolean
   splitFractionByEntity: Record<string, number>
   setLeftSidebarWidth: (width: number) => void
@@ -30,6 +36,8 @@ interface LayoutState {
   toggleRightSidebar: () => void
   setRightSidebarCollapsed: (collapsed: boolean) => void
   setBottomPanelTab: (tab: BottomPanelTab) => void
+  setTerminalDock: (dock: TerminalDock) => void
+  setBottomDockHeight: (height: number) => void
   setGhosttyOverlaySuppressed: (suppressed: boolean) => void
   pushGhosttySuppression: (key: string) => void
   popGhosttySuppression: (key: string) => void
@@ -44,6 +52,8 @@ export const useLayoutStore = create<LayoutState>()(
       rightSidebarWidth: RIGHT_SIDEBAR_DEFAULT,
       rightSidebarCollapsed: false,
       bottomPanelTab: 'terminal' as BottomPanelTab,
+      terminalDock: 'right' as TerminalDock,
+      bottomDockHeight: BOTTOM_DOCK_HEIGHT_DEFAULT,
       ghosttyOverlaySuppressed: false,
       splitFractionByEntity: {} as Record<string, number>,
 
@@ -74,6 +84,15 @@ export const useLayoutStore = create<LayoutState>()(
 
       setBottomPanelTab: (tab: BottomPanelTab) => {
         set({ bottomPanelTab: tab })
+      },
+
+      setTerminalDock: (dock: TerminalDock) => {
+        set({ terminalDock: dock })
+      },
+
+      setBottomDockHeight: (height: number) => {
+        const clamped = Math.min(Math.max(height, BOTTOM_DOCK_HEIGHT_MIN), BOTTOM_DOCK_HEIGHT_MAX)
+        set({ bottomDockHeight: clamped })
       },
 
       setGhosttyOverlaySuppressed: (suppressed: boolean) => {
@@ -110,7 +129,9 @@ export const useLayoutStore = create<LayoutState>()(
         leftSidebarCollapsed: state.leftSidebarCollapsed,
         rightSidebarWidth: state.rightSidebarWidth,
         rightSidebarCollapsed: state.rightSidebarCollapsed,
-        splitFractionByEntity: state.splitFractionByEntity
+        splitFractionByEntity: state.splitFractionByEntity,
+        terminalDock: state.terminalDock,
+        bottomDockHeight: state.bottomDockHeight
       })
     }
   )
@@ -130,5 +151,10 @@ export const LAYOUT_CONSTRAINTS = {
     default: SPLIT_FRACTION_DEFAULT,
     min: SPLIT_FRACTION_MIN,
     max: SPLIT_FRACTION_MAX
+  },
+  bottomDock: {
+    default: BOTTOM_DOCK_HEIGHT_DEFAULT,
+    min: BOTTOM_DOCK_HEIGHT_MIN,
+    max: BOTTOM_DOCK_HEIGHT_MAX
   }
 }

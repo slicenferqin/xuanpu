@@ -34,7 +34,7 @@ import { useSessionStore } from '@/stores/useSessionStore'
 import { useGitStore } from '@/stores/useGitStore'
 import { useWorktreeStatusStore } from '@/stores/useWorktreeStatusStore'
 import { useVimModeStore } from '@/stores/useVimModeStore'
-import { QuickActions } from './QuickActions'
+
 import { usePRDetection } from '@/hooks/usePRDetection'
 import appLogo from '@/assets/icon.png'
 import { useI18n } from '@/i18n/useI18n'
@@ -534,10 +534,6 @@ export function Header(): React.JSX.Element {
             {vimMode === 'normal' ? 'NORMAL' : 'INSERT'}
           </span>
         )}
-      </div>
-      {/* Center: Quick Actions */}
-      <div style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-        <QuickActions />
       </div>
       {!isConnectionMode && showFixConflictsButton && (
         <div style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>

@@ -18,15 +18,18 @@ export function FileIcon({
 }: FileIconProps): React.JSX.Element {
   const info = getFileIconInfo(name, extension, isDirectory, isExpanded)
 
-  if (info.type === 'svg') {
+  if (info.type === 'text') {
     return (
-      <img
-        src={info.src}
-        alt=""
+      <span
+        className={cn(
+          'inline-flex h-4 w-4 flex-shrink-0 items-center justify-center text-[10px] font-bold leading-none',
+          info.colorClass,
+          className
+        )}
         aria-hidden="true"
-        draggable={false}
-        className={cn('h-4 w-4 flex-shrink-0', className)}
-      />
+      >
+        {info.label}
+      </span>
     )
   }
 
@@ -34,13 +37,12 @@ export function FileIcon({
   return (
     <span
       className={cn(
-        'inline-flex size-[18px] flex-shrink-0 items-center justify-center rounded-[6px]',
-        info.containerClass,
+        'inline-flex h-4 w-4 flex-shrink-0 items-center justify-center',
         className
       )}
       aria-hidden="true"
     >
-      <Icon className={cn('h-[13px] w-[13px]', info.colorClass)} />
+      <Icon className={cn('h-[14px] w-[14px]', info.colorClass)} />
     </span>
   )
 }

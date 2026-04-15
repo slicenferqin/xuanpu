@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 
 import { createLogger } from './logger'
+import { asObject, asString } from './codex-utils'
 import { notificationService } from './notification-service'
 import { loadClaudeSDK } from './claude-sdk-loader'
 import { maybeWithClaudeProjectMemory } from './claude-project-memory-loader'
@@ -1026,6 +1027,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         totalMessages: messageIndex,
         aborted: session.abortController?.signal.aborted ?? false
       })
+      this.persistMessagesToDB(session)
       this.emitStatus(session.hiveSessionId, 'idle')
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
@@ -1114,6 +1116,57 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
     return true
   }
 
+  /** Persist in-memory messages to the session_messages table so that
+   *  getSessionTimeline() can return them. Follows the same pattern as
+   *  Codex's persistCanonicalMessages(). */
+  private persistMessagesToDB(session: ClaudeSessionState): void {
+    if (!this.dbService) return
+    if (session.messages.length === 0) return
+
+    try {
+      const rows = session.messages.flatMap((message) => {
+        const record = asObject(message)
+        if (!record) return []
+
+        const role = asString(record.role)
+        const timestamp = asString(record.timestamp) ?? new Date().toISOString()
+        if (role !== 'user' && role !== 'assistant') return []
+
+        const parts = Array.isArray(record.parts) ? record.parts : []
+        const textContent = parts
+          .map((part) => asObject(part))
+          .filter((part) => part?.type === 'text' || part?.type === 'reasoning')
+          .map((part) => asString(part?.text) ?? '')
+          .join('')
+
+        return [
+          {
+            session_id: session.hiveSessionId,
+            role,
+            content: textContent || asString(record.content) || '',
+            opencode_message_id: asString(record.id) ?? null,
+            opencode_message_json: JSON.stringify(message),
+            opencode_parts_json: JSON.stringify(parts),
+            created_at: timestamp
+          }
+        ]
+      })
+
+      if (rows.length === 0) return
+
+      this.dbService.replaceSessionMessages(session.hiveSessionId, rows)
+      log.debug('Persisted Claude Code messages to DB', {
+        hiveSessionId: session.hiveSessionId,
+        rowCount: rows.length
+      })
+    } catch (error) {
+      log.warn('Failed to persist Claude Code messages', {
+        hiveSessionId: session.hiveSessionId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
+  }
+
   /** In-flight transcript reads keyed by agentSessionId — deduplicates concurrent calls */
   private pendingTranscriptReads = new Map<string, Promise<unknown[]>>()
 
@@ -1150,6 +1203,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         const currentSession = this.getSession(worktreePath, agentSessionId)
         if (currentSession) {
           currentSession.messages = [...transcript]
+          this.persistMessagesToDB(currentSession)
           log.info('getMessages: warmed in-memory cache from transcript', {
             agentSessionId,
             count: transcript.length

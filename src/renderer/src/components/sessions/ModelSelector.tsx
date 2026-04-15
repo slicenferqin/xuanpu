@@ -44,6 +44,8 @@ interface ModelSelectorProps {
   // Override the SDK used for model listing (e.g. force 'opencode' in settings when defaultAgentSdk is 'terminal')
   agentSdkOverride?: 'opencode' | 'claude-code' | 'codex'
   showProviderPrefix?: boolean
+  // Compact capsule style for SessionHeader
+  compact?: boolean
 }
 
 export function ModelSelector({
@@ -51,7 +53,8 @@ export function ModelSelector({
   value,
   onChange,
   agentSdkOverride,
-  showProviderPrefix = true
+  showProviderPrefix = true,
+  compact = false
 }: ModelSelectorProps): React.JSX.Element {
   const { t } = useI18n()
   // Read per-session model from session store (with global fallback)
@@ -327,9 +330,10 @@ export function ModelSelector({
         <DropdownMenuTrigger asChild>
           <button
             className={cn(
-              'flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors',
-              'border select-none',
-              'bg-muted/50 border-border text-muted-foreground hover:bg-muted hover:text-foreground'
+              'flex items-center gap-1 transition-colors select-none',
+              compact
+                ? 'border border-border/40 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted/40 hover:text-foreground'
+                : 'px-2 py-0.5 rounded-full text-[11px] font-medium border bg-muted/50 border-border text-muted-foreground hover:bg-muted hover:text-foreground'
             )}
             title={t('modelSelector.title')}
             aria-label={t('modelSelector.ariaLabel', { model: displayName })}

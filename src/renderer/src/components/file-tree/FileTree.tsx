@@ -459,7 +459,7 @@ export function FileTree({
                   <div
                     key={file.path}
                     role="option"
-                    className="absolute top-0 left-0 w-full flex items-center gap-2 px-3 cursor-pointer text-xs hover:bg-accent/50 rounded-sm"
+                    className="absolute top-0 left-0 w-full flex items-center gap-2 px-3 cursor-pointer text-xs hover:bg-sidebar-accent/50 rounded-sm"
                     style={{
                       height: `${virtualRow.size}px`,
                       transform: `translateY(${virtualRow.start}px)`

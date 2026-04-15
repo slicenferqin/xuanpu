@@ -105,7 +105,7 @@ export function PinnedList(): React.JSX.Element | null {
           <PinnedConnectionItem key={`conn-${item.id}`} connectionId={item.id} />
         )
       )}
-      <div className="border-b border-border/50 mx-2 mt-1 mb-1" />
+      <div className="border-b border-sidebar-border/50 mx-2 mt-1 mb-1" />
     </div>
   )
 }
@@ -603,7 +603,7 @@ function PinnedWorktreeItem({ worktreeId }: { worktreeId: string }): React.JSX.E
           className={cn(
             'group flex items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer',
             'transition-colors mx-1',
-            isSelected ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'
+            isSelected ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'hover:bg-sidebar-accent/70'
           )}
           onClick={handleClick}
           data-testid={`pinned-worktree-${worktreeId}`}
@@ -727,7 +727,7 @@ function PinnedWorktreeItem({ worktreeId }: { worktreeId: string }): React.JSX.E
                 size="icon"
                 className={cn(
                   'h-5 w-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity',
-                  'hover:bg-accent'
+                  'hover:bg-sidebar-accent'
                 )}
                 onClick={(e) => e.stopPropagation()}
               >
@@ -1021,7 +1021,7 @@ function PinnedConnectionItem({
           className={cn(
             'group flex items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer',
             'transition-colors mx-1',
-            isSelected ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'
+            isSelected ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'hover:bg-sidebar-accent/70'
           )}
           onClick={handleClick}
           data-testid={`pinned-connection-${connectionId}`}
@@ -1135,7 +1135,7 @@ function PinnedConnectionItem({
                 size="icon"
                 className={cn(
                   'h-5 w-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity',
-                  'hover:bg-accent'
+                  'hover:bg-sidebar-accent'
                 )}
                 onClick={(e) => e.stopPropagation()}
               >

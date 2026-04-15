@@ -16,6 +16,7 @@ export function RightSidebar(): React.JSX.Element {
   const { rightSidebarWidth, rightSidebarCollapsed, setRightSidebarWidth, toggleRightSidebar } =
     useLayoutStore()
   const bottomPanelTab = useLayoutStore((s) => s.bottomPanelTab)
+  const terminalDock = useLayoutStore((s) => s.terminalDock)
   const splitFractionByEntity = useLayoutStore((s) => s.splitFractionByEntity)
   const setSplitFraction = useLayoutStore((s) => s.setSplitFraction)
 
@@ -81,19 +82,21 @@ export function RightSidebar(): React.JSX.Element {
 
   // TerminalManager is always rendered (even when sidebar is collapsed) to preserve
   // PTY state across sidebar collapse/expand and worktree switches.
-  const terminalManager = (
+  // When terminal is docked to bottom, TerminalManager lives in BottomDock instead.
+  const isDockRight = terminalDock === 'right'
+  const terminalManager = isDockRight ? (
     <TerminalManager
       selectedWorktreeId={selectedWorktreeId}
       worktreePath={selectedWorktreePath}
       isVisible={!rightSidebarCollapsed && effectiveBottomPanelTab === 'terminal'}
     />
-  )
+  ) : null
 
   if (rightSidebarCollapsed) {
     return (
       <div data-testid="right-sidebar-collapsed">
         {/* Keep TerminalManager alive when sidebar is collapsed so PTYs persist */}
-        <div className="hidden">{terminalManager}</div>
+        {isDockRight && <div className="hidden">{terminalManager}</div>}
       </div>
     )
   }
@@ -103,7 +106,7 @@ export function RightSidebar(): React.JSX.Element {
       <ResizeHandle onResize={handleResize} direction="right" />
       <aside
         ref={sidebarRef}
-        className="flex flex-col overflow-hidden border-l border-sidebar-border/80 bg-sidebar text-sidebar-foreground"
+        className="flex flex-col overflow-hidden border-l border-sidebar-border/60 bg-sidebar text-sidebar-foreground"
         style={{ width: rightSidebarWidth }}
         data-testid="right-sidebar"
         data-width={rightSidebarWidth}
@@ -113,7 +116,7 @@ export function RightSidebar(): React.JSX.Element {
         {/* Top half: Tabbed sidebar (Changes / Files) */}
         <div
           className="flex min-h-0 flex-col overflow-hidden"
-          style={{ flex: `${splitFraction} 1 0%` }}
+          style={{ flex: isDockRight ? `${splitFraction} 1 0%` : '1 1 0%' }}
           data-testid="right-sidebar-top"
         >
           <ErrorBoundary
@@ -135,21 +138,26 @@ export function RightSidebar(): React.JSX.Element {
           </ErrorBoundary>
         </div>
 
-        {/* Draggable divider between top and bottom panels */}
-        <ResizeHandle
-          onResize={handleVerticalResize}
-          direction="up"
-          className="h-px border-0 bg-sidebar-border/80 hover:bg-primary/25 active:bg-primary/35"
-        />
+        {/* Bottom panel — only when terminal is docked to right */}
+        {isDockRight && (
+          <>
+            {/* Draggable divider between top and bottom panels */}
+            <ResizeHandle
+              onResize={handleVerticalResize}
+              direction="up"
+              className="h-px border-0 bg-sidebar-border/60 hover:bg-primary/20 active:bg-primary/30"
+            />
 
-        {/* Bottom half: Tab panel */}
-        <div
-          className="flex min-h-0 flex-col overflow-hidden bg-background/20"
-          style={{ flex: `${1 - splitFraction} 1 0%` }}
-          data-testid="right-sidebar-bottom"
-        >
-          <BottomPanel terminalSlot={terminalManager} isConnectionMode={isConnectionMode} worktreePath={selectedWorktreePath} />
-        </div>
+            {/* Bottom half: Tab panel */}
+            <div
+              className="flex min-h-0 flex-col overflow-hidden bg-sidebar"
+              style={{ flex: `${1 - splitFraction} 1 0%` }}
+              data-testid="right-sidebar-bottom"
+            >
+              <BottomPanel terminalSlot={terminalManager} isConnectionMode={isConnectionMode} worktreePath={selectedWorktreePath} />
+            </div>
+          </>
+        )}
       </aside>
     </div>
   )

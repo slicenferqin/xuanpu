@@ -417,7 +417,7 @@ export function ChangesView({
                 {/* Member header */}
                 <button
                   type="button"
-                  className="flex items-center justify-between w-full px-2 py-1.5 text-xs hover:bg-accent/50"
+                  className="flex items-center justify-between w-full px-2 py-1.5 text-xs hover:bg-sidebar-accent/50"
                   onClick={() => toggleMember(member.worktree_path)}
                 >
                   <span className="flex items-center gap-1.5 min-w-0">
@@ -832,13 +832,20 @@ const GroupHeader = memo(function GroupHeader({
 }: GroupHeaderProps): React.JSX.Element {
   return (
     <div className="border-b border-border/60 last:border-b-0" data-testid={testId}>
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         className={cn(
-          'flex w-full items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent/35',
+          'flex w-full items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent/35 cursor-pointer select-none',
           headerClassName
         )}
         onClick={onToggle}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onToggle()
+          }
+        }}
       >
         <span className="flex items-center gap-1">
           {icon ||
@@ -851,7 +858,7 @@ const GroupHeader = memo(function GroupHeader({
           <span className="rounded-md bg-muted/70 px-1.5 py-0.5 text-[10px]">{count}</span>
         </span>
         {action && <span onClick={(e) => e.stopPropagation()}>{action}</span>}
-      </button>
+      </div>
       {!isCollapsed && <div className="pb-1">{children}</div>}
     </div>
   )
@@ -878,7 +885,7 @@ const FileRow = memo(function FileRow({
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <div
-          className="flex items-center gap-1.5 px-2 py-0.5 hover:bg-accent/30 group cursor-pointer"
+          className="flex items-center gap-1.5 px-2 py-0.5 hover:bg-sidebar-accent/30 group cursor-pointer"
           onClick={() => onViewDiff(file)}
           data-testid={`changes-file-${file.relativePath}`}
         >

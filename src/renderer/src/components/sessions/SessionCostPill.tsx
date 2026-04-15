@@ -52,7 +52,7 @@ export function SessionCostPill({
   fallbackTokens
 }: SessionCostPillProps): React.JSX.Element | null {
   const { t } = useI18n()
-  const totalCost = summary?.total_cost ?? fallbackCost
+  const totalCost = summary?.total_cost ?? fallbackCost ?? 0
   const totalTokens =
     summary?.total_tokens ??
     ((fallbackTokens?.input ?? 0) +
@@ -60,7 +60,7 @@ export function SessionCostPill({
       (fallbackTokens?.cacheRead ?? 0) +
       (fallbackTokens?.cacheWrite ?? 0))
 
-  if (totalCost <= 0) return null
+  if (totalCost <= 0 && totalTokens <= 0) return null
 
   return (
     <Popover>

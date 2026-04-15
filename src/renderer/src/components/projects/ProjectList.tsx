@@ -283,7 +283,7 @@ export function ProjectList({
   // Project list
   return (
     <div data-testid="project-list">
-      <div className="space-y-0.5">
+      <div className="space-y-1">
         {filteredProjects.map((item) => (
           <ProjectItem
             key={item.project.id}

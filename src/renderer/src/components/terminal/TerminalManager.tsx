@@ -35,8 +35,9 @@ export function TerminalManager({
   const embeddedTerminalBackend = useSettingsStore((s) => s.embeddedTerminalBackend)
   const prevBackendRef = useRef(embeddedTerminalBackend)
 
-  const { ensureDefaultTab, cleanupWorktree, clearAll } =
-    useBottomTerminalStore()
+  const ensureDefaultTab = useBottomTerminalStore((s) => s.ensureDefaultTab)
+  const cleanupWorktree = useBottomTerminalStore((s) => s.cleanupWorktree)
+  const clearAll = useBottomTerminalStore((s) => s.clearAll)
   const tabsByWorktree = useBottomTerminalStore((s) => s.tabsByWorktree)
   const tabsByWorktreeRef = useRef(tabsByWorktree)
   tabsByWorktreeRef.current = tabsByWorktree
@@ -56,9 +57,12 @@ export function TerminalManager({
   )
 
   // Ensure the selected worktree has at least one terminal tab
-  if (selectedWorktreeId && worktreePath && isVisible) {
-    ensureDefaultTab(selectedWorktreeId, worktreePath)
-  }
+  // NOTE: must be in useEffect — calling store actions during render violates React rules
+  useEffect(() => {
+    if (selectedWorktreeId && worktreePath && isVisible) {
+      ensureDefaultTab(selectedWorktreeId, worktreePath)
+    }
+  }, [selectedWorktreeId, worktreePath, isVisible, ensureDefaultTab])
 
   // When backend setting changes, tear down all active terminals so they get re-created
   // with the new backend on next visibility

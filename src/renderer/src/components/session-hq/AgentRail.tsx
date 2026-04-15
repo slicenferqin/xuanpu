@@ -33,7 +33,7 @@ function InterruptQueueItem({ item }: { item: InterruptItem }): React.JSX.Elemen
     question: <MessageCircle className="h-3.5 w-3.5 text-blue-400" />,
     permission: <AlertCircle className="h-3.5 w-3.5 text-yellow-400" />,
     command_approval: <AlertCircle className="h-3.5 w-3.5 text-orange-400" />,
-    plan: <CheckCircle className="h-3.5 w-3.5 text-green-400" />
+    plan: <CheckCircle className="h-3.5 w-3.5 text-celadon" />
   }
 
   const labelMap = {

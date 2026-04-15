@@ -22,6 +22,7 @@ export function SettingsGeneral(): React.JSX.Element {
     defaultAgentSdk,
     stripAtMentions,
     autoPullBeforeWorktree,
+    sessionUiV2Enabled,
     updateSetting,
     resetToDefaults
   } = useSettingsStore()
@@ -355,6 +356,39 @@ export function SettingsGeneral(): React.JSX.Element {
             data-testid="breed-type-cats"
           >
             {t('settings.general.branchNaming.options.cats')}
+          </button>
+        </div>
+      </div>
+
+      {/* Experimental */}
+      <div className="space-y-3 pt-4 border-t">
+        <div>
+          <h4 className="text-sm font-medium">实验性功能</h4>
+          <p className="text-xs text-muted-foreground mt-0.5">以下功能仍在测试中，可能存在不稳定情况</p>
+        </div>
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-0.5">
+            <label className="text-sm font-medium">新版 Session UI</label>
+            <p className="text-xs text-muted-foreground">
+              启用重构后的 SessionShell（统一 timeline、三态 Composer、Agent Rail）。关闭后回退到旧版 SessionView。
+            </p>
+          </div>
+          <button
+            role="switch"
+            aria-checked={sessionUiV2Enabled}
+            onClick={() => updateSetting('sessionUiV2Enabled', !sessionUiV2Enabled)}
+            className={cn(
+              'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
+              sessionUiV2Enabled ? 'bg-primary' : 'bg-muted'
+            )}
+            data-testid="session-ui-v2-toggle"
+          >
+            <span
+              className={cn(
+                'pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform',
+                sessionUiV2Enabled ? 'translate-x-4' : 'translate-x-0'
+              )}
+            />
           </button>
         </div>
       </div>

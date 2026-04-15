@@ -286,7 +286,7 @@ export function ProjectItem({
         <ContextMenuTrigger asChild>
           <div
             className={cn(
-              'group flex items-center gap-2 px-2.5 py-2 rounded-xl cursor-pointer transition-colors',
+              'group flex items-center gap-2 px-2.5 py-2.5 rounded-xl cursor-pointer transition-colors',
               isSelected
                 ? 'bg-sidebar-accent text-sidebar-accent-foreground ring-1 ring-sidebar-border/60 shadow-sm'
                 : 'hover:bg-sidebar-accent/70',

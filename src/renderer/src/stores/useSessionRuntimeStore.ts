@@ -52,7 +52,8 @@ export interface SessionRuntimeState {
   } | null
 }
 
-const DEFAULT_SESSION_STATE: SessionRuntimeState = {
+/** Exported so external selectors can use stable fallback without calling get() */
+export const DEFAULT_SESSION_STATE: Readonly<SessionRuntimeState> = {
   lifecycle: 'idle',
   inProgress: false,
   unreadCount: 0,
@@ -122,11 +123,16 @@ interface SessionRuntimeStoreActions {
 
 export type SessionRuntimeStore = SessionRuntimeStoreState & SessionRuntimeStoreActions
 
+// Stable singletons — returning these from selectors avoids creating new
+// references on every call, which would cause useSyncExternalStore (#185) loops.
+const EMPTY_INTERRUPT_QUEUE: readonly InterruptItem[] = []
+const EMPTY_PENDING_MESSAGES: readonly PendingMessage[] = []
+
 function ensureSession(
   sessions: Map<string, SessionRuntimeState>,
   sessionId: string
 ): SessionRuntimeState {
-  return sessions.get(sessionId) ?? { ...DEFAULT_SESSION_STATE }
+  return sessions.get(sessionId) ?? DEFAULT_SESSION_STATE
 }
 
 export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) => ({
@@ -243,7 +249,7 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
   },
 
   getInterruptQueue(sessionId) {
-    return get().interruptQueues.get(sessionId) ?? []
+    return get().interruptQueues.get(sessionId) ?? EMPTY_INTERRUPT_QUEUE
   },
 
   getFirstInterrupt(sessionId) {
@@ -326,7 +332,7 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
   },
 
   getPendingMessages(sessionId) {
-    return get().pendingMessages.get(sessionId) ?? []
+    return get().pendingMessages.get(sessionId) ?? EMPTY_PENDING_MESSAGES
   },
 
   getPendingCount(sessionId) {

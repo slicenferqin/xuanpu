@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Globe } from 'lucide-react'
+import { Globe, PanelBottom, PanelRight } from 'lucide-react'
 import { isMac } from '@/lib/platform'
 import { useWorktreeStore } from '@/stores/useWorktreeStore'
 import { useLayoutStore } from '@/stores/useLayoutStore'
@@ -120,17 +120,19 @@ export function BottomPanel({
 
   const [chromeConfigOpen, setChromeConfigOpen] = useState(false)
   const [chromeCommandInput, setChromeCommandInput] = useState(customChromeCommand)
-  const showPanelHeader = visibleTabs.length > 1 || !!detectedUrl
+  const terminalDock = useLayoutStore((s) => s.terminalDock)
+  const setTerminalDock = useLayoutStore((s) => s.setTerminalDock)
+  const showPanelHeader = true
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-transparent" data-testid="bottom-panel">
       {showPanelHeader && (
         <div
-          className="flex items-center gap-2 border-b border-border/60 bg-background/58 px-2.5 py-2"
+          className="flex items-center gap-2 border-b border-sidebar-border/60 px-2.5 py-2"
           data-testid="bottom-panel-tabs"
         >
           <div className="min-w-0 flex-1 overflow-x-auto">
-            <div className="inline-flex min-w-max items-center gap-1 rounded-lg bg-background/35 p-0.5">
+            <div className="inline-flex min-w-max items-center gap-1 rounded-lg bg-sidebar-accent/40 p-0.5">
               {visibleTabs.map((tab) => (
                 <button
                   key={tab.id}
@@ -138,8 +140,8 @@ export function BottomPanel({
                   className={cn(
                     'shrink-0 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-colors',
                     effectiveTab === tab.id
-                      ? 'bg-background/90 text-foreground'
-                      : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'
+                      ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                      : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground'
                   )}
                   data-testid={`bottom-panel-tab-${tab.id}`}
                   data-active={effectiveTab === tab.id}
@@ -156,6 +158,19 @@ export function BottomPanel({
               ))}
             </div>
           </div>
+
+          {/* Dock position toggle */}
+          <button
+            onClick={() => setTerminalDock(terminalDock === 'right' ? 'bottom' : 'right')}
+            className="ml-auto shrink-0 rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+            title={terminalDock === 'right' ? 'Dock to bottom' : 'Dock to sidebar'}
+            data-testid="dock-toggle"
+          >
+            {terminalDock === 'right'
+              ? <PanelBottom className="h-3.5 w-3.5" />
+              : <PanelRight className="h-3.5 w-3.5" />
+            }
+          </button>
 
           {/* Spacer + Open in Chrome button */}
           {detectedUrl && (
@@ -219,7 +234,7 @@ export function BottomPanel({
       )}
       <div
         className={cn(
-          'flex-1 min-h-0 overflow-hidden bg-background/24',
+          'flex-1 min-h-0 overflow-hidden',
           !showPanelHeader && 'bg-transparent'
         )}
         data-testid="bottom-panel-content"

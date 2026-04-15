@@ -117,6 +117,30 @@ export const BUILT_IN_SLASH_COMMANDS: SlashCommandInfo[] = [
     description: 'Ask a question without making code changes',
     template: '/ask ',
     builtIn: true
+  },
+  {
+    name: 'status',
+    description: 'Show session status and current task',
+    template: '/status',
+    builtIn: true
+  },
+  {
+    name: 'context',
+    description: 'Show context window usage',
+    template: '/context',
+    builtIn: true
+  },
+  {
+    name: 'compact',
+    description: 'Compact conversation to save context',
+    template: '/compact ',
+    builtIn: true
+  },
+  {
+    name: 'mcp',
+    description: 'Show MCP server status',
+    template: '/mcp',
+    builtIn: true
   }
 ]
 

@@ -127,8 +127,8 @@ export const VirtualFileTreeNode = memo(function VirtualFileTreeNode({
       type="button"
       className={cn(
         'flex h-full w-full items-center rounded-sm px-1 py-0.5 text-left cursor-pointer',
-        'hover:bg-accent/50 transition-colors',
-        'focus:outline-none focus:bg-accent/50'
+        'hover:bg-sidebar-accent/50 transition-colors',
+        'focus:outline-none focus:bg-sidebar-accent/50'
       )}
       style={{ paddingLeft: `${depth * 12 + 4}px` }}
       onClick={handleClick}

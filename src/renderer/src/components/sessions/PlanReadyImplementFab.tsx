@@ -42,7 +42,7 @@ export function PlanReadyImplementFab({
   return (
     <div
       className={cn(
-        'absolute bottom-4 right-4 z-10',
+        'absolute bottom-36 right-4 z-30',
         'flex items-center gap-2',
         'transition-all duration-200',
         visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'

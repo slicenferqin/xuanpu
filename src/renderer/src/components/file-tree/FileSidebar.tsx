@@ -62,15 +62,15 @@ export function FileSidebar({
 
   return (
     <div className={cn('flex h-full flex-col bg-transparent', className)}>
-      <div className="flex items-center gap-2 border-b border-border/60 bg-background/58 px-2.5 py-2">
+      <div className="flex items-center gap-2 border-b border-sidebar-border/60 px-2.5 py-2">
         <div className="min-w-0 flex-1 overflow-x-auto">
-          <div className="inline-flex min-w-max items-center gap-1 rounded-lg bg-background/35 p-0.5">
+          <div className="inline-flex min-w-max items-center gap-1 rounded-lg bg-sidebar-accent/40 p-0.5">
             <button
               className={cn(
                 'shrink-0 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-colors',
                 activeTab === 'changes'
-                  ? 'bg-background/90 text-foreground'
-                  : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'
+                  ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                  : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground'
               )}
               onClick={() => setActiveTab('changes')}
             >
@@ -86,8 +86,8 @@ export function FileSidebar({
               className={cn(
                 'shrink-0 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-colors',
                 activeTab === 'files'
-                  ? 'bg-background/90 text-foreground'
-                  : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'
+                  ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                  : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground'
               )}
               onClick={() => setActiveTab('files')}
             >
@@ -103,8 +103,8 @@ export function FileSidebar({
               className={cn(
                 'shrink-0 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-colors',
                 activeTab === 'diffs'
-                  ? 'bg-background/90 text-foreground'
-                  : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'
+                  ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                  : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground'
               )}
               onClick={() => setActiveTab('diffs')}
             >
@@ -121,8 +121,8 @@ export function FileSidebar({
                 className={cn(
                   'shrink-0 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-colors',
                   activeTab === 'comments'
-                    ? 'bg-background/90 text-foreground'
-                    : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'
+                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                    : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground'
                 )}
                 onClick={() => setActiveTab('comments')}
               >
@@ -139,7 +139,7 @@ export function FileSidebar({
         </div>
         <button
           onClick={onClose}
-          className="ml-auto rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-background/60 hover:text-foreground"
+          className="ml-auto rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
           aria-label={t('fileTree.sidebar.closeSidebar')}
         >
           <X className="h-3.5 w-3.5" />

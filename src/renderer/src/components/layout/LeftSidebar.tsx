@@ -109,7 +109,7 @@ export function LeftSidebar(): React.JSX.Element {
   return (
     <div className="flex flex-shrink-0" data-testid="left-sidebar-container">
       <aside
-        className="bg-sidebar/90 text-sidebar-foreground border-r border-sidebar-border/80 flex flex-col overflow-hidden backdrop-blur-xl"
+        className="bg-sidebar text-sidebar-foreground border-r border-sidebar-border/60 flex flex-col overflow-hidden"
         style={{ width: leftSidebarWidth }}
         data-testid="left-sidebar"
         data-width={leftSidebarWidth}
@@ -117,7 +117,7 @@ export function LeftSidebar(): React.JSX.Element {
         aria-label={t('leftSidebar.ariaLabel')}
       >
         {connectionModeActive ? (
-          <div className="px-4 py-3 border-b border-sidebar-border/80 flex items-center justify-between bg-sidebar/70">
+          <div className="px-4 py-3 border-b border-sidebar-border/60 flex items-center justify-between bg-muted/50">
             <div className="flex items-center gap-2 text-sm font-medium min-w-0">
               <Link className="h-4 w-4 text-primary shrink-0" />
               <span className="truncate">{t('sidebar.connectionMode.selectWorktrees')}</span>
@@ -153,7 +153,7 @@ export function LeftSidebar(): React.JSX.Element {
             </div>
           </div>
         ) : (
-          <div className="px-4 py-3 border-b border-sidebar-border/80 flex items-center justify-between">
+          <div className="px-4 py-3 border-b border-sidebar-border/60 flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm font-medium">
               <FolderGit2 className="h-4 w-4" />
               <span>{t('sidebar.projects')}</span>

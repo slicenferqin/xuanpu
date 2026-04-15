@@ -14,6 +14,20 @@ interface ThemeState {
   cancelPreview: () => void
 }
 
+// Migrate removed theme IDs to surviving themes
+const REMOVED_DARK_THEMES = new Set([
+  'obsidian', 'midnight-blue', 'emerald-night', 'crimson', 'sunset', 'catppuccin-mocha'
+])
+const REMOVED_LIGHT_THEMES = new Set([
+  'cloud', 'mint', 'rose', 'catppuccin-latte'
+])
+
+function migrateThemeId(id: string): string {
+  if (REMOVED_DARK_THEMES.has(id)) return 'amethyst'
+  if (REMOVED_LIGHT_THEMES.has(id)) return 'daylight'
+  return id
+}
+
 // Save theme ID to SQLite database
 async function saveThemeToDatabase(themeId: string): Promise<void> {
   try {
@@ -30,8 +44,13 @@ async function loadThemeFromDatabase(): Promise<string | null> {
   try {
     if (typeof window !== 'undefined' && window.db?.setting) {
       const value = await window.db.setting.get(THEME_SETTING_KEY)
-      if (value && getThemeById(value)) {
-        return value
+      if (value) {
+        const migrated = migrateThemeId(value)
+        if (getThemeById(migrated)) {
+          // Persist migration if the ID changed
+          if (migrated !== value) await saveThemeToDatabase(migrated)
+          return migrated
+        }
       }
     }
   } catch (error) {
@@ -109,6 +128,7 @@ export const useThemeStore = create<ThemeState>()(
       partialize: (state) => ({ themeId: state.themeId }),
       onRehydrateStorage: () => (state) => {
         if (state) {
+          state.themeId = migrateThemeId(state.themeId)
           applyThemeById(state.themeId)
         }
       }
@@ -123,7 +143,7 @@ if (typeof window !== 'undefined') {
     try {
       const parsed = JSON.parse(storedTheme)
       if (parsed.state?.themeId) {
-        applyThemeById(parsed.state.themeId)
+        applyThemeById(migrateThemeId(parsed.state.themeId))
       } else if (parsed.state?.theme) {
         // Migration from old format: map dark/light/system to preset IDs
         const oldTheme = parsed.state.theme

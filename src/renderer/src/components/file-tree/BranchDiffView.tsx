@@ -185,7 +185,7 @@ export function BranchDiffView({ worktreePath }: BranchDiffViewProps): React.JSX
         <button
           type="button"
           className={cn(
-            'flex w-full items-center gap-1.5 rounded-lg border border-border/70 bg-background px-2.5 py-1.5 text-xs transition-colors hover:bg-accent/30'
+            'flex w-full items-center gap-1.5 rounded-lg border border-border/70 bg-background px-2.5 py-1.5 text-xs transition-colors hover:bg-sidebar-accent/30'
           )}
           onClick={() => setDropdownOpen((prev) => !prev)}
           disabled={isLoadingBranches}
@@ -229,8 +229,8 @@ export function BranchDiffView({ worktreePath }: BranchDiffViewProps): React.JSX
                       key={branch.name}
                       type="button"
                       className={cn(
-                        'flex items-center gap-1.5 w-full px-2 py-1 text-xs hover:bg-accent/50',
-                        branch.name === selectedBranch && 'bg-accent text-accent-foreground'
+                        'flex items-center gap-1.5 w-full px-2 py-1 text-xs hover:bg-sidebar-accent/50',
+                        branch.name === selectedBranch && 'bg-sidebar-accent text-sidebar-accent-foreground'
                       )}
                       onClick={() => handleSelectBranch(branch.name)}
                     >
@@ -255,8 +255,8 @@ export function BranchDiffView({ worktreePath }: BranchDiffViewProps): React.JSX
                       key={branch.name}
                       type="button"
                       className={cn(
-                        'flex items-center gap-1.5 w-full px-2 py-1 text-xs hover:bg-accent/50',
-                        branch.name === selectedBranch && 'bg-accent text-accent-foreground'
+                        'flex items-center gap-1.5 w-full px-2 py-1 text-xs hover:bg-sidebar-accent/50',
+                        branch.name === selectedBranch && 'bg-sidebar-accent text-sidebar-accent-foreground'
                       )}
                       onClick={() => handleSelectBranch(branch.name)}
                     >
@@ -302,7 +302,7 @@ export function BranchDiffView({ worktreePath }: BranchDiffViewProps): React.JSX
             return (
               <div
                 key={file.relativePath}
-                className="flex items-center gap-1.5 px-2 py-0.5 hover:bg-accent/30 cursor-pointer"
+                className="flex items-center gap-1.5 px-2 py-0.5 hover:bg-sidebar-accent/30 cursor-pointer"
                 onClick={() => handleFileClick(file)}
                 data-testid={`branch-diff-file-${file.relativePath}`}
               >

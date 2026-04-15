@@ -28,11 +28,11 @@ export function CodeBlock({ code, language = 'typescript' }: CodeBlockProps): Re
 
   return (
     <div
-      className="relative group my-4 rounded-lg overflow-hidden border border-border bg-zinc-900 dark:bg-zinc-950"
+      className="relative group my-4 rounded-lg overflow-hidden border border-border/60 bg-muted/50"
       data-testid="code-block"
     >
-      <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-zinc-800 dark:bg-zinc-900">
-        <span className="text-xs font-medium text-muted-foreground uppercase">{language}</span>
+      <div className="flex items-center justify-between px-4 py-1.5 border-b border-border/50 bg-muted/70">
+        <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">{language}</span>
         <Button
           variant="ghost"
           size="sm"
@@ -48,7 +48,7 @@ export function CodeBlock({ code, language = 'typescript' }: CodeBlockProps): Re
           )}
         </Button>
       </div>
-      <pre className="p-4 overflow-x-auto text-sm font-mono text-zinc-100">
+      <pre className="p-4 overflow-x-auto text-sm font-mono text-foreground/90">
         <code>{containsAnsi(code) ? <Ansi>{code}</Ansi> : code}</code>
       </pre>
     </div>
