@@ -367,6 +367,15 @@ function shouldSkipEntry(entry: ClaudeJsonlEntry): boolean {
     const text = extractTextFromContent(entry.message?.content)
     if (isContextContinuationSummary(text)) return true
 
+    // Filter synthetic system messages wrapped in XML tags
+    const trimmed = text.trimStart()
+    if (
+      trimmed.startsWith('<local-command-stdout>') ||
+      trimmed.startsWith('<system-reminder>')
+    ) {
+      return true
+    }
+
     const content = Array.isArray(entry.message?.content) ? entry.message.content : []
     if (content.length > 0 && content.every((block) => block.type === 'tool_result')) {
       return true

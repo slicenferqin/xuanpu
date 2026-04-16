@@ -623,7 +623,6 @@ app.whenReady().then(async () => {
   registerFileHandlers()
   registerConnectionHandlers()
   registerUsageHandlers()
-  registerTimelineHandlers()
 
   // Telemetry IPC
   ipcMain.handle(
@@ -715,6 +714,8 @@ app.whenReady().then(async () => {
     registerOpenCodeHandlers(mainWindow, sdkManager, databaseService)
     log.info('Registering Agent handlers (canonical)')
     registerAgentHandlers(mainWindow, runtimeManager, databaseService)
+    log.info('Registering Timeline handlers')
+    registerTimelineHandlers(runtimeManager)
     log.info('Registering FileTree handlers')
     registerFileTreeHandlers(mainWindow)
     log.info('Registering GitFile handlers')

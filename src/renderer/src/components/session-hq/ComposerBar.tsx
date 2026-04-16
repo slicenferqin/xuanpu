@@ -86,6 +86,23 @@ export function ComposerBar({
   const [content, setContent] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
 
+  // --- Draft persistence: save input on unmount/switch, restore on mount ---
+  const contentRef = useRef(content)
+  useEffect(() => { contentRef.current = content }, [content])
+
+  // Load draft on session change
+  useEffect(() => {
+    let cancelled = false
+    window.db.session.getDraft(sessionId).then((draft) => {
+      if (!cancelled && draft) setContent(draft)
+    }).catch(() => {})
+    return () => {
+      cancelled = true
+      // Save draft when leaving this session
+      const current = contentRef.current.trim()
+      window.db.session.updateDraft(sessionId, current || null).catch(() => {})
+    }
+  }, [sessionId])
   // --- Slash commands ---
   const [slashCommands, setSlashCommands] = useState<{ name: string; description?: string; template: string; agent?: string; builtIn?: boolean }[]>([])
   const [showSlashCommands, setShowSlashCommands] = useState(false)
@@ -140,9 +157,10 @@ export function ComposerBar({
   const clearInput = useCallback(() => {
     setContent('')
     setAttachments([])
+    window.db.session.updateDraft(sessionId, null).catch(() => {})
     const ta = textareaRef.current
     if (ta) ta.style.height = 'auto'
-  }, [])
+  }, [sessionId])
 
   const handleSubmit = useCallback(() => {
     if (!actionSet.primary) return

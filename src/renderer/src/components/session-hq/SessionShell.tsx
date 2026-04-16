@@ -312,6 +312,19 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     }
   }, [allTasksComplete, missionVisible])
 
+  // Failsafe: hide MissionControl when streaming stops and all tasks are done.
+  // The primary timer above can be disrupted by rapid state updates; this
+  // guarantees the panel disappears once the session goes idle.
+  useEffect(() => {
+    if (allTasksComplete && !isStreaming && missionVisible) {
+      const failsafe = setTimeout(() => {
+        setMissionVisible(false)
+        setTriggerMessageContent(null)
+      }, 4000)
+      return () => clearTimeout(failsafe)
+    }
+  }, [allTasksComplete, isStreaming, missionVisible])
+
   const immediateFlush = useCallback(() => {
     setStreamingParts([...streamingPartsRef.current])
   }, [])

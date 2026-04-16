@@ -447,9 +447,6 @@ export function ConnectionItem({
                 {displayName}
               </span>
             </div>
-            <span className={cn('text-[11px]', statusClass)} data-testid="connection-status-text">
-              {displayStatus}
-            </span>
           </>
         )}
       </div>

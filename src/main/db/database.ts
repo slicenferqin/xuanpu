@@ -976,6 +976,24 @@ export class DatabaseService {
     return this.getSession(id)
   }
 
+  /**
+   * Soft-archive a session. Sets status to 'archived' instead of deleting.
+   * Session messages and activities are preserved.
+   */
+  archiveSession(id: string): boolean {
+    const db = this.getDb()
+    const result = db
+      .prepare(
+        "UPDATE sessions SET status = 'archived', completed_at = COALESCE(completed_at, ?) WHERE id = ?"
+      )
+      .run(new Date().toISOString(), id)
+    return result.changes > 0
+  }
+
+  /**
+   * @internal Hard-delete a session and all associated data (CASCADE).
+   * Only for data cleanup scripts — never exposed via IPC.
+   */
   deleteSession(id: string): boolean {
     const db = this.getDb()
     const result = db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
@@ -1203,6 +1221,22 @@ export class DatabaseService {
 
   replaceSessionMessages(sessionId: string, messages: SessionMessageCreate[]): SessionMessage[] {
     const db = this.getDb()
+
+    // Safety: refuse to wipe existing messages with an empty array.
+    // This guards against accidental data loss from empty in-memory caches.
+    if (messages.length === 0) {
+      const existing = db
+        .prepare('SELECT COUNT(*) as cnt FROM session_messages WHERE session_id = ?')
+        .get(sessionId) as { cnt: number } | undefined
+      if (existing && existing.cnt > 0) {
+        console.error(
+          `[Database] replaceSessionMessages: refusing to delete ${existing.cnt} existing messages with empty array for session ${sessionId}`
+        )
+        return this.getSessionMessages(sessionId)
+      }
+      return []
+    }
+
     const tx = db.transaction(() => {
       db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId)
       const created: SessionMessage[] = []
@@ -1461,10 +1495,11 @@ export class DatabaseService {
           p.name AS project_name,
           p.path AS project_path,
           w.name AS worktree_name,
-          w.path AS worktree_path
+          COALESCE(w.path, c.path) AS worktree_path
         FROM sessions s
         JOIN projects p ON s.project_id = p.id
         LEFT JOIN worktrees w ON s.worktree_id = w.id
+        LEFT JOIN connections c ON s.connection_id = c.id
         ${where}
         ORDER BY s.updated_at DESC`
       )

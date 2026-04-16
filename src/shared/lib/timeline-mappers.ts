@@ -99,7 +99,9 @@ function isSyntheticUserMessage(content: string): boolean {
   return (
     trimmed.startsWith('This session is being continued from a previous conversation') ||
     trimmed.startsWith('Here is a summary of the conversation so far') ||
-    trimmed.startsWith('Base directory for this skill:')
+    trimmed.startsWith('Base directory for this skill:') ||
+    trimmed.startsWith('<local-command-stdout>') ||
+    trimmed.startsWith('<system-reminder>')
   )
 }
 

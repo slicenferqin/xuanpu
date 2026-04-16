@@ -22,6 +22,7 @@ import { createLspMcpServerConfig, LspService } from './lsp'
 import { APP_SETTINGS_DB_KEY } from '@shared/types/settings'
 import { getActiveAppHomeDir } from '@shared/app-identity'
 import { emitAgentEvent } from '@shared/lib/normalize-agent-event'
+import { calculateUsageCost, resolvePricingModelKey } from '@shared/usage/pricing'
 
 const log = createLogger({ component: 'ClaudeCodeImplementer' })
 
@@ -279,6 +280,38 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
     }
     this.sessions.set(key, state)
 
+    // Hydrate in-memory messages from DB so getMessages() and timeline
+    // work immediately without waiting for the first prompt() call.
+    if (this.dbService) {
+      try {
+        const dbRows = this.dbService.getSessionMessages(hiveSessionId)
+        if (dbRows.length > 0) {
+          const hydrated: unknown[] = []
+          for (const row of dbRows) {
+            if (row.opencode_message_json) {
+              try {
+                hydrated.push(JSON.parse(row.opencode_message_json))
+              } catch {
+                // Corrupted JSON row — skip
+              }
+            }
+          }
+          if (hydrated.length > 0) {
+            state.messages = hydrated
+            log.info('Reconnect: hydrated messages from DB', {
+              hiveSessionId,
+              count: hydrated.length
+            })
+          }
+        }
+      } catch (err) {
+        log.warn('Reconnect: failed to hydrate from DB', {
+          hiveSessionId,
+          error: err instanceof Error ? err.message : String(err)
+        })
+      }
+    }
+
     log.info('Reconnected (restored from DB)', { worktreePath, agentSessionId, hiveSessionId })
     return { success: true, sessionStatus: 'idle', revertMessageID: null }
   }
@@ -298,6 +331,11 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
     if (!session) {
       log.warn('Disconnect: session not found, ignoring', { worktreePath, agentSessionId })
       return
+    }
+
+    // Persist messages before removing from memory to prevent data loss
+    if (session.messages.length > 0) {
+      this.persistMessagesToDB(session)
     }
 
     if (session.query) {
@@ -334,6 +372,10 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
   async cleanup(): Promise<void> {
     log.info('Cleaning up all Claude Code sessions', { count: this.sessions.size })
     for (const [key, session] of this.sessions) {
+      // Persist messages before clearing to prevent data loss on app exit
+      if (session.messages.length > 0) {
+        this.persistMessagesToDB(session)
+      }
       if (session.query) {
         try {
           session.query.close()
@@ -848,7 +890,9 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
             if (
               trimmed.startsWith('This session is being continued from a previous conversation') ||
               trimmed.startsWith('Here is a summary of the conversation so far') ||
-              trimmed.startsWith('Base directory for this skill:')
+              trimmed.startsWith('Base directory for this skill:') ||
+              trimmed.startsWith('<local-command-stdout>') ||
+              trimmed.startsWith('<system-reminder>')
             ) {
               continue
             }
@@ -1043,7 +1087,6 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         aborted: session.abortController?.signal.aborted ?? false
       })
       this.persistMessagesToDB(session)
-      this.emitStatus(session.hiveSessionId, 'idle')
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
       const stderrOutput = session.stderrBuffer.join('').trim() || undefined
@@ -1100,10 +1143,17 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         sessionId: session.hiveSessionId,
         data: { error: errorMessage, stderr: stderrOutput }
       })
-      this.emitStatus(session.hiveSessionId, 'idle')
+      // idle is emitted by the finally block after persist
     } finally {
+      // Always persist messages — whether the loop completed normally,
+      // was aborted, or threw an error. This prevents message loss.
+      this.persistMessagesToDB(session)
       session.lastQuery = session.query
       session.query = null
+      // Guarantee idle status is emitted after persist completes.
+      // try/catch paths emit idle before finally, but abort() relies on
+      // finally to emit idle (to avoid racing with persist).
+      this.emitStatus(session.hiveSessionId, 'idle')
     }
   }
 
@@ -1113,6 +1163,8 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       log.warn('Abort: session not found', { worktreePath, agentSessionId })
       return false
     }
+
+    const wasStreaming = !!session.query
 
     if (session.abortController) {
       session.abortController.abort()
@@ -1126,8 +1178,13 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       }
     }
 
-    session.query = null
-    this.emitStatus(session.hiveSessionId, 'idle')
+    // If a prompt was active, let prompt().finally handle persist + idle emit
+    // to avoid racing with it. Only emit idle here if nothing was streaming.
+    if (!wasStreaming) {
+      session.query = null
+      this.emitStatus(session.hiveSessionId, 'idle')
+    }
+    // If wasStreaming, prompt().finally will: persist → set query=null → emit idle
     return true
   }
 
@@ -1193,6 +1250,9 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         agentSessionId,
         count: session.messages.length
       })
+      // Ensure DB is in sync — callers like getTimeline read from DB,
+      // so an in-memory-only state would cause empty timeline on refresh.
+      this.persistMessagesToDB(session)
       return session.messages
     }
 
@@ -2845,11 +2905,31 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       // via stream_event deltas.  Emit as message.updated for metadata/usage only.
       case 'assistant': {
         const usage = innerMessage?.usage as Record<string, unknown> | undefined
+        const modelStr = typeof innerMessage?.model === 'string' ? innerMessage.model : undefined
+
+        // Compute per-turn cost from usage + model so the renderer can display it.
+        // Claude ​Code SDK result messages don't always carry total_cost_usd.
+        let turnCost: number | undefined
+        if (usage && modelStr) {
+          try {
+            const pricingKey = resolvePricingModelKey(modelStr, 'claude-code')
+            turnCost = calculateUsageCost(pricingKey, {
+              input: typeof usage.input_tokens === 'number' ? usage.input_tokens : 0,
+              output: typeof usage.output_tokens === 'number' ? usage.output_tokens : 0,
+              cacheWrite: typeof usage.cache_creation_input_tokens === 'number' ? usage.cache_creation_input_tokens : 0,
+              cacheRead: typeof usage.cache_read_input_tokens === 'number' ? usage.cache_read_input_tokens : 0
+            }, 'claude-code')
+          } catch {
+            // Pricing data unavailable — skip cost
+          }
+        }
+
         log.info('emitSdkMessage: assistant (complete)', {
           hiveSessionId,
           messageIndex,
           contentBlocks: Array.isArray(innerContent) ? innerContent.length : 0,
-          hasUsage: !!usage
+          hasUsage: !!usage,
+          turnCost
         })
         emitAgentEvent(this.mainWindow, {
           type: 'message.updated',
@@ -2858,7 +2938,6 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
           data: {
             role: 'assistant',
             messageIndex,
-            // Pass usage/model info so the renderer can extract tokens
             info: {
               time: { completed: new Date().toISOString() },
               usage: usage
@@ -2869,7 +2948,8 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
                     cacheCreation: usage.cache_creation_input_tokens
                   }
                 : undefined,
-              model: innerMessage?.model
+              model: innerMessage?.model,
+              ...(turnCost !== undefined ? { cost: turnCost } : {})
             }
           }
         })
@@ -2896,6 +2976,15 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
                 }
               })
             }
+          }
+        }
+
+        // Persist messages to DB after each assistant turn completes.
+        // This ensures data survives app crashes — at most one in-flight turn is lost.
+        if (!childSessionId) {
+          const session = this.findSessionByHiveId(hiveSessionId)
+          if (session && session.messages.length > 0) {
+            this.persistMessagesToDB(session)
           }
         }
         break
