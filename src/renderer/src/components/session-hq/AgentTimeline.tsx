@@ -256,17 +256,39 @@ const ICON_MAP: Record<CardType, IconConfig> = {
 }
 
 // ---------------------------------------------------------------------------
+// Generic tool label helper
+// ---------------------------------------------------------------------------
+
+/** Generate a display label for generic/unrecognized tool calls */
+function getGenericToolLabel(name: string, input?: Record<string, unknown>): string {
+  const lower = name.toLowerCase()
+  if (lower === 'skill' && input?.skill) {
+    return `/${input.skill as string}`
+  }
+  if ((lower === 'webfetch' || lower === 'web_fetch') && input?.url) {
+    try { return new URL(input.url as string).hostname } catch { return name }
+  }
+  if ((lower === 'websearch' || lower === 'web_search') && input?.query) {
+    const q = String(input.query)
+    return q.length > 60 ? q.slice(0, 57) + '...' : q
+  }
+  return name.charAt(0).toUpperCase() + name.slice(1)
+}
+
+// ---------------------------------------------------------------------------
 // Node renderer
 // ---------------------------------------------------------------------------
 
 function TimelineNodeView({
   node,
   sessionId,
-  worktreePath
+  worktreePath,
+  childPartsMap
 }: {
   node: TimelineNode
   sessionId?: string
   worktreePath?: string | null
+  childPartsMap?: Map<string, StreamingPart[]>
 }): React.JSX.Element | null {
   switch (node.cardType) {
     case 'user-message': {
@@ -328,29 +350,26 @@ function TimelineNodeView({
     case 'search':
       return node.toolUse ? <SearchCard toolUse={node.toolUse} /> : null
 
-    case 'sub-agent':
-      if (node.part?.subtask) {
-        return <SubAgentCard subtask={node.part.subtask} />
-      }
-      // Tool-use based sub-agent (e.g. from Claude Code's Agent tool)
-      if (node.toolUse) {
-        return (
-          <SubAgentCard
-            subtask={{
+    case 'sub-agent': {
+      const subtaskData = node.part?.subtask
+        ? node.part.subtask
+        : node.toolUse
+          ? {
               id: node.toolUse.id,
               sessionID: '',
               prompt: (node.toolUse.input?.prompt as string) ?? '',
               description: (node.toolUse.input?.description as string) ?? 'Delegated task',
               agent: (node.toolUse.input?.subagent_type as string) ?? 'Agent',
               parts: [],
-              status: node.toolUse.status === 'success' ? 'completed'
+              status: (node.toolUse.status === 'success' ? 'completed'
                 : node.toolUse.status === 'error' ? 'error'
-                : 'running'
-            }}
-          />
-        )
-      }
-      return null
+                : 'running') as 'running' | 'completed' | 'error'
+            }
+          : null
+      if (!subtaskData) return null
+      const childParts = childPartsMap?.get(subtaskData.id) ?? []
+      return <SubAgentCard subtask={subtaskData} childParts={childParts} />
+    }
 
     case 'plan':
       return (
@@ -385,18 +404,24 @@ function TimelineNodeView({
     case 'todo':
       return node.toolUse ? <TodoCard toolUse={node.toolUse} /> : null
 
-    case 'tool-call':
+    case 'tool-call': {
       // Generic tool fallback — show as a small inline card
-      return node.toolUse ? (
-        <div className="rounded-[10px] border border-border bg-card px-3.5 py-2.5">
+      if (!node.toolUse) return null
+      const label = getGenericToolLabel(node.toolUse.name, node.toolUse.input)
+      const isSuccess = node.toolUse.status === 'success'
+      const isError = node.toolUse.status === 'error'
+      const isRunning = node.toolUse.status === 'running' || node.toolUse.status === 'pending'
+      return (
+        <div className="rounded-lg border border-border/50 bg-card/80 px-3.5 py-2">
           <div className="flex items-center gap-2 text-sm">
-            <span className="font-semibold text-foreground">{node.toolUse.name}</span>
+            <span className="font-medium text-foreground">{label}</span>
             <span className="text-xs text-muted-foreground">
-              {node.toolUse.status === 'running' ? 'Running...' : node.toolUse.status}
+              {isRunning ? 'Running...' : isError ? 'Error' : isSuccess ? 'Done' : node.toolUse.status}
             </span>
           </div>
         </div>
-      ) : null
+      )
+    }
 
     case 'text':
       return <TextCard content={node.textContent ?? ''} />
@@ -424,6 +449,8 @@ export interface AgentTimelineProps {
   sessionId?: string
   /** Worktree path — needed for interactive AskUserCard reply */
   worktreePath?: string | null
+  /** Child-session parts keyed by parent tool_use id (sub-agent tool calls) */
+  childPartsMap?: Map<string, StreamingPart[]>
 }
 
 export function AgentTimeline({
@@ -435,7 +462,8 @@ export function AgentTimeline({
   suppressTodoCards,
   finalTodoTasks,
   sessionId,
-  worktreePath
+  worktreePath,
+  childPartsMap
 }: AgentTimelineProps): React.JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -567,11 +595,18 @@ export function AgentTimeline({
           const Icon = iconCfg.icon
           const isLast = index === nodes.length - 1 && !isStreaming
 
+          // Only show timestamp on: user messages, and the LAST assistant node
+          // before a user message or end of timeline (not on every message).
+          const nextNode = nodes[index + 1]
+          const showTimestamp =
+            node.cardType === 'user-message' ||
+            (node.isLastInMessage && (!nextNode || nextNode.cardType === 'user-message'))
+
           // User messages render without the timeline line
           if (node.cardType === 'user-message') {
             return (
               <div key={node.key} className="mb-6">
-                <TimelineNodeView node={node} sessionId={sessionId} worktreePath={worktreePath} />
+                <TimelineNodeView node={node} sessionId={sessionId} worktreePath={worktreePath} childPartsMap={childPartsMap} />
                 {node.message.timestamp && (
                   <div className="mt-1.5 text-xs text-muted-foreground text-right">
                     {formatMessageTime(node.message.timestamp)}
@@ -589,8 +624,8 @@ export function AgentTimeline({
                 {!isLast && (
                   <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border" />
                 )}
-                <TimelineNodeView node={node} sessionId={sessionId} worktreePath={worktreePath} />
-                {node.isLastInMessage && node.message.timestamp && (
+                <TimelineNodeView node={node} sessionId={sessionId} worktreePath={worktreePath} childPartsMap={childPartsMap} />
+                {showTimestamp && node.message.timestamp && (
                   <div className="mt-1 text-xs text-muted-foreground">
                     {formatMessageTime(node.message.timestamp)}
                   </div>
@@ -618,8 +653,8 @@ export function AgentTimeline({
               </div>
 
               {/* Card */}
-              <TimelineNodeView node={node} sessionId={sessionId} worktreePath={worktreePath} />
-              {node.isLastInMessage && node.message.timestamp && (
+              <TimelineNodeView node={node} sessionId={sessionId} worktreePath={worktreePath} childPartsMap={childPartsMap} />
+              {showTimestamp && node.message.timestamp && (
                 <div className="mt-1 text-xs text-muted-foreground">
                   {formatMessageTime(node.message.timestamp)}
                 </div>
@@ -684,7 +719,7 @@ export function AgentTimeline({
               >
                 <Icon className="h-3 w-3" />
               </div>
-              <TimelineNodeView node={node} sessionId={sessionId} worktreePath={worktreePath} />
+              <TimelineNodeView node={node} sessionId={sessionId} worktreePath={worktreePath} childPartsMap={childPartsMap} />
             </div>
           )
         })}

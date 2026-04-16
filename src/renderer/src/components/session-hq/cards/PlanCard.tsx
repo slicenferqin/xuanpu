@@ -23,7 +23,7 @@ export function PlanCard({
 }: PlanCardProps): React.JSX.Element {
   return (
     <ActionCard
-      accentClass="border-purple-500 shadow-purple-500/10"
+      accentClass="border-purple-500"
       headerClass="bg-purple-500/10 text-purple-600 dark:text-purple-400 border-b-purple-500/20"
       headerLeft={
         <span className="font-semibold">Proposed Execution Plan</span>

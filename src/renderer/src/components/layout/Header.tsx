@@ -97,9 +97,6 @@ export function Header(): React.JSX.Element {
 
   // Connection mode detection
   const selectedConnectionId = useConnectionStore((s) => s.selectedConnectionId)
-  const selectedConnection = useConnectionStore((s) =>
-    s.selectedConnectionId ? s.connections.find((c) => c.id === s.selectedConnectionId) : null
-  )
   const isConnectionMode = !!selectedConnectionId && !selectedWorktreeId
 
   const hasConflicts = useGitStore(
@@ -501,25 +498,7 @@ export function Header(): React.JSX.Element {
             className="h-5 w-5 shrink-0 rounded-md"
             draggable={false}
           />
-          {isConnectionMode && selectedConnection ? (
-            <div className="min-w-0" data-testid="header-connection-info">
-              <div className="text-sm font-semibold truncate">{selectedConnection.name}</div>
-              <div className="text-xs text-muted-foreground truncate">
-                {selectedConnection.members.map((m) => m.project_name).join(' + ')}
-              </div>
-            </div>
-          ) : selectedProject ? (
-            <div className="min-w-0" data-testid="header-project-info">
-              <div className="text-sm font-semibold truncate">{selectedProject.name}</div>
-              <div className="text-xs text-muted-foreground truncate">
-                {selectedWorktree?.branch_name && selectedWorktree.name !== '(no-worktree)'
-                  ? selectedWorktree.branch_name
-                  : t('header.controls.noBranchSelected')}
-              </div>
-            </div>
-          ) : (
-            <span className="text-sm font-semibold">玄圃</span>
-          )}
+          <span className="text-sm font-semibold">玄圃</span>
         </div>
         {vimModeEnabled && (
           <span

@@ -70,7 +70,8 @@ const MAX_TAIL_LINES = 1200
 const LARGE_FILE_THRESHOLD = 2 * 1024 * 1024
 
 function isContextContinuationSummary(text: string): boolean {
-  return text.trimStart().startsWith(CONTINUATION_PREFIX)
+  const trimmed = text.trimStart().replace(/^(?:<[^>]+>\s*)+/, '')
+  return trimmed.startsWith(CONTINUATION_PREFIX)
 }
 
 function extractTextFromContent(content: ClaudeContentBlock[] | string | undefined): string {

@@ -81,6 +81,8 @@
     "@codemirror/theme-one-dark": "^6.1.3",
     "@codemirror/view": "^6.40.0",
     "@electron-toolkit/utils": "^3.0.0",
+    "@iconify-json/catppuccin": "^1.2.17",
+    "@iconify/react": "^6.0.2",
     "@monaco-editor/react": "^4.7.0",
     "@opencode-ai/sdk": "^1.1.51",
     "@radix-ui/react-context-menu": "^2.2.16",

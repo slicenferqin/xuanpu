@@ -12,6 +12,17 @@ import type { TerminalBackend, TerminalOpts, TerminalBackendCallbacks } from './
 const DEFAULT_FONT_FAMILY =
   'JetBrains Mono, Menlo, Monaco, Consolas, "Symbols Nerd Font Mono", monospace'
 
+/** Module-level: start loading the bundled Nerd Font ASAP.
+ *  xterm.js WebGL addon builds a glyph texture atlas at terminal.open() time.
+ *  If the @font-face woff2 hasn't finished loading, symbol glyphs render as
+ *  tofu (question-mark boxes). By preloading here, the font is typically ready
+ *  before any terminal mounts. The promise is also used as a fallback signal
+ *  inside mount() to force an atlas rebuild when the font arrives late. */
+const _symbolFontReady: Promise<boolean> = document.fonts
+  .load('16px "Symbols Nerd Font Mono"')
+  .then(() => true)
+  .catch(() => false)
+
 /** Append the bundled symbol font to a user-provided font-family string so
  *  Powerline / Nerd Font glyphs render even when the primary font lacks them. */
 function ensureSymbolFallback(fontFamily: string | undefined): string {
@@ -261,6 +272,25 @@ export class XtermBackend implements TerminalBackend {
       fitAddon.fit()
     } catch {
       // Container might not be visible yet
+    }
+
+    // If the bundled Nerd Font hasn't loaded yet, wait for it and then
+    // force xterm.js to rebuild its glyph texture atlas. Without this,
+    // Powerline / Nerd Font symbols render as tofu when the woff2 loses
+    // the race against terminal.open(). Cycling fontFamily triggers a
+    // full re-measure + atlas rebuild in the WebGL addon.
+    if (!document.fonts.check('16px "Symbols Nerd Font Mono"')) {
+      _symbolFontReady.then((loaded) => {
+        if (!loaded || !this.terminal) return
+        const currentFont = this.terminal.options.fontFamily
+        this.terminal.options.fontFamily = 'monospace'
+        this.terminal.options.fontFamily = currentFont
+        try {
+          this.fitAddon?.fit()
+        } catch {
+          // ignore
+        }
+      })
     }
 
     this.terminal = terminal

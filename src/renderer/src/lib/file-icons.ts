@@ -17,6 +17,220 @@ import {
   type LucideIcon
 } from 'lucide-react'
 
+// ---------------------------------------------------------------------------
+// Catppuccin icon mappings (via @iconify-json/catppuccin)
+// ---------------------------------------------------------------------------
+
+/** Extension → Catppuccin icon name */
+export const catppuccinExtMap: Record<string, string> = {
+  '.ts': 'catppuccin:typescript',
+  '.mts': 'catppuccin:typescript',
+  '.cts': 'catppuccin:typescript',
+  '.tsx': 'catppuccin:typescript-react',
+  '.jsx': 'catppuccin:javascript-react',
+  '.js': 'catppuccin:javascript',
+  '.mjs': 'catppuccin:javascript',
+  '.cjs': 'catppuccin:javascript',
+  '.py': 'catppuccin:python',
+  '.pyi': 'catppuccin:python',
+  '.pyx': 'catppuccin:python',
+  '.go': 'catppuccin:go',
+  '.rs': 'catppuccin:rust',
+  '.swift': 'catppuccin:swift',
+  '.java': 'catppuccin:java',
+  '.kt': 'catppuccin:kotlin',
+  '.kts': 'catppuccin:kotlin',
+  '.c': 'catppuccin:c',
+  '.h': 'catppuccin:c-header',
+  '.cpp': 'catppuccin:cpp',
+  '.hpp': 'catppuccin:cpp-header',
+  '.cc': 'catppuccin:cpp',
+  '.cxx': 'catppuccin:cpp',
+  '.cs': 'catppuccin:csharp',
+  '.rb': 'catppuccin:ruby',
+  '.erb': 'catppuccin:ruby',
+  '.php': 'catppuccin:php',
+  '.dart': 'catppuccin:dart',
+  '.yaml': 'catppuccin:yaml',
+  '.yml': 'catppuccin:yaml',
+  '.toml': 'catppuccin:toml',
+  '.md': 'catppuccin:markdown',
+  '.mdx': 'catppuccin:markdown-mdx',
+  '.html': 'catppuccin:html',
+  '.htm': 'catppuccin:html',
+  '.css': 'catppuccin:css',
+  '.scss': 'catppuccin:sass',
+  '.sass': 'catppuccin:sass',
+  '.less': 'catppuccin:less',
+  '.vue': 'catppuccin:vue',
+  '.svelte': 'catppuccin:svelte',
+  '.json': 'catppuccin:json',
+  '.jsonc': 'catppuccin:json',
+  '.json5': 'catppuccin:json',
+  '.graphql': 'catppuccin:graphql',
+  '.gql': 'catppuccin:graphql',
+  '.lua': 'catppuccin:lua',
+  '.r': 'catppuccin:r',
+  '.scala': 'catppuccin:scala',
+  '.zig': 'catppuccin:zig',
+  '.ex': 'catppuccin:elixir',
+  '.exs': 'catppuccin:elixir',
+  '.astro': 'catppuccin:astro',
+  '.sh': 'catppuccin:bash',
+  '.bash': 'catppuccin:bash',
+  '.zsh': 'catppuccin:bash',
+  '.fish': 'catppuccin:bash',
+  '.ps1': 'catppuccin:powershell',
+  '.bat': 'catppuccin:batch',
+  '.sql': 'catppuccin:sql',
+  '.xml': 'catppuccin:xml',
+  '.svg': 'catppuccin:svg',
+  '.png': 'catppuccin:image',
+  '.jpg': 'catppuccin:image',
+  '.jpeg': 'catppuccin:image',
+  '.gif': 'catppuccin:image',
+  '.webp': 'catppuccin:image',
+  '.ico': 'catppuccin:image',
+  '.mp4': 'catppuccin:video',
+  '.webm': 'catppuccin:video',
+  '.mov': 'catppuccin:video',
+  '.mp3': 'catppuccin:audio',
+  '.wav': 'catppuccin:audio',
+  '.ogg': 'catppuccin:audio',
+  '.flac': 'catppuccin:audio',
+  '.zip': 'catppuccin:zip',
+  '.tar': 'catppuccin:zip',
+  '.gz': 'catppuccin:zip',
+  '.7z': 'catppuccin:zip',
+  '.rar': 'catppuccin:zip',
+  '.pdf': 'catppuccin:pdf',
+  '.txt': 'catppuccin:text',
+  '.env': 'catppuccin:env',
+  '.clj': 'catppuccin:clojure',
+  '.cljs': 'catppuccin:clojure',
+  '.erl': 'catppuccin:erlang',
+  '.hs': 'catppuccin:haskell',
+  '.pl': 'catppuccin:perl',
+  '.pm': 'catppuccin:perl',
+  '.ttf': 'catppuccin:font',
+  '.otf': 'catppuccin:font',
+  '.woff': 'catppuccin:font',
+  '.woff2': 'catppuccin:font'
+}
+
+/** Special filename → Catppuccin icon name */
+export const catppuccinSpecialMap: Record<string, string> = {
+  'package.json': 'catppuccin:package-json',
+  'package-lock.json': 'catppuccin:npm-lock',
+  'pnpm-lock.yaml': 'catppuccin:pnpm-lock',
+  'yarn.lock': 'catppuccin:yarn-lock',
+  'bun.lockb': 'catppuccin:bun-lock',
+  'dockerfile': 'catppuccin:docker',
+  'docker-compose.yml': 'catppuccin:docker-compose',
+  'docker-compose.yaml': 'catppuccin:docker-compose',
+  '.dockerignore': 'catppuccin:docker-ignore',
+  'makefile': 'catppuccin:makefile',
+  'tsconfig.json': 'catppuccin:typescript-config',
+  'jsconfig.json': 'catppuccin:javascript-config',
+  '.eslintrc': 'catppuccin:eslint',
+  '.eslintrc.js': 'catppuccin:eslint',
+  '.eslintrc.json': 'catppuccin:eslint',
+  '.eslintrc.cjs': 'catppuccin:eslint',
+  'eslint.config.js': 'catppuccin:eslint',
+  'eslint.config.mjs': 'catppuccin:eslint',
+  '.prettierrc': 'catppuccin:prettier',
+  '.prettierrc.js': 'catppuccin:prettier',
+  '.prettierrc.json': 'catppuccin:prettier',
+  '.gitignore': 'catppuccin:git',
+  '.gitattributes': 'catppuccin:git',
+  '.editorconfig': 'catppuccin:editorconfig',
+  'license': 'catppuccin:license',
+  'readme.md': 'catppuccin:readme',
+  'changelog.md': 'catppuccin:changelog',
+  'cargo.toml': 'catppuccin:cargo',
+  'cargo.lock': 'catppuccin:cargo-lock',
+  'go.mod': 'catppuccin:go-mod',
+  'vite.config.ts': 'catppuccin:vite',
+  'vite.config.js': 'catppuccin:vite',
+  'vitest.config.ts': 'catppuccin:vitest',
+  '.npmrc': 'catppuccin:npm',
+  'tailwind.config.js': 'catppuccin:tailwindcss',
+  'tailwind.config.ts': 'catppuccin:tailwindcss',
+  'postcss.config.js': 'catppuccin:postcss',
+  'postcss.config.cjs': 'catppuccin:postcss',
+  '.babelrc': 'catppuccin:babel',
+  'babel.config.js': 'catppuccin:babel'
+}
+
+/** Folder name → Catppuccin icon name (closed) */
+export const catppuccinFolderMap: Record<string, { closed: string; open: string }> = {
+  'src': { closed: 'catppuccin:folder-src', open: 'catppuccin:folder-src-open' },
+  'lib': { closed: 'catppuccin:folder-lib', open: 'catppuccin:folder-lib-open' },
+  'dist': { closed: 'catppuccin:folder-dist', open: 'catppuccin:folder-dist-open' },
+  'build': { closed: 'catppuccin:folder-dist', open: 'catppuccin:folder-dist-open' },
+  'node_modules': { closed: 'catppuccin:folder-node', open: 'catppuccin:folder-node-open' },
+  'components': { closed: 'catppuccin:folder-components', open: 'catppuccin:folder-components-open' },
+  'hooks': { closed: 'catppuccin:folder-hooks', open: 'catppuccin:folder-hooks-open' },
+  'utils': { closed: 'catppuccin:folder-utils', open: 'catppuccin:folder-utils-open' },
+  'assets': { closed: 'catppuccin:folder-assets', open: 'catppuccin:folder-assets-open' },
+  'images': { closed: 'catppuccin:folder-images', open: 'catppuccin:folder-images-open' },
+  'styles': { closed: 'catppuccin:folder-styles', open: 'catppuccin:folder-styles-open' },
+  'docs': { closed: 'catppuccin:folder-docs', open: 'catppuccin:folder-docs-open' },
+  'test': { closed: 'catppuccin:folder-tests', open: 'catppuccin:folder-tests-open' },
+  'tests': { closed: 'catppuccin:folder-tests', open: 'catppuccin:folder-tests-open' },
+  '__tests__': { closed: 'catppuccin:folder-tests', open: 'catppuccin:folder-tests-open' },
+  'config': { closed: 'catppuccin:folder-config', open: 'catppuccin:folder-config-open' },
+  'public': { closed: 'catppuccin:folder-public', open: 'catppuccin:folder-public-open' },
+  'scripts': { closed: 'catppuccin:folder-scripts', open: 'catppuccin:folder-scripts-open' },
+  'types': { closed: 'catppuccin:folder-types', open: 'catppuccin:folder-types-open' },
+  '.git': { closed: 'catppuccin:folder-git', open: 'catppuccin:folder-git-open' },
+  '.github': { closed: 'catppuccin:folder-github', open: 'catppuccin:folder-github-open' },
+  '.vscode': { closed: 'catppuccin:folder-vscode', open: 'catppuccin:folder-vscode-open' },
+  'docker': { closed: 'catppuccin:folder-docker', open: 'catppuccin:folder-docker-open' },
+  'api': { closed: 'catppuccin:folder-api', open: 'catppuccin:folder-api-open' },
+  'server': { closed: 'catppuccin:folder-server', open: 'catppuccin:folder-server-open' },
+  'client': { closed: 'catppuccin:folder-client', open: 'catppuccin:folder-client-open' },
+  'shared': { closed: 'catppuccin:folder-shared', open: 'catppuccin:folder-shared-open' },
+  'routes': { closed: 'catppuccin:folder-routes', open: 'catppuccin:folder-routes-open' },
+  'middleware': { closed: 'catppuccin:folder-middleware', open: 'catppuccin:folder-middleware-open' },
+  'plugins': { closed: 'catppuccin:folder-plugins', open: 'catppuccin:folder-plugins-open' },
+  'packages': { closed: 'catppuccin:folder-packages', open: 'catppuccin:folder-packages-open' },
+  'prisma': { closed: 'catppuccin:folder-prisma', open: 'catppuccin:folder-prisma-open' },
+  'database': { closed: 'catppuccin:folder-database', open: 'catppuccin:folder-database-open' },
+  'db': { closed: 'catppuccin:folder-database', open: 'catppuccin:folder-database-open' }
+}
+
+/**
+ * Look up a Catppuccin icon name for a file.
+ * Returns the iconify icon string (e.g. 'catppuccin:typescript') or null.
+ */
+export function getCatppuccinIcon(
+  name: string,
+  extension: string | null,
+  isDirectory: boolean,
+  isExpanded?: boolean
+): string | null {
+  if (isDirectory) {
+    const folder = catppuccinFolderMap[name.toLowerCase()]
+    if (folder) return isExpanded ? folder.open : folder.closed
+    return isExpanded ? 'catppuccin:folder-open' : 'catppuccin:folder'
+  }
+
+  const lowerName = name.toLowerCase()
+  const special = catppuccinSpecialMap[lowerName]
+  if (special) return special
+
+  if (lowerName.startsWith('.env')) return 'catppuccin:env'
+
+  const ext = extension?.toLowerCase() ?? null
+  if (ext) {
+    const icon = catppuccinExtMap[ext]
+    if (icon) return icon
+  }
+
+  return null // fallback to legacy icons
+}
+
 /**
  * Demo4-style colored text labels for language/code files.
  * Each extension maps to a short abbreviation and a Tailwind color class.

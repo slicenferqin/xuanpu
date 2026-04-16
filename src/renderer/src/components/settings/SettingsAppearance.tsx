@@ -1,4 +1,4 @@
-import { Check } from 'lucide-react'
+import { Check, Monitor } from 'lucide-react'
 import { THEME_PRESETS, type ThemePreset } from '@/lib/themes'
 import { useThemeStore } from '@/stores/useThemeStore'
 import { useSettingsStore, applyFontScale } from '@/stores/useSettingsStore'
@@ -96,6 +96,8 @@ function ThemeCard({
 
 export function SettingsAppearance(): React.JSX.Element {
   const themeId = useThemeStore((s) => s.themeId)
+  const followSystem = useThemeStore((s) => s.followSystem)
+  const setFollowSystem = useThemeStore((s) => s.setFollowSystem)
   const uiFontScale = useSettingsStore((s) => s.uiFontScale)
   const uiZoomLevel = useSettingsStore((s) => s.uiZoomLevel)
   const updateSetting = useSettingsStore((s) => s.updateSetting)
@@ -155,6 +157,36 @@ export function SettingsAppearance(): React.JSX.Element {
           ))}
         </div>
       </div>
+
+      {/* Follow System Toggle */}
+      <button
+        onClick={() => setFollowSystem(!followSystem)}
+        className={cn(
+          'flex items-center gap-3 w-full rounded-lg border px-4 py-3 text-left transition-colors',
+          followSystem
+            ? 'border-primary/50 bg-primary/5'
+            : 'border-border/50 bg-card/50 hover:border-border'
+        )}
+      >
+        <Monitor className={cn('h-4 w-4 shrink-0', followSystem ? 'text-primary' : 'text-muted-foreground')} />
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium">跟随系统</div>
+          <div className="text-xs text-muted-foreground">自动跟随操作系统的浅色/深色模式</div>
+        </div>
+        <div
+          className={cn(
+            'relative h-5 w-9 shrink-0 rounded-full transition-colors',
+            followSystem ? 'bg-primary' : 'bg-muted'
+          )}
+        >
+          <div
+            className={cn(
+              'absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform',
+              followSystem ? 'translate-x-4' : 'translate-x-0.5'
+            )}
+          />
+        </div>
+      </button>
 
       {/* Font Size */}
       <div>

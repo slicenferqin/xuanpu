@@ -115,6 +115,9 @@ export function WorktreeItem({
   const lastMessageTime = useWorktreeStatusStore(
     (state) => state.lastMessageTimeByWorktree[worktree.id] ?? null
   )
+  // Show last activity time: prefer last message time, fallback to last_accessed_at
+  const displayTime = lastMessageTime
+    ?? (worktree.last_accessed_at ? new Date(worktree.last_accessed_at).getTime() : null)
   const isRunProcessAlive = useScriptStore((s) => s.scriptStates[worktree.id]?.runRunning ?? false)
   const liveBranch = useGitStore((s) => s.branchInfoByWorktree.get(worktree.path))
   const displayName = liveBranch?.name ?? worktree.name
@@ -182,13 +185,13 @@ export function WorktreeItem({
   // Auto-refresh relative time every 60 seconds
   const [, setTick] = useState(0)
   useEffect(() => {
-    if (!lastMessageTime) return
+    if (!displayTime) return
     const timer = setInterval(() => setTick((n) => n + 1), 60000)
     return () => clearInterval(timer)
-  }, [lastMessageTime])
+  }, [displayTime])
 
-  // Derive display status text + color for second-line row (always shown)
-  const { displayStatus, statusClass } = isArchiving
+  // Derive display status text + color (kept for potential future use)
+  const { displayStatus: _displayStatus, statusClass: _statusClass } = isArchiving
     ? {
         displayStatus: t('pinned.status.archiving'),
         statusClass: 'font-semibold text-muted-foreground'
@@ -541,17 +544,14 @@ export function WorktreeItem({
             {renderWorktreeName()}
             <div className="flex items-center pr-1">
               <ModelIcon worktreeId={worktree.id} className="h-2.5 w-2.5 mr-1 shrink-0" />
-              <span className={cn('text-[11px]', statusClass)} data-testid="worktree-status-text">
-                {displayStatus}
-              </span>
               <span className="flex-1" />
-              {lastMessageTime && (
+              {displayTime && (
                 <span
                   className="text-[10px] text-muted-foreground/60 tabular-nums shrink-0"
-                  title={new Date(lastMessageTime).toLocaleString()}
+                  title={new Date(displayTime).toLocaleString()}
                   data-testid="worktree-last-message-time"
                 >
-                  {formatRelativeTime(lastMessageTime)}
+                  {formatRelativeTime(displayTime)}
                 </span>
               )}
             </div>
@@ -691,20 +691,14 @@ export function WorktreeItem({
             )}
             <div className="flex items-center pr-1 mt-0.5">
               <ModelIcon worktreeId={worktree.id} className="h-2.5 w-2.5 mr-1 shrink-0" />
-              <span
-                className={cn('text-[11px] leading-none', statusClass)}
-                data-testid="worktree-status-text"
-              >
-                {displayStatus}
-              </span>
               <span className="flex-1" />
-              {lastMessageTime && (
+              {displayTime && (
                 <span
                   className="text-[10px] text-muted-foreground/60 tabular-nums shrink-0"
-                  title={new Date(lastMessageTime).toLocaleString()}
+                  title={new Date(displayTime).toLocaleString()}
                   data-testid="worktree-last-message-time"
                 >
-                  {formatRelativeTime(lastMessageTime)}
+                  {formatRelativeTime(displayTime)}
                 </span>
               )}
             </div>

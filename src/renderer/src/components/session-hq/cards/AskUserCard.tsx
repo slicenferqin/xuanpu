@@ -188,6 +188,16 @@ export function AskUserCard({
                         </div>
                       )
                     })}
+
+                    {/* Custom answer — shown when user typed "Other" instead of picking a predefined option */}
+                    {answer && q.options && !q.options.some((opt) => isSelectedAnswer(opt.label)) && (
+                      <div className="mt-1 rounded-lg bg-amber-500/10 px-2.5 py-1.5 -mx-1">
+                        <div className="flex items-start gap-2 text-sm">
+                          <Check className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                          <span className="text-foreground font-semibold whitespace-pre-wrap">{answer}</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -253,8 +263,8 @@ export function AskUserCard({
                       'w-full rounded-xl border px-3.5 py-2.5 text-left',
                       'transition-all duration-200 disabled:opacity-50',
                       isSelected
-                        ? 'border-amber-400/80 bg-amber-500/10 shadow-[0_4px_12px_rgba(245,158,11,0.07)]'
-                        : 'border-border/70 bg-background/75 hover:border-border hover:bg-background hover:shadow-sm'
+                        ? 'border-amber-400/80 bg-amber-500/10'
+                        : 'border-border/70 bg-background/75 hover:border-border hover:bg-background'
                     )}
                   >
                     <div className="flex items-center gap-2">

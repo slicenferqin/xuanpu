@@ -42,7 +42,7 @@ export function ActionCard({
   return (
     <div
       className={cn(
-        'rounded-[10px] border border-border bg-card shadow-sm overflow-hidden',
+        'rounded-lg border border-border/50 bg-card/80 overflow-hidden',
         accentClass,
         className
       )}
@@ -51,7 +51,7 @@ export function ActionCard({
       <div
         className={cn(
           'flex items-center justify-between px-3.5 py-2.5',
-          'border-b border-border text-sm font-semibold',
+          'border-b border-border/40 text-sm font-semibold',
           collapsible && 'cursor-pointer select-none',
           headerClass
         )}

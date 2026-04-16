@@ -7,93 +7,89 @@ export interface ThemePreset {
 
 export const THEME_PRESETS: ThemePreset[] = [
   // =====================
-  // DARK THEME — demo4 [data-theme="dark"]
-  // bg-app:#0A0A0A  bg-sidebar:#121212  bg-panel:#18181B
-  // bg-hover:#27272A  text-main:#F4F4F5  text-muted:#A1A1AA
-  // border-light:#27272A  border-strong:#3F3F46  accent:#3B82F6
+  // DARK THEME — Catppuccin Mocha
+  // https://github.com/catppuccin/catppuccin
   // =====================
   {
-    id: 'amethyst',
-    name: 'Dark',
+    id: 'mocha',
+    name: 'Mocha',
     type: 'dark',
     colors: {
-      background: 'hsl(0 0% 4%)',
-      foreground: 'hsl(240 5% 96%)',
-      card: 'hsl(240 4% 10%)',
-      'card-foreground': 'hsl(240 5% 96%)',
-      popover: 'hsl(240 4% 10%)',
-      'popover-foreground': 'hsl(240 5% 96%)',
-      primary: 'hsl(217 91% 60%)',
-      'primary-foreground': 'hsl(0 0% 100%)',
-      secondary: 'hsl(240 4% 16%)',
-      'secondary-foreground': 'hsl(240 5% 96%)',
-      muted: 'hsl(240 4% 16%)',
-      'muted-foreground': 'hsl(240 5% 65%)',
-      accent: 'hsl(240 4% 16%)',
-      'accent-foreground': 'hsl(240 5% 96%)',
-      destructive: 'hsl(0 84% 60%)',
-      'destructive-foreground': 'hsl(0 0% 100%)',
-      border: 'hsl(240 4% 16%)',
-      input: 'hsl(240 4% 16%)',
-      ring: 'hsl(217 91% 60%)',
-      sidebar: 'hsl(0 0% 7%)',
-      'sidebar-foreground': 'hsl(240 5% 65%)',
-      'sidebar-primary': 'hsl(217 91% 60%)',
-      'sidebar-primary-foreground': 'hsl(0 0% 100%)',
-      'sidebar-accent': 'hsl(240 4% 16%)',
-      'sidebar-accent-foreground': 'hsl(240 5% 96%)',
-      'sidebar-border': 'hsl(240 4% 16%)',
-      'sidebar-ring': 'hsl(217 91% 60%)',
-      celadon: 'hsl(160 25% 55%)',
-      'celadon-foreground': 'hsl(0 0% 100%)'
+      background: 'hsl(240 21% 15%)',         // Base
+      foreground: 'hsl(226 64% 88%)',          // Text
+      card: 'hsl(240 21% 12%)',                // Mantle
+      'card-foreground': 'hsl(226 64% 88%)',   // Text
+      popover: 'hsl(240 21% 12%)',             // Mantle
+      'popover-foreground': 'hsl(226 64% 88%)',// Text
+      primary: 'hsl(232 97% 85%)',             // Lavender
+      'primary-foreground': 'hsl(240 23% 9%)', // Crust
+      secondary: 'hsl(237 16% 23%)',           // Surface0
+      'secondary-foreground': 'hsl(228 24% 72%)', // Subtext0
+      muted: 'hsl(237 16% 23%)',               // Surface0
+      'muted-foreground': 'hsl(230 13% 55%)',  // Overlay1
+      accent: 'hsl(237 16% 23%)',              // Surface0
+      'accent-foreground': 'hsl(226 64% 88%)', // Text
+      destructive: 'hsl(343 81% 75%)',         // Red
+      'destructive-foreground': 'hsl(240 23% 9%)', // Crust
+      border: 'hsl(234 13% 31%)',              // Surface1
+      input: 'hsl(234 13% 31%)',               // Surface1
+      ring: 'hsl(232 97% 85%)',                // Lavender
+      sidebar: 'hsl(240 23% 9%)',              // Crust
+      'sidebar-foreground': 'hsl(228 24% 72%)',// Subtext0
+      'sidebar-primary': 'hsl(232 97% 85%)',   // Lavender
+      'sidebar-primary-foreground': 'hsl(240 23% 9%)', // Crust
+      'sidebar-accent': 'hsl(237 16% 23%)',    // Surface0
+      'sidebar-accent-foreground': 'hsl(226 64% 88%)', // Text
+      'sidebar-border': 'hsl(234 13% 31%)',    // Surface1
+      'sidebar-ring': 'hsl(232 97% 85%)',      // Lavender
+      celadon: 'hsl(170 57% 73%)',             // Teal
+      'celadon-foreground': 'hsl(240 23% 9%)'  // Crust
     }
   },
 
   // =====================
-  // LIGHT THEME — demo4 :root
-  // bg-app:#FFFFFF  bg-sidebar:#F9FAFB  bg-panel:#FFFFFF
-  // bg-hover:#F3F4F6  text-main:#111827  text-muted:#9CA3AF
-  // border-light:#E5E7EB  border-strong:#D1D5DB  accent:#3B82F6
+  // LIGHT THEME — Catppuccin Latte
+  // https://github.com/catppuccin/catppuccin
   // =====================
   {
-    id: 'daylight',
-    name: 'Light',
+    id: 'latte',
+    name: 'Latte',
     type: 'light',
     colors: {
-      background: 'hsl(0 0% 100%)',
-      foreground: 'hsl(221 39% 11%)',
-      card: 'hsl(0 0% 100%)',
-      'card-foreground': 'hsl(221 39% 11%)',
-      popover: 'hsl(0 0% 100%)',
-      'popover-foreground': 'hsl(221 39% 11%)',
-      primary: 'hsl(217 91% 60%)',
-      'primary-foreground': 'hsl(0 0% 100%)',
-      secondary: 'hsl(220 14% 96%)',
-      'secondary-foreground': 'hsl(215 16% 47%)',
-      muted: 'hsl(220 14% 96%)',
-      'muted-foreground': 'hsl(218 11% 65%)',
-      accent: 'hsl(220 14% 96%)',
-      'accent-foreground': 'hsl(221 39% 11%)',
-      destructive: 'hsl(0 84% 60%)',
-      'destructive-foreground': 'hsl(0 0% 100%)',
-      border: 'hsl(220 13% 91%)',
-      input: 'hsl(220 13% 91%)',
-      ring: 'hsl(217 91% 60%)',
-      sidebar: 'hsl(210 20% 98%)',
-      'sidebar-foreground': 'hsl(215 16% 47%)',
-      'sidebar-primary': 'hsl(217 91% 60%)',
-      'sidebar-primary-foreground': 'hsl(0 0% 100%)',
-      'sidebar-accent': 'hsl(220 14% 96%)',
-      'sidebar-accent-foreground': 'hsl(221 39% 11%)',
-      'sidebar-border': 'hsl(220 13% 91%)',
-      'sidebar-ring': 'hsl(217 91% 60%)',
-      celadon: 'hsl(160 30% 38%)',
-      'celadon-foreground': 'hsl(0 0% 100%)'
+      background: 'hsl(220 23% 95%)',          // Base
+      foreground: 'hsl(234 16% 35%)',          // Text
+      card: 'hsl(220 22% 92%)',                // Mantle
+      'card-foreground': 'hsl(234 16% 35%)',   // Text
+      popover: 'hsl(220 22% 92%)',             // Mantle
+      'popover-foreground': 'hsl(234 16% 35%)',// Text
+      primary: 'hsl(231 97% 72%)',             // Lavender
+      'primary-foreground': 'hsl(220 23% 95%)',// Base
+      secondary: 'hsl(223 16% 83%)',           // Surface0
+      'secondary-foreground': 'hsl(233 10% 47%)', // Subtext0
+      muted: 'hsl(223 16% 83%)',               // Surface0
+      'muted-foreground': 'hsl(231 10% 59%)',  // Overlay1
+      accent: 'hsl(223 16% 83%)',              // Surface0
+      'accent-foreground': 'hsl(234 16% 35%)', // Text
+      destructive: 'hsl(347 87% 44%)',         // Red
+      'destructive-foreground': 'hsl(220 23% 95%)', // Base
+      border: 'hsl(225 14% 77%)',              // Surface1
+      input: 'hsl(225 14% 77%)',               // Surface1
+      ring: 'hsl(231 97% 72%)',                // Lavender
+      sidebar: 'hsl(220 21% 89%)',             // Crust
+      'sidebar-foreground': 'hsl(233 10% 47%)',// Subtext0
+      'sidebar-primary': 'hsl(231 97% 72%)',   // Lavender
+      'sidebar-primary-foreground': 'hsl(220 23% 95%)', // Base
+      'sidebar-accent': 'hsl(223 16% 83%)',    // Surface0
+      'sidebar-accent-foreground': 'hsl(234 16% 35%)', // Text
+      'sidebar-border': 'hsl(225 14% 77%)',    // Surface1
+      'sidebar-ring': 'hsl(231 97% 72%)',      // Lavender
+      celadon: 'hsl(183 74% 35%)',             // Teal
+      'celadon-foreground': 'hsl(220 23% 95%)' // Base
     }
   }
 ]
 
-export const DEFAULT_THEME_ID = 'daylight'
+export const DEFAULT_THEME_ID = 'latte'
 
 export function getThemeById(id: string): ThemePreset | undefined {
   return THEME_PRESETS.find((preset) => preset.id === id)

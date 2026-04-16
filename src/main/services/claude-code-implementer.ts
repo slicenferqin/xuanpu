@@ -820,28 +820,37 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
 
           // Skip compaction summary — a synthetic user message containing the
           // conversation summary after context compaction. Should not appear in UI.
-          if (sdkMsg.isCompactSummary === true) return
+          if (sdkMsg.isCompactSummary === true) continue
 
           const msgContent = (
             sdkMsg.message as { content?: { type: string; [key: string]: unknown }[] } | undefined
           )?.content
 
-          // Skip context-continuation summary — content-based fallback.
-          // Claude CLI injects a synthetic user message when resuming from a
-          // context-exhausted session; it has no isCompactSummary flag.
-          if (msgType === 'user' && Array.isArray(msgContent)) {
-            const textContent = msgContent
-              .filter((b) => b.type === 'text' && typeof b.text === 'string')
-              .map((b) => b.text as string)
-              .join('')
+          // Skip compaction-related user messages — content-based fallback.
+          // Covers both: (1) context-continuation summary from CLI after context
+          // exhaustion, and (2) compaction summary injected by SDK after context
+          // window compression. Neither should appear in the UI timeline.
+          // Also skip skill prompt injection messages (expanded skill file content).
+          if (msgType === 'user') {
+            let textContent = ''
+            if (Array.isArray(msgContent)) {
+              textContent = msgContent
+                .filter((b) => b.type === 'text' && typeof b.text === 'string')
+                .map((b) => b.text as string)
+                .join('')
+            } else if (typeof msgContent === 'string') {
+              textContent = msgContent
+            } else if (typeof (sdkMsg as Record<string, unknown>).content === 'string') {
+              // Some SDK versions put content directly on the message, not nested
+              textContent = (sdkMsg as Record<string, unknown>).content as string
+            }
+            const trimmed = textContent.trimStart()
             if (
-              textContent
-                .trimStart()
-                .startsWith(
-                  'This session is being continued from a previous conversation'
-                )
+              trimmed.startsWith('This session is being continued from a previous conversation') ||
+              trimmed.startsWith('Here is a summary of the conversation so far') ||
+              trimmed.startsWith('Base directory for this skill:')
             ) {
-              return
+              continue
             }
           }
 
@@ -1014,6 +1023,12 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
               hiveSessionId: session.hiveSessionId,
               trigger: meta?.trigger,
               totalMessages: session.messages.length
+            })
+            // Notify renderer to reset context token snapshot after compaction.
+            emitAgentEvent(this.mainWindow, {
+              type: 'session.context_compacted',
+              sessionId: session.hiveSessionId,
+              data: {}
             })
           }
         }
@@ -2912,19 +2927,15 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
             content: resultArray ?? resultContent,
             isError: msg.is_error ?? false,
             messageIndex,
-            // Include cost/usage from result for token tracking
+            // Include cost and modelUsage (for context limit detection) but
+            // NOT per-token usage — the `result` message carries **cumulative**
+            // session-wide token counts.  Using them for the context-window
+            // indicator would overwrite the correct per-turn numbers from the
+            // preceding `assistant` message and, after compaction, make the
+            // indicator jump *higher* instead of resetting.
             info: {
               time: { completed: new Date().toISOString() },
               cost: msg.total_cost_usd,
-              usage: msg.usage
-                ? {
-                    input: (msg.usage as Record<string, unknown>).input_tokens,
-                    output: (msg.usage as Record<string, unknown>).output_tokens,
-                    cacheRead: (msg.usage as Record<string, unknown>).cache_read_input_tokens,
-                    cacheCreation: (msg.usage as Record<string, unknown>)
-                      .cache_creation_input_tokens
-                  }
-                : undefined,
               modelUsage: msg.modelUsage
             }
           }
@@ -3002,6 +3013,12 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
                 auto: meta?.trigger === 'auto'
               }
             }
+          })
+          // Notify renderer to reset context token snapshot after compaction.
+          emitAgentEvent(this.mainWindow, {
+            type: 'session.context_compacted',
+            sessionId: hiveSessionId,
+            data: {}
           })
         }
         break

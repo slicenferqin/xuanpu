@@ -41,100 +41,104 @@
 
 :root {
   --radius: 0.5rem;
-  /* Light theme defaults — matches themes.ts "daylight" preset */
-  --background: hsl(0 0% 100%);
-  --foreground: hsl(221 39% 11%);
-  --card: hsl(0 0% 100%);
-  --card-foreground: hsl(221 39% 11%);
-  --popover: hsl(0 0% 100%);
-  --popover-foreground: hsl(221 39% 11%);
-  --primary: hsl(217 91% 60%);
-  --primary-foreground: hsl(0 0% 100%);
-  --secondary: hsl(220 14% 96%);
-  --secondary-foreground: hsl(215 16% 47%);
-  --muted: hsl(220 14% 96%);
-  --muted-foreground: hsl(218 11% 65%);
-  --accent: hsl(220 14% 96%);
-  --accent-foreground: hsl(221 39% 11%);
-  --destructive: hsl(0 84% 60%);
-  --destructive-foreground: hsl(0 0% 100%);
-  --border: hsl(220 13% 91%);
-  --input: hsl(220 13% 91%);
-  --ring: hsl(217 91% 60%);
+  /* Light theme defaults — Catppuccin Latte */
+  --background: hsl(220 23% 95%);
+  --foreground: hsl(234 16% 35%);
+  --card: hsl(220 22% 92%);
+  --card-foreground: hsl(234 16% 35%);
+  --popover: hsl(220 22% 92%);
+  --popover-foreground: hsl(234 16% 35%);
+  --primary: hsl(231 97% 72%);
+  --primary-foreground: hsl(220 23% 95%);
+  --secondary: hsl(223 16% 83%);
+  --secondary-foreground: hsl(233 10% 47%);
+  --muted: hsl(223 16% 83%);
+  --muted-foreground: hsl(231 10% 59%);
+  --accent: hsl(223 16% 83%);
+  --accent-foreground: hsl(234 16% 35%);
+  --destructive: hsl(347 87% 44%);
+  --destructive-foreground: hsl(220 23% 95%);
+  --border: hsl(225 14% 77%);
+  --input: hsl(225 14% 77%);
+  --ring: hsl(231 97% 72%);
   --chart-1: oklch(64.62% 0.171 250.71);
   --chart-2: oklch(60.04% 0.118 184.7);
   --chart-3: oklch(39.87% 0.07 227.39);
   --chart-4: oklch(74.37% 0.144 85.12);
   --chart-5: oklch(64.47% 0.222 41.12);
-  --sidebar: hsl(210 20% 98%);
-  --sidebar-foreground: hsl(215 16% 47%);
-  --sidebar-primary: hsl(217 91% 60%);
-  --sidebar-primary-foreground: hsl(0 0% 100%);
-  --sidebar-accent: hsl(220 14% 96%);
-  --sidebar-accent-foreground: hsl(221 39% 11%);
-  --sidebar-border: hsl(220 13% 91%);
-  --sidebar-ring: hsl(217 91% 60%);
+  --sidebar: hsl(220 21% 89%);
+  --sidebar-foreground: hsl(233 10% 47%);
+  --sidebar-primary: hsl(231 97% 72%);
+  --sidebar-primary-foreground: hsl(220 23% 95%);
+  --sidebar-accent: hsl(223 16% 83%);
+  --sidebar-accent-foreground: hsl(234 16% 35%);
+  --sidebar-border: hsl(225 14% 77%);
+  --sidebar-ring: hsl(231 97% 72%);
 }
 
 .dark {
-  /* Dark theme defaults — matches themes.ts "amethyst" preset */
-  --background: hsl(0 0% 4%);
-  --foreground: hsl(240 5% 96%);
-  --card: hsl(240 4% 10%);
-  --card-foreground: hsl(240 5% 96%);
-  --popover: hsl(240 4% 10%);
-  --popover-foreground: hsl(240 5% 96%);
-  --primary: hsl(217 91% 60%);
-  --primary-foreground: hsl(0 0% 100%);
-  --secondary: hsl(240 4% 16%);
-  --secondary-foreground: hsl(240 5% 96%);
-  --muted: hsl(240 4% 16%);
-  --muted-foreground: hsl(240 5% 65%);
-  --accent: hsl(240 4% 16%);
-  --accent-foreground: hsl(240 5% 96%);
-  --destructive: hsl(0 84% 60%);
-  --destructive-foreground: hsl(0 0% 100%);
-  --border: hsl(240 4% 16%);
-  --input: hsl(240 4% 16%);
-  --ring: hsl(217 91% 60%);
+  /* Dark theme defaults — Catppuccin Mocha */
+  --background: hsl(240 21% 15%);
+  --foreground: hsl(226 64% 88%);
+  --card: hsl(240 21% 12%);
+  --card-foreground: hsl(226 64% 88%);
+  --popover: hsl(240 21% 12%);
+  --popover-foreground: hsl(226 64% 88%);
+  --primary: hsl(232 97% 85%);
+  --primary-foreground: hsl(240 23% 9%);
+  --secondary: hsl(237 16% 23%);
+  --secondary-foreground: hsl(228 24% 72%);
+  --muted: hsl(237 16% 23%);
+  --muted-foreground: hsl(230 13% 55%);
+  --accent: hsl(237 16% 23%);
+  --accent-foreground: hsl(226 64% 88%);
+  --destructive: hsl(343 81% 75%);
+  --destructive-foreground: hsl(240 23% 9%);
+  --border: hsl(234 13% 31%);
+  --input: hsl(234 13% 31%);
+  --ring: hsl(232 97% 85%);
   --chart-1: oklch(70.34% 0.127 227.39);
   --chart-2: oklch(69.26% 0.128 184.7);
   --chart-3: oklch(98.48% 0.001 285.98);
   --chart-4: oklch(74.11% 0.164 68.11);
   --chart-5: oklch(65.91% 0.204 41.12);
-  --sidebar: hsl(0 0% 7%);
-  --sidebar-foreground: hsl(240 5% 65%);
-  --sidebar-primary: hsl(217 91% 60%);
-  --sidebar-primary-foreground: hsl(0 0% 100%);
-  --sidebar-accent: hsl(240 4% 16%);
-  --sidebar-accent-foreground: hsl(240 5% 96%);
-  --sidebar-border: hsl(240 4% 16%);
-  --sidebar-ring: hsl(217 91% 60%);
+  --sidebar: hsl(240 23% 9%);
+  --sidebar-foreground: hsl(228 24% 72%);
+  --sidebar-primary: hsl(232 97% 85%);
+  --sidebar-primary-foreground: hsl(240 23% 9%);
+  --sidebar-accent: hsl(237 16% 23%);
+  --sidebar-accent-foreground: hsl(226 64% 88%);
+  --sidebar-border: hsl(234 13% 31%);
+  --sidebar-ring: hsl(232 97% 85%);
 }
 
-/* Session-specific semantic tokens (Phase 7) */
+/* Session-specific semantic tokens */
 :root {
-  --streaming-cursor: hsl(217 91% 60%);
-  --thinking-bg: hsl(220 14% 96%);
-  --tool-bg: hsl(220 14% 96%);
-  --compaction-bg: hsl(40 70% 95%);
-  --compaction-border: hsl(40 60% 80%);
+  --streaming-cursor: hsl(231 97% 72%);
+  --thinking-bg: hsl(223 16% 83%);
+  --tool-bg: hsl(223 16% 83%);
+  --compaction-bg: hsl(35 77% 95%);
+  --compaction-border: hsl(35 77% 75%);
+  --provider-claude: #fe640b;
+  --provider-opencode: #179299;
+  --provider-codex: #209fb5;
+  --provider-terminal: #8c8fa1;
+  --celadon: hsl(183 74% 35%);
+  --celadon-foreground: hsl(220 23% 95%);
+}
+
+.dark {
+  --streaming-cursor: hsl(232 97% 85%);
+  --thinking-bg: hsl(237 16% 23%);
+  --tool-bg: hsl(237 16% 23%);
+  --compaction-bg: hsl(41 86% 15%);
+  --compaction-border: hsl(41 86% 25%);
   --provider-claude: #fab387;
   --provider-opencode: #94e2d5;
   --provider-codex: #74c7ec;
   --provider-terminal: #7f849c;
-  --celadon: hsl(160 30% 38%);
-  --celadon-foreground: hsl(0 0% 100%);
-}
-
-.dark {
-  --streaming-cursor: hsl(217 91% 60%);
-  --thinking-bg: hsl(240 4% 13%);
-  --tool-bg: hsl(240 4% 14%);
-  --compaction-bg: hsl(40 30% 15%);
-  --compaction-border: hsl(40 40% 25%);
-  --celadon: hsl(160 25% 55%);
-  --celadon-foreground: hsl(0 0% 100%);
+  --celadon: hsl(170 57% 73%);
+  --celadon-foreground: hsl(240 23% 9%);
 }
 
 @layer base {
@@ -184,6 +188,15 @@
   ::-webkit-scrollbar-corner {
     background: transparent;
   }
+}
+
+/* Catppuccin icons use Macchiato palette (pastel colors).
+   On light backgrounds they wash out — darken and boost saturation. */
+:root .catppuccin-icon {
+  filter: brightness(0.7) saturate(1.6);
+}
+.dark .catppuccin-icon {
+  filter: none;
 }
 
 /* Electron window drag utilities */

@@ -91,6 +91,18 @@ function parseJson<T>(value: string | null): T | null {
   }
 }
 
+/** Check if a user message is a synthetic injection that should not appear in the timeline. */
+function isSyntheticUserMessage(content: string): boolean {
+  // Strip leading whitespace and any XML-like tags (e.g. <system-reminder>)
+  // that Claude Code may prepend to synthetic messages.
+  const trimmed = content.trimStart().replace(/^(?:<[^>]+>\s*)+/, '')
+  return (
+    trimmed.startsWith('This session is being continued from a previous conversation') ||
+    trimmed.startsWith('Here is a summary of the conversation so far') ||
+    trimmed.startsWith('Base directory for this skill:')
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Part mappers (from opencode-transcript.ts)
 // ---------------------------------------------------------------------------
@@ -303,13 +315,7 @@ export function mapRawTranscriptToTimeline(messages: unknown[]): TimelineMessage
   const seen = new Set<string>()
   return sorted.filter((msg) => {
     if (msg.role !== 'user') return true
-    if (
-      msg.content
-        .trimStart()
-        .startsWith('This session is being continued from a previous conversation')
-    ) {
-      return false
-    }
+    if (isSyntheticUserMessage(msg.content)) return false
     const key = msg.content.trim()
     if (seen.has(key)) return false
     seen.add(key)
@@ -351,7 +357,9 @@ export interface DbSessionActivity {
 }
 
 export function mapDbRowsToTimelineMessages(messages: DbSessionMessage[]): TimelineMessage[] {
-  return messages.map((message) => {
+  return messages
+    .filter((m) => !(m.role === 'user' && isSyntheticUserMessage(m.content)))
+    .map((message) => {
     const parsedParts = parseJson<unknown[]>(message.opencode_parts_json)
     const parts = Array.isArray(parsedParts)
       ? parsedParts

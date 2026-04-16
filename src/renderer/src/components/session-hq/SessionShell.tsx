@@ -280,6 +280,10 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   const streamingPartsRef = useRef<SharedStreamingPart[]>([])
   const rafRef = useRef<number | null>(null)
 
+  // --- Child session parts (sub-agent tool calls, keyed by parent tool_use id) ---
+  const childPartsMapRef = useRef(new Map<string, SharedStreamingPart[]>())
+  const [childPartsMap, setChildPartsMap] = useState<Map<string, SharedStreamingPart[]>>(new Map())
+
   // --- Mission Control task state ---
   const [missionTasks, setMissionTasks] = useState<MissionTask[]>([])
   const [triggerMessageContent, setTriggerMessageContent] = useState<string | null>(null)
@@ -360,6 +364,89 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     [immediateFlush]
   )
 
+  /** Route a child-session event into childPartsMap instead of main streaming parts. */
+  const routeChildEvent = useCallback(
+    (childId: string, partData: Record<string, unknown>) => {
+      const part = partData.part as Record<string, unknown> | undefined
+      if (!part) return
+
+      let sp: SharedStreamingPart | null = null
+
+      if (part.type === 'text') {
+        const text = (partData.delta as string) ?? (part.text as string) ?? ''
+        if (text) {
+          // Accumulate text into last text part for this child
+          const existing = childPartsMapRef.current.get(childId)
+          const last = existing?.[existing.length - 1]
+          if (last?.type === 'text') {
+            last.text = (last.text ?? '') + text
+            // Trigger state update
+            setChildPartsMap(new Map(childPartsMapRef.current))
+            return
+          }
+          sp = { type: 'text', text }
+        }
+      } else if (part.type === 'tool') {
+        const toolId = (part.callID as string) || (part.id as string) || `child-tool-${Date.now()}`
+        const toolName = (part.tool as string) || undefined
+        const state = (part.state as Record<string, unknown>) || {}
+        const statusMap: Record<string, 'pending' | 'running' | 'success' | 'error'> = {
+          pending: 'pending', running: 'running', completed: 'success', error: 'error'
+        }
+        const stateTime = state.time as Record<string, number> | undefined
+
+        // Upsert: find existing tool part by id
+        const existing = childPartsMapRef.current.get(childId)
+        if (existing) {
+          const idx = existing.findIndex((p) => p.type === 'tool_use' && p.toolUse?.id === toolId)
+          if (idx >= 0) {
+            existing[idx] = {
+              ...existing[idx],
+              toolUse: {
+                ...existing[idx].toolUse!,
+                ...(toolName ? { name: toolName } : {}),
+                ...(state.input ? { input: state.input as Record<string, unknown> } : {}),
+                status: statusMap[state.status as string] || 'running',
+                startTime: stateTime?.start || existing[idx].toolUse!.startTime,
+                endTime: stateTime?.end,
+                output: state.status === 'completed' ? (state.output as string) : undefined,
+                error: state.status === 'error' ? (state.error as string) : undefined
+              }
+            }
+            setChildPartsMap(new Map(childPartsMapRef.current))
+            return
+          }
+        }
+
+        sp = {
+          type: 'tool_use',
+          toolUse: {
+            id: toolId,
+            name: toolName ?? 'unknown',
+            input: (state.input as Record<string, unknown>) ?? {},
+            status: statusMap[state.status as string] || 'running',
+            startTime: stateTime?.start || Date.now(),
+            endTime: stateTime?.end,
+            output: state.status === 'completed' ? (state.output as string) : undefined,
+            error: state.status === 'error' ? (state.error as string) : undefined
+          }
+        }
+      }
+      // Reasoning from child sessions: skip (not useful to surface)
+
+      if (sp) {
+        const arr = childPartsMapRef.current.get(childId)
+        if (arr) {
+          arr.push(sp)
+        } else {
+          childPartsMapRef.current.set(childId, [sp])
+        }
+        setChildPartsMap(new Map(childPartsMapRef.current))
+      }
+    },
+    []
+  )
+
   useEffect(() => {
     if (!worktreePath) return
 
@@ -406,6 +493,13 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         if (event.type === 'message.part.updated') {
           const partData = event.data
           if (!partData) return
+
+          // Route child-session events (sub-agent tool calls) to the side-channel map
+          const childId = event.childSessionId
+          if (childId) {
+            routeChildEvent(childId, partData as Record<string, unknown>)
+            return
+          }
 
           const part = partData.part as Record<string, unknown> | undefined
 
@@ -558,8 +652,15 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
               if (msgs.length > 0) {
                 const extracted = extractMissionTasks(msgs)
                 if (extracted.length > 0) {
-                  missionTasksRef.current = extracted
-                  setMissionTasks(extracted)
+                  // Don't overwrite if all tasks already completed in memory —
+                  // streaming TaskUpdate events are more authoritative than DB
+                  // snapshots for task status (DB only has original TodoWrite input)
+                  const currentAllComplete = missionTasksRef.current.length > 0 &&
+                    missionTasksRef.current.every((t) => t.status === 'completed')
+                  if (!currentAllComplete) {
+                    missionTasksRef.current = extracted
+                    setMissionTasks(extracted)
+                  }
                 }
               }
             })
@@ -568,6 +669,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
             setStreamingContent('')
             streamingPartsRef.current = []
             setStreamingParts([])
+            childPartsMapRef.current.clear()
+            setChildPartsMap(new Map())
 
             // Auto-drain pending message queue
             if (worktreePath && droidSessionId) {
@@ -669,7 +772,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       })
 
     return unsubscribe
-  }, [sessionId, refresh, worktreePath, droidSessionId, scheduleFlush, upsertToolUse, immediateFlush])
+  }, [sessionId, refresh, worktreePath, droidSessionId, scheduleFlush, upsertToolUse, immediateFlush, routeChildEvent])
 
   // --- Composer action handler ---
   const handleComposerAction = useCallback(
@@ -691,6 +794,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         setStreamingContent('')
         streamingPartsRef.current = []
         setStreamingParts([])
+        childPartsMapRef.current.clear()
+        setChildPartsMap(new Map())
         setIsStreaming(true)
       }
 
@@ -755,6 +860,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     setStreamingContent('')
     streamingPartsRef.current = []
     setStreamingParts([])
+    childPartsMapRef.current.clear()
+    setChildPartsMap(new Map())
     setIsStreaming(true)
     executeSendAction('send', 'Implement this plan', [], {
       worktreePath,
@@ -826,10 +933,10 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           streamingParts={streamingParts}
           isStreaming={isStreaming}
           lifecycle={lifecycle}
-          suppressTodoCards={missionTasks.length > 0}
-          finalTodoTasks={!missionVisible && allTasksComplete ? missionTasks : undefined}
+          suppressTodoCards={missionVisible}
           sessionId={sessionId}
           worktreePath={worktreePath}
+          childPartsMap={childPartsMap}
         />
 
         <InterruptDock

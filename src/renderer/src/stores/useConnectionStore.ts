@@ -65,7 +65,7 @@ interface ConnectionState {
   renameConnection: (connectionId: string, customName: string | null) => Promise<void>
 
   // Connection Mode Actions
-  enterConnectionMode: (sourceWorktreeId: string) => void
+  enterConnectionMode: (sourceWorktreeId?: string) => void
   exitConnectionMode: () => void
   toggleConnectionModeWorktree: (worktreeId: string) => void
   finalizeConnection: () => Promise<void>
@@ -305,11 +305,11 @@ export const useConnectionStore = create<ConnectionState>()(
         }
       },
 
-      enterConnectionMode: (sourceWorktreeId: string) => {
+      enterConnectionMode: (sourceWorktreeId?: string) => {
         set({
           connectionModeActive: true,
-          connectionModeSourceWorktreeId: sourceWorktreeId,
-          connectionModeSelectedIds: new Set([sourceWorktreeId]),
+          connectionModeSourceWorktreeId: sourceWorktreeId ?? null,
+          connectionModeSelectedIds: sourceWorktreeId ? new Set([sourceWorktreeId]) : new Set(),
           connectionModeSubmitting: false
         })
       },

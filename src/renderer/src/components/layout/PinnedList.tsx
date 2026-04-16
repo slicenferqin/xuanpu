@@ -392,7 +392,7 @@ function PinnedWorktreeItem({ worktreeId }: { worktreeId: string }): React.JSX.E
   const hasNamedBranch = Boolean(worktree.branch_name)
 
   // Derive display status text + color
-  const { displayStatus, statusClass } =
+  const { displayStatus: _displayStatus, statusClass: _statusClass } =
     worktreeStatus === 'answering'
       ? { displayStatus: t('pinned.status.answering'), statusClass: 'font-semibold text-amber-500' }
       : worktreeStatus === 'command_approval'
@@ -690,9 +690,6 @@ function PinnedWorktreeItem({ worktreeId }: { worktreeId: string }): React.JSX.E
             )}
             <div className="flex items-center pr-1">
               <ModelIcon worktreeId={worktreeId} className="h-2.5 w-2.5 mr-1 shrink-0" />
-              <span className={cn('text-[11px]', statusClass)} data-testid="pinned-status-text">
-                {displayStatus}
-              </span>
               <span className="flex-1" />
               {lastMessageTime && (
                 <span
@@ -928,7 +925,7 @@ function PinnedConnectionItem({
     : projectNames || connection.name || t('pinned.connectionFallback')
 
   // Derive display status text + color
-  const { displayStatus, statusClass } =
+  const { displayStatus: _displayStatus2, statusClass: _statusClass2 } =
     connectionStatus === 'answering'
       ? { displayStatus: t('pinned.status.answering'), statusClass: 'font-semibold text-amber-500' }
       : connectionStatus === 'command_approval'
@@ -1104,11 +1101,8 @@ function PinnedConnectionItem({
                 <span className="text-sm truncate block" title={displayName}>
                   {displayName}
                 </span>
-                <span className={cn('text-[11px]', statusClass)} data-testid="pinned-status-text">
-                  {displayStatus}
-                  {hasCustomName && projectNames && (
-                    <span className="text-muted-foreground font-normal"> · {projectNames}</span>
-                  )}
+                <span className="text-[11px] text-muted-foreground" data-testid="pinned-status-text">
+                  {hasCustomName && projectNames ? projectNames : ''}
                 </span>
               </>
             )}

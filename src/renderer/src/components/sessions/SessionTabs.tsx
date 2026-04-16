@@ -161,11 +161,11 @@ const SessionTab = memo(function SessionTab({
             }
           }}
           className={cn(
-            'group relative flex items-center gap-1 px-3 py-1.5 text-sm cursor-pointer select-none',
-            'border-r border-border transition-colors min-w-[100px] max-w-[200px]',
+            'group relative flex items-center gap-1 px-3 py-1 text-sm cursor-pointer select-none',
+            'rounded-md transition-colors min-w-[100px] max-w-[200px] my-0.5 mx-0.5',
             isActive
-              ? 'bg-background text-foreground'
-              : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground',
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
             isDragging && 'opacity-50',
             isDragOver && 'bg-accent/50'
           )}
@@ -200,7 +200,7 @@ const SessionTab = memo(function SessionTab({
               )}
               {sessionStatus === 'unread' && !isActive && (
                 <span
-                  className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0"
+                  className="w-2 h-2 rounded-full bg-primary flex-shrink-0"
                   data-testid={`tab-unread-${sessionId}`}
                 />
               )}
@@ -238,7 +238,6 @@ const SessionTab = memo(function SessionTab({
           >
             <X className="h-3 w-3" />
           </button>
-          {isActive && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />}
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
@@ -294,11 +293,11 @@ function FileTab({
             }
           }}
           className={cn(
-            'group relative flex items-center gap-1.5 px-3 py-1.5 text-sm cursor-pointer select-none',
-            'border-r border-border transition-colors min-w-[100px] max-w-[200px]',
+            'group relative flex items-center gap-1.5 px-3 py-1 text-sm cursor-pointer select-none',
+            'rounded-md transition-colors min-w-[100px] max-w-[200px] my-0.5 mx-0.5',
             isActive
-              ? 'bg-background text-foreground'
-              : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:bg-background/50 hover:text-foreground'
           )}
           title={filePath}
         >
@@ -330,7 +329,6 @@ function FileTab({
               <X className="h-3 w-3" />
             </button>
           )}
-          {isActive && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />}
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
@@ -398,11 +396,11 @@ function DiffTabItem({
             }
           }}
           className={cn(
-            'group relative flex items-center gap-1.5 px-3 py-1.5 text-sm cursor-pointer select-none',
-            'border-r border-border transition-colors min-w-[100px] max-w-[200px]',
+            'group relative flex items-center gap-1.5 px-3 py-1 text-sm cursor-pointer select-none',
+            'rounded-md transition-colors min-w-[100px] max-w-[200px] my-0.5 mx-0.5',
             isActive
-              ? 'bg-background text-foreground'
-              : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:bg-background/50 hover:text-foreground'
           )}
           title={`${tab.filePath} (${tab.staged ? t('sessionTabs.common.staged') : t('sessionTabs.common.unstaged')})`}
         >
@@ -419,7 +417,6 @@ function DiffTabItem({
           >
             <X className="h-3 w-3" />
           </button>
-          {isActive && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />}
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
@@ -485,8 +482,8 @@ const ConnectionSessionTab = memo(function ConnectionSessionTab({
       }}
       title={`${connectionName} — ${name || t('sessionTabs.common.untitled')}`}
       className={cn(
-        'group relative flex items-center gap-1.5 px-3 py-1.5 text-sm cursor-pointer select-none',
-        'border-r border-border/50 transition-colors min-w-[100px] max-w-[200px]'
+        'group relative flex items-center gap-1.5 px-3 py-1 text-sm cursor-pointer select-none',
+        'rounded-md transition-colors min-w-[100px] max-w-[200px] my-0.5 mx-0.5'
       )}
       style={{
         backgroundColor: isActive ? activeBg : inactiveBg,
@@ -985,7 +982,7 @@ export function SessionTabs(): React.JSX.Element | null {
 
   return (
     <div
-      className="flex items-center border-b border-border bg-muted/30"
+      className="flex items-center border-b border-border/40 bg-muted/30 px-1"
       data-testid="session-tabs"
     >
       {/* New session button - on the left */}
@@ -999,7 +996,7 @@ export function SessionTabs(): React.JSX.Element | null {
         <ContextMenuTrigger asChild>
           <button
             onClick={handleCreateSession}
-            className="p-1.5 hover:bg-accent transition-colors shrink-0 border-r border-border"
+            className="p-1.5 rounded-md hover:bg-background/50 transition-colors shrink-0"
             data-testid="create-session"
             title={t('sessionTabs.actions.createSession')}
           >
@@ -1179,11 +1176,11 @@ export function SessionTabs(): React.JSX.Element | null {
                   }
                 }}
                 className={cn(
-                  'group relative flex items-center gap-1.5 px-3 py-1.5 text-sm cursor-pointer select-none',
-                  'border-r border-border transition-colors min-w-[100px] max-w-[200px]',
+                  'group relative flex items-center gap-1.5 px-3 py-1 text-sm cursor-pointer select-none',
+                  'rounded-md transition-colors min-w-[100px] max-w-[200px] my-0.5 mx-0.5',
                   isFileTabActive && activeFilePath === key
-                    ? 'bg-background text-foreground'
-                    : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:bg-background/50 hover:text-foreground'
                 )}
                 title={t('sessionTabs.context.title')}
               >
@@ -1203,9 +1200,6 @@ export function SessionTabs(): React.JSX.Element | null {
                 >
                   <X className="h-3 w-3" />
                 </button>
-                {isFileTabActive && activeFilePath === key && (
-                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
-                )}
               </div>
             ))}
           </>
