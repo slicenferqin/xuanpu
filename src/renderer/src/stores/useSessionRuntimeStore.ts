@@ -12,6 +12,7 @@
 
 import { create } from 'zustand'
 import type { CanonicalAgentEvent } from '@shared/types/agent-protocol'
+import type { StreamingPart } from '@shared/lib/timeline-types'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -68,6 +69,34 @@ export const DEFAULT_SESSION_STATE: Readonly<SessionRuntimeState> = {
 
 type EventCallback = (event: CanonicalAgentEvent) => void
 const _sessionEventCallbacks = new Map<string, Set<EventCallback>>()
+
+// ---------------------------------------------------------------------------
+// Streaming buffer (module-level, non-reactive)
+// Survives SessionShell unmount/remount so streaming content is restored
+// when the user switches away and comes back during an active turn.
+// ---------------------------------------------------------------------------
+
+export interface StreamingBuffer {
+  parts: StreamingPart[]
+  /** Child session parts keyed by child session id */
+  childParts: Map<string, StreamingPart[]>
+  streamingContent: string
+  isStreaming: boolean
+}
+
+const _streamingBuffers = new Map<string, StreamingBuffer>()
+
+export function getStreamingBuffer(sessionId: string): StreamingBuffer | undefined {
+  return _streamingBuffers.get(sessionId)
+}
+
+export function setStreamingBuffer(sessionId: string, buffer: StreamingBuffer): void {
+  _streamingBuffers.set(sessionId, buffer)
+}
+
+export function clearStreamingBuffer(sessionId: string): void {
+  _streamingBuffers.delete(sessionId)
+}
 
 // ---------------------------------------------------------------------------
 // Store
@@ -360,5 +389,6 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
       return { sessions, interruptQueues: queues, pendingMessages: pending }
     })
     _sessionEventCallbacks.delete(sessionId)
+    _streamingBuffers.delete(sessionId)
   }
 }))

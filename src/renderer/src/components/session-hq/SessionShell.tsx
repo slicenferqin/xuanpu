@@ -36,6 +36,11 @@ import { buildMessageParts } from '@/lib/file-attachment-utils'
 import type { CanonicalAgentEvent } from '@shared/types/agent-protocol'
 import type { StreamingPart as SharedStreamingPart } from '@shared/lib/timeline-types'
 import {
+  getStreamingBuffer,
+  setStreamingBuffer,
+  clearStreamingBuffer
+} from '@/stores/useSessionRuntimeStore'
+import {
   executeSendAction,
   drainNextPending,
   type ComposerAction
@@ -264,8 +269,11 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   const currentProviderId = resolvedModel?.providerID ?? ''
 
   // --- Live streaming state (view-layer) ---
-  const [streamingContent, setStreamingContent] = useState('')
-  const [isStreaming, setIsStreaming] = useState(false)
+  // Restore from buffer on mount so switching away mid-stream and back
+  // doesn't lose the in-progress output.
+  const _initBuffer = getStreamingBuffer(sessionId)
+  const [streamingContent, setStreamingContent] = useState(_initBuffer?.streamingContent ?? '')
+  const [isStreaming, setIsStreaming] = useState(_initBuffer?.isStreaming ?? false)
   const [droidSessionId, setDroidSessionId] = useState<string | null>(
     sessionRecord?.opencode_session_id ?? null
   )
@@ -273,16 +281,37 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   // Incremented when session.commands_available fires — triggers ComposerBar re-fetch
   const [commandsVersion, setCommandsVersion] = useState(0)
 
-  const streamingContentRef = useRef('')
+  const streamingContentRef = useRef(_initBuffer?.streamingContent ?? '')
 
   // --- Streaming parts for real-time tool rendering ---
-  const [streamingParts, setStreamingParts] = useState<SharedStreamingPart[]>([])
-  const streamingPartsRef = useRef<SharedStreamingPart[]>([])
+  const [streamingParts, setStreamingParts] = useState<SharedStreamingPart[]>(
+    _initBuffer?.parts ?? []
+  )
+  const streamingPartsRef = useRef<SharedStreamingPart[]>(_initBuffer?.parts ?? [])
   const rafRef = useRef<number | null>(null)
 
   // --- Child session parts (sub-agent tool calls, keyed by parent tool_use id) ---
-  const childPartsMapRef = useRef(new Map<string, SharedStreamingPart[]>())
-  const [childPartsMap, setChildPartsMap] = useState<Map<string, SharedStreamingPart[]>>(new Map())
+  const childPartsMapRef = useRef(
+    _initBuffer?.childParts ? new Map(_initBuffer.childParts) : new Map<string, SharedStreamingPart[]>()
+  )
+  const [childPartsMap, setChildPartsMap] = useState<Map<string, SharedStreamingPart[]>>(
+    _initBuffer?.childParts ? new Map(_initBuffer.childParts) : new Map()
+  )
+
+  // Sync streaming state to module-level buffer so it survives tab switches.
+  // Written on every streaming update; cleared when session goes idle.
+  const syncBufferRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const flushBuffer = useCallback(() => {
+    if (syncBufferRef.current) clearTimeout(syncBufferRef.current)
+    syncBufferRef.current = setTimeout(() => {
+      setStreamingBuffer(sessionId, {
+        parts: streamingPartsRef.current,
+        childParts: new Map(childPartsMapRef.current),
+        streamingContent: streamingContentRef.current,
+        isStreaming: true
+      })
+    }, 50)
+  }, [sessionId])
 
   // --- Mission Control task state ---
   const [missionTasks, setMissionTasks] = useState<MissionTask[]>([])
@@ -327,15 +356,17 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
   const immediateFlush = useCallback(() => {
     setStreamingParts([...streamingPartsRef.current])
-  }, [])
+    flushBuffer()
+  }, [flushBuffer])
 
   const scheduleFlush = useCallback(() => {
     if (rafRef.current) return
     rafRef.current = requestAnimationFrame(() => {
       rafRef.current = null
       setStreamingParts([...streamingPartsRef.current])
+      flushBuffer()
     })
-  }, [])
+  }, [flushBuffer])
 
   const upsertToolUse = useCallback(
     (toolId: string, update: Partial<NonNullable<SharedStreamingPart['toolUse']>> & { name?: string }) => {
@@ -393,8 +424,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           const last = existing?.[existing.length - 1]
           if (last?.type === 'text') {
             last.text = (last.text ?? '') + text
-            // Trigger state update
             setChildPartsMap(new Map(childPartsMapRef.current))
+            flushBuffer()
             return
           }
           sp = { type: 'text', text }
@@ -427,6 +458,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
               }
             }
             setChildPartsMap(new Map(childPartsMapRef.current))
+            flushBuffer()
             return
           }
         }
@@ -455,9 +487,10 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           childPartsMapRef.current.set(childId, [sp])
         }
         setChildPartsMap(new Map(childPartsMapRef.current))
+        flushBuffer()
       }
     },
-    []
+    [flushBuffer]
   )
 
   useEffect(() => {
@@ -677,13 +710,14 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
                 }
               }
             })
-            // Clear streaming state
+            // Clear streaming state and buffer on idle
             streamingContentRef.current = ''
             setStreamingContent('')
             streamingPartsRef.current = []
             setStreamingParts([])
             childPartsMapRef.current.clear()
             setChildPartsMap(new Map())
+            clearStreamingBuffer(sessionId)
 
             // Auto-drain pending message queue
             if (worktreePath && droidSessionId) {
@@ -810,6 +844,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         childPartsMapRef.current.clear()
         setChildPartsMap(new Map())
         setIsStreaming(true)
+        // Clear stale buffer from previous turn
+        clearStreamingBuffer(sessionId)
       }
 
       // Optimistic insert — show user message immediately in the timeline
