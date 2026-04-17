@@ -25,6 +25,15 @@ export class AgentRuntimeManager {
     return impl
   }
 
+  /**
+   * Returns all registered adapters. Use this for cross-agent dispatch — e.g.
+   * HITL handlers where the requestId doesn't carry a runtime tag, so the
+   * dispatcher has to ask every adapter whether it owns the pending request.
+   */
+  listAgents(): AgentRuntimeAdapter[] {
+    return Array.from(this.implementers.values())
+  }
+
   getCapabilities(runtimeId: AgentRuntimeId): AgentRuntimeCapabilities {
     return this.getImplementer(runtimeId).capabilities
   }

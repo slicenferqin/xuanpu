@@ -33,7 +33,7 @@ import {
 } from '@/stores/useContextStore'
 import { useRecentStore } from '@/stores/useRecentStore'
 import { useUsageStore, resolveUsageProvider } from '@/stores'
-import { useSessionRuntimeStore } from '@/stores/useSessionRuntimeStore'
+import { useSessionRuntimeStore, clearStreamingBuffer } from '@/stores/useSessionRuntimeStore'
 import { extractTokens, extractCost, extractModelRef, extractModelUsage } from '@/lib/token-utils'
 import { COMPLETION_WORDS } from '@/lib/format-utils'
 import { messageSendTimes } from '@/lib/message-send-times'
@@ -618,6 +618,11 @@ export function useAgentEventBridge(): void {
 
           runtime.setLifecycle(sessionId, 'idle')
           runtime.setRetryInfo(sessionId, null)
+          // Clear streaming buffer — DB is now source of truth for this turn.
+          // Must happen here (not only in SessionShell) because the user may
+          // have switched tabs mid-stream; SessionShell is unmounted and won't
+          // receive the idle event directly.
+          clearStreamingBuffer(sessionId)
 
           // Usage tracking on idle
           if (useSettingsStore.getState().showUsageIndicator) {

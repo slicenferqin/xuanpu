@@ -533,17 +533,18 @@ declare global {
       connect: (
         worktreePath: string,
         hiveSessionId: string
-      ) => Promise<{ success: boolean; sessionId?: string; error?: string }>
+      ) => Promise<import('../shared/types/agent-ipc').AgentIpcResult<{ sessionId?: string }>>
       // Reconnect to existing agent session
       reconnect: (
         worktreePath: string,
         sessionId: string,
         hiveSessionId: string
-      ) => Promise<{
-        success: boolean
-        sessionStatus?: 'idle' | 'busy' | 'retry'
-        revertMessageID?: string | null
-      }>
+      ) => Promise<
+        import('../shared/types/agent-ipc').AgentIpcResult<{
+          sessionStatus?: 'idle' | 'busy' | 'retry'
+          revertMessageID?: string | null
+        }>
+      >
       // Send a prompt (response streams via onStream)
       // Accepts either a string message or a MessagePart[] array for rich content (text + file attachments)
       prompt: (
@@ -552,82 +553,82 @@ declare global {
         messageOrParts: string | MessagePart[],
         model?: { providerID: string; modelID: string; variant?: string },
         options?: { codexFastMode?: boolean }
-      ) => Promise<{ success: boolean; error?: string }>
+      ) => Promise<import('../shared/types/agent-ipc').AgentIpcResult>
       // Abort a streaming session
       abort: (
         worktreePath: string,
         sessionId: string
-      ) => Promise<{ success: boolean; error?: string }>
+      ) => Promise<import('../shared/types/agent-ipc').AgentIpcResult<{ aborted?: boolean }>>
       // Disconnect session (may kill server if last session for worktree)
       disconnect: (
         worktreePath: string,
         sessionId: string
-      ) => Promise<{ success: boolean; error?: string }>
+      ) => Promise<import('../shared/types/agent-ipc').AgentIpcResult>
       // Get messages from an agent session
       getMessages: (
         worktreePath: string,
         sessionId: string
-      ) => Promise<{ success: boolean; messages: unknown[]; error?: string }>
+      ) => Promise<import('../shared/types/agent-ipc').AgentIpcResult<{ messages: unknown[] }>>
       // List available models from all configured providers
       listModels: (opts?: {
         runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
-      }) => Promise<{
-        success: boolean
-        providers: Record<string, unknown>
-        error?: string
-      }>
+      }) => Promise<
+        import('../shared/types/agent-ipc').AgentIpcResult<{ providers: Record<string, unknown> }>
+      >
       // Set the selected model for prompts
       setModel: (model: {
         providerID: string
         modelID: string
         variant?: string
         runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
-      }) => Promise<{ success: boolean; error?: string }>
+      }) => Promise<import('../shared/types/agent-ipc').AgentIpcResult>
       // Get model info (name, context limit)
       modelInfo: (
         worktreePath: string,
         modelId: string,
         runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
-      ) => Promise<{
-        success: boolean
-        model?: { id: string; name: string; limit: { context: number } }
-        error?: string
-      }>
+      ) => Promise<
+        import('../shared/types/agent-ipc').AgentIpcResult<{
+          model?: { id: string; name: string; limit: { context: number } }
+        }>
+      >
       // Reply to a pending question from the AI
       questionReply: (
         requestId: string,
         answers: string[][],
         worktreePath?: string
-      ) => Promise<{ success: boolean; error?: string }>
+      ) => Promise<import('../shared/types/agent-ipc').AgentIpcResult>
       // Reject/dismiss a pending question from the AI
       questionReject: (
         requestId: string,
         worktreePath?: string
-      ) => Promise<{ success: boolean; error?: string }>
+      ) => Promise<import('../shared/types/agent-ipc').AgentIpcResult>
       // Approve a pending plan (ExitPlanMode) — unblocks the SDK to implement
       planApprove: (
         worktreePath: string,
         hiveSessionId: string,
         requestId?: string
-      ) => Promise<{ success: boolean; error?: string }>
+      ) => Promise<import('../shared/types/agent-ipc').AgentIpcResult>
       // Reject a pending plan with user feedback — Claude will revise
       planReject: (
         worktreePath: string,
         hiveSessionId: string,
         feedback: string,
         requestId?: string
-      ) => Promise<{ success: boolean; error?: string }>
+      ) => Promise<import('../shared/types/agent-ipc').AgentIpcResult>
       // Reply to a pending permission request (allow once, allow always, or reject)
       permissionReply: (
         requestId: string,
         reply: 'once' | 'always' | 'reject',
         worktreePath?: string,
         message?: string
-      ) => Promise<{ success: boolean; error?: string }>
+      ) => Promise<import('../shared/types/agent-ipc').AgentIpcResult>
       // List all pending permission requests
       permissionList: (
         worktreePath?: string
-      ) => Promise<{ success: boolean; permissions: PermissionRequest[]; error?: string }>
+      ) => Promise<
+        import('../shared/types/agent-ipc').AgentIpcResult<{ permissions: PermissionRequest[] }>
+      >
       // Reply to a pending command approval request (approve or deny, optionally add to allowlist/blocklist)
       commandApprovalReply: (
         requestId: string,
@@ -636,33 +637,35 @@ declare global {
         pattern?: string,
         worktreePath?: string,
         patterns?: string[]
-      ) => Promise<{ success: boolean; error?: string }>
+      ) => Promise<import('../shared/types/agent-ipc').AgentIpcResult>
       // Get session info (revert state)
       sessionInfo: (
         worktreePath: string,
         sessionId: string
-      ) => Promise<{
-        success: boolean
-        revertMessageID?: string | null
-        revertDiff?: string | null
-        error?: string
-      }>
+      ) => Promise<
+        import('../shared/types/agent-ipc').AgentIpcResult<{
+          revertMessageID?: string | null
+          revertDiff?: string | null
+        }>
+      >
       // Undo the last assistant turn/message range
       undo: (
         worktreePath: string,
         sessionId: string
-      ) => Promise<{
-        success: boolean
-        revertMessageID?: string
-        restoredPrompt?: string
-        revertDiff?: string | null
-        error?: string
-      }>
+      ) => Promise<
+        import('../shared/types/agent-ipc').AgentIpcResult<{
+          revertMessageID?: string
+          restoredPrompt?: string
+          revertDiff?: string | null
+        }>
+      >
       // Redo the last undone message range
       redo: (
         worktreePath: string,
         sessionId: string
-      ) => Promise<{ success: boolean; revertMessageID?: string | null; error?: string }>
+      ) => Promise<
+        import('../shared/types/agent-ipc').AgentIpcResult<{ revertMessageID?: string | null }>
+      >
       // Send a slash command to a session via the SDK command endpoint
       command: (
         worktreePath: string,
@@ -670,39 +673,41 @@ declare global {
         command: string,
         args: string,
         model?: { providerID: string; modelID: string; variant?: string }
-      ) => Promise<{ success: boolean; error?: string }>
+      ) => Promise<import('../shared/types/agent-ipc').AgentIpcResult>
       // List available slash commands from the SDK
       commands: (
         worktreePath: string,
         sessionId?: string
-      ) => Promise<{ success: boolean; commands: AgentCommand[]; error?: string }>
+      ) => Promise<
+        import('../shared/types/agent-ipc').AgentIpcResult<{ commands: AgentCommand[] }>
+      >
       // Rename a session's title via the agent PATCH API
       renameSession: (
         sessionId: string,
         title: string,
         worktreePath?: string
-      ) => Promise<{ success: boolean; error?: string }>
+      ) => Promise<import('../shared/types/agent-ipc').AgentIpcResult>
       // Get SDK capabilities for the current session
-      capabilities: (sessionId?: string) => Promise<{
-        success: boolean
-        capabilities?: {
-          supportsUndo: boolean
-          supportsRedo: boolean
-          supportsCommands: boolean
-          supportsPermissionRequests: boolean
-          supportsQuestionPrompts: boolean
-          supportsModelSelection: boolean
-          supportsReconnect: boolean
-          supportsPartialStreaming: boolean
-        }
-        error?: string
-      }>
+      capabilities: (sessionId?: string) => Promise<
+        import('../shared/types/agent-ipc').AgentIpcResult<{
+          capabilities?: {
+            supportsUndo: boolean
+            supportsRedo: boolean
+            supportsCommands: boolean
+            supportsPermissionRequests: boolean
+            supportsQuestionPrompts: boolean
+            supportsModelSelection: boolean
+            supportsReconnect: boolean
+            supportsPartialStreaming: boolean
+          }
+        }>
+      >
       // Fork an existing session at an optional message boundary
       fork: (
         worktreePath: string,
         sessionId: string,
         messageId?: string
-      ) => Promise<{ success: boolean; sessionId?: string; error?: string }>
+      ) => Promise<import('../shared/types/agent-ipc').AgentIpcResult<{ sessionId?: string }>>
       // Get unified timeline (durable data from DB)
       getTimeline: (
         sessionId: string

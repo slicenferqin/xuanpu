@@ -293,7 +293,9 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
   // --- Live streaming state (view-layer) ---
   // Restore from buffer on mount so switching away mid-stream and back
-  // doesn't lose the in-progress output.
+  // doesn't lose the in-progress output. The buffer is cleared by the event
+  // bridge when the session goes idle, so its mere presence is a reliable
+  // signal that this session is still mid-turn.
   const _initBuffer = getStreamingBuffer(sessionId)
   const [streamingContent, setStreamingContent] = useState(_initBuffer?.streamingContent ?? '')
   const [isStreaming, setIsStreaming] = useState(_initBuffer?.isStreaming ?? false)

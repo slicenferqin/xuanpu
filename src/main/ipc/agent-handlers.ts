@@ -4,9 +4,39 @@ import { createLogger } from '../services/logger'
 import { telemetryService } from '../services/telemetry-service'
 import type { DatabaseService } from '../db/database'
 import type { AgentRuntimeManager } from '../services/agent-runtime-manager'
-import type { PromptOptions } from '../services/agent-runtime-types'
+import type { AgentRuntimeAdapter, PromptOptions } from '../services/agent-runtime-types'
 import { ClaudeCodeImplementer } from '../services/claude-code-implementer'
-import { CodexImplementer } from '../services/codex-implementer'
+import {
+  createAgentHandler,
+  resolveRuntimeId,
+  type AgentHandlerContext
+} from './agent-handler-wrapper'
+import {
+  abortSchema,
+  capabilitiesSchema,
+  commandApprovalReplySchema,
+  commandSchema,
+  commandsSchema,
+  connectSchema,
+  disconnectSchema,
+  forkSchema,
+  messagesSchema,
+  modelInfoSchema,
+  modelsSchema,
+  permissionListSchema,
+  permissionReplySchema,
+  planApproveSchema,
+  planRejectSchema,
+  promptSchema,
+  questionRejectSchema,
+  questionReplySchema,
+  reconnectSchema,
+  redoSchema,
+  renameSessionSchema,
+  sessionInfoSchema,
+  setModelSchema,
+  undoSchema
+} from './agent-handler-schemas'
 
 const log = createLogger({ component: 'AgentHandlers' })
 
@@ -22,931 +52,661 @@ export function registerAgentHandlers(
   runtimeManager?: AgentRuntimeManager,
   dbService?: DatabaseService
 ): void {
-  // Set the main window for event forwarding
-  openCodeService.setMainWindow(mainWindow)
+  // Build a strict context for wrapper-based handlers. Throws at startup if
+  // runtimeManager/dbService are missing so we fail loudly rather than silently
+  // returning success:false at runtime. Legacy non-wrapper handlers below keep
+  // their existing nullable-ish checks during the gradual migration.
+  if (!runtimeManager || !dbService) {
+    throw new Error('registerAgentHandlers requires runtimeManager + dbService')
+  }
+  // Forward the main window to every registered adapter — each implementation
+  // may need a BrowserWindow reference to push streaming events.
+  runtimeManager.setMainWindow(mainWindow)
+  const ctx: AgentHandlerContext = { runtimeManager, dbService }
 
   // Connect to runtime for a worktree (lazy starts server if needed)
   ipcMain.handle(
     'agent:connect',
-    async (_event, worktreePath: string, hiveSessionId: string) => {
-      log.info('IPC: agent:connect', { worktreePath, hiveSessionId })
-      // New session on this worktree — allow context injection for the first prompt
-      injectedWorktrees.delete(worktreePath)
-      try {
-        const runtimeId = dbService?.getSession(hiveSessionId)?.agent_sdk ?? 'opencode'
+    createAgentHandler(ctx, {
+      channel: 'agent:connect',
+      schema: connectSchema,
+      handler: async ([worktreePath, hiveSessionId], c) => {
+        log.info('IPC: agent:connect', { worktreePath, hiveSessionId })
+        // New session on this worktree — allow context injection for the first prompt
+        injectedWorktrees.delete(worktreePath)
+
+        const runtimeId = c.dbService.getSession(hiveSessionId)?.agent_sdk ?? 'opencode'
         log.info('IPC: agent:connect runtime resolution', { hiveSessionId, runtimeId })
         // Terminal sessions have no AI backend — short-circuit
         if (runtimeId === 'terminal') {
-          return { success: true, sessionId: hiveSessionId }
+          return { sessionId: hiveSessionId }
         }
-        if (!runtimeManager) {
-          throw new Error('runtimeManager is required')
-        }
-        const impl = runtimeManager.getImplementer(runtimeId)
+        const impl = c.runtimeManager.getImplementer(runtimeId)
         const result = await impl.connect(worktreePath, hiveSessionId)
         telemetryService.track('session_started', { runtime_id: runtimeId })
-        return { success: true, ...result }
-      } catch (error) {
-        log.error('IPC: agent:connect failed', { error })
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        }
+        return { ...result }
       }
-    }
+    })
   )
 
   // Reconnect to existing OpenCode session
   ipcMain.handle(
     'agent:reconnect',
-    async (_event, worktreePath: string, runtimeSessionId: string, hiveSessionId: string) => {
-      log.info('IPC: agent:reconnect', { worktreePath, runtimeSessionId, hiveSessionId })
-      try {
-        const runtimeId = dbService?.getRuntimeIdForSession(runtimeSessionId) ?? 'opencode'
-        // Terminal sessions have no AI backend — short-circuit
+    createAgentHandler(ctx, {
+      channel: 'agent:reconnect',
+      schema: reconnectSchema,
+      handler: async ([worktreePath, runtimeSessionId, hiveSessionId], c) => {
+        log.info('IPC: agent:reconnect', { worktreePath, runtimeSessionId, hiveSessionId })
+        const runtimeId = resolveRuntimeId(c, runtimeSessionId)
         if (runtimeId === 'terminal') {
-          return { success: true, sessionStatus: 'idle' as const }
+          return { sessionStatus: 'idle' as const }
         }
-        if (!runtimeManager) {
-          throw new Error('runtimeManager is required')
-        }
-        const impl = runtimeManager.getImplementer(runtimeId)
+        const impl = c.runtimeManager.getImplementer(runtimeId)
         const result = await impl.reconnect(worktreePath, runtimeSessionId, hiveSessionId)
-        return result
-      } catch (error) {
-        log.error('IPC: agent:reconnect failed', { error })
-        return { success: false }
+        // Strip the inner `success` so the wrapper's success envelope wins
+        // (adapter returns success:false on reconnect failure — treat as error path)
+        const { success: innerSuccess, ...rest } = result
+        if (!innerSuccess) {
+          throw new Error('reconnect failed')
+        }
+        return rest
       }
-    }
+    })
   )
 
   // Send a prompt (response streams via onStream)
   // Accepts either { worktreePath, sessionId, parts } object or positional (worktreePath, sessionId, message) for backward compat
-  ipcMain.handle('agent:prompt', async (_event, ...args: unknown[]) => {
-    let worktreePath: string
-    let runtimeSessionId: string
-    let messageOrParts:
-      | string
-      | Array<{ type: string; text?: string; mime?: string; url?: string; filename?: string }>
-    let model: { providerID: string; modelID: string; variant?: string } | undefined
-    let options: PromptOptions | undefined
+  ipcMain.handle(
+    'agent:prompt',
+    createAgentHandler(ctx, {
+      channel: 'agent:prompt',
+      schema: promptSchema,
+      handler: async (args, c) => {
+        let worktreePath: string
+        let runtimeSessionId: string
+        let messageOrParts:
+          | string
+          | Array<{ type: string; text?: string; mime?: string; url?: string; filename?: string }>
+        let model: { providerID: string; modelID: string; variant?: string } | undefined
+        let options: PromptOptions | undefined
 
-    // Support object-style call: { worktreePath, sessionId, parts }
-    if (args.length === 1 && typeof args[0] === 'object' && args[0] !== null) {
-      const obj = args[0] as Record<string, unknown>
-      worktreePath = obj.worktreePath as string
-      runtimeSessionId = obj.sessionId as string
-      // Backward compat: accept message string or parts array
-      messageOrParts = (obj.parts as typeof messageOrParts) || [
-        { type: 'text', text: obj.message as string }
-      ]
-      const rawModel = obj.model as Record<string, unknown> | undefined
-      if (
-        rawModel &&
-        typeof rawModel.providerID === 'string' &&
-        typeof rawModel.modelID === 'string'
-      ) {
-        model = {
-          providerID: rawModel.providerID,
-          modelID: rawModel.modelID,
-          variant: typeof rawModel.variant === 'string' ? rawModel.variant : undefined
+        // Support object-style call: { worktreePath, sessionId, parts }
+        if (args.length === 1 && typeof args[0] === 'object' && args[0] !== null) {
+          const obj = args[0] as Record<string, unknown>
+          worktreePath = obj.worktreePath as string
+          runtimeSessionId = obj.sessionId as string
+          messageOrParts = (obj.parts as typeof messageOrParts) || [
+            { type: 'text', text: obj.message as string }
+          ]
+          const rawModel = obj.model as Record<string, unknown> | undefined
+          if (
+            rawModel &&
+            typeof rawModel.providerID === 'string' &&
+            typeof rawModel.modelID === 'string'
+          ) {
+            model = {
+              providerID: rawModel.providerID,
+              modelID: rawModel.modelID,
+              variant: typeof rawModel.variant === 'string' ? rawModel.variant : undefined
+            }
+          }
+          const rawOptions = obj.options as Record<string, unknown> | undefined
+          if (rawOptions && typeof rawOptions.codexFastMode === 'boolean') {
+            options = { codexFastMode: rawOptions.codexFastMode }
+          }
+        } else {
+          // Legacy positional args: (worktreePath, sessionId, message)
+          worktreePath = args[0] as string
+          runtimeSessionId = args[1] as string
+          messageOrParts = args[2] as string
+          const rawModel = args[3] as Record<string, unknown> | undefined
+          if (
+            rawModel &&
+            typeof rawModel.providerID === 'string' &&
+            typeof rawModel.modelID === 'string'
+          ) {
+            model = {
+              providerID: rawModel.providerID,
+              modelID: rawModel.modelID,
+              variant: typeof rawModel.variant === 'string' ? rawModel.variant : undefined
+            }
+          }
+          const rawOptions = args[4] as Record<string, unknown> | undefined
+          if (rawOptions && typeof rawOptions.codexFastMode === 'boolean') {
+            options = { codexFastMode: rawOptions.codexFastMode }
+          }
         }
-      }
-      const rawOptions = obj.options as Record<string, unknown> | undefined
-      if (rawOptions && typeof rawOptions.codexFastMode === 'boolean') {
-        options = { codexFastMode: rawOptions.codexFastMode }
-      }
-    } else {
-      // Legacy positional args: (worktreePath, sessionId, message)
-      worktreePath = args[0] as string
-      runtimeSessionId = args[1] as string
-      messageOrParts = args[2] as string
-      const rawModel = args[3] as Record<string, unknown> | undefined
-      if (
-        rawModel &&
-        typeof rawModel.providerID === 'string' &&
-        typeof rawModel.modelID === 'string'
-      ) {
-        model = {
-          providerID: rawModel.providerID,
-          modelID: rawModel.modelID,
-          variant: typeof rawModel.variant === 'string' ? rawModel.variant : undefined
-        }
-      }
-      const rawOptions = args[4] as Record<string, unknown> | undefined
-      if (rawOptions && typeof rawOptions.codexFastMode === 'boolean') {
-        options = { codexFastMode: rawOptions.codexFastMode }
-      }
-    }
 
-    // Inject worktree context on first prompt of each session.
-    // We track by worktreePath (not runtimeSessionId) because Claude Code
-    // sessions start with a pending:: ID that materializes to a real ID after
-    // the first prompt — tracking by session ID would miss the transition.
-    if (!injectedWorktrees.has(worktreePath) && dbService) {
-      // Skip worktree context injection for Supercharge sessions — the plan
-      // content that follows already has full context and the worktree context
-      // just pollutes it.
-      const firstTextPart = Array.isArray(messageOrParts)
-        ? messageOrParts.find((p) => p.type === 'text')?.text?.trim()
-        : typeof messageOrParts === 'string'
-          ? messageOrParts.trim()
-          : undefined
-      if (firstTextPart?.startsWith('/using-superpowers')) {
-        injectedWorktrees.add(worktreePath)
-      } else {
-        try {
-          const worktree = dbService.getWorktreeByPath(worktreePath)
-          if (worktree?.context) {
-            log.info('Injecting worktree context into first prompt', {
-              worktreePath,
-              runtimeSessionId,
-              contextLength: worktree.context.length
-            })
-            const contextPrefix = `[Worktree Context]\n${worktree.context}\n\n[User Message]\n`
-            if (typeof messageOrParts === 'string') {
-              messageOrParts = contextPrefix + messageOrParts
-            } else if (Array.isArray(messageOrParts)) {
-              // Find the first text part and prepend context
-              const textPartIndex = messageOrParts.findIndex((p) => p.type === 'text')
-              if (textPartIndex >= 0) {
-                const textPart = messageOrParts[textPartIndex]
-                if (textPart.type === 'text' && textPart.text) {
-                  messageOrParts = [...messageOrParts]
-                  messageOrParts[textPartIndex] = {
-                    ...textPart,
-                    text: contextPrefix + textPart.text
+        // Inject worktree context on first prompt of each session.
+        // Tracked by worktreePath (not runtimeSessionId) because Claude Code
+        // sessions start with a pending:: ID that materializes after the first prompt.
+        if (!injectedWorktrees.has(worktreePath)) {
+          const firstTextPart = Array.isArray(messageOrParts)
+            ? messageOrParts.find((p) => p.type === 'text')?.text?.trim()
+            : typeof messageOrParts === 'string'
+              ? messageOrParts.trim()
+              : undefined
+          if (firstTextPart?.startsWith('/using-superpowers')) {
+            injectedWorktrees.add(worktreePath)
+          } else {
+            try {
+              const worktree = c.dbService.getWorktreeByPath(worktreePath)
+              if (worktree?.context) {
+                log.info('Injecting worktree context into first prompt', {
+                  worktreePath,
+                  runtimeSessionId,
+                  contextLength: worktree.context.length
+                })
+                const contextPrefix = `[Worktree Context]\n${worktree.context}\n\n[User Message]\n`
+                if (typeof messageOrParts === 'string') {
+                  messageOrParts = contextPrefix + messageOrParts
+                } else if (Array.isArray(messageOrParts)) {
+                  const textPartIndex = messageOrParts.findIndex((p) => p.type === 'text')
+                  if (textPartIndex >= 0) {
+                    const textPart = messageOrParts[textPartIndex]
+                    if (textPart.type === 'text' && textPart.text) {
+                      messageOrParts = [...messageOrParts]
+                      messageOrParts[textPartIndex] = {
+                        ...textPart,
+                        text: contextPrefix + textPart.text
+                      }
+                    }
                   }
                 }
               }
+              injectedWorktrees.add(worktreePath)
+            } catch (err) {
+              log.warn('Failed to inject worktree context', {
+                worktreePath,
+                error: err instanceof Error ? err.message : String(err)
+              })
             }
           }
-          // Mark as injected after successful lookup (even if no context to inject)
-          injectedWorktrees.add(worktreePath)
-        } catch (err) {
-          // Don't add to injectedWorktrees — allow retry on next prompt
-          log.warn('Failed to inject worktree context', {
-            worktreePath,
-            error: err instanceof Error ? err.message : String(err)
-          })
         }
-      }
-    }
 
-    log.info('IPC: agent:prompt', {
-      worktreePath,
-      runtimeSessionId,
-      partsCount: Array.isArray(messageOrParts) ? messageOrParts.length : 1,
-      model,
-      options
+        log.info('IPC: agent:prompt', {
+          worktreePath,
+          runtimeSessionId,
+          partsCount: Array.isArray(messageOrParts) ? messageOrParts.length : 1,
+          model,
+          options
+        })
+
+        const runtimeId = resolveRuntimeId(c, runtimeSessionId)
+        log.info('IPC: agent:prompt runtime resolution', { runtimeSessionId, runtimeId })
+        if (runtimeId === 'terminal') return {}
+        const impl = c.runtimeManager.getImplementer(runtimeId)
+        await impl.prompt(worktreePath, runtimeSessionId, messageOrParts, model, options)
+        telemetryService.track('prompt_sent', { runtime_id: runtimeId })
+        return {}
+      }
     })
-    try {
-      const runtimeId = dbService?.getRuntimeIdForSession(runtimeSessionId) ?? 'opencode'
-      log.info('IPC: agent:prompt runtime resolution', { runtimeSessionId, runtimeId })
-      if (runtimeId === 'terminal') {
-        return { success: true }
-      }
-      if (!runtimeManager) {
-        throw new Error('runtimeManager is required')
-      }
-      const impl = runtimeManager.getImplementer(runtimeId)
-      await impl.prompt(worktreePath, runtimeSessionId, messageOrParts, model, options)
-      telemetryService.track('prompt_sent', { runtime_id: runtimeId })
-      return { success: true }
-    } catch (error) {
-      log.error('IPC: agent:prompt failed', { error })
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }
-    }
-  })
+  )
 
   // Disconnect session (may kill server if last session for worktree)
   ipcMain.handle(
     'agent:disconnect',
-    async (_event, worktreePath: string, runtimeSessionId: string) => {
-      log.info('IPC: agent:disconnect', { worktreePath, runtimeSessionId })
-      injectedWorktrees.delete(worktreePath)
-      try {
-        const runtimeId = dbService?.getRuntimeIdForSession(runtimeSessionId) ?? 'opencode'
-        if (runtimeId === 'terminal') {
-          return { success: true }
-        }
-        if (!runtimeManager) {
-          throw new Error('runtimeManager is required')
-        }
-        const impl = runtimeManager.getImplementer(runtimeId)
+    createAgentHandler(ctx, {
+      channel: 'agent:disconnect',
+      schema: disconnectSchema,
+      handler: async ([worktreePath, runtimeSessionId], c) => {
+        log.info('IPC: agent:disconnect', { worktreePath, runtimeSessionId })
+        injectedWorktrees.delete(worktreePath)
+        const runtimeId = resolveRuntimeId(c, runtimeSessionId)
+        if (runtimeId === 'terminal') return {}
+        const impl = c.runtimeManager.getImplementer(runtimeId)
         await impl.disconnect(worktreePath, runtimeSessionId)
-        return { success: true }
-      } catch (error) {
-        log.error('IPC: agent:disconnect failed', { error })
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        }
+        return {}
       }
-    }
+    })
   )
 
   // Get available models from all configured providers
   ipcMain.handle(
     'agent:models',
-    async (_event, opts?: { runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal' }) => {
-      log.info('IPC: agent:models', { runtimeId: opts?.runtimeId })
-      try {
+    createAgentHandler(ctx, {
+      channel: 'agent:models',
+      schema: modelsSchema,
+      handler: async ([opts], c) => {
+        log.info('IPC: agent:models', { runtimeId: opts?.runtimeId })
         const runtimeId = opts?.runtimeId ?? 'opencode'
-        if (runtimeId === 'terminal') {
-          return { success: true, providers: {} }
-        }
-        if (!runtimeManager) {
-          throw new Error('runtimeManager is required')
-        }
-        const impl = runtimeManager.getImplementer(runtimeId)
+        if (runtimeId === 'terminal') return { providers: {} }
+        const impl = c.runtimeManager.getImplementer(runtimeId)
         const providers = await impl.getAvailableModels()
-        return { success: true, providers }
-      } catch (error) {
-        log.error('IPC: agent:models failed', { error })
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error',
-          providers: {}
-        }
+        return { providers }
       }
-    }
+    })
   )
 
   // Set the selected model
   ipcMain.handle(
     'agent:setModel',
-    async (
-      _event,
-      model: {
-        providerID: string
-        modelID: string
-        variant?: string
-        runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
-      } | null
-    ) => {
-      log.info('IPC: agent:setModel', {
-        model: model ? model.modelID : null,
-        runtimeId: model?.runtimeId
-      })
-      try {
-        if (!runtimeManager) {
-          throw new Error('runtimeManager is required')
-        }
+    createAgentHandler(ctx, {
+      channel: 'agent:setModel',
+      schema: setModelSchema,
+      handler: async ([model], c) => {
+        log.info('IPC: agent:setModel', {
+          model: model ? model.modelID : null,
+          runtimeId: model?.runtimeId
+        })
         // Handle null (clear global model) — route to opencode by default
         if (model === null) {
-          const openCodeImpl = runtimeManager.getImplementer('opencode')
-          // Use duck typing to access the optional clearSelectedModel method
-          const maybeClear = (openCodeImpl as unknown as { clearSelectedModel?: () => void })
-            .clearSelectedModel
-          if (typeof maybeClear === 'function') {
-            maybeClear.call(openCodeImpl)
-          }
-          return { success: true }
+          const openCodeImpl = c.runtimeManager.getImplementer('opencode')
+          // Adapter declares clearSelectedModel as optional — only opencode implements
+          openCodeImpl.clearSelectedModel?.()
+          return {}
         }
 
         const runtimeId = model.runtimeId ?? 'opencode'
-        if (runtimeId === 'terminal') {
-          return { success: true }
-        }
-        const impl = runtimeManager.getImplementer(runtimeId)
+        if (runtimeId === 'terminal') return {}
+        const impl = c.runtimeManager.getImplementer(runtimeId)
         impl.setSelectedModel(model)
-        return { success: true }
-      } catch (error) {
-        log.error('IPC: agent:setModel failed', { error })
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        }
+        return {}
       }
-    }
+    })
   )
 
   // Get model info (name, context limit)
   ipcMain.handle(
     'agent:modelInfo',
-    async (
-      _event,
-      {
-        worktreePath,
-        modelId,
-        runtimeId
-      }: {
-        worktreePath: string
-        modelId: string
-        runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
-      }
-    ) => {
-      log.info('IPC: agent:modelInfo', { worktreePath, modelId, runtimeId })
-      try {
+    createAgentHandler(ctx, {
+      channel: 'agent:modelInfo',
+      schema: modelInfoSchema,
+      handler: async ([{ worktreePath, modelId, runtimeId }], c) => {
+        log.info('IPC: agent:modelInfo', { worktreePath, modelId, runtimeId })
         const resolvedRuntimeId = runtimeId ?? 'opencode'
         if (resolvedRuntimeId === 'terminal') {
-          return { success: false, error: 'Terminal sessions have no model' }
+          throw new Error('Terminal sessions have no model')
         }
-        if (!runtimeManager) {
-          throw new Error('runtimeManager is required')
-        }
-        const impl = runtimeManager.getImplementer(resolvedRuntimeId)
+        const impl = c.runtimeManager.getImplementer(resolvedRuntimeId)
         const model = await impl.getModelInfo(worktreePath, modelId)
         if (!model) {
-          return { success: false, error: 'Model not found' }
+          throw new Error('Model not found')
         }
-        return { success: true, model }
-      } catch (error) {
-        log.error('IPC: agent:modelInfo failed', { error })
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        }
+        return { model }
       }
-    }
+    })
   )
 
   // Get session info (revert state)
   ipcMain.handle(
     'agent:sessionInfo',
-    async (_event, { worktreePath, sessionId }: { worktreePath: string; sessionId: string }) => {
-      log.info('IPC: agent:sessionInfo', { worktreePath, sessionId })
-      try {
-        const runtimeId = dbService?.getRuntimeIdForSession(sessionId) ?? 'opencode'
+    createAgentHandler(ctx, {
+      channel: 'agent:sessionInfo',
+      schema: sessionInfoSchema,
+      handler: async ([{ worktreePath, sessionId }], c) => {
+        log.info('IPC: agent:sessionInfo', { worktreePath, sessionId })
+        const runtimeId = resolveRuntimeId(c, sessionId)
         if (runtimeId === 'terminal') {
-          return { success: true, revertMessageID: null, revertDiff: null }
+          return { revertMessageID: null, revertDiff: null }
         }
-        if (!runtimeManager) {
-          throw new Error('runtimeManager is required')
-        }
-        const impl = runtimeManager.getImplementer(runtimeId)
+        const impl = c.runtimeManager.getImplementer(runtimeId)
         const result = await impl.getSessionInfo(worktreePath, sessionId)
-        return { success: true, ...result }
-      } catch (error) {
-        log.error('IPC: agent:sessionInfo failed', { error })
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        }
+        return { ...result }
       }
-    }
+    })
   )
 
   // List available slash commands
   ipcMain.handle(
     'agent:commands',
-    async (_event, { worktreePath, sessionId }: { worktreePath: string; sessionId?: string }) => {
-      log.info('IPC: agent:commands', { worktreePath, sessionId })
-      try {
-        if (!runtimeManager) {
-          throw new Error('runtimeManager is required')
-        }
+    createAgentHandler(ctx, {
+      channel: 'agent:commands',
+      schema: commandsSchema,
+      handler: async ([{ worktreePath, sessionId }], c) => {
+        log.info('IPC: agent:commands', { worktreePath, sessionId })
 
         // For pending:: sessions (not yet materialized in DB), try Claude Code
         // implementer as it may have cached commands from previous sessions.
         if (sessionId?.startsWith('pending::')) {
-          const impl = runtimeManager.getImplementer('claude-code')
+          const impl = c.runtimeManager.getImplementer('claude-code')
           const commands = await impl.listCommands(worktreePath)
           if (commands.length > 0) {
-            return { success: true, commands }
+            return { commands }
           }
         }
 
-        const runtimeId = sessionId
-          ? dbService?.getRuntimeIdForSession(sessionId) ?? 'opencode'
-          : 'opencode'
-        if (runtimeId === 'terminal') {
-          return { success: true, commands: [] }
-        }
-        const impl = runtimeManager.getImplementer(runtimeId)
+        const runtimeId = sessionId ? resolveRuntimeId(c, sessionId) : 'opencode'
+        if (runtimeId === 'terminal') return { commands: [] }
+        const impl = c.runtimeManager.getImplementer(runtimeId)
         const commands = await impl.listCommands(worktreePath)
-        return { success: true, commands }
-      } catch (error) {
-        log.error('IPC: agent:commands failed', { error })
-        return {
-          success: false,
-          commands: [],
-          error: error instanceof Error ? error.message : 'Unknown error'
-        }
+        return { commands }
       }
-    }
+    })
   )
 
   // Send a slash command to a session via the SDK command endpoint
   ipcMain.handle(
     'agent:command',
-    async (
-      _event,
-      {
-        worktreePath,
-        sessionId,
-        command,
-        args
-      }: {
-        worktreePath: string
-        sessionId: string
-        command: string
-        args: string
-        model?: { providerID: string; modelID: string; variant?: string }
-      }
-    ) => {
-      log.info('IPC: agent:command', { worktreePath, sessionId, command, args })
-      try {
-        const runtimeId = dbService?.getRuntimeIdForSession(sessionId) ?? 'opencode'
-        if (runtimeId === 'terminal') {
-          return { success: true }
-        }
-        if (!runtimeManager) {
-          throw new Error('runtimeManager is required')
-        }
-        const impl = runtimeManager.getImplementer(runtimeId)
+    createAgentHandler(ctx, {
+      channel: 'agent:command',
+      schema: commandSchema,
+      handler: async ([{ worktreePath, sessionId, command, args }], c) => {
+        log.info('IPC: agent:command', { worktreePath, sessionId, command, args })
+        const runtimeId = resolveRuntimeId(c, sessionId)
+        if (runtimeId === 'terminal') return {}
+        const impl = c.runtimeManager.getImplementer(runtimeId)
         await impl.sendCommand(worktreePath, sessionId, command, args)
-        return { success: true }
-      } catch (error) {
-        log.error('IPC: agent:command failed', { error })
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        }
+        return {}
       }
-    }
+    })
   )
 
   // Undo last message state via runtime revert API
   ipcMain.handle(
     'agent:undo',
-    async (_event, { worktreePath, sessionId }: { worktreePath: string; sessionId: string }) => {
-      log.info('IPC: agent:undo', { worktreePath, sessionId })
-      try {
-        const runtimeId = dbService?.getRuntimeIdForSession(sessionId) ?? 'opencode'
-        if (runtimeId === 'terminal') {
-          return { success: true }
-        }
-        if (!runtimeManager) {
-          throw new Error('runtimeManager is required')
-        }
-        const impl = runtimeManager.getImplementer(runtimeId)
+    createAgentHandler(ctx, {
+      channel: 'agent:undo',
+      schema: undoSchema,
+      handler: async ([{ worktreePath, sessionId }], c) => {
+        log.info('IPC: agent:undo', { worktreePath, sessionId })
+        const runtimeId = resolveRuntimeId(c, sessionId)
+        if (runtimeId === 'terminal') return {}
+        const impl = c.runtimeManager.getImplementer(runtimeId)
         const result = await impl.undo(worktreePath, sessionId, '')
-        return { success: true, ...(result as Record<string, unknown>) }
-      } catch (error) {
-        const err = error instanceof Error ? error : new Error(String(error))
-        log.error('IPC: agent:undo failed', err)
-        return {
-          success: false,
-          error: err.message
-        }
+        return { ...(result as Record<string, unknown>) }
       }
-    }
+    })
   )
 
   // Redo last undone message state via runtime unrevert/revert API
   ipcMain.handle(
     'agent:redo',
-    async (_event, { worktreePath, sessionId }: { worktreePath: string; sessionId: string }) => {
-      log.info('IPC: agent:redo', { worktreePath, sessionId })
-      try {
-        const runtimeId = dbService?.getRuntimeIdForSession(sessionId) ?? 'opencode'
-        if (runtimeId === 'terminal') {
-          return { success: true }
-        }
-        if (!runtimeManager) {
-          throw new Error('runtimeManager is required')
-        }
-        const impl = runtimeManager.getImplementer(runtimeId)
+    createAgentHandler(ctx, {
+      channel: 'agent:redo',
+      schema: redoSchema,
+      handler: async ([{ worktreePath, sessionId }], c) => {
+        log.info('IPC: agent:redo', { worktreePath, sessionId })
+        const runtimeId = resolveRuntimeId(c, sessionId)
+        if (runtimeId === 'terminal') return {}
+        const impl = c.runtimeManager.getImplementer(runtimeId)
         const result = await impl.redo(worktreePath, sessionId, '')
-        return { success: true, ...(result as Record<string, unknown>) }
-      } catch (error) {
-        const err = error instanceof Error ? error : new Error(String(error))
-        log.error('IPC: agent:redo failed', err)
-        return {
-          success: false,
-          error: err.message
-        }
+        return { ...(result as Record<string, unknown>) }
       }
-    }
+    })
   )
 
   // Get runtime capabilities for a session
-  ipcMain.handle('agent:capabilities', async (_event, { sessionId }: { sessionId?: string }) => {
-    try {
-      if (runtimeManager && dbService && sessionId) {
-        const runtimeId = dbService.getRuntimeIdForSession(sessionId)
-        if (runtimeId) {
-          return { success: true, capabilities: runtimeManager.getCapabilities(runtimeId) }
+  ipcMain.handle(
+    'agent:capabilities',
+    createAgentHandler(ctx, {
+      channel: 'agent:capabilities',
+      schema: capabilitiesSchema,
+      handler: async ([{ sessionId }], c) => {
+        if (sessionId) {
+          const runtimeId = c.dbService.getRuntimeIdForSession(sessionId)
+          if (runtimeId) {
+            return { capabilities: c.runtimeManager.getCapabilities(runtimeId) }
+          }
         }
+        // Default to opencode capabilities
+        return { capabilities: c.runtimeManager.getCapabilities('opencode') }
       }
-      // Default to opencode capabilities
-      const defaultCaps = runtimeManager?.getCapabilities('opencode') ?? null
-      return { success: true, capabilities: defaultCaps }
-    } catch (error) {
-      log.error('IPC: agent:capabilities failed', { error })
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }
-    }
-  })
+    })
+  )
 
   // Reply to a pending question from the AI
   ipcMain.handle(
     'agent:question:reply',
-    async (
-      _event,
-      {
-        requestId,
-        answers,
-        worktreePath
-      }: { requestId: string; answers: string[][]; worktreePath?: string }
-    ) => {
-      log.info('IPC: agent:question:reply', { requestId })
-      try {
-        // Route to Claude Code implementer if this is a Claude Code question
-        if (runtimeManager) {
-          const claudeImpl = runtimeManager.getImplementer('claude-code') as ClaudeCodeImplementer
-          if (claudeImpl.hasPendingQuestion(requestId)) {
-            await claudeImpl.questionReply(requestId, answers, worktreePath)
-            return { success: true }
+    createAgentHandler(ctx, {
+      channel: 'agent:question:reply',
+      schema: questionReplySchema,
+      handler: async ([{ requestId, answers, worktreePath }], c) => {
+        log.info('IPC: agent:question:reply', { requestId })
+        // Route by pending-question lookup since requestId doesn't carry runtime id.
+        // Iterate all registered agents; first owner wins. OpenCode takes the
+        // fallback slot (it doesn't implement hasPendingQuestion today).
+        let fallback: AgentRuntimeAdapter | null = null
+        for (const impl of c.runtimeManager.listAgents()) {
+          if (!impl.hasPendingQuestion) {
+            if (impl.id === 'opencode') fallback = impl
+            continue
           }
-
-          // Route to Codex implementer if this is a Codex question
-          try {
-            const codexImpl = runtimeManager.getImplementer('codex') as CodexImplementer
-            if (codexImpl.hasPendingQuestion(requestId)) {
-              await codexImpl.questionReply(requestId, answers, worktreePath)
-              return { success: true }
-            }
-          } catch {
-            // Codex implementer not registered, continue
+          if (impl.hasPendingQuestion(requestId)) {
+            await impl.questionReply(requestId, answers, worktreePath)
+            return {}
           }
-
-          // Fall through to OpenCode adapter
-          const openCodeImpl = runtimeManager.getImplementer('opencode')
-          await openCodeImpl.questionReply(requestId, answers, worktreePath)
-          return { success: true }
         }
-        throw new Error('runtimeManager is required')
-      } catch (error) {
-        log.error('IPC: agent:question:reply failed', { error })
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
+        if (fallback) {
+          await fallback.questionReply(requestId, answers, worktreePath)
+          return {}
         }
+        throw new Error(`No agent owns pending question: ${requestId}`)
       }
-    }
+    })
   )
 
   // Reject/dismiss a pending question from the AI
   ipcMain.handle(
     'agent:question:reject',
-    async (_event, { requestId, worktreePath }: { requestId: string; worktreePath?: string }) => {
-      log.info('IPC: agent:question:reject', { requestId })
-      try {
-        // Route to Claude Code implementer if this is a Claude Code question
-        if (runtimeManager) {
-          const claudeImpl = runtimeManager.getImplementer('claude-code') as ClaudeCodeImplementer
-          if (claudeImpl.hasPendingQuestion(requestId)) {
-            await claudeImpl.questionReject(requestId, worktreePath)
-            return { success: true }
+    createAgentHandler(ctx, {
+      channel: 'agent:question:reject',
+      schema: questionRejectSchema,
+      handler: async ([{ requestId, worktreePath }], c) => {
+        log.info('IPC: agent:question:reject', { requestId })
+        let fallback: AgentRuntimeAdapter | null = null
+        for (const impl of c.runtimeManager.listAgents()) {
+          if (!impl.hasPendingQuestion) {
+            if (impl.id === 'opencode') fallback = impl
+            continue
           }
-
-          // Route to Codex implementer if this is a Codex question
-          try {
-            const codexImpl = runtimeManager.getImplementer('codex') as CodexImplementer
-            if (codexImpl.hasPendingQuestion(requestId)) {
-              await codexImpl.questionReject(requestId, worktreePath)
-              return { success: true }
-            }
-          } catch {
-            // Codex implementer not registered, continue
+          if (impl.hasPendingQuestion(requestId)) {
+            await impl.questionReject(requestId, worktreePath)
+            return {}
           }
-
-          // Fall through to OpenCode adapter
-          const openCodeImpl = runtimeManager.getImplementer('opencode')
-          await openCodeImpl.questionReject(requestId, worktreePath)
-          return { success: true }
         }
-        throw new Error('runtimeManager is required')
-      } catch (error) {
-        log.error('IPC: agent:question:reject failed', { error })
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
+        if (fallback) {
+          await fallback.questionReject(requestId, worktreePath)
+          return {}
         }
+        throw new Error(`No agent owns pending question: ${requestId}`)
       }
-    }
+    })
   )
 
   // Approve a pending plan (ExitPlanMode) — unblocks the SDK to implement
   ipcMain.handle(
     'agent:plan:approve',
-    async (
-      _event,
-      {
-        worktreePath,
-        hiveSessionId,
-        requestId
-      }: { worktreePath: string; hiveSessionId: string; requestId?: string }
-    ) => {
-      log.info('IPC: agent:plan:approve', { hiveSessionId, requestId })
-      try {
+    createAgentHandler(ctx, {
+      channel: 'agent:plan:approve',
+      schema: planApproveSchema,
+      handler: async ([{ worktreePath, hiveSessionId, requestId }], c) => {
+        log.info('IPC: agent:plan:approve', { hiveSessionId, requestId })
         // TODO(codex): Generalize when Codex implements this HITL flow
-        if (runtimeManager) {
-          const claudeImpl = runtimeManager.getImplementer('claude-code') as ClaudeCodeImplementer
-          if (
-            (requestId && claudeImpl.hasPendingPlan(requestId)) ||
-            claudeImpl.hasPendingPlanForSession(hiveSessionId)
-          ) {
-            await claudeImpl.planApprove(worktreePath, hiveSessionId, requestId)
-            return { success: true }
-          }
+        const claudeImpl = c.runtimeManager.getImplementer('claude-code') as ClaudeCodeImplementer
+        if (
+          (requestId && claudeImpl.hasPendingPlan(requestId)) ||
+          claudeImpl.hasPendingPlanForSession(hiveSessionId)
+        ) {
+          await claudeImpl.planApprove(worktreePath, hiveSessionId, requestId)
+          return {}
         }
-        return { success: false, error: 'No pending plan found' }
-      } catch (error) {
-        log.error('IPC: agent:plan:approve failed', { error })
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        }
+        throw new Error('No pending plan found')
       }
-    }
+    })
   )
 
   // Reject a pending plan with user feedback — Claude will revise
   ipcMain.handle(
     'agent:plan:reject',
-    async (
-      _event,
-      {
-        worktreePath,
-        hiveSessionId,
-        feedback,
-        requestId
-      }: { worktreePath: string; hiveSessionId: string; feedback: string; requestId?: string }
-    ) => {
-      log.info('IPC: agent:plan:reject', {
-        hiveSessionId,
-        requestId,
-        feedbackLength: feedback.length
-      })
-      try {
-        // TODO(codex): Generalize when Codex implements this HITL flow
-        if (runtimeManager) {
-          const claudeImpl = runtimeManager.getImplementer('claude-code') as ClaudeCodeImplementer
-          if (
-            (requestId && claudeImpl.hasPendingPlan(requestId)) ||
-            claudeImpl.hasPendingPlanForSession(hiveSessionId)
-          ) {
-            await claudeImpl.planReject(worktreePath, hiveSessionId, feedback, requestId)
-            return { success: true }
-          }
+    createAgentHandler(ctx, {
+      channel: 'agent:plan:reject',
+      schema: planRejectSchema,
+      handler: async ([{ worktreePath, hiveSessionId, feedback, requestId }], c) => {
+        log.info('IPC: agent:plan:reject', {
+          hiveSessionId,
+          requestId,
+          feedbackLength: feedback.length
+        })
+        const claudeImpl = c.runtimeManager.getImplementer('claude-code') as ClaudeCodeImplementer
+        if (
+          (requestId && claudeImpl.hasPendingPlan(requestId)) ||
+          claudeImpl.hasPendingPlanForSession(hiveSessionId)
+        ) {
+          await claudeImpl.planReject(worktreePath, hiveSessionId, feedback, requestId)
+          return {}
         }
-        return { success: false, error: 'No pending plan found' }
-      } catch (error) {
-        log.error('IPC: agent:plan:reject failed', { error })
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        }
+        throw new Error('No pending plan found')
       }
-    }
+    })
   )
 
   // Reply to a pending permission request
   ipcMain.handle(
     'agent:permission:reply',
-    async (
-      _event,
-      {
-        requestId,
-        reply,
-        worktreePath,
-        message
-      }: {
-        requestId: string
-        reply: 'once' | 'always' | 'reject'
-        worktreePath?: string
-        message?: string
-      }
-    ) => {
-      log.info('IPC: agent:permission:reply', { requestId, reply })
-      try {
-        // Route to Codex implementer if this is a Codex approval
-        if (runtimeManager) {
-          try {
-            const codexImpl = runtimeManager.getImplementer('codex') as CodexImplementer
-            if (codexImpl.hasPendingApproval(requestId)) {
-              await codexImpl.permissionReply(requestId, reply, worktreePath)
-              return { success: true }
-            }
-          } catch {
-            // Codex implementer not registered, continue
+    createAgentHandler(ctx, {
+      channel: 'agent:permission:reply',
+      schema: permissionReplySchema,
+      handler: async ([{ requestId, reply, worktreePath, message }], c) => {
+        log.info('IPC: agent:permission:reply', { requestId, reply })
+        // Route by pending-approval lookup. OpenCode is the fallback: it doesn't
+        // implement hasPendingApproval today, and its permission flow owns
+        // requests that never passed through another adapter.
+        let fallback: AgentRuntimeAdapter | null = null
+        for (const impl of c.runtimeManager.listAgents()) {
+          if (!impl.hasPendingApproval) {
+            if (impl.id === 'opencode') fallback = impl
+            continue
+          }
+          if (impl.hasPendingApproval(requestId)) {
+            await impl.permissionReply(requestId, reply, worktreePath, message)
+            return {}
           }
         }
-        // Fall through to OpenCode (uses extra `message` arg not in the adapter interface)
-        await openCodeService.permissionReply(requestId, reply, worktreePath, message)
-        return { success: true }
-      } catch (error) {
-        log.error('IPC: agent:permission:reply failed', { error })
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
+        if (fallback) {
+          await fallback.permissionReply(requestId, reply, worktreePath, message)
+          return {}
         }
+        throw new Error(`No agent owns pending approval: ${requestId}`)
       }
-    }
+    })
   )
 
   // List all pending permission requests
   ipcMain.handle(
     'agent:permission:list',
-    async (_event, { worktreePath }: { worktreePath?: string }) => {
-      log.info('IPC: agent:permission:list')
-      try {
-        // Aggregate permissions from all implementers
-        let permissions: unknown[] = []
-        if (runtimeManager) {
-          const openCodeImpl = runtimeManager.getImplementer('opencode')
-          permissions = await openCodeImpl.permissionList(worktreePath)
-
-          // Also include Codex pending approvals
+    createAgentHandler(ctx, {
+      channel: 'agent:permission:list',
+      schema: permissionListSchema,
+      handler: async ([{ worktreePath }], c) => {
+        log.info('IPC: agent:permission:list')
+        // Aggregate permissions from every registered agent.
+        const aggregated: unknown[] = []
+        for (const impl of c.runtimeManager.listAgents()) {
           try {
-            const codexImpl = runtimeManager.getImplementer('codex') as CodexImplementer
-            const codexPermissions = await codexImpl.permissionList(worktreePath)
-            permissions = [...permissions, ...codexPermissions]
-          } catch {
-            // Codex implementer not registered, continue
+            const permissions = await impl.permissionList(worktreePath)
+            aggregated.push(...permissions)
+          } catch (err) {
+            log.debug('permissionList failed for agent; skipping', {
+              agent: impl.id,
+              err: err instanceof Error ? err.message : String(err)
+            })
           }
         }
-
-        return { success: true, permissions }
-      } catch (error) {
-        log.error('IPC: agent:permission:list failed', { error })
-        return {
-          success: false,
-          permissions: [],
-          error: error instanceof Error ? error.message : 'Unknown error'
-        }
+        return { permissions: aggregated }
       }
-    }
+    })
   )
 
   // Reply to a pending command approval request (for command filter system)
   ipcMain.handle(
     'agent:commandApprovalReply',
-    async (
-      _event,
-      {
-        requestId,
-        approved,
-        remember,
-        pattern,
-        worktreePath: _worktreePath,
-        patterns
-      }: {
-        requestId: string
-        approved: boolean
-        remember?: 'allow' | 'block'
-        pattern?: string
-        worktreePath?: string
-        patterns?: string[]
-      }
-    ) => {
-      log.info('IPC: agent:commandApprovalReply', {
-        requestId,
-        approved,
-        remember,
-        pattern,
-        patterns
-      })
-      try {
+    createAgentHandler(ctx, {
+      channel: 'agent:commandApprovalReply',
+      schema: commandApprovalReplySchema,
+      handler: async ([{ requestId, approved, remember, pattern, patterns }], c) => {
+        log.info('IPC: agent:commandApprovalReply', {
+          requestId,
+          approved,
+          remember,
+          pattern,
+          patterns
+        })
         // TODO(codex): Generalize when Codex implements this HITL flow
         // Route to Claude Code implementer (command approval is Claude Code specific)
-        if (runtimeManager) {
-          const impl = runtimeManager.getImplementer('claude-code')
-          if (impl instanceof ClaudeCodeImplementer) {
-            impl.handleApprovalReply(requestId, approved, remember, pattern, patterns)
-            return { success: true }
-          }
+        const impl = c.runtimeManager.getImplementer('claude-code')
+        if (impl instanceof ClaudeCodeImplementer) {
+          impl.handleApprovalReply(requestId, approved, remember, pattern, patterns)
+          return {}
         }
         throw new Error('Claude Code implementer not available')
-      } catch (error) {
-        log.error('IPC: agent:commandApprovalReply failed', { error })
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        }
       }
-    }
+    })
   )
 
   // Rename a session's title via the runtime's PATCH API
   ipcMain.handle(
     'agent:renameSession',
-    async (
-      _event,
-      {
-        runtimeSessionId,
-        title,
-        worktreePath
-      }: { runtimeSessionId: string; title: string; worktreePath?: string }
-    ) => {
-      log.info('IPC: agent:renameSession', { runtimeSessionId, title })
-      try {
-        const runtimeId = dbService?.getRuntimeIdForSession(runtimeSessionId) ?? 'opencode'
-        if (runtimeId === 'terminal') {
-          return { success: true }
-        }
-        if (!runtimeManager) {
-          throw new Error('runtimeManager is required')
-        }
-        const impl = runtimeManager.getImplementer(runtimeId)
+    createAgentHandler(ctx, {
+      channel: 'agent:renameSession',
+      schema: renameSessionSchema,
+      handler: async ([{ runtimeSessionId, title, worktreePath }], c) => {
+        log.info('IPC: agent:renameSession', { runtimeSessionId, title })
+        const runtimeId = resolveRuntimeId(c, runtimeSessionId)
+        if (runtimeId === 'terminal') return {}
+        const impl = c.runtimeManager.getImplementer(runtimeId)
         await impl.renameSession(worktreePath ?? '', runtimeSessionId, title)
-        return { success: true }
-      } catch (error) {
-        log.error('IPC: agent:renameSession failed', { error })
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        }
+        return {}
       }
-    }
+    })
   )
 
   // Fork an existing session at an optional message boundary.
-  // NOTE: forkSession is OpenCode-specific today; not part of AgentRuntimeAdapter interface.
+  // Routes through the adapter's optional forkSession method; non-supporting
+  // agents surface a clean FORK_NOT_SUPPORTED error.
   ipcMain.handle(
     'agent:fork',
-    async (
-      _event,
-      {
-        worktreePath,
-        sessionId,
-        messageId
-      }: { worktreePath: string; sessionId: string; messageId?: string }
-    ) => {
-      log.info('IPC: agent:fork', { worktreePath, sessionId, messageId })
-      try {
-        const result = await openCodeService.forkSession(worktreePath, sessionId, messageId)
-        return { success: true, ...result }
-      } catch (error) {
-        log.error('IPC: agent:fork failed', { error })
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
+    createAgentHandler(ctx, {
+      channel: 'agent:fork',
+      schema: forkSchema,
+      handler: async ([{ worktreePath, sessionId, messageId }], c) => {
+        log.info('IPC: agent:fork', { worktreePath, sessionId, messageId })
+        const runtimeId = resolveRuntimeId(c, sessionId)
+        if (runtimeId === 'terminal') {
+          throw new Error('Terminal sessions cannot be forked')
         }
+        const impl = c.runtimeManager.getImplementer(runtimeId)
+        if (!impl.forkSession) {
+          throw new Error(`Runtime ${runtimeId} does not support forkSession`)
+        }
+        const result = await impl.forkSession(worktreePath, sessionId, messageId)
+        return { ...result }
       }
-    }
+    })
   )
 
   // Get messages from a session
   ipcMain.handle(
     'agent:messages',
-    async (_event, worktreePath: string, runtimeSessionId: string) => {
-      log.info('IPC: agent:messages', { worktreePath, runtimeSessionId })
-      try {
-        const runtimeId = dbService?.getRuntimeIdForSession(runtimeSessionId) ?? 'opencode'
-        if (runtimeId === 'terminal') {
-          return { success: true, messages: [] }
-        }
-        if (!runtimeManager) {
-          throw new Error('runtimeManager is required')
-        }
-        const impl = runtimeManager.getImplementer(runtimeId)
+    createAgentHandler(ctx, {
+      channel: 'agent:messages',
+      schema: messagesSchema,
+      handler: async ([worktreePath, runtimeSessionId], c) => {
+        log.info('IPC: agent:messages', { worktreePath, runtimeSessionId })
+        const runtimeId = resolveRuntimeId(c, runtimeSessionId)
+        if (runtimeId === 'terminal') return { messages: [] as unknown[] }
+        const impl = c.runtimeManager.getImplementer(runtimeId)
         const messages = await impl.getMessages(worktreePath, runtimeSessionId)
-        return { success: true, messages }
-      } catch (error) {
-        log.error('IPC: agent:messages failed', { error })
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error',
-          messages: []
-        }
+        return { messages }
       }
-    }
+    })
   )
 
   // Abort a streaming session
   ipcMain.handle(
     'agent:abort',
-    async (_event, worktreePath: string, runtimeSessionId: string) => {
-      log.info('IPC: agent:abort', { worktreePath, runtimeSessionId })
-      try {
-        const runtimeId = dbService?.getRuntimeIdForSession(runtimeSessionId) ?? 'opencode'
-        if (runtimeId === 'terminal') {
-          return { success: true }
-        }
-        if (!runtimeManager) {
-          throw new Error('runtimeManager is required')
-        }
-        const impl = runtimeManager.getImplementer(runtimeId)
-        const result = await impl.abort(worktreePath, runtimeSessionId)
-        return { success: result }
-      } catch (error) {
-        log.error('IPC: agent:abort failed', { error })
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        }
+    createAgentHandler(ctx, {
+      channel: 'agent:abort',
+      schema: abortSchema,
+      handler: async ([worktreePath, runtimeSessionId], c) => {
+        log.info('IPC: agent:abort', { worktreePath, runtimeSessionId })
+        const runtimeId = resolveRuntimeId(c, runtimeSessionId)
+        if (runtimeId === 'terminal') return {}
+        const impl = c.runtimeManager.getImplementer(runtimeId)
+        const ok = await impl.abort(worktreePath, runtimeSessionId)
+        return { aborted: ok }
       }
-    }
+    })
   )
 
   log.info('Agent IPC handlers registered')

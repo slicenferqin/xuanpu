@@ -497,7 +497,23 @@ export function AgentTimeline({
       })
   }, [timelineMessages, suppressTodoCards])
 
-  // Convert live streaming parts into timeline nodes
+  // Convert live streaming parts into timeline nodes.
+  // Dedupe by tool_use id: if a tool_use with the same id is already committed
+  // in timelineMessages, skip the streaming copy — otherwise a switch-away-and-back
+  // during a turn would render the same tool card twice (once from DB-persisted
+  // partial state, once from the restored streaming buffer).
+  const committedToolUseIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const msg of timelineMessages) {
+      for (const part of msg.parts ?? []) {
+        if (part.type === 'tool_use' && part.toolUse?.id) {
+          ids.add(part.toolUse.id)
+        }
+      }
+    }
+    return ids
+  }, [timelineMessages])
+
   const streamingNodes = useMemo(() => {
     if (streamingParts.length === 0) return []
     const placeholderMsg: TimelineMessage = {
@@ -510,6 +526,11 @@ export function AgentTimeline({
 
     for (let i = 0; i < streamingParts.length; i++) {
       const sp = streamingParts[i]
+
+      // Dedupe tool_use that's already committed to timelineMessages
+      if (sp.type === 'tool_use' && sp.toolUse?.id && committedToolUseIds.has(sp.toolUse.id)) {
+        continue
+      }
 
       if (sp.type === 'text' && sp.text) {
         result.push({
@@ -581,7 +602,7 @@ export function AgentTimeline({
       if (suppressTodoCards && node.cardType === 'todo') return false
       return true
     })
-  }, [streamingParts, suppressTodoCards])
+  }, [streamingParts, suppressTodoCards, committedToolUseIds])
 
   return (
     <div
