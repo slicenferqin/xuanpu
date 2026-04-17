@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 15
+export const CURRENT_SCHEMA_VERSION = 16
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -490,5 +490,12 @@ export const MIGRATIONS: Migration[] = [
     down: `
       -- SQLite does not support DROP COLUMN in older versions
     `
+  },
+  {
+    version: 16,
+    name: 'add_connection_model_profile',
+    up: `-- NOTE: ALTER TABLE for model_profile_id is handled idempotently by
+         -- ensureConnectionTables() in database.ts to avoid "duplicate column" errors.`,
+    down: `-- SQLite cannot drop columns; this is a no-op for safety`
   }
 ]

@@ -334,6 +334,7 @@ export interface Connection {
   color: string | null // JSON-serialised ConnectionColorQuad
   status: 'active' | 'archived'
   pinned: number // 0 = not pinned, 1 = pinned
+  model_profile_id: string | null
   created_at: string
   updated_at: string
 }
@@ -343,6 +344,7 @@ export interface ConnectionCreate {
   path: string
   color?: string | null
   custom_name?: string | null
+  model_profile_id?: string | null
 }
 
 export interface ConnectionUpdate {
@@ -352,6 +354,7 @@ export interface ConnectionUpdate {
   color?: string | null
   status?: 'active' | 'archived'
   pinned?: number
+  model_profile_id?: string | null
 }
 
 export interface ConnectionMember {
