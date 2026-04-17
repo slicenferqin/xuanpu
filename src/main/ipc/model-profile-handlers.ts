@@ -85,8 +85,8 @@ export function registerModelProfileHandlers(): void {
 
   ipcMain.handle(
     'model-profile:resolve',
-    (_event, worktreeId?: string, projectId?: string) => {
-      return getDatabase().resolveModelProfile(worktreeId, projectId)
+    (_event, worktreeId?: string, projectId?: string, connectionId?: string) => {
+      return getDatabase().resolveModelProfile(worktreeId, projectId, connectionId)
     }
   )
 }

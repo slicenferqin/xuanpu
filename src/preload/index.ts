@@ -1747,7 +1747,9 @@ const connectionOps = {
     ipcRenderer.invoke('connection:rename', { connectionId, customName }),
   setPinned: (connectionId: string, pinned: boolean) =>
     ipcRenderer.invoke('connection:setPinned', { connectionId, pinned }),
-  getPinned: () => ipcRenderer.invoke('connection:getPinned')
+  getPinned: () => ipcRenderer.invoke('connection:getPinned'),
+  updateModelProfile: (connectionId: string, modelProfileId: string | null) =>
+    ipcRenderer.invoke('connection:updateModelProfile', { connectionId, modelProfileId })
 }
 
 const usageOps = {
@@ -1802,8 +1804,8 @@ const modelProfileOps = {
   ) => ipcRenderer.invoke('model-profile:update', id, data),
   delete: (id: string) => ipcRenderer.invoke('model-profile:delete', id),
   setDefault: (id: string) => ipcRenderer.invoke('model-profile:set-default', id),
-  resolve: (worktreeId?: string, projectId?: string) =>
-    ipcRenderer.invoke('model-profile:resolve', worktreeId, projectId)
+  resolve: (worktreeId?: string, projectId?: string, connectionId?: string) =>
+    ipcRenderer.invoke('model-profile:resolve', worktreeId, projectId, connectionId)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

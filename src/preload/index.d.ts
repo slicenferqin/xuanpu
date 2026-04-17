@@ -1261,6 +1261,10 @@ declare global {
         pinned: boolean
       ) => Promise<{ success: boolean; error?: string }>
       getPinned: () => Promise<ConnectionWithMembers[]>
+      updateModelProfile: (
+        connectionId: string,
+        modelProfileId: string | null
+      ) => Promise<{ success: boolean; error?: string }>
     }
     usageOps: {
       fetch: () => Promise<import('../shared/types/usage').UsageResult>
@@ -1372,7 +1376,8 @@ declare global {
       setDefault: (id: string) => Promise<void>
       resolve: (
         worktreeId?: string,
-        projectId?: string
+        projectId?: string,
+        connectionId?: string
       ) => Promise<{
         id: string
         name: string
