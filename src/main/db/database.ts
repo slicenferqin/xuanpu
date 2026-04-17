@@ -465,9 +465,10 @@ export class DatabaseService {
 
   deleteModelProfile(id: string): boolean {
     const db = this.getDb()
-    // Nullify references in projects and worktrees
+    // Nullify references in projects, worktrees, and connections
     db.prepare('UPDATE projects SET model_profile_id = NULL WHERE model_profile_id = ?').run(id)
     db.prepare('UPDATE worktrees SET model_profile_id = NULL WHERE model_profile_id = ?').run(id)
+    db.prepare('UPDATE connections SET model_profile_id = NULL WHERE model_profile_id = ?').run(id)
     const result = db.prepare('DELETE FROM model_profiles WHERE id = ?').run(id)
     return result.changes > 0
   }
@@ -493,10 +494,15 @@ export class DatabaseService {
     return { ...row, is_default: Boolean(row.is_default) }
   }
 
-  resolveModelProfile(worktreeId?: string, projectId?: string): ModelProfile | null {
+  resolveModelProfile(
+    worktreeId?: string,
+    projectId?: string,
+    connectionId?: string
+  ): ModelProfile | null {
+    const db = this.getDb()
+
     // 1. Check worktree's profile
     if (worktreeId) {
-      const db = this.getDb()
       const row = db
         .prepare('SELECT model_profile_id FROM worktrees WHERE id = ?')
         .get(worktreeId) as { model_profile_id: string | null } | undefined
@@ -505,9 +511,18 @@ export class DatabaseService {
         if (profile) return profile
       }
     }
-    // 2. Check project's profile
+    // 2. Check connection's profile
+    if (connectionId) {
+      const row = db
+        .prepare('SELECT model_profile_id FROM connections WHERE id = ?')
+        .get(connectionId) as { model_profile_id: string | null } | undefined
+      if (row?.model_profile_id) {
+        const profile = this.getModelProfile(row.model_profile_id)
+        if (profile) return profile
+      }
+    }
+    // 3. Check project's profile
     if (projectId) {
-      const db = this.getDb()
       const row = db
         .prepare('SELECT model_profile_id FROM projects WHERE id = ?')
         .get(projectId) as { model_profile_id: string | null } | undefined
@@ -516,7 +531,7 @@ export class DatabaseService {
         if (profile) return profile
       }
     }
-    // 3. Fall back to global default
+    // 4. Fall back to global default
     return this.getDefaultModelProfile()
   }
 
@@ -1773,20 +1788,22 @@ export class DatabaseService {
       path: data.path,
       color: data.color ?? null,
       pinned: 0,
+      model_profile_id: data.model_profile_id ?? null,
       status: 'active',
       created_at: now,
       updated_at: now
     }
 
     db.prepare(
-      `INSERT INTO connections (id, name, custom_name, path, color, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO connections (id, name, custom_name, path, color, model_profile_id, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       connection.id,
       connection.name,
       connection.custom_name,
       connection.path,
       connection.color,
+      connection.model_profile_id,
       connection.status,
       connection.created_at,
       connection.updated_at
@@ -1872,6 +1889,10 @@ export class DatabaseService {
     if (data.pinned !== undefined) {
       updates.push('pinned = ?')
       values.push(data.pinned)
+    }
+    if (data.model_profile_id !== undefined) {
+      updates.push('model_profile_id = ?')
+      values.push(data.model_profile_id ?? null)
     }
 
     values.push(id)
