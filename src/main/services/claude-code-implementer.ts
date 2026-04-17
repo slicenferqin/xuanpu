@@ -17,11 +17,13 @@ import { generateSessionTitle } from './claude-session-title'
 import { autoRenameWorktreeBranch } from './git-service'
 import { getEventBus } from '../../server/event-bus'
 import { Options, PermissionMode } from '@anthropic-ai/claude-agent-sdk'
+import type { SDKControlGetContextUsageResponse } from '@anthropic-ai/claude-agent-sdk'
 import { CommandFilterService, type CommandFilterSettings } from './command-filter-service'
 import { createLspMcpServerConfig, LspService } from './lsp'
 import { APP_SETTINGS_DB_KEY } from '@shared/types/settings'
 import { getActiveAppHomeDir } from '@shared/app-identity'
 import { emitAgentEvent } from '@shared/lib/normalize-agent-event'
+import { resolveRuntimeModelId } from '@shared/usage/models'
 import { calculateUsageCost, resolvePricingModelKey } from '@shared/usage/pricing'
 
 const log = createLogger({ component: 'ClaudeCodeImplementer' })
@@ -59,6 +61,7 @@ export interface ClaudeQuery {
   return?(value?: void): Promise<IteratorResult<unknown, void>>
   next(...args: unknown[]): Promise<IteratorResult<unknown, void>>
   [Symbol.asyncIterator](): AsyncGenerator<unknown, void>
+  getContextUsage?(): Promise<SDKControlGetContextUsageResponse>
   rewindFiles?: (
     userMessageId: string,
     options?: { dryRun?: boolean }
@@ -1045,9 +1048,12 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         // survives the getMessages() → finalizeResponse() reload cycle.
         // Without this, the CompactionPill would disappear when the renderer
         // refreshes messages from the in-memory cache on stream completion.
+        let compactBoundaryDetected = false
+
         if (msgType === 'system') {
           const subtype = (sdkMessage as Record<string, unknown>).subtype as string | undefined
           if (subtype === 'compact_boundary') {
+            compactBoundaryDetected = true
             const meta = (sdkMessage as Record<string, unknown>).compact_metadata as
               | Record<string, unknown>
               | undefined
@@ -1068,17 +1074,19 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
               trigger: meta?.trigger,
               totalMessages: session.messages.length
             })
-            // Notify renderer to reset context token snapshot after compaction.
-            emitAgentEvent(this.mainWindow, {
-              type: 'session.context_compacted',
-              sessionId: session.hiveSessionId,
-              data: {}
-            })
           }
         }
 
         // Emit normalized event
         this.emitSdkMessage(session.hiveSessionId, sdkMessage, messageIndex, session.toolNames)
+        if (compactBoundaryDetected) {
+          await this.emitClaudeContextUsageSnapshot(session)
+          emitAgentEvent(this.mainWindow, {
+            type: 'session.context_compacted',
+            sessionId: session.hiveSessionId,
+            data: {}
+          })
+        }
         messageIndex++
       }
 
@@ -1467,6 +1475,83 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
     const sessionKey = this.pendingPlanSessions.get(requestId)
     if (!sessionKey) return undefined
     return this.sessions.get(sessionKey)
+  }
+
+  private resolveClaudeContextModel(model: string | undefined): string | null {
+    if (!model) return null
+
+    return (
+      resolveRuntimeModelId(model, 'anthropic') ??
+      resolvePricingModelKey(model, 'claude-code') ??
+      null
+    )
+  }
+
+  private async emitClaudeContextUsageSnapshot(session: ClaudeSessionState): Promise<boolean> {
+    const query = session.query
+    if (!query?.getContextUsage) {
+      log.debug('Claude context refresh unavailable on current query', {
+        hiveSessionId: session.hiveSessionId
+      })
+      return false
+    }
+
+    try {
+      const usage = await query.getContextUsage()
+      const modelID = this.resolveClaudeContextModel(usage.model)
+
+      emitAgentEvent(this.mainWindow, {
+        type: 'session.context_usage',
+        sessionId: session.hiveSessionId,
+        data: {
+          tokens: {
+            input: 0,
+            output: 0
+          },
+          ...(modelID
+            ? {
+                model: {
+                  providerID: 'anthropic',
+                  modelID
+                }
+              }
+            : {}),
+          contextWindow: usage.maxTokens,
+          breakdown: {
+            usedTokens: usage.totalTokens,
+            maxTokens: usage.maxTokens,
+            ...(typeof usage.rawMaxTokens === 'number' ? { rawMaxTokens: usage.rawMaxTokens } : {}),
+            percentage: usage.percentage,
+            ...(Array.isArray(usage.categories) && usage.categories.length > 0
+              ? {
+                  categories: usage.categories.map((category) => ({
+                    name: category.name,
+                    tokens: category.tokens,
+                    color: category.color,
+                    ...(category.isDeferred === true ? { isDeferred: true } : {})
+                  }))
+                }
+              : {})
+          }
+        }
+      })
+
+      log.info('Emitted live Claude context usage snapshot', {
+        hiveSessionId: session.hiveSessionId,
+        usedTokens: usage.totalTokens,
+        maxTokens: usage.maxTokens,
+        percentage: usage.percentage,
+        modelID
+      })
+
+      return true
+    } catch (error) {
+      log.warn('Failed to refresh Claude context usage after compaction', {
+        hiveSessionId: session.hiveSessionId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return false
+    }
   }
 
   /** Approve a pending plan — unblocks the SDK to continue implementation */
@@ -2913,12 +2998,22 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         if (usage && modelStr) {
           try {
             const pricingKey = resolvePricingModelKey(modelStr, 'claude-code')
-            turnCost = calculateUsageCost(pricingKey, {
-              input: typeof usage.input_tokens === 'number' ? usage.input_tokens : 0,
-              output: typeof usage.output_tokens === 'number' ? usage.output_tokens : 0,
-              cacheWrite: typeof usage.cache_creation_input_tokens === 'number' ? usage.cache_creation_input_tokens : 0,
-              cacheRead: typeof usage.cache_read_input_tokens === 'number' ? usage.cache_read_input_tokens : 0
-            }, 'claude-code')
+            turnCost = calculateUsageCost(
+              pricingKey,
+              {
+                input: typeof usage.input_tokens === 'number' ? usage.input_tokens : 0,
+                output: typeof usage.output_tokens === 'number' ? usage.output_tokens : 0,
+                cacheWrite:
+                  typeof usage.cache_creation_input_tokens === 'number'
+                    ? usage.cache_creation_input_tokens
+                    : 0,
+                cacheRead:
+                  typeof usage.cache_read_input_tokens === 'number'
+                    ? usage.cache_read_input_tokens
+                    : 0
+              },
+              'claude-code'
+            )
           } catch {
             // Pricing data unavailable — skip cost
           }
@@ -3103,12 +3198,6 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
               }
             }
           })
-          // Notify renderer to reset context token snapshot after compaction.
-          emitAgentEvent(this.mainWindow, {
-            type: 'session.context_compacted',
-            sessionId: hiveSessionId,
-            data: {}
-          })
         }
         break
       }
@@ -3229,7 +3318,8 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
     let result: void | RewindFilesResult | undefined
     let gotMessage = false
     try {
-      for await (const _message of rewindQuery) {
+      for await (const message of rewindQuery) {
+        void message
         gotMessage = true
         result = await queryObj.rewindFiles(targetUuid)
         break

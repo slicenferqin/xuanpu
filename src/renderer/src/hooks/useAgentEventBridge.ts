@@ -26,15 +26,12 @@ import { useQuestionStore } from '@/stores/useQuestionStore'
 import { usePermissionStore } from '@/stores/usePermissionStore'
 import { useCommandApprovalStore } from '@/stores/useCommandApprovalStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
-import {
-  useContextStore,
-  type TokenInfo,
-  type SessionModelRef
-} from '@/stores/useContextStore'
+import { useContextStore } from '@/stores/useContextStore'
 import { useRecentStore } from '@/stores/useRecentStore'
 import { useUsageStore, resolveUsageProvider } from '@/stores'
 import { useSessionRuntimeStore } from '@/stores/useSessionRuntimeStore'
 import { extractTokens, extractCost, extractModelRef, extractModelUsage } from '@/lib/token-utils'
+import { applySessionContextUsage } from '@/lib/context-usage'
 import { COMPLETION_WORDS } from '@/lib/format-utils'
 import { messageSendTimes } from '@/lib/message-send-times'
 import { checkAutoApprove } from '@/lib/permissionUtils'
@@ -50,9 +47,7 @@ interface PromptDispatchContext {
   opencodeSessionId: string
 }
 
-function resolvePromptDispatchContextFromStores(
-  sessionId: string
-): PromptDispatchContext | null {
+function resolvePromptDispatchContextFromStores(sessionId: string): PromptDispatchContext | null {
   const sessionState = useSessionStore.getState()
 
   for (const [worktreeId, sessions] of sessionState.sessionsByWorktree) {
@@ -203,6 +198,29 @@ function trackRecentActivity(sessionId: string): void {
   }
 }
 
+function getSessionFallbackProviderId(sessionId: string): string | undefined {
+  const sessionState = useSessionStore.getState() as {
+    getSessionById?: (id: string) => {
+      model_provider_id?: string | null
+      agent_sdk?: string | null
+    } | null
+  }
+  const session =
+    typeof sessionState.getSessionById === 'function'
+      ? sessionState.getSessionById(sessionId)
+      : null
+  if (!session) return undefined
+
+  if (session.model_provider_id) {
+    return session.model_provider_id
+  }
+
+  if (session.agent_sdk === 'claude-code') return 'anthropic'
+  if (session.agent_sdk === 'codex') return 'codex'
+
+  return undefined
+}
+
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
@@ -245,9 +263,7 @@ export function useAgentEventBridge(): void {
             if (models) {
               for (const m of models) {
                 if (m.contextLimit > 0) {
-                  useContextStore
-                    .getState()
-                    .setModelLimit(m.modelID, m.contextLimit, m.providerID)
+                  useContextStore.getState().setModelLimit(m.modelID, m.contextLimit, m.providerID)
                   useContextStore.getState().setModelLimit(m.modelID, m.contextLimit)
                 }
               }
@@ -257,24 +273,18 @@ export function useAgentEventBridge(): void {
 
           // ----- Context usage (Codex) -----
           if (event.type === 'session.context_usage') {
-            const { tokens, model, contextWindow } = event.data as {
-              tokens: TokenInfo
-              model: SessionModelRef
-              contextWindow: number
-            }
-            useContextStore.getState().setSessionTokens(sessionId, tokens, model)
-            if (contextWindow > 0 && model) {
-              useContextStore
-                .getState()
-                .setModelLimit(model.modelID, contextWindow, model.providerID)
-              useContextStore.getState().setModelLimit(model.modelID, contextWindow)
-            }
+            applySessionContextUsage(sessionId, event.data)
             return
           }
 
           // ----- Context compaction -----
+          if (event.type === 'session.compaction_started') {
+            useContextStore.getState().setSessionContextRefreshing(sessionId, true)
+            return
+          }
+
           if (event.type === 'session.context_compacted') {
-            useContextStore.getState().clearSessionTokenSnapshot(sessionId)
+            useContextStore.getState().setSessionContextRefreshing(sessionId, true)
             return
           }
 
@@ -306,7 +316,8 @@ export function useAgentEventBridge(): void {
               if (data) {
                 const tokens = extractTokens(data)
                 if (tokens) {
-                  const modelRef = extractModelRef(data) ?? undefined
+                  const modelRef =
+                    extractModelRef(data, getSessionFallbackProviderId(sessionId)) ?? undefined
                   useContextStore.getState().setSessionTokens(sessionId, tokens, modelRef)
                 }
                 const cost = extractCost(data)
@@ -317,9 +328,7 @@ export function useAgentEventBridge(): void {
                 if (modelUsageEntries) {
                   for (const entry of modelUsageEntries) {
                     if (entry.contextWindow > 0) {
-                      useContextStore
-                        .getState()
-                        .setModelLimit(entry.modelName, entry.contextWindow)
+                      useContextStore.getState().setModelLimit(entry.modelName, entry.contextWindow)
                     }
                   }
                 }
@@ -417,9 +426,7 @@ export function useAgentEventBridge(): void {
               usePermissionStore.getState().removePermission(sessionId, requestId)
               runtime.removeInterrupt(sessionId, requestId)
               if (sessionId !== activeId) {
-                const remaining = usePermissionStore
-                  .getState()
-                  .pendingBySession.get(sessionId)
+                const remaining = usePermissionStore.getState().pendingBySession.get(sessionId)
                 if (!remaining || remaining.length === 0) {
                   const mode = useSessionStore.getState().getSessionMode(sessionId)
                   useWorktreeStatusStore
@@ -439,14 +446,9 @@ export function useAgentEventBridge(): void {
 
               if (!commandFilter.enabled) {
                 if (sessionId !== activeId) {
-                  window.agentOps
-                    .commandApprovalReply(request.id, true)
-                    .catch((err: unknown) => {
-                      console.warn(
-                        'Auto-approve commandApprovalReply (background) failed:',
-                        err
-                      )
-                    })
+                  window.agentOps.commandApprovalReply(request.id, true).catch((err: unknown) => {
+                    console.warn('Auto-approve commandApprovalReply (background) failed:', err)
+                  })
                 }
                 return
               }
@@ -458,9 +460,7 @@ export function useAgentEventBridge(): void {
                 data: request
               })
               if (sessionId !== activeId) {
-                useWorktreeStatusStore
-                  .getState()
-                  .setSessionStatus(sessionId, 'command_approval')
+                useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'command_approval')
               }
             }
             return
@@ -502,8 +502,7 @@ export function useAgentEventBridge(): void {
                 command: data.commandStr
               })
               toast.warning('Command approval timed out', {
-                description:
-                  data.suggestion || 'Add a matching pattern in Settings > Security.',
+                description: data.suggestion || 'Add a matching pattern in Settings > Security.',
                 duration: 10_000,
                 action: {
                   label: 'Open Settings',
@@ -573,7 +572,8 @@ export function useAgentEventBridge(): void {
           // ----- session.status (the main lifecycle signal) -----
           if (event.type !== 'session.status') return
 
-          const status = (event as Record<string, unknown>).statusPayload ||
+          const status =
+            (event as Record<string, unknown>).statusPayload ||
             (event.data as Record<string, unknown>)?.status
           if (!status) return
 
@@ -592,10 +592,7 @@ export function useAgentEventBridge(): void {
               const currentMode = useSessionStore.getState().getSessionMode(sessionId)
               useWorktreeStatusStore
                 .getState()
-                .setSessionStatus(
-                  sessionId,
-                  currentMode === 'plan' ? 'planning' : 'working'
-                )
+                .setSessionStatus(sessionId, currentMode === 'plan' ? 'planning' : 'working')
             }
 
             trackRecentActivity(sessionId)
@@ -682,10 +679,7 @@ export function useAgentEventBridge(): void {
                 const mode = useSessionStore.getState().getSessionMode(sessionId)
                 useWorktreeStatusStore
                   .getState()
-                  .setSessionStatus(
-                    sessionId,
-                    mode === 'plan' ? 'planning' : 'working'
-                  )
+                  .setSessionStatus(sessionId, mode === 'plan' ? 'planning' : 'working')
 
                 const result = await window.agentOps.prompt(
                   context.worktreePath,
@@ -716,13 +710,10 @@ export function useAgentEventBridge(): void {
               if (!dispatchSucceeded) return
 
               if (useSessionStore.getState().getPendingPlan(sessionId)) return
-              const followUpStatus =
-                useWorktreeStatusStore.getState().sessionStatuses[sessionId]
+              const followUpStatus = useWorktreeStatusStore.getState().sessionStatuses[sessionId]
               if (followUpStatus?.status === 'command_approval') return
 
-              const nextFollowUp = useSessionStore
-                .getState()
-                .dequeueFollowUpMessage(sessionId)
+              const nextFollowUp = useSessionStore.getState().dequeueFollowUpMessage(sessionId)
               if (nextFollowUp) {
                 dispatchBackgroundFollowUp(nextFollowUp)
                 return

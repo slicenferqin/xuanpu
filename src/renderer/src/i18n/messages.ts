@@ -1200,6 +1200,11 @@ export const messages: Record<AppLocale, MessageTree> = {
     reasoningBlock: {
       thinking: 'Thinking...'
     },
+    threadStatus: {
+      compacting: 'Compressing context background information',
+      compacted: 'Compressed context background information',
+      running: 'Agent Running {duration}'
+    },
     queuedIndicator: {
       label: '{count} message(s) queued'
     },
@@ -3262,6 +3267,11 @@ export const messages: Record<AppLocale, MessageTree> = {
     },
     reasoningBlock: {
       thinking: '思考中...'
+    },
+    threadStatus: {
+      compacting: '正在压缩上下文背景信息',
+      compacted: '已压缩上下文背景信息',
+      running: 'Agent Running {duration}'
     },
     queuedIndicator: {
       label: '{count} 条消息排队中'

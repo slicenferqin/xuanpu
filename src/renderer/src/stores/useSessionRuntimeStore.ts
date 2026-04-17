@@ -82,6 +82,11 @@ export interface StreamingBuffer {
   childParts: Map<string, StreamingPart[]>
   streamingContent: string
   isStreaming: boolean
+  runStartedAt?: number
+  compactionState?: {
+    phase: 'running' | 'completed'
+    timestamp: number
+  } | null
   /** Optimistic user messages not yet persisted to DB */
   optimisticMessages?: Array<{ id: string; role: string; content: string; timestamp: string; attachments?: unknown[] }>
 }

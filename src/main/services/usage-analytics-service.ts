@@ -7,6 +7,7 @@ import {
   resolvePricingModelKey,
   type UsageTokenCounts
 } from '@shared/usage/pricing'
+import { getCanonicalModelLabel } from '@shared/usage/models'
 import {
   extractUsageCost,
   extractUsageMessageID,
@@ -95,6 +96,28 @@ function sumTokens(tokens: UsageTokenCounts): number {
   return tokens.input + tokens.output + tokens.cacheWrite + tokens.cacheRead
 }
 
+function appendUnique(target: string[], value: string | null | undefined): void {
+  if (!value) return
+  if (!target.includes(value)) target.push(value)
+}
+
+function getEntryModelLabel(entry: {
+  agent_sdk: UsageAnalyticsEngine
+  model_id: string | null
+  model_label: string | null
+  provider_id: string | null
+}): string {
+  return (
+    getCanonicalModelLabel(
+      entry.model_id ?? entry.model_label,
+      entry.provider_id ?? entry.agent_sdk
+    ) ??
+    entry.model_label ??
+    entry.model_id ??
+    'Unknown'
+  )
+}
+
 export class UsageAnalyticsService {
   constructor(private readonly db: DatabaseService) {}
 
@@ -161,6 +184,11 @@ export class UsageAnalyticsService {
       for (const entry of entries) {
         const session = sessionMap.get(entry.session_id)
         if (!session || !engines.includes(entry.agent_sdk)) continue
+        const canonicalModelKey = resolvePricingModelKey(
+          entry.model_id ?? entry.model_label ?? 'unknown',
+          entry.provider_id ?? entry.agent_sdk
+        )
+        const canonicalModelLabel = getEntryModelLabel(entry)
 
         totals.cost += entry.cost
         totals.tokens += entry.total_tokens
@@ -179,11 +207,11 @@ export class UsageAnalyticsService {
         engineBucket.sessionIds.add(entry.session_id)
         engineMap.set(entry.agent_sdk, engineBucket)
 
-        const modelKey = `${entry.agent_sdk}::${entry.model_id ?? 'unknown'}`
+        const modelKey = `${entry.agent_sdk}::${canonicalModelKey}`
         const modelBucket = modelMap.get(modelKey) ?? {
           engine: entry.agent_sdk,
-          model_key: resolvePricingModelKey(entry.model_id ?? entry.model_label ?? 'unknown'),
-          model_label: entry.model_label ?? entry.model_id ?? 'Unknown',
+          model_key: canonicalModelKey,
+          model_label: canonicalModelLabel,
           total_cost: 0,
           total_tokens: 0,
           input_tokens: 0,
@@ -201,7 +229,10 @@ export class UsageAnalyticsService {
         modelBucket.sessionIds.add(entry.session_id)
         modelMap.set(modelKey, modelBucket)
 
-        const projectKey = filters.engine === 'all' ? session.project_id : `${entry.agent_sdk}::${session.project_id}`
+        const projectKey =
+          filters.engine === 'all'
+            ? session.project_id
+            : `${entry.agent_sdk}::${session.project_id}`
         const projectBucket = projectMap.get(projectKey) ?? {
           engine: filters.engine === 'all' ? 'all' : entry.agent_sdk,
           project_id: session.project_id,
@@ -228,7 +259,7 @@ export class UsageAnalyticsService {
           project_name: session.project_name,
           project_path: session.project_path,
           worktree_name: session.worktree_name,
-          model_label: entry.model_label ?? entry.model_id ?? null,
+          model_label: canonicalModelLabel,
           total_cost: 0,
           total_tokens: 0,
           input_tokens: 0,
@@ -245,7 +276,7 @@ export class UsageAnalyticsService {
         sessionBucket.output_tokens += entry.output_tokens
         sessionBucket.cache_write_tokens += entry.cache_write_tokens
         sessionBucket.cache_read_tokens += entry.cache_read_tokens
-        sessionBucket.model_label = entry.model_label ?? sessionBucket.model_label
+        sessionBucket.model_label = canonicalModelLabel
         if (entry.occurred_at > sessionBucket.last_used_at) {
           sessionBucket.last_used_at = entry.occurred_at
         }
@@ -284,11 +315,12 @@ export class UsageAnalyticsService {
         }
       }
 
-      const lastResyncedAt = this.db
-        .getUsageSyncStates()
-        .map((state) => state.last_synced_at)
-        .filter((value): value is string => !!value)
-        .sort((a, b) => b.localeCompare(a))[0] ?? null
+      const lastResyncedAt =
+        this.db
+          .getUsageSyncStates()
+          .map((state) => state.last_synced_at)
+          .filter((value): value is string => !!value)
+          .sort((a, b) => b.localeCompare(a))[0] ?? null
 
       const dashboard: UsageAnalyticsDashboard = {
         filters,
@@ -341,7 +373,9 @@ export class UsageAnalyticsService {
         timeline: Array.from(timelineMap.values())
           .map(({ sessionIds: _sessionIds, ...bucket }) => bucket)
           .sort((a, b) => a.date.localeCompare(b.date)),
-        partial_sessions: partialSessions.sort((a, b) => a.session_name.localeCompare(b.session_name)),
+        partial_sessions: partialSessions.sort((a, b) =>
+          a.session_name.localeCompare(b.session_name)
+        ),
         sync: {
           stale_session_count: staleCount,
           partial_session_count: partialSessions.length,
@@ -372,8 +406,11 @@ export class UsageAnalyticsService {
 
       await this.syncSession(session, true)
 
-      const entries = this.db.getUsageEntriesBySession(sessionId)
+      const entries = [...this.db.getUsageEntriesBySession(sessionId)].sort((a, b) =>
+        a.occurred_at.localeCompare(b.occurred_at)
+      )
       const syncState = this.db.getUsageSyncState(sessionId)
+      const modelLabels: string[] = []
 
       const summary: UsageAnalyticsSessionSummary = {
         session_id: sessionId,
@@ -386,7 +423,8 @@ export class UsageAnalyticsService {
         cache_read_tokens: 0,
         duration_seconds: 0,
         last_used_at: entries.length > 0 ? entries[entries.length - 1].occurred_at : null,
-        latest_model_label: entries.length > 0 ? entries[entries.length - 1].model_label : null,
+        model_labels: [],
+        latest_model_label: null,
         partial: syncState?.status === 'partial' || syncState?.status === 'error'
       }
 
@@ -397,7 +435,11 @@ export class UsageAnalyticsService {
         summary.output_tokens += entry.output_tokens
         summary.cache_write_tokens += entry.cache_write_tokens
         summary.cache_read_tokens += entry.cache_read_tokens
+        appendUnique(modelLabels, getEntryModelLabel(entry))
       }
+
+      summary.model_labels = modelLabels
+      summary.latest_model_label = modelLabels[modelLabels.length - 1] ?? null
 
       const endAt = summary.last_used_at ?? session.updated_at
       summary.duration_seconds = Math.max(
@@ -419,8 +461,8 @@ export class UsageAnalyticsService {
       this.db.getUsageSyncStates().map((state) => [state.session_id, state] as const)
     )
 
-    const staleSessions = sessions.filter((session) =>
-      this.getSessionSyncSnapshot(session, syncStates.get(session.id)).stale
+    const staleSessions = sessions.filter(
+      (session) => this.getSessionSyncSnapshot(session, syncStates.get(session.id)).stale
     )
 
     const syncedSessionIds: string[] = []
@@ -444,9 +486,7 @@ export class UsageAnalyticsService {
 
   private getSessionSyncSnapshot(
     session: SupportedSession,
-    syncState:
-      | ReturnType<DatabaseService['getUsageSyncState']>
-      | undefined
+    syncState: ReturnType<DatabaseService['getUsageSyncState']> | undefined
   ): SessionSyncSnapshot {
     if (session.agent_sdk === 'claude-code') {
       if (!session.worktree_path) {
@@ -534,7 +574,10 @@ export class UsageAnalyticsService {
       return 'partial'
     }
 
-    const transcript = await readClaudeTranscriptUsage(session.worktree_path, session.opencode_session_id)
+    const transcript = await readClaudeTranscriptUsage(
+      session.worktree_path,
+      session.opencode_session_id
+    )
 
     if (transcript.mtimeMs === null) {
       this.db.deleteUsageEntriesForSession(session.id, 'claude-transcript')
@@ -624,8 +667,7 @@ export class UsageAnalyticsService {
           cacheRead: 0
         }
         const resolvedModel = modelRef?.modelID ?? session.model_id ?? 'unknown'
-        const occurredAt =
-          typeof parsed.timestamp === 'string' ? parsed.timestamp : row.created_at
+        const occurredAt = typeof parsed.timestamp === 'string' ? parsed.timestamp : row.created_at
         const cost =
           explicitCost > 0
             ? explicitCost

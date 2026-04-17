@@ -121,13 +121,35 @@ describeDb('UsageAnalyticsService', () => {
         {
           sourceMessageId: 'assistant-1',
           occurredAt: '2026-04-04T08:00:00.000Z',
-          model: 'claude-sonnet-4-6',
+          model: 'opus',
           inputTokens: 1000,
           outputTokens: 200,
           cacheWriteTokens: 100,
           cacheReadTokens: 50,
           totalTokens: 1350,
           cost: 0.006875
+        },
+        {
+          sourceMessageId: 'assistant-2',
+          occurredAt: '2026-04-04T08:05:00.000Z',
+          model: 'claude-opus-4-7',
+          inputTokens: 500,
+          outputTokens: 100,
+          cacheWriteTokens: 50,
+          cacheReadTokens: 25,
+          totalTokens: 675,
+          cost: 0.004
+        },
+        {
+          sourceMessageId: 'assistant-3',
+          occurredAt: '2026-04-04T08:10:00.000Z',
+          model: 'claude-sonnet-4-6',
+          inputTokens: 250,
+          outputTokens: 50,
+          cacheWriteTokens: 25,
+          cacheReadTokens: 25,
+          totalTokens: 350,
+          cost: 0.00175
         }
       ],
       filePath: '/tmp/mock-transcript.jsonl',
@@ -136,14 +158,18 @@ describeDb('UsageAnalyticsService', () => {
 
     const summary = await service.fetchSessionSummary(session.id)
     expect(summary.success).toBe(true)
-    expect(summary.data?.total_cost).toBeCloseTo(0.006875, 10)
-    expect(summary.data?.total_tokens).toBe(1350)
-    expect(summary.data?.latest_model_label).toBe('claude-sonnet-4-6')
-    expect(db.getUsageEntriesBySession(session.id)).toHaveLength(1)
+    expect(summary.data?.total_cost).toBeCloseTo(0.012625, 10)
+    expect(summary.data?.total_tokens).toBe(2375)
+    expect(summary.data?.model_labels).toEqual(['Opus 4.7', 'Sonnet 4.6'])
+    expect(summary.data?.latest_model_label).toBe('Sonnet 4.6')
+    expect(db.getUsageEntriesBySession(session.id)).toHaveLength(3)
   })
 
   it('marks missing Claude transcript data as partial instead of zero-cost data', async () => {
-    const project = db.createProject({ name: 'Missing Transcript', path: '/tmp/missing-transcript' })
+    const project = db.createProject({
+      name: 'Missing Transcript',
+      path: '/tmp/missing-transcript'
+    })
     const worktree = db.createWorktree({
       project_id: project.id,
       path: '/tmp/missing-transcript',

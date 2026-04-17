@@ -4,6 +4,7 @@ import {
   extractUsageModelRef,
   extractUsageTokens
 } from '@shared/usage/message'
+import { resolveRuntimeModelId } from '@shared/usage/models'
 
 export interface SelectedModelRef {
   providerID: string
@@ -57,10 +58,18 @@ export function extractCost(messageData: Record<string, unknown>): number {
   return extractUsageCost(messageData)
 }
 
-export function extractModelRef(messageData: Record<string, unknown>): SessionModelRef | null {
+export function extractModelRef(
+  messageData: Record<string, unknown>,
+  fallbackProviderID?: string
+): SessionModelRef | null {
   const modelRef = extractUsageModelRef(messageData)
-  if (!modelRef?.providerID) return null
-  return { providerID: modelRef.providerID, modelID: modelRef.modelID }
+  if (!modelRef) return null
+
+  const providerID = modelRef.providerID ?? fallbackProviderID
+  const modelID = resolveRuntimeModelId(modelRef.modelID, providerID)
+
+  if (!providerID || !modelID) return null
+  return { providerID, modelID }
 }
 
 export interface ModelUsageEntry {
@@ -151,6 +160,11 @@ export function extractSelectedModel(
     return null
   }
 
+  const runtimeModelID = resolveRuntimeModelId(modelID, providerID)
+  if (!runtimeModelID) {
+    return null
+  }
+
   const variantCandidate =
     typeof modelRecord?.variant === 'string'
       ? modelRecord.variant
@@ -162,7 +176,7 @@ export function extractSelectedModel(
 
   return {
     providerID,
-    modelID,
+    modelID: runtimeModelID,
     ...(variantCandidate ? { variant: variantCandidate } : {})
   }
 }

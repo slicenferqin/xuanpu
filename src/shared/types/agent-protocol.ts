@@ -35,6 +35,18 @@ export interface AgentSessionContextUsageData {
     variant?: string
   }
   contextWindow?: number
+  breakdown?: {
+    usedTokens: number
+    maxTokens: number
+    rawMaxTokens?: number
+    percentage: number
+    categories?: Array<{
+      name: string
+      tokens: number
+      color?: string
+      isDeferred?: boolean
+    }>
+  }
 }
 
 export interface AgentPartUpdatedData {

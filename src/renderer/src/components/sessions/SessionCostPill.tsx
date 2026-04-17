@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/i18n/useI18n'
+import { formatModelLabelSummary, getSessionSummaryModelLabels } from '@/lib/model-labels'
 
 interface SessionCostPillProps {
   summary: UsageAnalyticsSessionSummary | null
@@ -52,7 +53,8 @@ export function SessionCostPill({
   fallbackTokens
 }: SessionCostPillProps): React.JSX.Element | null {
   const { t } = useI18n()
-  const totalCost = summary?.total_cost ?? fallbackCost ?? 0
+  const modelSummary = formatModelLabelSummary(getSessionSummaryModelLabels(summary))
+  const totalCost = Math.max(summary?.total_cost ?? 0, fallbackCost ?? 0)
   const totalTokens =
     summary?.total_tokens ??
     ((fallbackTokens?.input ?? 0) +
@@ -125,14 +127,14 @@ export function SessionCostPill({
               </div>
             </div>
           </div>
-          {summary?.latest_model_label && (
+          {modelSummary && (
             <div className="flex items-center justify-between gap-3 border-t border-border/70 pt-2">
               <span className="flex items-center gap-1.5 text-muted-foreground">
                 <Layers3 className="h-3.5 w-3.5" />
                 {t('sessionView.costPill.model')}
               </span>
-              <span className="truncate font-medium" title={summary.latest_model_label}>
-                {summary.latest_model_label}
+              <span className="truncate font-medium" title={modelSummary.full}>
+                {modelSummary.short}
               </span>
             </div>
           )}
