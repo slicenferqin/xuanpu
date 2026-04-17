@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { FolderGit2 } from 'lucide-react'
 import { useI18n } from '@/i18n/useI18n'
+import { useProjectIconUrl } from '@/components/projects/project-icon-utils'
 
 interface LanguageIconProps {
   language: string | null
@@ -66,50 +67,6 @@ function useCustomIcons(): Record<string, string> {
   }, [])
 
   return icons
-}
-
-// Module-level cache for resolved project icon paths (filename -> data URL)
-const projectIconCache = new Map<string, string>()
-
-function useProjectIconUrl(customIcon: string | null | undefined): string | null {
-  const [url, setUrl] = useState<string | null>(
-    customIcon ? (projectIconCache.get(customIcon) ?? null) : null
-  )
-
-  useEffect(() => {
-    if (!customIcon) {
-      setUrl(null)
-      return
-    }
-
-    // Check cache first
-    const cached = projectIconCache.get(customIcon)
-    if (cached) {
-      setUrl(cached)
-      return
-    }
-
-    // Resolve to data URL via main process
-    let cancelled = false
-    window.projectOps
-      .getProjectIconPath(customIcon)
-      .then((dataUrl) => {
-        if (cancelled) return
-        if (dataUrl) {
-          projectIconCache.set(customIcon, dataUrl)
-          setUrl(dataUrl)
-        }
-      })
-      .catch(() => {
-        // ignore errors
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [customIcon])
-
-  return url
 }
 
 export function LanguageIcon({

@@ -1,5 +1,6 @@
 export { ProjectList } from './ProjectList'
 export { ProjectItem } from './ProjectItem'
+export { ProjectAvatar } from './ProjectAvatar'
 export { AddProjectButton } from './AddProjectButton'
 export { SortProjectsButton } from './SortProjectsButton'
 export { RecentToggleButton } from './RecentToggleButton'

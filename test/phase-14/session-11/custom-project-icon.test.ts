@@ -148,26 +148,64 @@ describe('Session 11: Custom Project Icon', () => {
       expect(customIconCheck).toBeLessThan(languageIconCheck)
     })
 
-    test('LanguageIcon uses projectIconCache for caching', async () => {
+    test('LanguageIcon delegates project icon resolution to shared hook', async () => {
       const fs = await import('fs')
       const path = await import('path')
       const source = fs.readFileSync(
         path.resolve(__dirname, '../../../src/renderer/src/components/projects/LanguageIcon.tsx'),
         'utf-8'
       )
-      expect(source).toContain('projectIconCache')
+      expect(source).toContain('useProjectIconUrl')
+      expect(source).toContain('project-icon-utils')
     })
   })
 
-  describe('ProjectItem passes customIcon', () => {
-    test('ProjectItem passes custom_icon to LanguageIcon', async () => {
+  describe('Left sidebar avatar usage', () => {
+    test('ProjectItem passes project name and custom_icon to ProjectAvatar', async () => {
       const fs = await import('fs')
       const path = await import('path')
       const source = fs.readFileSync(
         path.resolve(__dirname, '../../../src/renderer/src/components/projects/ProjectItem.tsx'),
         'utf-8'
       )
+      expect(source).toContain('ProjectAvatar')
+      expect(source).toContain('name={project.name}')
       expect(source).toContain('customIcon={project.custom_icon}')
+    })
+
+    test('PinnedList uses ProjectAvatar for pinned worktree rows', async () => {
+      const fs = await import('fs')
+      const path = await import('path')
+      const source = fs.readFileSync(
+        path.resolve(__dirname, '../../../src/renderer/src/components/layout/PinnedList.tsx'),
+        'utf-8'
+      )
+      expect(source).toContain('ProjectAvatar')
+      expect(source).toContain('name={project.name}')
+      expect(source).toContain('customIcon={project.custom_icon}')
+    })
+
+    test('RecentList uses ProjectAvatar for recent worktree rows', async () => {
+      const fs = await import('fs')
+      const path = await import('path')
+      const source = fs.readFileSync(
+        path.resolve(__dirname, '../../../src/renderer/src/components/layout/RecentList.tsx'),
+        'utf-8'
+      )
+      expect(source).toContain('ProjectAvatar')
+      expect(source).toContain('name={project.name}')
+      expect(source).toContain('customIcon={project.custom_icon}')
+    })
+
+    test('FilterChips still uses LanguageIcon for language semantics', async () => {
+      const fs = await import('fs')
+      const path = await import('path')
+      const source = fs.readFileSync(
+        path.resolve(__dirname, '../../../src/renderer/src/components/projects/FilterChips.tsx'),
+        'utf-8'
+      )
+      expect(source).toContain('LanguageIcon')
+      expect(source).toContain('<LanguageIcon language={lang} />')
     })
 
     test('ProjectItem Project interface includes custom_icon', async () => {
@@ -339,15 +377,15 @@ describe('Session 11: Custom Project Icon', () => {
       expect(source).toContain('copyFileSync')
     })
 
-    test('project-handlers.ts returns data URL from getIconPath', async () => {
+    test('project-handlers.ts delegates icon data URL generation to project-ops', async () => {
       const fs = await import('fs')
       const path = await import('path')
       const source = fs.readFileSync(
         path.resolve(__dirname, '../../../src/main/ipc/project-handlers.ts'),
         'utf-8'
       )
-      // Should return base64 data URL
-      expect(source).toContain('data:${mime};base64')
+      expect(source).toContain('getIconDataUrl')
+      expect(source).toContain('return getIconDataUrl(filename)')
     })
 
     test('project-handlers.ts filters for image file types in picker', async () => {

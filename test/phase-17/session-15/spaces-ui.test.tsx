@@ -1,5 +1,5 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '../../utils/render'
+import { render, screen, fireEvent, waitFor } from '../../utils/render'
 import { SpacesTabBar } from '@/components/spaces/SpacesTabBar'
 import { SpaceIconPicker, ICON_LIST } from '@/components/spaces/SpaceIconPicker'
 import { ProjectList } from '@/components/projects/ProjectList'
@@ -36,7 +36,8 @@ const mockProjectOps = {
   readFromClipboard: vi.fn(),
   openPath: vi.fn(),
   isGitRepository: vi.fn(),
-  loadLanguageIcons: vi.fn().mockResolvedValue({})
+  loadLanguageIcons: vi.fn().mockResolvedValue({}),
+  getProjectIconPath: vi.fn().mockResolvedValue(null)
 }
 
 // Set up window mocks
@@ -220,6 +221,14 @@ describe('Session 15: Project Spaces UI', () => {
       }
     ]
 
+    mockProjectDb.getAll.mockResolvedValue(projects)
+    mockSpaceDb.getAllAssignments.mockResolvedValue([
+      { project_id: 'p1', space_id: 's1' },
+      { project_id: 'p2', space_id: 's1' },
+      { project_id: 'p2', space_id: 's2' },
+      { project_id: 'p3', space_id: 's2' }
+    ])
+
     useProjectStore.setState({ projects, isLoading: false })
 
     // Assign p1 and p2 to space s1
@@ -232,7 +241,12 @@ describe('Session 15: Project Spaces UI', () => {
       }
     })
 
-    render(<ProjectList onAddProject={vi.fn()} />)
+    render(<ProjectList onAddProject={vi.fn()} filterQuery="" activeLanguages={[]} />)
+
+    await waitFor(() => {
+      expect(mockProjectDb.getAll).toHaveBeenCalled()
+      expect(mockSpaceDb.getAllAssignments).toHaveBeenCalled()
+    })
 
     // Should show Alpha and Beta but not Gamma
     expect(screen.getByText('Alpha')).toBeInTheDocument()
@@ -274,13 +288,60 @@ describe('Session 15: Project Spaces UI', () => {
       }
     ]
 
+    mockProjectDb.getAll.mockResolvedValue(projects)
+    mockSpaceDb.getAllAssignments.mockResolvedValue([])
+
     useProjectStore.setState({ projects, isLoading: false })
     useSpaceStore.setState({ activeSpaceId: null })
 
-    render(<ProjectList onAddProject={vi.fn()} />)
+    render(<ProjectList onAddProject={vi.fn()} filterQuery="" activeLanguages={[]} />)
+
+    await waitFor(() => {
+      expect(mockProjectDb.getAll).toHaveBeenCalled()
+      expect(mockSpaceDb.getAllAssignments).toHaveBeenCalled()
+    })
 
     expect(screen.getByText('Alpha')).toBeInTheDocument()
     expect(screen.getByText('Beta')).toBeInTheDocument()
+  })
+
+  test('ProjectList renders project initials avatar for project rows', async () => {
+    const projects = [
+      {
+        id: 'p1',
+        name: 'internal-starlight-base',
+        path: '/internal-starlight-base',
+        description: null,
+        tags: null,
+        language: 'typescript',
+        custom_icon: null,
+        setup_script: null,
+        run_script: null,
+        archive_script: null,
+        sort_order: 0,
+        created_at: '2025-01-01T00:00:00.000Z',
+        last_accessed_at: '2025-01-01T00:00:00.000Z'
+      }
+    ]
+
+    mockProjectDb.getAll.mockResolvedValue(projects)
+    mockSpaceDb.getAllAssignments.mockResolvedValue([])
+
+    useProjectStore.setState({
+      projects,
+      isLoading: false
+    })
+    useSpaceStore.setState({ activeSpaceId: null })
+
+    render(<ProjectList onAddProject={vi.fn()} filterQuery="" activeLanguages={[]} />)
+
+    await waitFor(() => {
+      expect(mockProjectDb.getAll).toHaveBeenCalled()
+      expect(mockSpaceDb.getAllAssignments).toHaveBeenCalled()
+    })
+
+    expect(screen.getByText('internal-starlight-base')).toBeInTheDocument()
+    expect(screen.getByText('IB')).toBeInTheDocument()
   })
 
   test('SpaceIconPicker renders 50+ icons', () => {
@@ -313,7 +374,7 @@ describe('Session 15: Project Spaces UI', () => {
     expect(screen.queryByTestId('icon-Briefcase')).not.toBeInTheDocument()
   })
 
-  test('empty space shows instructional message', () => {
+  test('empty space shows instructional message', async () => {
     const projects = [
       {
         id: 'p1',
@@ -332,6 +393,9 @@ describe('Session 15: Project Spaces UI', () => {
       }
     ]
 
+    mockProjectDb.getAll.mockResolvedValue(projects)
+    mockSpaceDb.getAllAssignments.mockResolvedValue([])
+
     useProjectStore.setState({ projects, isLoading: false })
     // Active space with no projects assigned
     useSpaceStore.setState({
@@ -339,7 +403,12 @@ describe('Session 15: Project Spaces UI', () => {
       projectSpaceMap: {}
     })
 
-    render(<ProjectList onAddProject={vi.fn()} />)
+    render(<ProjectList onAddProject={vi.fn()} filterQuery="" activeLanguages={[]} />)
+
+    await waitFor(() => {
+      expect(mockProjectDb.getAll).toHaveBeenCalled()
+      expect(mockSpaceDb.getAllAssignments).toHaveBeenCalled()
+    })
 
     expect(screen.getByTestId('empty-space-state')).toBeInTheDocument()
     expect(screen.getByText('No projects in this space.')).toBeInTheDocument()
