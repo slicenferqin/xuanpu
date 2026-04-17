@@ -246,7 +246,7 @@ export const useContextStore = create<ContextState>()((set, get) => ({
 
   getContextUsage: (sessionId: string, fallbackModelId: string, fallbackProviderId?: string) => {
     const state = get()
-    const tokens = state.tokensBySession[sessionId] ?? { ...EMPTY_TOKENS }
+    const tokens = state.tokensBySession[sessionId] ?? EMPTY_TOKENS
     const fallbackRuntimeModelId = resolveRuntimeModelId(fallbackModelId, fallbackProviderId)
     const fallbackModel =
       fallbackRuntimeModelId && fallbackProviderId

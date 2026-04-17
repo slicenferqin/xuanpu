@@ -16,6 +16,7 @@ import {
   PopoverTitle,
   PopoverTrigger
 } from '@/components/ui/popover'
+import { useShallow } from 'zustand/react/shallow'
 import { useContextStore } from '@/stores/useContextStore'
 import type { SessionLifecycle } from '@/stores/useSessionRuntimeStore'
 import type { UsageAnalyticsSessionSummary } from '@shared/types/usage-analytics'
@@ -93,8 +94,21 @@ function ContextCapsule({
   modelId: string
   providerId: string
 }): React.JSX.Element | null {
-  const { used, limit, percent, tokens, categories, isRefreshing } = useContextStore((state) =>
-    state.getContextUsage(sessionId, modelId, providerId)
+  // useShallow + field picking is required: getContextUsage() returns a fresh
+  // object each call, and some fields (model, cost, rawMaxTokens) can also be
+  // freshly-allocated — a naive selector would loop useSyncExternalStore.
+  const { used, limit, percent, tokens, categories, isRefreshing } = useContextStore(
+    useShallow((state) => {
+      const usage = state.getContextUsage(sessionId, modelId, providerId)
+      return {
+        used: usage.used,
+        limit: usage.limit,
+        percent: usage.percent,
+        tokens: usage.tokens,
+        categories: usage.categories,
+        isRefreshing: usage.isRefreshing
+      }
+    })
   )
 
   if (!limit && used === 0 && !isRefreshing) return null

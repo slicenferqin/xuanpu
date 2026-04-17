@@ -1,3 +1,4 @@
+import { useShallow } from 'zustand/react/shallow'
 import { useContextStore } from '@/stores/useContextStore'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -26,8 +27,22 @@ export function ContextIndicator({
   providerId
 }: ContextIndicatorProps): React.JSX.Element | null {
   const { t } = useI18n()
+  // useShallow + field picking: getContextUsage() allocates a new object on every
+  // call, so a raw selector breaks useSyncExternalStore's snapshot equality check
+  // and causes infinite re-renders.
   const { used, limit, percent, tokens, cost, categories, isRefreshing } = useContextStore(
-    (state) => state.getContextUsage(sessionId, modelId, providerId)
+    useShallow((state) => {
+      const usage = state.getContextUsage(sessionId, modelId, providerId)
+      return {
+        used: usage.used,
+        limit: usage.limit,
+        percent: usage.percent,
+        tokens: usage.tokens,
+        cost: usage.cost,
+        categories: usage.categories,
+        isRefreshing: usage.isRefreshing
+      }
+    })
   )
 
   const percentLabel = Math.min(100, Math.max(0, percent ?? 0))
