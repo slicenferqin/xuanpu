@@ -7,6 +7,7 @@ interface Connection {
   path: string
   color: string | null // JSON-serialised ConnectionColorQuad
   pinned: number // 0 = not pinned, 1 = pinned
+  model_profile_id: string | null
   created_at: string
   updated_at: string
 }
