@@ -1929,6 +1929,18 @@ export const messages: Record<AppLocale, MessageTree> = {
         saveError: 'Failed to save workspace settings',
         profileSynced: 'Model profile updated — next message will use new settings'
       },
+      connectionSettings: {
+        title: '{name} Settings',
+        connectionProfile: 'Model Profile',
+        useGlobalDefault: 'Use global default',
+        memberWorktrees: 'Member Worktrees',
+        inherit: 'Inherit from connection',
+        cancel: 'Cancel',
+        save: 'Save',
+        saving: 'Saving...',
+        worktreeUpdateError: 'Failed to update {name}',
+        saveSuccess: 'Connection settings saved'
+      },
       branchPicker: {
         title: 'New Workspace',
         description: 'Select a branch or pull request to create a new workspace from.',
@@ -2039,6 +2051,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         removeWorktree: 'Remove Worktree',
         detachedHead: 'Detached HEAD',
         connectionWorktrees: 'Connection Worktrees',
+        connectionSettings: 'Connection Settings',
         rename: 'Rename',
         delete: 'Delete'
       },
@@ -4016,6 +4029,18 @@ export const messages: Record<AppLocale, MessageTree> = {
         saveError: '保存工作区设置失败',
         profileSynced: '模型配置已更新 — 下一条消息将使用新设置'
       },
+      connectionSettings: {
+        title: '{name} 设置',
+        connectionProfile: '模型配置',
+        useGlobalDefault: '使用全局默认',
+        memberWorktrees: '成员 Worktree',
+        inherit: '继承连接设置',
+        cancel: '取消',
+        save: '保存',
+        saving: '保存中...',
+        worktreeUpdateError: '更新 {name} 失败',
+        saveSuccess: '连接设置已保存'
+      },
       branchPicker: {
         title: '新建工作区',
         description: '选择一个分支或 PR，以此创建新的工作区。',
@@ -4126,6 +4151,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         removeWorktree: '移除 worktree',
         detachedHead: 'Detached HEAD',
         connectionWorktrees: '连接中的 Worktree',
+        connectionSettings: '连接设置',
         rename: '重命名',
         delete: '删除'
       },
