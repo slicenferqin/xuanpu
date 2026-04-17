@@ -34,6 +34,7 @@ interface Connection {
   color: string | null
   created_at: string
   updated_at: string
+  model_profile_id: string | null
   members: ConnectionMemberEnriched[]
 }
 
@@ -52,6 +53,9 @@ interface ConnectionState {
   connectionModeSelectedIds: Set<string>
   connectionModeSubmitting: boolean
 
+  // Settings dialog
+  settingsConnectionId: string | null
+
   // Actions
   loadConnections: () => Promise<void>
   createConnection: (worktreeIds: string[]) => Promise<string | null>
@@ -69,6 +73,14 @@ interface ConnectionState {
   exitConnectionMode: () => void
   toggleConnectionModeWorktree: (worktreeId: string) => void
   finalizeConnection: () => Promise<void>
+
+  // Settings
+  openConnectionSettings: (connectionId: string) => void
+  closeConnectionSettings: () => void
+  updateConnectionModelProfile: (
+    connectionId: string,
+    modelProfileId: string | null
+  ) => Promise<boolean>
 }
 
 export const useConnectionStore = create<ConnectionState>()(
@@ -85,6 +97,8 @@ export const useConnectionStore = create<ConnectionState>()(
       connectionModeSourceWorktreeId: null,
       connectionModeSelectedIds: new Set<string>(),
       connectionModeSubmitting: false,
+
+      settingsConnectionId: null,
 
       loadConnections: async () => {
         set({ isLoading: true, error: null })
@@ -360,6 +374,41 @@ export const useConnectionStore = create<ConnectionState>()(
         if (id) {
           // Deconflict: clear worktree selection synchronously (same tick)
           clearWorktreeSelection()
+        }
+      },
+
+      openConnectionSettings: (connectionId: string) => {
+        set({ settingsConnectionId: connectionId })
+      },
+
+      closeConnectionSettings: () => {
+        set({ settingsConnectionId: null })
+      },
+
+      updateConnectionModelProfile: async (
+        connectionId: string,
+        modelProfileId: string | null
+      ) => {
+        try {
+          const result = await window.connectionOps.updateModelProfile(
+            connectionId,
+            modelProfileId
+          )
+          if (!result.success) {
+            toast.error(result.error || t('connectionStore.toasts.unknownError'))
+            return false
+          }
+          // Update local state
+          set((state) => ({
+            connections: state.connections.map((c) =>
+              c.id === connectionId ? { ...c, model_profile_id: modelProfileId } : c
+            )
+          }))
+          return true
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          toast.error(message)
+          return false
         }
       }
     }),
