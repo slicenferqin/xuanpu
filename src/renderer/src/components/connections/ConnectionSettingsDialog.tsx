@@ -7,8 +7,6 @@ import {
   DialogTitle
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Label } from '@/components/ui/label'
-import { Separator } from '@/components/ui/separator'
 import { useModelProfileStore } from '@/stores'
 import { useConnectionStore } from '@/stores'
 import { toast } from '@/lib/toast'
@@ -161,7 +159,7 @@ export function ConnectionSettingsDialog({
         <div className="space-y-4 py-2">
           {/* Connection-level model profile */}
           <div className="space-y-2">
-            <Label>{t('connectionSettings.connectionProfile')}</Label>
+            <label className="text-sm font-medium">{t('connectionSettings.connectionProfile')}</label>
             <select
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
               value={connectionProfileId ?? '__none__'}
@@ -185,11 +183,11 @@ export function ConnectionSettingsDialog({
           {/* Member worktree overrides */}
           {connection.members.length > 0 && (
             <>
-              <Separator />
+              <div className="border-t" />
               <div className="space-y-3">
-                <Label className="text-muted-foreground text-xs uppercase tracking-wider">
+                <span className="text-muted-foreground text-xs uppercase tracking-wider font-medium">
                   {t('connectionSettings.memberWorktrees')}
-                </Label>
+                </span>
                 {connection.members.map((member) => (
                   <div key={member.id} className="space-y-1.5">
                     <div className="flex items-center gap-2">
