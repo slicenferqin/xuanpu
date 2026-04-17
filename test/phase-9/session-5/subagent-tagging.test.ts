@@ -214,7 +214,7 @@ describe('Session 5: Subagent Event Tagging', () => {
         ...(isChildEvent ? { childSessionId: sessionId } : {})
       }
 
-      sendToRenderer('opencode:stream', streamEvent)
+      sendToRenderer('agent:stream', streamEvent)
       return streamEvent
     }
 

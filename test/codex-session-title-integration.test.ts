@@ -99,7 +99,7 @@ describe('Codex title integration', () => {
     expect(mockDb.updateSession).toHaveBeenCalledWith('hive-session-1', {
       name: 'Fix auth refresh'
     })
-    expect(mockWindow.webContents.send).toHaveBeenCalledWith('opencode:stream', {
+    expect(mockWindow.webContents.send).toHaveBeenCalledWith('agent:stream', {
       type: 'session.updated',
       sessionId: 'hive-session-1',
       data: {
@@ -139,7 +139,7 @@ describe('Codex title integration', () => {
     expect(mockDb.updateSession).not.toHaveBeenCalled()
     expect(mockAutoRenameWorktreeBranch).toHaveBeenCalledTimes(1)
     expect(mockWindow.webContents.send).not.toHaveBeenCalledWith(
-      'opencode:stream',
+      'agent:stream',
       expect.objectContaining({ type: 'session.updated' })
     )
   })

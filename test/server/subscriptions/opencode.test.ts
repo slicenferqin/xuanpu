@@ -27,7 +27,7 @@ describe('opencodeStream subscription', () => {
       data: { content: 'hello' },
     }
 
-    setTimeout(() => eventBus.emit('opencode:stream', event), 10)
+    setTimeout(() => eventBus.emit('agent:stream', event), 10)
 
     const result = await (iter as AsyncGenerator).next()
     expect(result.value).toEqual({ opencodeStream: event })
@@ -43,12 +43,12 @@ describe('opencodeStream subscription', () => {
     )
 
     setTimeout(() => {
-      eventBus.emit('opencode:stream', {
+      eventBus.emit('agent:stream', {
         type: 'message.created',
         sessionId: 'sess-2',
         data: {},
       })
-      eventBus.emit('opencode:stream', {
+      eventBus.emit('agent:stream', {
         type: 'message.created',
         sessionId: 'sess-1',
         data: { content: 'yes' },
@@ -64,7 +64,7 @@ describe('opencodeStream subscription', () => {
     const iter = subscribe({}, {}, { eventBus } as any, {} as any)
 
     setTimeout(() => {
-      eventBus.emit('opencode:stream', {
+      eventBus.emit('agent:stream', {
         type: 'message.created',
         sessionId: 'sess-A',
         data: {},
@@ -80,9 +80,9 @@ describe('opencodeStream subscription', () => {
     const iter = subscribe({}, {}, { eventBus } as any, {} as any)
 
     setTimeout(() => {
-      eventBus.emit('opencode:stream', { type: 'a', sessionId: 's1', data: {} })
-      eventBus.emit('opencode:stream', { type: 'b', sessionId: 's1', data: {} })
-      eventBus.emit('opencode:stream', { type: 'c', sessionId: 's1', data: {} })
+      eventBus.emit('agent:stream', { type: 'a', sessionId: 's1', data: {} })
+      eventBus.emit('agent:stream', { type: 'b', sessionId: 's1', data: {} })
+      eventBus.emit('agent:stream', { type: 'c', sessionId: 's1', data: {} })
     }, 10)
 
     const r1 = await (iter as AsyncGenerator).next()
@@ -99,7 +99,7 @@ describe('opencodeStream subscription', () => {
     const iter = subscribe({}, {}, { eventBus } as any, {} as any) as AsyncGenerator
 
     setTimeout(() => {
-      eventBus.emit('opencode:stream', {
+      eventBus.emit('agent:stream', {
         type: 'test',
         sessionId: 's1',
         data: {},
@@ -109,7 +109,7 @@ describe('opencodeStream subscription', () => {
     await iter.next()
     await iter.return(undefined)
 
-    eventBus.emit('opencode:stream', {
+    eventBus.emit('agent:stream', {
       type: 'post-cleanup',
       sessionId: 's1',
       data: {},
@@ -127,7 +127,7 @@ describe('opencodeStream subscription', () => {
       data: { content: 'shared' },
     }
 
-    setTimeout(() => eventBus.emit('opencode:stream', event), 10)
+    setTimeout(() => eventBus.emit('agent:stream', event), 10)
 
     const [r1, r2] = await Promise.all([
       (iter1 as AsyncGenerator).next(),

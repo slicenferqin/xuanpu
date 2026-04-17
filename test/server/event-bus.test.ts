@@ -17,10 +17,10 @@ describe('EventBus', () => {
       data: { text: 'hello' },
     }
 
-    bus.on('opencode:stream', (e) => {
+    bus.on('agent:stream', (e) => {
       received.push(e)
     })
-    bus.emit('opencode:stream', event)
+    bus.emit('agent:stream', event)
 
     expect(received).toHaveLength(1)
     expect(received[0]).toEqual(event)
@@ -92,12 +92,12 @@ describe('EventBus', () => {
     const streamReceived: unknown[] = []
     const statusReceived: unknown[] = []
 
-    bus.on('opencode:stream', (e) => streamReceived.push(e))
+    bus.on('agent:stream', (e) => streamReceived.push(e))
     bus.on('git:statusChanged', (d) => statusReceived.push(d))
 
     bus.removeAllListeners()
 
-    bus.emit('opencode:stream', { type: 'test', sessionId: 's1', data: null })
+    bus.emit('agent:stream', { type: 'test', sessionId: 's1', data: null })
     bus.emit('git:statusChanged', { worktreePath: '/path' })
 
     expect(streamReceived).toHaveLength(0)
@@ -124,7 +124,7 @@ describe('EventBus', () => {
     const streamReceived: unknown[] = []
     const statusReceived: unknown[] = []
 
-    bus.on('opencode:stream', (e) => streamReceived.push(e))
+    bus.on('agent:stream', (e) => streamReceived.push(e))
     bus.on('git:statusChanged', (d) => statusReceived.push(d))
 
     bus.emit('git:statusChanged', { worktreePath: '/only-status' })

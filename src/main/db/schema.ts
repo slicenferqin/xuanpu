@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 12
+export const CURRENT_SCHEMA_VERSION = 13
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   model_provider_id TEXT,
   model_id TEXT,
   model_variant TEXT,
+  color TEXT DEFAULT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   completed_at TEXT
@@ -424,5 +425,12 @@ export const MIGRATIONS: Migration[] = [
       DROP TABLE IF EXISTS usage_sync_state;
       DROP TABLE IF EXISTS usage_entries;
     `
+  },
+  {
+    version: 13,
+    name: 'add_session_color',
+    up: `-- NOTE: ALTER TABLE for color is handled idempotently by
+         -- ensureSessionColumns() in database.ts to avoid "duplicate column" errors.`,
+    down: `-- SQLite cannot drop columns; this is a no-op for safety`
   }
 ]

@@ -24,7 +24,7 @@ export const opencodeSubscriptionResolvers: Resolvers = {
           }
         }
 
-        ctx.eventBus.on('opencode:stream', listener)
+        ctx.eventBus.on('agent:stream', listener)
         try {
           while (true) {
             if (queue.length === 0) {
@@ -38,7 +38,7 @@ export const opencodeSubscriptionResolvers: Resolvers = {
           }
         } finally {
           if (batchTimer) clearTimeout(batchTimer)
-          ctx.eventBus.off('opencode:stream', listener)
+          ctx.eventBus.off('agent:stream', listener)
         }
       }
     }

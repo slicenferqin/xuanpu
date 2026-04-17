@@ -8,8 +8,8 @@ import { getDatabase } from '../main/db'
 import { resolveClaudeBinaryPath } from '../main/services/claude-binary-resolver'
 import { ClaudeCodeImplementer } from '../main/services/claude-code-implementer'
 import { CodexImplementer } from '../main/services/codex-implementer'
-import { AgentSdkManager } from '../main/services/agent-sdk-manager'
-import type { AgentSdkImplementer } from '../main/services/agent-sdk-types'
+import { openCodeService } from '../main/services/opencode-service'
+import { AgentRuntimeManager } from '../main/services/agent-runtime-manager'
 import { rmSync } from 'node:fs'
 import { getActiveAppHomeDir } from '@shared/app-identity'
 
@@ -31,51 +31,16 @@ export async function headlessBootstrap(opts: HeadlessBootstrapOpts): Promise<vo
   // Resolve Claude binary
   const claudeBinaryPath = resolveClaudeBinaryPath()
 
-  // Create AgentSdkManager (headless — no mainWindow)
+  // Instantiate agent implementers (headless — no mainWindow).
+  // OpenCode is a real implementer of AgentRuntimeAdapter; no placeholder needed.
   const claudeImpl = new ClaudeCodeImplementer()
   claudeImpl.setDatabaseService(db)
   claudeImpl.setClaudeBinaryPath(claudeBinaryPath)
 
-  // Placeholder for OpenCode — not available in headless mode
-  const openCodePlaceholder = {
-    id: 'opencode' as const,
-    capabilities: {
-      supportsUndo: true,
-      supportsRedo: true,
-      supportsCommands: true,
-      supportsPermissionRequests: true,
-      supportsQuestionPrompts: true,
-      supportsModelSelection: true,
-      supportsReconnect: true,
-      supportsPartialStreaming: true
-    },
-    connect: async () => ({ sessionId: '' }),
-    reconnect: async () => ({ success: false }),
-    disconnect: async () => {},
-    cleanup: async () => {},
-    prompt: async () => {},
-    abort: async () => false,
-    getMessages: async () => [],
-    getAvailableModels: async () => ({}),
-    getModelInfo: async () => null,
-    setSelectedModel: () => {},
-    getSessionInfo: async () => ({ revertMessageID: null, revertDiff: null }),
-    questionReply: async () => {},
-    questionReject: async () => {},
-    permissionReply: async () => {},
-    permissionList: async () => [],
-    undo: async () => ({}),
-    redo: async () => ({}),
-    listCommands: async () => [],
-    sendCommand: async () => {},
-    renameSession: async () => {},
-    setMainWindow: () => {}
-  } satisfies AgentSdkImplementer
-
-  // Registry of SDK implementers
   const codexImpl = new CodexImplementer()
   codexImpl.setDatabaseService(db)
-  const sdkManager = new AgentSdkManager([openCodePlaceholder, claudeImpl, codexImpl])
+
+  const runtimeManager = new AgentRuntimeManager([openCodeService, claudeImpl, codexImpl])
 
   // EventBus singleton
   const eventBus = getEventBus()
@@ -116,7 +81,7 @@ export async function headlessBootstrap(opts: HeadlessBootstrapOpts): Promise<vo
     bindAddress: bind,
     insecure: config.insecure,
     ...(config.insecure ? {} : { tlsCert: config.tls.certPath, tlsKey: config.tls.keyPath }),
-    context: { db, sdkManager, eventBus },
+    context: { db, runtimeManager, sdkManager: runtimeManager, eventBus },
     getKeyHash: () => db.getSetting('headless_api_key_hash') || '',
     bruteForce
   })

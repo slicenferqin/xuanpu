@@ -10,8 +10,6 @@ import {
   registerDatabaseHandlers,
   registerProjectHandlers,
   registerWorktreeHandlers,
-  registerOpenCodeHandlers,
-  cleanupOpenCode,
   registerAgentHandlers,
   cleanupAgentHandlers,
   registerFileTreeHandlers,
@@ -43,10 +41,9 @@ import { notificationService } from './services/notification-service'
 import { updaterService } from './services/updater'
 import { ClaudeCodeImplementer } from './services/claude-code-implementer'
 import { CodexImplementer } from './services/codex-implementer'
-import { AgentSdkManager } from './services/agent-sdk-manager'
+import { openCodeService } from './services/opencode-service'
 import { AgentRuntimeManager } from './services/agent-runtime-manager'
 import { resolveClaudeBinaryPath } from './services/claude-binary-resolver'
-import type { AgentSdkImplementer } from './services/agent-sdk-types'
 import { telemetryService } from './services/telemetry-service'
 import { ensureForkDataDir } from './services/fork-data-migration'
 import { APP_BUNDLE_ID, APP_CLI_NAME, APP_PRODUCT_NAME } from '@shared/app-identity'
@@ -61,6 +58,9 @@ app.setName(APP_PRODUCT_NAME)
 const cliArgs = process.argv.slice(2)
 const isLogMode = cliArgs.includes('--log')
 const isHeadless = cliArgs.includes('--headless')
+
+// Module-level reference so shutdown hooks can call cleanupAll().
+let agentRuntimeManager: AgentRuntimeManager | null = null
 const headlessPort = cliArgs.includes('--port')
   ? parseInt(cliArgs[cliArgs.indexOf('--port') + 1])
   : undefined
@@ -659,59 +659,21 @@ app.whenReady().then(async () => {
       updateMenuState(state)
     })
 
-    // Create SDK manager for multi-provider dispatch
-    // OpenCode sessions still route through openCodeService directly (fallback path in handlers)
-    // The placeholder just satisfies AgentSdkManager's constructor signature
+    // Instantiate agent implementers. All three (OpenCode, Claude Code, Codex)
+    // conform to AgentRuntimeAdapter and share the same AgentRuntimeManager below.
     const claudeImpl = new ClaudeCodeImplementer()
     claudeImpl.setDatabaseService(getDatabase())
     claudeImpl.setClaudeBinaryPath(claudeBinaryPath)
-    const openCodePlaceholder = {
-      id: 'opencode' as const,
-      capabilities: {
-        supportsUndo: true,
-        supportsRedo: true,
-        supportsCommands: true,
-        supportsPermissionRequests: true,
-        supportsQuestionPrompts: true,
-        supportsModelSelection: true,
-        supportsReconnect: true,
-        supportsPartialStreaming: true
-      },
-      connect: async () => ({ sessionId: '' }),
-      reconnect: async () => ({ success: false }),
-      disconnect: async () => {},
-      cleanup: async () => {},
-      prompt: async () => {},
-      abort: async () => false,
-      getMessages: async () => [],
-      getAvailableModels: async () => ({}),
-      getModelInfo: async () => null,
-      setSelectedModel: () => {},
-      getSessionInfo: async () => ({ revertMessageID: null, revertDiff: null }),
-      questionReply: async () => {},
-      questionReject: async () => {},
-      permissionReply: async () => {},
-      permissionList: async () => [],
-      undo: async () => ({}),
-      redo: async () => ({}),
-      listCommands: async () => [],
-      sendCommand: async () => {},
-      renameSession: async () => {},
-      setMainWindow: () => {}
-    } satisfies AgentSdkImplementer
     const codexImpl = new CodexImplementer()
     codexImpl.setDatabaseService(getDatabase())
-    const sdkManager = new AgentSdkManager([openCodePlaceholder, claudeImpl, codexImpl])
-    sdkManager.setMainWindow(mainWindow)
 
-    // Create the new canonical runtime manager (shares the same implementers)
-    const runtimeManager = new AgentRuntimeManager([openCodePlaceholder, claudeImpl, codexImpl])
+    // Create the canonical runtime manager
+    const runtimeManager = new AgentRuntimeManager([openCodeService, claudeImpl, codexImpl])
     runtimeManager.setMainWindow(mainWindow)
+    agentRuntimeManager = runtimeManager
 
     const databaseService = getDatabase()
 
-    log.info('Registering OpenCode handlers (legacy)')
-    registerOpenCodeHandlers(mainWindow, sdkManager, databaseService)
     log.info('Registering Agent handlers (canonical)')
     registerAgentHandlers(mainWindow, runtimeManager, databaseService)
     log.info('Registering Timeline handlers')
@@ -771,10 +733,8 @@ app.on('will-quit', async () => {
   await cleanupWorktreeWatchers()
   // Cleanup branch watchers (sidebar branch names)
   await cleanupBranchWatchers()
-  // Cleanup OpenCode connections
-  await cleanupOpenCode()
   // Cleanup canonical agent handlers
-  await cleanupAgentHandlers()
+  await cleanupAgentHandlers(agentRuntimeManager ?? undefined)
   // Flush telemetry before closing database
   telemetryService.track('app_session_ended', {
     session_duration_ms: Date.now() - appStartTime

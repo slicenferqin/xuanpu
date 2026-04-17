@@ -105,7 +105,7 @@ describe('Session 1: Message Echo Fix', () => {
     )
 
     expect(send).toHaveBeenCalledWith(
-      'opencode:stream',
+      'agent:stream',
       expect.objectContaining({
         type: 'message.part.updated',
         sessionId: 'hive-session-a'
@@ -147,7 +147,7 @@ describe('Session 1: Message Echo Fix', () => {
     )
 
     expect(send).toHaveBeenCalledWith(
-      'opencode:stream',
+      'agent:stream',
       expect.objectContaining({
         type: 'message.updated',
         sessionId: 'hive-session-a'

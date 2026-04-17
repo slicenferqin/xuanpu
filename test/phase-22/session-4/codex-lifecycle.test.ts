@@ -173,7 +173,7 @@ describe('CodexImplementer lifecycle', () => {
 
       await impl.connect('/test', 'hive-session-3')
 
-      expect(mockWindow.webContents.send).toHaveBeenCalledWith('opencode:stream', {
+      expect(mockWindow.webContents.send).toHaveBeenCalledWith('agent:stream', {
         type: 'session.materialized',
         sessionId: 'hive-session-3',
         data: { newSessionId: 'thread-mat', wasFork: false }

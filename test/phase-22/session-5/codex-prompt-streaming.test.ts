@@ -178,7 +178,7 @@ describe('CodexImplementer.prompt()', () => {
     await impl.prompt('/test/project', 'thread-1', 'test')
 
     const sendCalls = mockWindow.webContents.send.mock.calls
-    const streamCalls = sendCalls.filter((c: any[]) => c[0] === 'opencode:stream')
+    const streamCalls = sendCalls.filter((c: any[]) => c[0] === 'agent:stream')
     const statusEvents = streamCalls
       .map((c: any[]) => c[1])
       .filter((e: any) => e.type === 'session.status')
@@ -224,7 +224,7 @@ describe('CodexImplementer.prompt()', () => {
 
     const sendCalls = mockWindow.webContents.send.mock.calls
     const streamCalls = sendCalls
-      .filter((c: any[]) => c[0] === 'opencode:stream')
+      .filter((c: any[]) => c[0] === 'agent:stream')
       .map((c: any[]) => c[1])
 
     const textEvents = streamCalls.filter(
@@ -264,7 +264,7 @@ describe('CodexImplementer.prompt()', () => {
 
     const sendCalls = mockWindow.webContents.send.mock.calls
     const streamCalls = sendCalls
-      .filter((c: any[]) => c[0] === 'opencode:stream')
+      .filter((c: any[]) => c[0] === 'agent:stream')
       .map((c: any[]) => c[1])
 
     const textEvents = streamCalls.filter(
@@ -371,7 +371,7 @@ describe('CodexImplementer.prompt()', () => {
     })
 
     const streamCalls = mockWindow.webContents.send.mock.calls
-      .filter((c: any[]) => c[0] === 'opencode:stream')
+      .filter((c: any[]) => c[0] === 'agent:stream')
       .map((c: any[]) => c[1])
       .filter((e: any) => e.type === 'session.updated')
 
@@ -427,7 +427,7 @@ describe('CodexImplementer.prompt()', () => {
 
     const sendCalls = mockWindow.webContents.send.mock.calls
     const streamCalls = sendCalls
-      .filter((c: any[]) => c[0] === 'opencode:stream')
+      .filter((c: any[]) => c[0] === 'agent:stream')
       .map((c: any[]) => c[1])
 
     const errorEvents = streamCalls.filter((e: any) => e.type === 'session.error')
@@ -496,7 +496,7 @@ describe('CodexImplementer.prompt()', () => {
     // Should have emitted session.error to renderer
     const sendCalls = mockWindow.webContents.send.mock.calls
     const streamCalls = sendCalls
-      .filter((c: any[]) => c[0] === 'opencode:stream')
+      .filter((c: any[]) => c[0] === 'agent:stream')
       .map((c: any[]) => c[1])
     const errorEvents = streamCalls.filter((e: any) => e.type === 'session.error')
     expect(errorEvents.length).toBeGreaterThanOrEqual(1)
@@ -611,7 +611,7 @@ describe('CodexImplementer.prompt()', () => {
 
     const sendCalls = mockWindow.webContents.send.mock.calls
     const streamCalls = sendCalls
-      .filter((c: any[]) => c[0] === 'opencode:stream')
+      .filter((c: any[]) => c[0] === 'agent:stream')
       .map((c: any[]) => c[1])
     const errorEvents = streamCalls.filter((e: any) => e.type === 'session.error')
     expect(errorEvents.length).toBeGreaterThanOrEqual(1)
@@ -835,7 +835,7 @@ describe('CodexImplementer.prompt()', () => {
       await impl.prompt('/test/project', 'thread-1', 'Plan something')
 
       const streamCalls = mockWindow.webContents.send.mock.calls
-        .filter((c: any[]) => c[0] === 'opencode:stream')
+        .filter((c: any[]) => c[0] === 'agent:stream')
         .map((c: any[]) => c[1])
 
       const planReadyEvent = streamCalls.find((e: any) => e.type === 'plan.ready')
@@ -883,7 +883,7 @@ describe('CodexImplementer.prompt()', () => {
       await impl.prompt('/test/project', 'thread-1', 'Plan something')
 
       const streamCalls = mockWindow.webContents.send.mock.calls
-        .filter((c: any[]) => c[0] === 'opencode:stream')
+        .filter((c: any[]) => c[0] === 'agent:stream')
         .map((c: any[]) => c[1])
 
       const planReadyEvent = streamCalls.find((e: any) => e.type === 'plan.ready')

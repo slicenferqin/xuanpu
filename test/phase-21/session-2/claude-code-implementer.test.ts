@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { AgentSdkImplementer } from '../../../src/main/services/agent-sdk-types'
-import { CLAUDE_CODE_CAPABILITIES } from '../../../src/main/services/agent-sdk-types'
+import type { AgentSdkImplementer } from '../../../src/main/services/agent-runtime-types'
+import { CLAUDE_CODE_CAPABILITIES } from '../../../src/main/services/agent-runtime-types'
 
 vi.mock('../../../src/main/services/claude-sdk-loader', () => ({
   loadClaudeSDK: vi.fn()

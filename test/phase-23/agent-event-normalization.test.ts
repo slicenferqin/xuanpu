@@ -9,7 +9,7 @@ describe('normalizeAgentEvent', () => {
         sessionId: 'sess-1',
         data: { title: 'hello' }
       }
-      const result = normalizeAgentEvent(raw, 'opencode:stream')
+      const result = normalizeAgentEvent(raw, 'agent:stream')
       expect(result.eventId).toBeDefined()
       expect(typeof result.eventId).toBe('string')
       expect(result.eventId.length).toBeGreaterThan(0)
@@ -22,7 +22,7 @@ describe('normalizeAgentEvent', () => {
         eventId: 'existing-id',
         data: { title: 'hello' }
       }
-      const result = normalizeAgentEvent(raw, 'opencode:stream')
+      const result = normalizeAgentEvent(raw, 'agent:stream')
       expect(result.eventId).toBe('existing-id')
     })
 
@@ -32,7 +32,7 @@ describe('normalizeAgentEvent', () => {
         sessionId: 'sess-1',
         data: { title: 'hello' }
       }
-      const result = normalizeAgentEvent(raw, 'opencode:stream')
+      const result = normalizeAgentEvent(raw, 'agent:stream')
       expect(result.sessionSequence).toBe(0)
     })
 
@@ -43,7 +43,7 @@ describe('normalizeAgentEvent', () => {
         sessionSequence: 42,
         data: { title: 'hello' }
       }
-      const result = normalizeAgentEvent(raw, 'opencode:stream')
+      const result = normalizeAgentEvent(raw, 'agent:stream')
       expect(result.sessionSequence).toBe(42)
     })
 
@@ -53,8 +53,8 @@ describe('normalizeAgentEvent', () => {
         sessionId: 'sess-1',
         data: { title: 'hello' }
       }
-      const result1 = normalizeAgentEvent(raw, 'opencode:stream')
-      expect(result1.sourceChannel).toBe('opencode:stream')
+      const result1 = normalizeAgentEvent(raw, 'agent:stream')
+      expect(result1.sourceChannel).toBe('agent:stream')
 
       const raw2 = { ...raw }
       const result2 = normalizeAgentEvent(raw2, 'agent:stream')
@@ -64,8 +64,8 @@ describe('normalizeAgentEvent', () => {
     it('generates unique eventIds for different events', () => {
       const raw1 = { type: 'session.updated', sessionId: 's1', data: {} }
       const raw2 = { type: 'session.updated', sessionId: 's1', data: {} }
-      const e1 = normalizeAgentEvent(raw1, 'opencode:stream')
-      const e2 = normalizeAgentEvent(raw2, 'opencode:stream')
+      const e1 = normalizeAgentEvent(raw1, 'agent:stream')
+      const e2 = normalizeAgentEvent(raw2, 'agent:stream')
       expect(e1.eventId).not.toBe(e2.eventId)
     })
   })
@@ -77,7 +77,7 @@ describe('normalizeAgentEvent', () => {
         sessionId: 'sess-1',
         data: { status: { type: 'idle' } }
       }
-      const result = normalizeAgentEvent(raw, 'opencode:stream')
+      const result = normalizeAgentEvent(raw, 'agent:stream')
       expect(result.type).toBe('session.status')
       if (result.type === 'session.status') {
         expect(result.statusPayload).toEqual({ type: 'idle' })
@@ -92,7 +92,7 @@ describe('normalizeAgentEvent', () => {
         data: {},
         statusPayload: { type: 'busy', attempt: 1 }
       }
-      const result = normalizeAgentEvent(raw, 'opencode:stream')
+      const result = normalizeAgentEvent(raw, 'agent:stream')
       if (result.type === 'session.status') {
         expect(result.statusPayload).toEqual({ type: 'busy', attempt: 1 })
         expect(result.data.status).toEqual({ type: 'busy', attempt: 1 })
@@ -106,7 +106,7 @@ describe('normalizeAgentEvent', () => {
         data: { status: { type: 'retry', attempt: 2, next: 5000 } },
         statusPayload: { type: 'retry', attempt: 2, next: 5000 }
       }
-      const result = normalizeAgentEvent(raw, 'opencode:stream')
+      const result = normalizeAgentEvent(raw, 'agent:stream')
       if (result.type === 'session.status') {
         expect(result.statusPayload).toEqual({ type: 'retry', attempt: 2, next: 5000 })
         expect(result.data.status).toEqual({ type: 'retry', attempt: 2, next: 5000 })
@@ -119,7 +119,7 @@ describe('normalizeAgentEvent', () => {
         sessionId: 'sess-1',
         data: { title: 'hello' }
       }
-      const result = normalizeAgentEvent(raw, 'opencode:stream')
+      const result = normalizeAgentEvent(raw, 'agent:stream')
       // Should not have statusPayload
       expect((result as Record<string, unknown>).statusPayload).toBeUndefined()
     })
@@ -155,7 +155,7 @@ describe('normalizeAgentEvent', () => {
 
       for (const eventType of types) {
         const raw = { type: eventType, sessionId: 'sess-1', data: {} }
-        const result = normalizeAgentEvent(raw, 'opencode:stream')
+        const result = normalizeAgentEvent(raw, 'agent:stream')
         expect(result.type).toBe(eventType)
         expect(result.sessionId).toBe('sess-1')
       }
@@ -168,7 +168,7 @@ describe('normalizeAgentEvent', () => {
         childSessionId: 'child-1',
         data: { delta: 'hello' }
       }
-      const result = normalizeAgentEvent(raw, 'opencode:stream')
+      const result = normalizeAgentEvent(raw, 'agent:stream')
       expect(result.childSessionId).toBe('child-1')
     })
 
@@ -179,7 +179,7 @@ describe('normalizeAgentEvent', () => {
         runtimeId: 'claude-code',
         data: { status: { type: 'idle' } }
       }
-      const result = normalizeAgentEvent(raw, 'opencode:stream')
+      const result = normalizeAgentEvent(raw, 'agent:stream')
       expect(result.runtimeId).toBe('claude-code')
     })
   })
@@ -191,7 +191,7 @@ describe('normalizeAgentEvent', () => {
         sessionId: 'sess-1',
         statusPayload: { type: 'idle' }
       }
-      const result = normalizeAgentEvent(raw, 'opencode:stream')
+      const result = normalizeAgentEvent(raw, 'agent:stream')
       if (result.type === 'session.status') {
         expect(result.statusPayload).toEqual({ type: 'idle' })
         expect(result.data.status).toEqual({ type: 'idle' })
@@ -293,7 +293,7 @@ describe('emitAgentEvent', () => {
       sessionId: 'sess-1',
       data: { title: 'hi' }
     })
-    expect(capturedChannel).toBe('opencode:stream')
+    expect(capturedChannel).toBe('agent:stream')
   })
 
   it('resets sequence counter via resetSessionSequence', () => {

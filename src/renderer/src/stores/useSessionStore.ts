@@ -95,6 +95,7 @@ interface SessionState {
   setActiveSession: (sessionId: string | null) => void
   setActiveWorktree: (worktreeId: string | null) => void
   updateSessionName: (sessionId: string, name: string) => Promise<boolean>
+  updateSessionColor: (sessionId: string, color: string | null) => Promise<boolean>
   reorderTabs: (worktreeId: string, fromIndex: number, toIndex: number) => void
   getSessionsForWorktree: (worktreeId: string) => Session[]
   getTabOrderForWorktree: (worktreeId: string) => string[]
@@ -714,6 +715,41 @@ export const useSessionStore = create<SessionState>()(
             return true
           }
           return false
+        } catch {
+          return false
+        }
+      },
+
+      // Update session color (scope-agnostic)
+      updateSessionColor: async (sessionId: string, color: string | null) => {
+        try {
+          const updatedSession = await window.db.session.update(sessionId, { color })
+          if (!updatedSession) return false
+
+          set((state) => {
+            const newWorktreeSessionsMap = new Map(state.sessionsByWorktree)
+            for (const [wtId, sessions] of newWorktreeSessionsMap.entries()) {
+              const updated = sessions.map((s) => (s.id === sessionId ? { ...s, color } : s))
+              if (updated.some((s, i) => s !== sessions[i])) {
+                newWorktreeSessionsMap.set(wtId, updated)
+              }
+            }
+
+            const newConnectionSessionsMap = new Map(state.sessionsByConnection)
+            for (const [connId, sessions] of newConnectionSessionsMap.entries()) {
+              const updated = sessions.map((s) => (s.id === sessionId ? { ...s, color } : s))
+              if (updated.some((s, i) => s !== sessions[i])) {
+                newConnectionSessionsMap.set(connId, updated)
+              }
+            }
+
+            return {
+              sessionsByWorktree: newWorktreeSessionsMap,
+              sessionsByConnection: newConnectionSessionsMap
+            }
+          })
+
+          return true
         } catch {
           return false
         }

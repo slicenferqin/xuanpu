@@ -124,7 +124,7 @@ describe('handleTitleGeneration', () => {
 
     await (impl as any).handleTitleGeneration(session, 'Add a dark mode toggle')
 
-    expect(mockWindow.webContents.send).toHaveBeenCalledWith('opencode:stream', {
+    expect(mockWindow.webContents.send).toHaveBeenCalledWith('agent:stream', {
       type: 'session.updated',
       sessionId: 'hive-session-456',
       data: {

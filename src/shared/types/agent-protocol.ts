@@ -106,7 +106,7 @@ export interface EventEnvelope {
   /** Monotonically increasing counter per session, for ordering. */
   sessionSequence: number
   /** Which IPC channel the event arrived on (set by preload normalizer). */
-  sourceChannel?: 'agent:stream' | 'opencode:stream'
+  sourceChannel?: 'agent:stream'
 }
 
 // ---------------------------------------------------------------------------

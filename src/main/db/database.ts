@@ -192,6 +192,7 @@ export class DatabaseService {
       'TEXT DEFAULT NULL REFERENCES connections(id) ON DELETE SET NULL'
     )
     this.safeAddColumn('sessions', 'agent_sdk', "TEXT NOT NULL DEFAULT 'opencode'")
+    this.safeAddColumn('sessions', 'color', 'TEXT DEFAULT NULL')
     this.safeAddColumn('connections', 'color', 'TEXT DEFAULT NULL')
     this.safeAddColumn('connections', 'custom_name', 'TEXT DEFAULT NULL')
     this.safeAddColumn('worktrees', 'attachments', "TEXT DEFAULT '[]'")
@@ -964,6 +965,10 @@ export class DatabaseService {
     if (data.model_variant !== undefined) {
       updates.push('model_variant = ?')
       values.push(data.model_variant)
+    }
+    if (data.color !== undefined) {
+      updates.push('color = ?')
+      values.push(data.color)
     }
     if (data.completed_at !== undefined) {
       updates.push('completed_at = ?')

@@ -330,7 +330,7 @@ describe('Codex Abort & getMessages', () => {
 
       const sendCalls = mockWindow.webContents.send.mock.calls
       const streamCalls = sendCalls
-        .filter((c: any[]) => c[0] === 'opencode:stream')
+        .filter((c: any[]) => c[0] === 'agent:stream')
         .map((c: any[]) => c[1])
 
       const statusEvent = streamCalls.find((e: any) => e.type === 'session.status')

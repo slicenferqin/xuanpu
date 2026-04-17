@@ -1,8 +1,8 @@
 import type { BrowserWindow } from 'electron'
 
-import type { AgentSdkCapabilities, AgentSdkImplementer, PromptOptions } from './agent-sdk-types'
+import type { AgentSdkCapabilities, AgentSdkImplementer, PromptOptions } from './agent-runtime-types'
 import type { AgentRuntimeAdapter } from './agent-runtime-types'
-import { CODEX_CAPABILITIES } from './agent-sdk-types'
+import { CODEX_CAPABILITIES } from './agent-runtime-types'
 import {
   getAvailableCodexModels,
   getCodexModelInfo,

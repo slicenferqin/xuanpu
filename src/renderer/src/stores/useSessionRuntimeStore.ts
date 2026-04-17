@@ -82,6 +82,8 @@ export interface StreamingBuffer {
   childParts: Map<string, StreamingPart[]>
   streamingContent: string
   isStreaming: boolean
+  /** Optimistic user messages not yet persisted to DB */
+  optimisticMessages?: Array<{ id: string; role: string; content: string; timestamp: string; attachments?: unknown[] }>
 }
 
 const _streamingBuffers = new Map<string, StreamingBuffer>()

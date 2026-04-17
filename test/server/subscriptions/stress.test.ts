@@ -26,7 +26,7 @@ describe('Subscription Stress Tests', () => {
     // Emit 100 events rapidly
     setTimeout(() => {
       for (let i = 0; i < COUNT; i++) {
-        eventBus.emit('opencode:stream', {
+        eventBus.emit('agent:stream', {
           type: `event-${i}`,
           sessionId: 'sess-1',
           data: { index: i },

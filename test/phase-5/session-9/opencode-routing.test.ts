@@ -77,7 +77,7 @@ describe('Session 9: OpenCode session routing', () => {
     )
 
     expect(send).toHaveBeenCalledWith(
-      'opencode:stream',
+      'agent:stream',
       expect.objectContaining({ sessionId: 'hive-session-a', type: 'session.idle' })
     )
   })
@@ -134,7 +134,7 @@ describe('Session 9: OpenCode session routing', () => {
     )
 
     expect(send).toHaveBeenCalledWith(
-      'opencode:stream',
+      'agent:stream',
       expect.objectContaining({ sessionId: 'hive-session-b', type: 'message.updated' })
     )
     expect(mockDb.getSessionMessageByOpenCodeId).not.toHaveBeenCalled()

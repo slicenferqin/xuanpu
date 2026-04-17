@@ -1394,28 +1394,18 @@ const agentOps = {
     revertBoundary: string | null
   }> => ipcRenderer.invoke('session:getTimeline', sessionId),
 
-  // Subscribe to streaming events
-  // Listen on both canonical (agent:stream) and legacy (opencode:stream) channels
-  // because runtime implementers still emit on the legacy channel.
+  // Subscribe to streaming events on the canonical `agent:stream` channel.
   // Events are normalized through normalizeAgentEvent() to ensure consistent shape.
   onStream: (callback: (event: CanonicalAgentEvent) => void): (() => void) => {
-    const agentHandler = (
+    const handler = (
       _e: Electron.IpcRendererEvent,
       event: Record<string, unknown>
     ): void => {
-      callback(normalizeAgentEvent(event, 'agent:stream'))
+      callback(normalizeAgentEvent(event))
     }
-    const legacyHandler = (
-      _e: Electron.IpcRendererEvent,
-      event: Record<string, unknown>
-    ): void => {
-      callback(normalizeAgentEvent(event, 'opencode:stream'))
-    }
-    ipcRenderer.on('agent:stream', agentHandler)
-    ipcRenderer.on('opencode:stream', legacyHandler)
+    ipcRenderer.on('agent:stream', handler)
     return () => {
-      ipcRenderer.removeListener('agent:stream', agentHandler)
-      ipcRenderer.removeListener('opencode:stream', legacyHandler)
+      ipcRenderer.removeListener('agent:stream', handler)
     }
   }
 }

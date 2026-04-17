@@ -125,6 +125,7 @@ export interface SessionUpdate {
   model_provider_id?: string | null
   model_id?: string | null
   model_variant?: string | null
+  color?: string | null
   updated_at?: string
   completed_at?: string | null
 }

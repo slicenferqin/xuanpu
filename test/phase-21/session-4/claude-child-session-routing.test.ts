@@ -48,7 +48,7 @@ function createMockQueryIterator(messages: Array<Record<string, unknown>>) {
 function getStreamEvents(window: BrowserWindow): any[] {
   const send = (window.webContents as any).send as ReturnType<typeof vi.fn>
   return send.mock.calls
-    .filter((call: any[]) => call[0] === 'opencode:stream')
+    .filter((call: any[]) => call[0] === 'agent:stream')
     .map((call: any[]) => call[1])
 }
 

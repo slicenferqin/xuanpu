@@ -1,7 +1,6 @@
 export { registerDatabaseHandlers } from './database-handlers'
 export { registerProjectHandlers } from './project-handlers'
 export { registerWorktreeHandlers } from './worktree-handlers'
-export { registerOpenCodeHandlers, cleanupOpenCode } from './opencode-handlers'
 export { registerAgentHandlers, cleanupAgentHandlers } from './agent-handlers'
 export { registerFileTreeHandlers, cleanupFileTreeWatchers } from './file-tree-handlers'
 export {

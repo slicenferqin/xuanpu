@@ -8,9 +8,9 @@ import { asObject, asString } from './codex-utils'
 import { notificationService } from './notification-service'
 import { loadClaudeSDK } from './claude-sdk-loader'
 import { maybeWithClaudeProjectMemory } from './claude-project-memory-loader'
-import type { AgentSdkCapabilities, AgentSdkImplementer } from './agent-sdk-types'
+import type { AgentSdkCapabilities, AgentSdkImplementer } from './agent-runtime-types'
 import type { AgentRuntimeAdapter } from './agent-runtime-types'
-import { CLAUDE_CODE_CAPABILITIES } from './agent-sdk-types'
+import { CLAUDE_CODE_CAPABILITIES } from './agent-runtime-types'
 import type { DatabaseService } from '../db/database'
 import { readClaudeTranscript, translateEntry } from './claude-transcript-reader'
 import { generateSessionTitle } from './claude-session-title'
@@ -32,7 +32,7 @@ const CLAUDE_OPUS_EFFORT_VARIANTS = { low: {}, medium: {}, high: {}, max: {} }
 const CLAUDE_MODELS = [
   {
     id: 'opus',
-    name: 'Opus 4.6',
+    name: 'Opus 4.7',
     limit: { context: 1000000, output: 32000 },
     variants: CLAUDE_OPUS_EFFORT_VARIANTS,
     defaultVariant: 'high'
@@ -2646,7 +2646,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
   }
 
   /**
-   * Handle approval reply from IPC (called by opencode-handlers.ts)
+   * Handle approval reply from IPC (called by agent-handlers.ts)
    */
   handleApprovalReply(
     requestId: string,
@@ -2908,7 +2908,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         const modelStr = typeof innerMessage?.model === 'string' ? innerMessage.model : undefined
 
         // Compute per-turn cost from usage + model so the renderer can display it.
-        // Claude ​Code SDK result messages don't always carry total_cost_usd.
+        // Claude Code SDK result messages don't always carry total_cost_usd.
         let turnCost: number | undefined
         if (usage && modelStr) {
           try {
@@ -3308,7 +3308,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
     try {
       const bus = getEventBus()
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      if (channel === 'opencode:stream') bus.emit('opencode:stream', data as any)
+      if (channel === 'agent:stream') bus.emit('agent:stream', data as any)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       else if (channel === 'worktree:branchRenamed') bus.emit('worktree:branchRenamed', data as any)
     } catch {

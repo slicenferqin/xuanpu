@@ -161,7 +161,7 @@ describe('Codex child session routing', () => {
       // Check that events sent to renderer use hive-a session ID
       const sendCalls = mockWindow.webContents.send.mock.calls
       const textEvents = sendCalls
-        .filter((c: any[]) => c[0] === 'opencode:stream')
+        .filter((c: any[]) => c[0] === 'agent:stream')
         .map((c: any[]) => c[1])
         .filter((e: any) => e.type === 'message.part.updated' && e.data?.type === 'text')
 
@@ -416,7 +416,7 @@ describe('Codex child session routing', () => {
       const allCalls = mockWindow.webContents.send.mock.calls
       // All calls should be on the opencode:stream channel
       for (const call of allCalls) {
-        expect(call[0]).toBe('opencode:stream')
+        expect(call[0]).toBe('agent:stream')
       }
     })
 

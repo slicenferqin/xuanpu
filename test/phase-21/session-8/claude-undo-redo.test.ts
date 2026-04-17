@@ -1304,7 +1304,7 @@ describe('ClaudeCodeImplementer - undo/redo/getSessionInfo (Session 8)', () => {
       const sendMock = mockWindow.webContents.send as ReturnType<typeof vi.fn>
       const materializeCalls = sendMock.mock.calls.filter(
         (call: any[]) =>
-          call[0] === 'opencode:stream' &&
+          call[0] === 'agent:stream' &&
           call[1]?.type === 'session.materialized' &&
           call[1]?.data?.newSessionId === 'sdk-session-forked'
       )

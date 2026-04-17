@@ -1127,7 +1127,9 @@ export const messages: Record<AppLocale, MessageTree> = {
         closeOthers: 'Close Others',
         closeToRight: 'Close Others to the Right',
         copyRelativePath: 'Copy Relative Path',
-        copyAbsolutePath: 'Copy Absolute Path'
+        copyAbsolutePath: 'Copy Absolute Path',
+        setColor: 'Set Color',
+        clearColor: 'Clear Color'
       },
       actions: {
         createSession: 'Create new session (right-click for options)',
@@ -1149,7 +1151,8 @@ export const messages: Record<AppLocale, MessageTree> = {
       errors: {
         createSession: 'Failed to create session',
         closeSession: 'Failed to close session',
-        renameSession: 'Failed to rename session'
+        renameSession: 'Failed to rename session',
+        setColor: 'Failed to set color'
       }
     },
     slashCommandPopover: {
@@ -3187,7 +3190,9 @@ export const messages: Record<AppLocale, MessageTree> = {
         closeOthers: '关闭其他标签',
         closeToRight: '关闭右侧其他标签',
         copyRelativePath: '复制相对路径',
-        copyAbsolutePath: '复制绝对路径'
+        copyAbsolutePath: '复制绝对路径',
+        setColor: '设置颜色',
+        clearColor: '清除颜色'
       },
       actions: {
         createSession: '创建新会话（右键查看更多选项）',
@@ -3209,7 +3214,8 @@ export const messages: Record<AppLocale, MessageTree> = {
       errors: {
         createSession: '创建会话失败',
         closeSession: '关闭会话失败',
-        renameSession: '重命名会话失败'
+        renameSession: '重命名会话失败',
+        setColor: '颜色设置失败'
       }
     },
     slashCommandPopover: {

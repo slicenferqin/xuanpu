@@ -25,7 +25,7 @@ export function registerAgentHandlers(
   // Set the main window for event forwarding
   openCodeService.setMainWindow(mainWindow)
 
-  // Connect to OpenCode for a worktree (lazy starts server if needed)
+  // Connect to runtime for a worktree (lazy starts server if needed)
   ipcMain.handle(
     'agent:connect',
     async (_event, worktreePath: string, hiveSessionId: string) => {
@@ -33,25 +33,18 @@ export function registerAgentHandlers(
       // New session on this worktree — allow context injection for the first prompt
       injectedWorktrees.delete(worktreePath)
       try {
-        // Runtime-aware dispatch: route non-OpenCode sessions to their implementer
-        if (runtimeManager && dbService) {
-          const session = dbService.getSession(hiveSessionId)
-          const runtimeId = session?.agent_sdk
-          log.info('IPC: agent:connect runtime resolution', { hiveSessionId, runtimeId, agentSdk: session?.agent_sdk })
-          // Terminal sessions have no AI backend — short-circuit
-          if (runtimeId === 'terminal') {
-            return { success: true, sessionId: hiveSessionId }
-          }
-          if (runtimeId && runtimeId !== 'opencode') {
-            const impl = runtimeManager.getImplementer(runtimeId)
-            const result = await impl.connect(worktreePath, hiveSessionId)
-            telemetryService.track('session_started', { runtime_id: runtimeId })
-            return { success: true, ...result }
-          }
+        const runtimeId = dbService?.getSession(hiveSessionId)?.agent_sdk ?? 'opencode'
+        log.info('IPC: agent:connect runtime resolution', { hiveSessionId, runtimeId })
+        // Terminal sessions have no AI backend — short-circuit
+        if (runtimeId === 'terminal') {
+          return { success: true, sessionId: hiveSessionId }
         }
-        // Fall through to existing OpenCode path
-        const result = await openCodeService.connect(worktreePath, hiveSessionId)
-        telemetryService.track('session_started', { runtime_id: 'opencode' })
+        if (!runtimeManager) {
+          throw new Error('runtimeManager is required')
+        }
+        const impl = runtimeManager.getImplementer(runtimeId)
+        const result = await impl.connect(worktreePath, hiveSessionId)
+        telemetryService.track('session_started', { runtime_id: runtimeId })
         return { success: true, ...result }
       } catch (error) {
         log.error('IPC: agent:connect failed', { error })
@@ -69,25 +62,16 @@ export function registerAgentHandlers(
     async (_event, worktreePath: string, runtimeSessionId: string, hiveSessionId: string) => {
       log.info('IPC: agent:reconnect', { worktreePath, runtimeSessionId, hiveSessionId })
       try {
-        // Runtime-aware dispatch: route non-OpenCode sessions to their implementer
-        if (runtimeManager && dbService) {
-          const runtimeId = dbService.getRuntimeIdForSession(runtimeSessionId)
-          // Terminal sessions have no AI backend — short-circuit
-          if (runtimeId === 'terminal') {
-            return { success: true, sessionStatus: 'idle' as const }
-          }
-          if (runtimeId && runtimeId !== 'opencode') {
-            const impl = runtimeManager.getImplementer(runtimeId)
-            const result = await impl.reconnect(worktreePath, runtimeSessionId, hiveSessionId)
-            return result
-          }
+        const runtimeId = dbService?.getRuntimeIdForSession(runtimeSessionId) ?? 'opencode'
+        // Terminal sessions have no AI backend — short-circuit
+        if (runtimeId === 'terminal') {
+          return { success: true, sessionStatus: 'idle' as const }
         }
-        // Fall through to existing OpenCode path
-        const result = await openCodeService.reconnect(
-          worktreePath,
-          runtimeSessionId,
-          hiveSessionId
-        )
+        if (!runtimeManager) {
+          throw new Error('runtimeManager is required')
+        }
+        const impl = runtimeManager.getImplementer(runtimeId)
+        const result = await impl.reconnect(worktreePath, runtimeSessionId, hiveSessionId)
         return result
       } catch (error) {
         log.error('IPC: agent:reconnect failed', { error })
@@ -217,20 +201,17 @@ export function registerAgentHandlers(
       options
     })
     try {
-      // Runtime-aware dispatch: route non-OpenCode sessions to their implementer
-      if (runtimeManager && dbService) {
-        const runtimeId = dbService.getRuntimeIdForSession(runtimeSessionId)
-        log.info('IPC: agent:prompt runtime resolution', { runtimeSessionId, runtimeId })
-        if (runtimeId && runtimeId !== 'opencode' && runtimeId !== 'terminal') {
-          const impl = runtimeManager.getImplementer(runtimeId)
-          await impl.prompt(worktreePath, runtimeSessionId, messageOrParts, model, options)
-          telemetryService.track('prompt_sent', { runtime_id: runtimeId })
-          return { success: true }
-        }
+      const runtimeId = dbService?.getRuntimeIdForSession(runtimeSessionId) ?? 'opencode'
+      log.info('IPC: agent:prompt runtime resolution', { runtimeSessionId, runtimeId })
+      if (runtimeId === 'terminal') {
+        return { success: true }
       }
-      // Fall through to existing OpenCode path
-      await openCodeService.prompt(worktreePath, runtimeSessionId, messageOrParts, model)
-      telemetryService.track('prompt_sent', { runtime_id: 'opencode' })
+      if (!runtimeManager) {
+        throw new Error('runtimeManager is required')
+      }
+      const impl = runtimeManager.getImplementer(runtimeId)
+      await impl.prompt(worktreePath, runtimeSessionId, messageOrParts, model, options)
+      telemetryService.track('prompt_sent', { runtime_id: runtimeId })
       return { success: true }
     } catch (error) {
       log.error('IPC: agent:prompt failed', { error })
@@ -248,17 +229,15 @@ export function registerAgentHandlers(
       log.info('IPC: agent:disconnect', { worktreePath, runtimeSessionId })
       injectedWorktrees.delete(worktreePath)
       try {
-        // Runtime-aware dispatch: route non-OpenCode sessions to their implementer
-        if (runtimeManager && dbService) {
-          const runtimeId = dbService.getRuntimeIdForSession(runtimeSessionId)
-          if (runtimeId && runtimeId !== 'opencode' && runtimeId !== 'terminal') {
-            const impl = runtimeManager.getImplementer(runtimeId)
-            await impl.disconnect(worktreePath, runtimeSessionId)
-            return { success: true }
-          }
+        const runtimeId = dbService?.getRuntimeIdForSession(runtimeSessionId) ?? 'opencode'
+        if (runtimeId === 'terminal') {
+          return { success: true }
         }
-        // Fall through to existing OpenCode path
-        await openCodeService.disconnect(worktreePath, runtimeSessionId)
+        if (!runtimeManager) {
+          throw new Error('runtimeManager is required')
+        }
+        const impl = runtimeManager.getImplementer(runtimeId)
+        await impl.disconnect(worktreePath, runtimeSessionId)
         return { success: true }
       } catch (error) {
         log.error('IPC: agent:disconnect failed', { error })
@@ -276,15 +255,15 @@ export function registerAgentHandlers(
     async (_event, opts?: { runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal' }) => {
       log.info('IPC: agent:models', { runtimeId: opts?.runtimeId })
       try {
-        if (opts?.runtimeId && opts.runtimeId !== 'opencode' && runtimeManager) {
-          const impl = runtimeManager.getImplementer(opts.runtimeId)
-          if (impl) {
-            const providers = await impl.getAvailableModels()
-            return { success: true, providers }
-          }
+        const runtimeId = opts?.runtimeId ?? 'opencode'
+        if (runtimeId === 'terminal') {
+          return { success: true, providers: {} }
         }
-        // Default: OpenCode
-        const providers = await openCodeService.getAvailableModels()
+        if (!runtimeManager) {
+          throw new Error('runtimeManager is required')
+        }
+        const impl = runtimeManager.getImplementer(runtimeId)
+        const providers = await impl.getAvailableModels()
         return { success: true, providers }
       } catch (error) {
         log.error('IPC: agent:models failed', { error })
@@ -314,22 +293,27 @@ export function registerAgentHandlers(
         runtimeId: model?.runtimeId
       })
       try {
-        // Handle null (clear global model only — per-runtime models are independent)
+        if (!runtimeManager) {
+          throw new Error('runtimeManager is required')
+        }
+        // Handle null (clear global model) — route to opencode by default
         if (model === null) {
-          openCodeService.clearSelectedModel()
+          const openCodeImpl = runtimeManager.getImplementer('opencode')
+          // Use duck typing to access the optional clearSelectedModel method
+          const maybeClear = (openCodeImpl as unknown as { clearSelectedModel?: () => void })
+            .clearSelectedModel
+          if (typeof maybeClear === 'function') {
+            maybeClear.call(openCodeImpl)
+          }
           return { success: true }
         }
 
-        // Handle non-null model
-        if (model.runtimeId && model.runtimeId !== 'opencode' && runtimeManager) {
-          const impl = runtimeManager.getImplementer(model.runtimeId)
-          if (impl) {
-            impl.setSelectedModel(model)
-            return { success: true }
-          }
+        const runtimeId = model.runtimeId ?? 'opencode'
+        if (runtimeId === 'terminal') {
+          return { success: true }
         }
-        // Default: OpenCode
-        openCodeService.setSelectedModel(model)
+        const impl = runtimeManager.getImplementer(runtimeId)
+        impl.setSelectedModel(model)
         return { success: true }
       } catch (error) {
         log.error('IPC: agent:setModel failed', { error })
@@ -358,18 +342,15 @@ export function registerAgentHandlers(
     ) => {
       log.info('IPC: agent:modelInfo', { worktreePath, modelId, runtimeId })
       try {
-        if (runtimeId && runtimeId !== 'opencode' && runtimeManager) {
-          const impl = runtimeManager.getImplementer(runtimeId)
-          if (impl) {
-            const model = await impl.getModelInfo(worktreePath, modelId)
-            if (!model) {
-              return { success: false, error: 'Model not found' }
-            }
-            return { success: true, model }
-          }
+        const resolvedRuntimeId = runtimeId ?? 'opencode'
+        if (resolvedRuntimeId === 'terminal') {
+          return { success: false, error: 'Terminal sessions have no model' }
         }
-        // Default: OpenCode
-        const model = await openCodeService.getModelInfo(worktreePath, modelId)
+        if (!runtimeManager) {
+          throw new Error('runtimeManager is required')
+        }
+        const impl = runtimeManager.getImplementer(resolvedRuntimeId)
+        const model = await impl.getModelInfo(worktreePath, modelId)
         if (!model) {
           return { success: false, error: 'Model not found' }
         }
@@ -390,17 +371,15 @@ export function registerAgentHandlers(
     async (_event, { worktreePath, sessionId }: { worktreePath: string; sessionId: string }) => {
       log.info('IPC: agent:sessionInfo', { worktreePath, sessionId })
       try {
-        // Runtime-aware dispatch: route non-OpenCode sessions to their implementer
-        if (runtimeManager && dbService) {
-          const runtimeId = dbService.getRuntimeIdForSession(sessionId)
-          if (runtimeId && runtimeId !== 'opencode' && runtimeId !== 'terminal') {
-            const impl = runtimeManager.getImplementer(runtimeId)
-            const result = await impl.getSessionInfo(worktreePath, sessionId)
-            return { success: true, ...result }
-          }
+        const runtimeId = dbService?.getRuntimeIdForSession(sessionId) ?? 'opencode'
+        if (runtimeId === 'terminal') {
+          return { success: true, revertMessageID: null, revertDiff: null }
         }
-        // Fall through to existing OpenCode path
-        const result = await openCodeService.getSessionInfo(worktreePath, sessionId)
+        if (!runtimeManager) {
+          throw new Error('runtimeManager is required')
+        }
+        const impl = runtimeManager.getImplementer(runtimeId)
+        const result = await impl.getSessionInfo(worktreePath, sessionId)
         return { success: true, ...result }
       } catch (error) {
         log.error('IPC: agent:sessionInfo failed', { error })
@@ -418,19 +397,13 @@ export function registerAgentHandlers(
     async (_event, { worktreePath, sessionId }: { worktreePath: string; sessionId?: string }) => {
       log.info('IPC: agent:commands', { worktreePath, sessionId })
       try {
-        // Runtime-aware dispatch: route non-OpenCode sessions to their implementer
-        if (runtimeManager && dbService && sessionId) {
-          const runtimeId = dbService.getRuntimeIdForSession(sessionId)
-          if (runtimeId && runtimeId !== 'opencode' && runtimeId !== 'terminal') {
-            const impl = runtimeManager.getImplementer(runtimeId)
-            const commands = await impl.listCommands(worktreePath)
-            return { success: true, commands }
-          }
+        if (!runtimeManager) {
+          throw new Error('runtimeManager is required')
         }
 
         // For pending:: sessions (not yet materialized in DB), try Claude Code
         // implementer as it may have cached commands from previous sessions.
-        if (runtimeManager && sessionId?.startsWith('pending::')) {
+        if (sessionId?.startsWith('pending::')) {
           const impl = runtimeManager.getImplementer('claude-code')
           const commands = await impl.listCommands(worktreePath)
           if (commands.length > 0) {
@@ -438,8 +411,14 @@ export function registerAgentHandlers(
           }
         }
 
-        // Fall through to existing OpenCode path
-        const commands = await openCodeService.listCommands(worktreePath)
+        const runtimeId = sessionId
+          ? dbService?.getRuntimeIdForSession(sessionId) ?? 'opencode'
+          : 'opencode'
+        if (runtimeId === 'terminal') {
+          return { success: true, commands: [] }
+        }
+        const impl = runtimeManager.getImplementer(runtimeId)
+        const commands = await impl.listCommands(worktreePath)
         return { success: true, commands }
       } catch (error) {
         log.error('IPC: agent:commands failed', { error })
@@ -461,8 +440,7 @@ export function registerAgentHandlers(
         worktreePath,
         sessionId,
         command,
-        args,
-        model
+        args
       }: {
         worktreePath: string
         sessionId: string
@@ -471,19 +449,17 @@ export function registerAgentHandlers(
         model?: { providerID: string; modelID: string; variant?: string }
       }
     ) => {
-      log.info('IPC: agent:command', { worktreePath, sessionId, command, args, model })
+      log.info('IPC: agent:command', { worktreePath, sessionId, command, args })
       try {
-        // Runtime-aware dispatch: route non-OpenCode sessions to their implementer
-        if (runtimeManager && dbService) {
-          const runtimeId = dbService.getRuntimeIdForSession(sessionId)
-          if (runtimeId && runtimeId !== 'opencode' && runtimeId !== 'terminal') {
-            const impl = runtimeManager.getImplementer(runtimeId)
-            await impl.sendCommand(worktreePath, sessionId, command, args)
-            return { success: true }
-          }
+        const runtimeId = dbService?.getRuntimeIdForSession(sessionId) ?? 'opencode'
+        if (runtimeId === 'terminal') {
+          return { success: true }
         }
-        // Fall through to existing OpenCode path
-        await openCodeService.sendCommand(worktreePath, sessionId, command, args, model)
+        if (!runtimeManager) {
+          throw new Error('runtimeManager is required')
+        }
+        const impl = runtimeManager.getImplementer(runtimeId)
+        await impl.sendCommand(worktreePath, sessionId, command, args)
         return { success: true }
       } catch (error) {
         log.error('IPC: agent:command failed', { error })
@@ -495,24 +471,22 @@ export function registerAgentHandlers(
     }
   )
 
-  // Undo last message state via OpenCode revert API
+  // Undo last message state via runtime revert API
   ipcMain.handle(
     'agent:undo',
     async (_event, { worktreePath, sessionId }: { worktreePath: string; sessionId: string }) => {
       log.info('IPC: agent:undo', { worktreePath, sessionId })
       try {
-        // Runtime-aware dispatch: route non-OpenCode sessions to their implementer
-        if (runtimeManager && dbService) {
-          const runtimeId = dbService.getRuntimeIdForSession(sessionId)
-          if (runtimeId && runtimeId !== 'opencode' && runtimeId !== 'terminal') {
-            const impl = runtimeManager.getImplementer(runtimeId)
-            const result = await impl.undo(worktreePath, sessionId, '')
-            return { success: true, ...(result as Record<string, unknown>) }
-          }
+        const runtimeId = dbService?.getRuntimeIdForSession(sessionId) ?? 'opencode'
+        if (runtimeId === 'terminal') {
+          return { success: true }
         }
-        // Fall through to existing OpenCode path
-        const result = await openCodeService.undo(worktreePath, sessionId)
-        return { success: true, ...result }
+        if (!runtimeManager) {
+          throw new Error('runtimeManager is required')
+        }
+        const impl = runtimeManager.getImplementer(runtimeId)
+        const result = await impl.undo(worktreePath, sessionId, '')
+        return { success: true, ...(result as Record<string, unknown>) }
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error))
         log.error('IPC: agent:undo failed', err)
@@ -524,24 +498,22 @@ export function registerAgentHandlers(
     }
   )
 
-  // Redo last undone message state via OpenCode unrevert/revert API
+  // Redo last undone message state via runtime unrevert/revert API
   ipcMain.handle(
     'agent:redo',
     async (_event, { worktreePath, sessionId }: { worktreePath: string; sessionId: string }) => {
       log.info('IPC: agent:redo', { worktreePath, sessionId })
       try {
-        // Runtime-aware dispatch: route non-OpenCode sessions to their implementer
-        if (runtimeManager && dbService) {
-          const runtimeId = dbService.getRuntimeIdForSession(sessionId)
-          if (runtimeId && runtimeId !== 'opencode' && runtimeId !== 'terminal') {
-            const impl = runtimeManager.getImplementer(runtimeId)
-            const result = await impl.redo(worktreePath, sessionId, '')
-            return { success: true, ...(result as Record<string, unknown>) }
-          }
+        const runtimeId = dbService?.getRuntimeIdForSession(sessionId) ?? 'opencode'
+        if (runtimeId === 'terminal') {
+          return { success: true }
         }
-        // Fall through to existing OpenCode path
-        const result = await openCodeService.redo(worktreePath, sessionId)
-        return { success: true, ...result }
+        if (!runtimeManager) {
+          throw new Error('runtimeManager is required')
+        }
+        const impl = runtimeManager.getImplementer(runtimeId)
+        const result = await impl.redo(worktreePath, sessionId, '')
+        return { success: true, ...(result as Record<string, unknown>) }
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error))
         log.error('IPC: agent:redo failed', err)
@@ -605,10 +577,13 @@ export function registerAgentHandlers(
           } catch {
             // Codex implementer not registered, continue
           }
+
+          // Fall through to OpenCode adapter
+          const openCodeImpl = runtimeManager.getImplementer('opencode')
+          await openCodeImpl.questionReply(requestId, answers, worktreePath)
+          return { success: true }
         }
-        // Fall through to OpenCode
-        await openCodeService.questionReply(requestId, answers, worktreePath)
-        return { success: true }
+        throw new Error('runtimeManager is required')
       } catch (error) {
         log.error('IPC: agent:question:reply failed', { error })
         return {
@@ -643,10 +618,13 @@ export function registerAgentHandlers(
           } catch {
             // Codex implementer not registered, continue
           }
+
+          // Fall through to OpenCode adapter
+          const openCodeImpl = runtimeManager.getImplementer('opencode')
+          await openCodeImpl.questionReject(requestId, worktreePath)
+          return { success: true }
         }
-        // Fall through to OpenCode
-        await openCodeService.questionReject(requestId, worktreePath)
-        return { success: true }
+        throw new Error('runtimeManager is required')
       } catch (error) {
         log.error('IPC: agent:question:reject failed', { error })
         return {
@@ -763,7 +741,7 @@ export function registerAgentHandlers(
             // Codex implementer not registered, continue
           }
         }
-        // Fall through to OpenCode
+        // Fall through to OpenCode (uses extra `message` arg not in the adapter interface)
         await openCodeService.permissionReply(requestId, reply, worktreePath, message)
         return { success: true }
       } catch (error) {
@@ -783,10 +761,12 @@ export function registerAgentHandlers(
       log.info('IPC: agent:permission:list')
       try {
         // Aggregate permissions from all implementers
-        let permissions = await openCodeService.permissionList(worktreePath)
-
-        // Also include Codex pending approvals
+        let permissions: unknown[] = []
         if (runtimeManager) {
+          const openCodeImpl = runtimeManager.getImplementer('opencode')
+          permissions = await openCodeImpl.permissionList(worktreePath)
+
+          // Also include Codex pending approvals
           try {
             const codexImpl = runtimeManager.getImplementer('codex') as CodexImplementer
             const codexPermissions = await codexImpl.permissionList(worktreePath)
@@ -857,7 +837,7 @@ export function registerAgentHandlers(
     }
   )
 
-  // Rename a session's title via the OpenCode PATCH API
+  // Rename a session's title via the runtime's PATCH API
   ipcMain.handle(
     'agent:renameSession',
     async (
@@ -870,17 +850,15 @@ export function registerAgentHandlers(
     ) => {
       log.info('IPC: agent:renameSession', { runtimeSessionId, title })
       try {
-        // Runtime-aware dispatch: route non-OpenCode sessions to their implementer
-        if (runtimeManager && dbService) {
-          const runtimeId = dbService.getRuntimeIdForSession(runtimeSessionId)
-          if (runtimeId && runtimeId !== 'opencode' && runtimeId !== 'terminal') {
-            const impl = runtimeManager.getImplementer(runtimeId)
-            await impl.renameSession(worktreePath ?? '', runtimeSessionId, title)
-            return { success: true }
-          }
+        const runtimeId = dbService?.getRuntimeIdForSession(runtimeSessionId) ?? 'opencode'
+        if (runtimeId === 'terminal') {
+          return { success: true }
         }
-        // Fall through to existing OpenCode path
-        await openCodeService.renameSession(runtimeSessionId, title, worktreePath)
+        if (!runtimeManager) {
+          throw new Error('runtimeManager is required')
+        }
+        const impl = runtimeManager.getImplementer(runtimeId)
+        await impl.renameSession(worktreePath ?? '', runtimeSessionId, title)
         return { success: true }
       } catch (error) {
         log.error('IPC: agent:renameSession failed', { error })
@@ -892,7 +870,8 @@ export function registerAgentHandlers(
     }
   )
 
-  // Fork an existing session at an optional message boundary
+  // Fork an existing session at an optional message boundary.
+  // NOTE: forkSession is OpenCode-specific today; not part of AgentRuntimeAdapter interface.
   ipcMain.handle(
     'agent:fork',
     async (
@@ -905,7 +884,6 @@ export function registerAgentHandlers(
     ) => {
       log.info('IPC: agent:fork', { worktreePath, sessionId, messageId })
       try {
-        // TODO: add runtime-aware fork dispatch when non-OpenCode runtimes support it
         const result = await openCodeService.forkSession(worktreePath, sessionId, messageId)
         return { success: true, ...result }
       } catch (error) {
@@ -918,23 +896,21 @@ export function registerAgentHandlers(
     }
   )
 
-  // Get messages from an OpenCode session
+  // Get messages from a session
   ipcMain.handle(
     'agent:messages',
     async (_event, worktreePath: string, runtimeSessionId: string) => {
       log.info('IPC: agent:messages', { worktreePath, runtimeSessionId })
       try {
-        // Runtime-aware dispatch: route non-OpenCode sessions to their implementer
-        if (runtimeManager && dbService) {
-          const runtimeId = dbService.getRuntimeIdForSession(runtimeSessionId)
-          if (runtimeId && runtimeId !== 'opencode' && runtimeId !== 'terminal') {
-            const impl = runtimeManager.getImplementer(runtimeId)
-            const messages = await impl.getMessages(worktreePath, runtimeSessionId)
-            return { success: true, messages }
-          }
+        const runtimeId = dbService?.getRuntimeIdForSession(runtimeSessionId) ?? 'opencode'
+        if (runtimeId === 'terminal') {
+          return { success: true, messages: [] }
         }
-        // Fall through to existing OpenCode path
-        const messages = await openCodeService.getMessages(worktreePath, runtimeSessionId)
+        if (!runtimeManager) {
+          throw new Error('runtimeManager is required')
+        }
+        const impl = runtimeManager.getImplementer(runtimeId)
+        const messages = await impl.getMessages(worktreePath, runtimeSessionId)
         return { success: true, messages }
       } catch (error) {
         log.error('IPC: agent:messages failed', { error })
@@ -953,17 +929,15 @@ export function registerAgentHandlers(
     async (_event, worktreePath: string, runtimeSessionId: string) => {
       log.info('IPC: agent:abort', { worktreePath, runtimeSessionId })
       try {
-        // Runtime-aware dispatch: route non-OpenCode sessions to their implementer
-        if (runtimeManager && dbService) {
-          const runtimeId = dbService.getRuntimeIdForSession(runtimeSessionId)
-          if (runtimeId && runtimeId !== 'opencode' && runtimeId !== 'terminal') {
-            const impl = runtimeManager.getImplementer(runtimeId)
-            const result = await impl.abort(worktreePath, runtimeSessionId)
-            return { success: result }
-          }
+        const runtimeId = dbService?.getRuntimeIdForSession(runtimeSessionId) ?? 'opencode'
+        if (runtimeId === 'terminal') {
+          return { success: true }
         }
-        // Fall through to existing OpenCode path
-        const result = await openCodeService.abort(worktreePath, runtimeSessionId)
+        if (!runtimeManager) {
+          throw new Error('runtimeManager is required')
+        }
+        const impl = runtimeManager.getImplementer(runtimeId)
+        const result = await impl.abort(worktreePath, runtimeSessionId)
         return { success: result }
       } catch (error) {
         log.error('IPC: agent:abort failed', { error })
@@ -978,8 +952,12 @@ export function registerAgentHandlers(
   log.info('Agent IPC handlers registered')
 }
 
-export async function cleanupAgentHandlers(): Promise<void> {
+export async function cleanupAgentHandlers(runtimeManager?: AgentRuntimeManager): Promise<void> {
   log.info('Cleaning up agent runtime services')
   injectedWorktrees.clear()
-  await openCodeService.cleanup()
+  if (runtimeManager) {
+    await runtimeManager.cleanupAll()
+  } else {
+    await openCodeService.cleanup()
+  }
 }

@@ -5,11 +5,11 @@
  *
  * 1. **Main process** — `emitAgentEvent()` is called by implementers instead of
  *    the raw `sendToRenderer()`. It stamps `eventId`, `sessionSequence`, and
- *    sends the envelope over the legacy `opencode:stream` IPC channel.
+ *    sends the envelope over the canonical `agent:stream` IPC channel.
  *
  * 2. **Preload bridge** — `normalizeAgentEvent()` re-normalizes events coming
- *    from both `agent:stream` and `opencode:stream` channels, ensuring the
- *    renderer always sees a uniform `CanonicalAgentEvent` shape.
+ *    from `agent:stream`, ensuring the renderer always sees a uniform
+ *    `CanonicalAgentEvent` shape.
  *
  * Neither function introduces pub-sub, middleware, or event bus abstractions.
  */
@@ -63,7 +63,7 @@ function generateEventId(): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Send an agent event to the renderer via the legacy `opencode:stream` channel,
+ * Send an agent event to the renderer via the canonical `agent:stream` channel,
  * stamping `eventId` and `sessionSequence` on the envelope.
  *
  * Usage (in implementers):
@@ -88,7 +88,7 @@ export function emitAgentEvent(
     sessionSequence: event.sessionSequence ?? nextSequence(event.sessionId)
   } as CanonicalAgentEvent
 
-  mainWindow.webContents.send('opencode:stream', envelope)
+  mainWindow.webContents.send('agent:stream', envelope)
 
   // Auto-clean sequence counter when session terminates (P1-3 CR fix)
   if (event.type === 'session.error') {
@@ -121,7 +121,7 @@ export function emitAgentEvent(
  */
 export function normalizeAgentEvent(
   raw: Record<string, unknown>,
-  sourceChannel: 'agent:stream' | 'opencode:stream'
+  sourceChannel: 'agent:stream' = 'agent:stream'
 ): CanonicalAgentEvent {
   // Shallow-copy to avoid mutating the caller's object (P1-2 CR fix)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

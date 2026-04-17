@@ -6,7 +6,7 @@ import type {
 } from '../shared/types'
 
 interface EventBusEvents {
-  'opencode:stream': [event: OpenCodeStreamEvent]
+  'agent:stream': [event: OpenCodeStreamEvent]
   'worktree:branchRenamed': [data: { worktreeId: string; newBranch: string }]
   'git:statusChanged': [data: { worktreePath: string }]
   'git:branchChanged': [data: { worktreePath: string }]

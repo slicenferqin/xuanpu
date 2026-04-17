@@ -82,12 +82,21 @@ function extractMissionTasks(messages: TimelineMessage[]): MissionTask[] {
 // ---------------------------------------------------------------------------
 
 function useTimeline(sessionId: string) {
-  const [messages, setMessages] = useState<TimelineMessage[]>([])
+  // Restore optimistic messages from buffer on mount so they survive tab switches
+  const initBuffer = getStreamingBuffer(sessionId)
+  const [messages, setMessages] = useState<TimelineMessage[]>(
+    () => (initBuffer?.optimisticMessages as TimelineMessage[] | undefined) ?? []
+  )
   const [loading, setLoading] = useState(true)
   // Cache user-message attachments so they survive transcript refreshes.
   // Backend-loaded messages don't carry attachment data (images are base64-encoded
   // locally), so we preserve them by matching on normalised content.
   const attachmentCacheRef = useRef(new Map<string, MessagePart[]>())
+  // Track optimistic (not-yet-persisted) user messages so they can be
+  // merged back after a refresh and saved to the streaming buffer.
+  const optimisticRef = useRef<TimelineMessage[]>(
+    (initBuffer?.optimisticMessages as TimelineMessage[] | undefined) ?? []
+  )
 
   const refresh = useCallback(async (): Promise<TimelineMessage[]> => {
     if (!window.agentOps?.getTimeline) {
@@ -107,8 +116,18 @@ function useTimeline(sessionId: string) {
             return msg
           })
         : result.messages
-      setMessages(restored)
-      return restored
+
+      // Merge back optimistic messages not yet present in DB results.
+      // Match by content — once the DB contains a user message with the same
+      // trimmed text, the optimistic copy is no longer needed.
+      const dbContents = new Set(restored.filter(m => m.role === 'user').map(m => m.content.trim()))
+      const stillPending = optimisticRef.current.filter(
+        (om) => !dbContents.has(om.content.trim())
+      )
+      optimisticRef.current = stillPending
+      const merged = stillPending.length > 0 ? [...restored, ...stillPending] : restored
+      setMessages(merged)
+      return merged
     } catch (err) {
       console.warn('[SessionShell] getTimeline failed:', err)
       return []
@@ -119,7 +138,9 @@ function useTimeline(sessionId: string) {
 
   useEffect(() => {
     setLoading(true)
-    setMessages([])
+    // Don't clear messages here — refresh() overwrites them once IPC returns.
+    // Clearing early causes a flash-of-empty and loses optimistic messages
+    // when SessionShell remounts (e.g. tab switch).
     attachmentCacheRef.current.clear()
     refresh()
   }, [sessionId, refresh])
@@ -130,10 +151,12 @@ function useTimeline(sessionId: string) {
     if (msg.attachments && msg.attachments.length > 0 && msg.content.trim()) {
       attachmentCacheRef.current.set(msg.content.trim(), msg.attachments)
     }
+    // Track optimistic messages so they survive tab switches via streaming buffer
+    optimisticRef.current = [...optimisticRef.current, msg]
     setMessages((prev) => [...prev, msg])
   }, [])
 
-  return { messages, loading, refresh, appendOptimistic }
+  return { messages, loading, refresh, appendOptimistic, optimisticRef }
 }
 
 // ---------------------------------------------------------------------------
@@ -213,7 +236,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
   const worktreePath = resolvedPath
 
-  const { messages: timelineMessages, loading, refresh, appendOptimistic } = useTimeline(sessionId)
+  const { messages: timelineMessages, loading, refresh, appendOptimistic, optimisticRef } = useTimeline(sessionId)
   const { lifecycle, interruptQueue, pendingCount } = useSessionRuntime(sessionId)
 
   // --- Connect or reconnect to agent runtime on mount ---
@@ -299,19 +322,16 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   )
 
   // Sync streaming state to module-level buffer so it survives tab switches.
-  // Written on every streaming update; cleared when session goes idle.
-  const syncBufferRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Written synchronously on every streaming update; cleared when session goes idle.
   const flushBuffer = useCallback(() => {
-    if (syncBufferRef.current) clearTimeout(syncBufferRef.current)
-    syncBufferRef.current = setTimeout(() => {
-      setStreamingBuffer(sessionId, {
-        parts: streamingPartsRef.current,
-        childParts: new Map(childPartsMapRef.current),
-        streamingContent: streamingContentRef.current,
-        isStreaming: true
-      })
-    }, 50)
-  }, [sessionId])
+    setStreamingBuffer(sessionId, {
+      parts: streamingPartsRef.current,
+      childParts: new Map(childPartsMapRef.current),
+      streamingContent: streamingContentRef.current,
+      isStreaming: true,
+      optimisticMessages: optimisticRef.current.length > 0 ? optimisticRef.current : undefined
+    })
+  }, [sessionId, optimisticRef])
 
   // --- Mission Control task state ---
   const [missionTasks, setMissionTasks] = useState<MissionTask[]>([])
@@ -717,6 +737,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
             setStreamingParts([])
             childPartsMapRef.current.clear()
             setChildPartsMap(new Map())
+            optimisticRef.current = []
             clearStreamingBuffer(sessionId)
 
             // Auto-drain pending message queue
@@ -819,7 +840,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       })
 
     return unsubscribe
-  }, [sessionId, refresh, worktreePath, droidSessionId, scheduleFlush, upsertToolUse, immediateFlush, routeChildEvent])
+  }, [sessionId, refresh, worktreePath, droidSessionId, scheduleFlush, upsertToolUse, immediateFlush, routeChildEvent, optimisticRef])
 
   // --- Composer action handler ---
   const handleComposerAction = useCallback(
@@ -864,6 +885,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         // Sync ref immediately so MissionControl's streaming callback can find
         // the user message before the next useEffect tick
         timelineMessagesRef.current = [...timelineMessagesRef.current, optimisticMsg]
+        // Flush buffer immediately so the optimistic message survives tab switches
+        flushBuffer()
       }
 
       try {
@@ -890,7 +913,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         setIsStreaming(false)
       }
     },
-    [worktreePath, droidSessionId, appendOptimistic]
+    [worktreePath, droidSessionId, appendOptimistic, flushBuffer]
   )
 
   // --- Plan implement/handoff handlers ---
