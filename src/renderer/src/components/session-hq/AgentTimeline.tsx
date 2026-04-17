@@ -28,6 +28,7 @@ import {
   TextCard,
   TodoCard
 } from './cards'
+import { ThreadStatusRow, type ThreadStatusRowData } from './ThreadStatusRow'
 
 import {
   Terminal,
@@ -109,7 +110,7 @@ function messageToNodes(message: TimelineMessage): TimelineNode[] {
       key: `${message.id}-compaction`,
       cardType: 'system' as CardType,
       message,
-      textContent: 'Context compressed',
+      textContent: '',
       isLastInMessage: true
     }]
   }
@@ -330,9 +331,13 @@ function TimelineNodeView({
 
     case 'system':
       return (
-        <div className="text-xs text-muted-foreground italic py-1">
-          {node.textContent}
-        </div>
+        <ThreadStatusRow
+          status={{
+            id: node.message.id,
+            kind: 'compacted',
+            timestamp: Date.parse(node.message.timestamp) || Date.now()
+          }}
+        />
       )
 
     case 'thinking':
@@ -441,6 +446,7 @@ export interface AgentTimelineProps {
   streamingParts?: StreamingPart[]
   isStreaming: boolean
   lifecycle: SessionLifecycle
+  ephemeralStatusRows?: ThreadStatusRowData[]
   /** Suppress inline TodoCard rendering when MissionControl handles tasks */
   suppressTodoCards?: boolean
   /** Aggregated final task list — renders ONE TodoCard after MissionControl fades */
@@ -459,6 +465,7 @@ export function AgentTimeline({
   streamingParts = [],
   isStreaming,
   lifecycle: _lifecycle,
+  ephemeralStatusRows = [],
   suppressTodoCards,
   finalTodoTasks,
   sessionId,
@@ -497,7 +504,6 @@ export function AgentTimeline({
       })
   }, [timelineMessages, suppressTodoCards])
 
-  // Convert live streaming parts into timeline nodes.
   // Dedupe by tool_use id: if a tool_use with the same id is already committed
   // in timelineMessages, skip the streaming copy — otherwise a switch-away-and-back
   // during a turn would render the same tool card twice (once from DB-persisted
@@ -514,6 +520,20 @@ export function AgentTimeline({
     return ids
   }, [timelineMessages])
 
+  const shouldRenderConnector = (nodeIndex: number): boolean => {
+    const node = nodes[nodeIndex]
+    if (!node || node.cardType === 'user-message') return false
+
+    if (nodeIndex < nodes.length - 1) return true
+
+    // Keep the rail visible for the final committed assistant node.
+    // While streaming, the live streaming nodes continue the rail below it.
+    // After streaming ends, hiding the rail makes the last reply visually
+    // "collapse" until a later message appears.
+    return node.message.role === 'assistant'
+  }
+
+  // Convert live streaming parts into timeline nodes
   const streamingNodes = useMemo(() => {
     if (streamingParts.length === 0) return []
     const placeholderMsg: TimelineMessage = {
@@ -614,7 +634,7 @@ export function AgentTimeline({
         {nodes.map((node, index) => {
           const iconCfg = ICON_MAP[node.cardType]
           const Icon = iconCfg.icon
-          const isLast = index === nodes.length - 1 && !isStreaming
+          const renderConnector = shouldRenderConnector(index)
 
           // Only show timestamp on: user messages, and the LAST assistant node
           // before a user message or end of timeline (not on every message).
@@ -642,7 +662,7 @@ export function AgentTimeline({
             return (
               <div key={node.key} className="relative pl-10 mb-4">
                 {/* Vertical line */}
-                {!isLast && (
+                {renderConnector && (
                   <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border" />
                 )}
                 <TimelineNodeView node={node} sessionId={sessionId} worktreePath={worktreePath} childPartsMap={childPartsMap} />
@@ -658,7 +678,7 @@ export function AgentTimeline({
           return (
             <div key={node.key} className="relative pl-10 mb-4">
               {/* Vertical line */}
-              {!isLast && (
+              {renderConnector && (
                 <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border" />
               )}
 
@@ -763,8 +783,12 @@ export function AgentTimeline({
           </div>
         )}
 
+        {ephemeralStatusRows.map((status) => (
+          <ThreadStatusRow key={status.id} status={status} />
+        ))}
+
         {/* Empty state */}
-        {nodes.length === 0 && !isStreaming && (
+        {nodes.length === 0 && ephemeralStatusRows.length === 0 && !isStreaming && (
           <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
             <MessageSquare className="h-10 w-10 mb-3 opacity-30" />
             <div className="text-sm font-medium">No messages yet</div>

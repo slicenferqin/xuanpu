@@ -5,7 +5,6 @@
  * Right: context capsule │ cost capsule
  */
 
-import { useMemo } from 'react'
 import { DollarSign, Clock3, Layers3, TriangleAlert } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ModelSelector } from '../sessions/ModelSelector'
@@ -17,13 +16,10 @@ import {
   PopoverTitle,
   PopoverTrigger
 } from '@/components/ui/popover'
-import { getModelLimitKey, useContextStore } from '@/stores/useContextStore'
+import { useContextStore } from '@/stores/useContextStore'
 import type { SessionLifecycle } from '@/stores/useSessionRuntimeStore'
 import type { UsageAnalyticsSessionSummary } from '@shared/types/usage-analytics'
-
-// ---------------------------------------------------------------------------
-// Provider + lifecycle capsule
-// ---------------------------------------------------------------------------
+import { formatModelLabelSummary, getSessionSummaryModelLabels } from '@/lib/model-labels'
 
 const PROVIDER_LABELS: Record<string, string> = {
   'claude-code': 'Claude',
@@ -38,6 +34,36 @@ const LIFECYCLE_META: Record<SessionLifecycle, { label: string; dotClass: string
   retry: { label: 'Retrying', dotClass: 'bg-yellow-500 animate-pulse' },
   error: { label: 'Error', dotClass: 'bg-red-500' },
   materializing: { label: 'Starting', dotClass: 'bg-blue-500 animate-pulse' }
+}
+
+function formatNumber(n: number): string {
+  return n.toLocaleString()
+}
+
+function formatTokensShort(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`
+  return value.toLocaleString()
+}
+
+function formatCurrency(amount: number): string {
+  return `$${amount.toFixed(4)}`
+}
+
+function formatDuration(seconds: number): string {
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const secs = seconds % 60
+  if (hours > 0) return `${hours}h ${minutes}m`
+  if (minutes > 0) return `${minutes}m ${secs}s`
+  return `${secs}s`
+}
+
+function getBarColor(percent: number): string {
+  if (percent >= 90) return '#d9485f'
+  if (percent >= 80) return '#d17a22'
+  if (percent >= 60) return '#b28a17'
+  return '#237a68'
 }
 
 function ProviderCapsule({
@@ -58,27 +84,6 @@ function ProviderCapsule({
   )
 }
 
-// ---------------------------------------------------------------------------
-// Context capsule
-// ---------------------------------------------------------------------------
-
-function formatNumber(n: number): string {
-  return n.toLocaleString()
-}
-
-function formatTokensShort(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`
-  return value.toLocaleString()
-}
-
-function getBarColor(percent: number): string {
-  if (percent >= 90) return '#d9485f'
-  if (percent >= 80) return '#d17a22'
-  if (percent >= 60) return '#b28a17'
-  return '#237a68'
-}
-
 function ContextCapsule({
   sessionId,
   modelId,
@@ -88,29 +93,11 @@ function ContextCapsule({
   modelId: string
   providerId: string
 }): React.JSX.Element | null {
-  const tokenInfo = useContextStore((state) => state.tokensBySession[sessionId])
-  const sessionModel = useContextStore((state) => state.modelBySession[sessionId])
-  const modelLimits = useContextStore((state) => state.modelLimits)
+  const { used, limit, percent, tokens, categories, isRefreshing } = useContextStore((state) =>
+    state.getContextUsage(sessionId, modelId, providerId)
+  )
 
-  const { used, limit, percent, tokens } = useMemo(() => {
-    const t = tokenInfo ?? { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 }
-    const model =
-      sessionModel ??
-      (modelId
-        ? { providerID: providerId || '*', modelID: modelId }
-        : undefined)
-
-    const lim = model
-      ? (modelLimits[getModelLimitKey(model.modelID, model.providerID)] ??
-        modelLimits[getModelLimitKey(model.modelID)])
-      : undefined
-
-    const u = t.input + t.cacheRead + t.cacheWrite
-    const pct = typeof lim === 'number' && lim > 0 ? Math.round((u / lim) * 100) : null
-    return { used: u, limit: lim, percent: pct, tokens: t }
-  }, [tokenInfo, sessionModel, modelId, providerId, modelLimits])
-
-  if (!limit && used === 0) return null
+  if (!limit && used === 0 && !isRefreshing) return null
 
   const pct = Math.min(100, Math.max(0, percent ?? 0))
   const barColor = getBarColor(pct)
@@ -119,7 +106,10 @@ function ContextCapsule({
     <Tooltip>
       <TooltipTrigger asChild>
         <div
-          className="inline-flex items-center gap-1.5 border border-border/40 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground cursor-default"
+          className={cn(
+            'inline-flex items-center gap-1.5 border border-border/40 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground cursor-default',
+            isRefreshing && 'animate-pulse'
+          )}
           data-testid="context-capsule"
         >
           <div className="h-1 w-8 rounded-full bg-muted overflow-hidden">
@@ -135,13 +125,25 @@ function ContextCapsule({
         <div className="space-y-1.5">
           <div className="font-medium">Context Window</div>
           <div>
-            {formatNumber(used)}{limit ? ` / ${formatNumber(limit)}` : ''} tokens
+            {formatNumber(used)}
+            {limit ? ` / ${formatNumber(limit)}` : ''} tokens
           </div>
-          <div className="border-t border-background/20 pt-1.5 space-y-0.5 text-[10px] opacity-80">
-            <div>Input: {formatNumber(tokens.input)}</div>
-            <div>Cache read: {formatNumber(tokens.cacheRead)}</div>
-            <div>Cache write: {formatNumber(tokens.cacheWrite)}</div>
-          </div>
+          {categories && categories.length > 0 ? (
+            <div className="border-t border-background/20 pt-1.5 space-y-0.5 text-[10px] opacity-80">
+              {categories.slice(0, 6).map((category) => (
+                <div key={category.name} className="flex items-center justify-between gap-3">
+                  <span className="truncate">{category.name}</span>
+                  <span className="font-mono shrink-0">{formatNumber(category.tokens)}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="border-t border-background/20 pt-1.5 space-y-0.5 text-[10px] opacity-80">
+              <div>Input: {formatNumber(tokens.input)}</div>
+              <div>Cache read: {formatNumber(tokens.cacheRead)}</div>
+              <div>Cache write: {formatNumber(tokens.cacheWrite)}</div>
+            </div>
+          )}
           {(tokens.output > 0 || tokens.reasoning > 0) && (
             <div className="border-t border-background/20 pt-1.5 space-y-0.5 text-[10px] opacity-60">
               <div className="text-[10px]">Generated</div>
@@ -149,27 +151,15 @@ function ContextCapsule({
               {tokens.reasoning > 0 && <div>Reasoning: {formatNumber(tokens.reasoning)}</div>}
             </div>
           )}
+          {isRefreshing && (
+            <div className="border-t border-background/20 pt-1.5 text-[10px] opacity-70">
+              Compressing context...
+            </div>
+          )}
         </div>
       </TooltipContent>
     </Tooltip>
   )
-}
-
-// ---------------------------------------------------------------------------
-// Cost capsule
-// ---------------------------------------------------------------------------
-
-function formatCurrency(amount: number): string {
-  return `$${amount.toFixed(4)}`
-}
-
-function formatDuration(seconds: number): string {
-  const hours = Math.floor(seconds / 3600)
-  const minutes = Math.floor((seconds % 3600) / 60)
-  const secs = seconds % 60
-  if (hours > 0) return `${hours}h ${minutes}m`
-  if (minutes > 0) return `${minutes}m ${secs}s`
-  return `${secs}s`
 }
 
 function CostCapsule({
@@ -181,13 +171,14 @@ function CostCapsule({
   fallbackCost: number
   fallbackTokens: { input: number; output: number; cacheRead: number; cacheWrite: number } | null
 }): React.JSX.Element | null {
-  const totalCost = summary?.total_cost ?? fallbackCost ?? 0
+  const totalCost = Math.max(summary?.total_cost ?? 0, fallbackCost ?? 0)
   const totalTokens =
     summary?.total_tokens ??
     ((fallbackTokens?.input ?? 0) +
       (fallbackTokens?.output ?? 0) +
       (fallbackTokens?.cacheRead ?? 0) +
       (fallbackTokens?.cacheWrite ?? 0))
+  const modelSummary = formatModelLabelSummary(getSessionSummaryModelLabels(summary))
 
   if (totalCost <= 0 && totalTokens <= 0) return null
 
@@ -220,29 +211,37 @@ function CostCapsule({
           <div className="grid grid-cols-2 gap-2 border-t border-border/70 pt-2">
             <div className="rounded-lg bg-muted/45 px-2 py-1.5">
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Input</div>
-              <div className="mt-1 font-mono">{formatTokensShort(summary?.input_tokens ?? fallbackTokens?.input ?? 0)}</div>
+              <div className="mt-1 font-mono">
+                {formatTokensShort(summary?.input_tokens ?? fallbackTokens?.input ?? 0)}
+              </div>
             </div>
             <div className="rounded-lg bg-muted/45 px-2 py-1.5">
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Output</div>
-              <div className="mt-1 font-mono">{formatTokensShort(summary?.output_tokens ?? fallbackTokens?.output ?? 0)}</div>
+              <div className="mt-1 font-mono">
+                {formatTokensShort(summary?.output_tokens ?? fallbackTokens?.output ?? 0)}
+              </div>
             </div>
             <div className="rounded-lg bg-muted/45 px-2 py-1.5">
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Cache write</div>
-              <div className="mt-1 font-mono">{formatTokensShort(summary?.cache_write_tokens ?? fallbackTokens?.cacheWrite ?? 0)}</div>
+              <div className="mt-1 font-mono">
+                {formatTokensShort(summary?.cache_write_tokens ?? fallbackTokens?.cacheWrite ?? 0)}
+              </div>
             </div>
             <div className="rounded-lg bg-muted/45 px-2 py-1.5">
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Cache read</div>
-              <div className="mt-1 font-mono">{formatTokensShort(summary?.cache_read_tokens ?? fallbackTokens?.cacheRead ?? 0)}</div>
+              <div className="mt-1 font-mono">
+                {formatTokensShort(summary?.cache_read_tokens ?? fallbackTokens?.cacheRead ?? 0)}
+              </div>
             </div>
           </div>
-          {summary?.latest_model_label && (
+          {modelSummary && (
             <div className="flex items-center justify-between gap-3 border-t border-border/70 pt-2">
               <span className="flex items-center gap-1.5 text-muted-foreground">
                 <Layers3 className="h-3.5 w-3.5" />
                 Model
               </span>
-              <span className="truncate font-medium" title={summary.latest_model_label}>
-                {summary.latest_model_label}
+              <span className="truncate font-medium" title={modelSummary.full}>
+                {modelSummary.short}
               </span>
             </div>
           )}
@@ -266,10 +265,6 @@ function CostCapsule({
     </Popover>
   )
 }
-
-// ---------------------------------------------------------------------------
-// Main header
-// ---------------------------------------------------------------------------
 
 export interface SessionHeaderProps {
   sessionId: string
@@ -301,13 +296,11 @@ export function SessionHeader({
 
   return (
     <div className="flex items-center gap-2 px-4 py-2 border-b border-border/60 shrink-0">
-      {/* Left: provider + lifecycle, model */}
       <ProviderCapsule sdk={session.agent_sdk} lifecycle={lifecycle} />
       <ModelSelector sessionId={sessionId} compact showProviderPrefix={false} />
 
       <div className="flex-1" />
 
-      {/* Right: context, cost */}
       {effectiveModelId && (
         <ContextCapsule
           sessionId={sessionId}

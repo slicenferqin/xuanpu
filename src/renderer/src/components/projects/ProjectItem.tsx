@@ -49,7 +49,7 @@ import {
 } from '@/stores'
 import { HintBadge } from '@/components/ui/HintBadge'
 import { WorktreeList, BranchPickerDialog } from '@/components/worktrees'
-import { LanguageIcon } from './LanguageIcon'
+import { ProjectAvatar } from '@/components/projects/ProjectAvatar'
 import { HighlightedText } from './HighlightedText'
 import { useI18n } from '@/i18n/useI18n'
 
@@ -326,8 +326,8 @@ export function ProjectItem({
               />
             </Button>
 
-            {/* Language Icon */}
-            <LanguageIcon language={project.language} customIcon={project.custom_icon} />
+            {/* Project Avatar */}
+            <ProjectAvatar name={project.name} customIcon={project.custom_icon} />
 
             {/* Project Name */}
             {isEditing ? (

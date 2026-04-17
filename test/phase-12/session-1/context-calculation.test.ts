@@ -1,11 +1,13 @@
 import { describe, test, expect, beforeEach, vi } from 'vitest'
 import { act } from 'react'
 import { useContextStore } from '../../../src/renderer/src/stores/useContextStore'
+import { applySessionContextUsage } from '../../../src/renderer/src/lib/context-usage'
 import {
   extractTokens,
   extractCost,
   extractModelRef
 } from '../../../src/renderer/src/lib/token-utils'
+import { getCanonicalModelLabel, resolveRuntimeModelId } from '../../../src/shared/usage/models'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -13,6 +15,7 @@ beforeEach(() => {
   useContextStore.setState({
     tokensBySession: {},
     modelBySession: {},
+    contextSnapshotsBySession: {},
     costBySession: {},
     modelLimits: {}
   })
@@ -220,6 +223,84 @@ describe('Session 1: Context Calculation Fix', () => {
       expect(usage.used).toBe(65000)
       expect(usage.percent).toBe(33) // Math.round(65000/200000*100)
     })
+
+    test('runtime context snapshot takes precedence over token snapshot totals', () => {
+      const store = useContextStore.getState()
+
+      act(() => {
+        store.setModelLimit('opus', 200000, 'anthropic')
+        store.setSessionTokens(
+          's1',
+          {
+            input: 190000,
+            output: 1200,
+            reasoning: 0,
+            cacheRead: 4000,
+            cacheWrite: 2000
+          },
+          {
+            providerID: 'anthropic',
+            modelID: 'opus'
+          }
+        )
+      })
+
+      applySessionContextUsage('s1', {
+        tokens: { input: 0, output: 0 },
+        model: { providerID: 'anthropic', modelID: 'opus' },
+        contextWindow: 200000,
+        breakdown: {
+          usedTokens: 50000,
+          maxTokens: 200000,
+          percentage: 25,
+          categories: [{ name: 'Messages', tokens: 50000, color: '#237a68' }]
+        }
+      })
+
+      const usage = store.getContextUsage('s1', 'opus', 'anthropic')
+      expect(usage.used).toBe(50000)
+      expect(usage.percent).toBe(25)
+      expect(usage.source).toBe('runtime')
+      expect(usage.categories?.[0]).toMatchObject({ name: 'Messages', tokens: 50000 })
+      expect(usage.tokens.input).toBe(190000)
+    })
+
+    test('compaction refresh keeps previous snapshot until a new authoritative usage arrives', () => {
+      const store = useContextStore.getState()
+
+      act(() => {
+        store.setSessionContextSnapshot('s1', {
+          usedTokens: 120000,
+          maxTokens: 200000,
+          percent: 60,
+          model: { providerID: 'anthropic', modelID: 'opus' }
+        })
+        store.setSessionContextRefreshing('s1', true)
+      })
+
+      let usage = store.getContextUsage('s1', 'opus', 'anthropic')
+      expect(usage.used).toBe(120000)
+      expect(usage.percent).toBe(60)
+      expect(usage.isRefreshing).toBe(true)
+
+      applySessionContextUsage('s1', {
+        tokens: { input: 0, output: 0 },
+        model: { providerID: 'anthropic', modelID: 'opus' },
+        contextWindow: 200000,
+        breakdown: {
+          usedTokens: 30000,
+          maxTokens: 200000,
+          rawMaxTokens: 1000000,
+          percentage: 15
+        }
+      })
+
+      usage = store.getContextUsage('s1', 'opus', 'anthropic')
+      expect(usage.used).toBe(30000)
+      expect(usage.percent).toBe(15)
+      expect(usage.rawMaxTokens).toBe(1000000)
+      expect(usage.isRefreshing).toBe(false)
+    })
   })
 
   describe('extractTokens', () => {
@@ -371,7 +452,7 @@ describe('Session 1: Context Calculation Fix', () => {
   describe('extractModelRef', () => {
     test('extracts provider/model from top-level fields', () => {
       const result = extractModelRef({ providerID: 'anthropic', modelID: 'claude-sonnet-4' })
-      expect(result).toEqual({ providerID: 'anthropic', modelID: 'claude-sonnet-4' })
+      expect(result).toEqual({ providerID: 'anthropic', modelID: 'sonnet' })
     })
 
     test('extracts provider/model from nested info fields', () => {
@@ -397,8 +478,38 @@ describe('Session 1: Context Calculation Fix', () => {
 
       expect(result).toEqual({
         providerID: 'anthropic',
-        modelID: 'claude-sonnet-4-5-20250929'
+        modelID: 'sonnet'
       })
+    })
+
+    test('uses fallback provider for provider-less Claude model strings', () => {
+      const result = extractModelRef(
+        {
+          info: {
+            model: 'claude-opus-4-7'
+          }
+        },
+        'anthropic'
+      )
+
+      expect(result).toEqual({
+        providerID: 'anthropic',
+        modelID: 'opus'
+      })
+    })
+  })
+
+  describe('model normalization', () => {
+    test('normalizes Claude runtime ids and labels consistently', () => {
+      expect(resolveRuntimeModelId('opus', 'anthropic')).toBe('opus')
+      expect(resolveRuntimeModelId('claude-opus-4-7', 'anthropic')).toBe('opus')
+      expect(resolveRuntimeModelId('anthropic/claude-opus-4-7', 'anthropic')).toBe('opus')
+      expect(resolveRuntimeModelId('claude-sonnet-4-6', 'anthropic')).toBe('sonnet')
+
+      expect(getCanonicalModelLabel('opus', 'anthropic')).toBe('Opus 4.7')
+      expect(getCanonicalModelLabel('claude-opus-4-7', 'anthropic')).toBe('Opus 4.7')
+      expect(getCanonicalModelLabel('anthropic/claude-opus-4-7', 'anthropic')).toBe('Opus 4.7')
+      expect(getCanonicalModelLabel('claude-sonnet-4-6', 'anthropic')).toBe('Sonnet 4.6')
     })
   })
 })

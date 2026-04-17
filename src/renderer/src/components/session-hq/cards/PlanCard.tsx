@@ -23,6 +23,7 @@ export function PlanCard({
 }: PlanCardProps): React.JSX.Element {
   return (
     <ActionCard
+      key={isPending ? 'pending' : 'resolved'}
       accentClass="border-purple-500"
       headerClass="bg-purple-500/10 text-purple-600 dark:text-purple-400 border-b-purple-500/20"
       headerLeft={

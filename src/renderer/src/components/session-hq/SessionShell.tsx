@@ -19,6 +19,7 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { SessionHeader } from './SessionHeader'
 import { AgentTimeline } from './AgentTimeline'
+import type { ThreadStatusRowData } from './ThreadStatusRow'
 import { MissionControl, type MissionTask } from './MissionControl'
 import { InterruptDock } from './InterruptDock'
 import { ComposerBar } from './ComposerBar'
@@ -27,6 +28,7 @@ import { useSessionRuntimeStore } from '@/stores/useSessionRuntimeStore'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useWorktreeStore } from '@/stores'
 import { useContextStore } from '@/stores/useContextStore'
+import { useWorktreeStatusStore } from '@/stores/useWorktreeStatusStore'
 import { useSettingsStore, resolveModelForSdk } from '@/stores/useSettingsStore'
 import { Loader2 } from 'lucide-react'
 import type { TimelineMessage } from '@shared/lib/timeline-types'
@@ -45,7 +47,10 @@ import {
   drainNextPending,
   type ComposerAction
 } from '@/lib/session-send-actions'
+import { buildPlanImplementationPrompt } from '@/lib/proposedPlan'
 import { extractTokens, extractCost, extractModelRef, extractModelUsage } from '@/lib/token-utils'
+import { applySessionContextUsage } from '@/lib/context-usage'
+import { lastSendMode } from '@/lib/message-send-times'
 import { toast } from 'sonner'
 
 // ---------------------------------------------------------------------------
@@ -107,23 +112,24 @@ function useTimeline(sessionId: string) {
       const result = await window.agentOps.getTimeline(sessionId)
       // Restore cached attachments onto refreshed messages
       const cache = attachmentCacheRef.current
-      const restored = cache.size > 0
-        ? result.messages.map((msg) => {
-            if (msg.role === 'user' && !msg.attachments) {
-              const stored = cache.get(msg.content.trim())
-              if (stored) return { ...msg, attachments: stored }
-            }
-            return msg
-          })
-        : result.messages
+      const restored =
+        cache.size > 0
+          ? result.messages.map((msg) => {
+              if (msg.role === 'user' && !msg.attachments) {
+                const stored = cache.get(msg.content.trim())
+                if (stored) return { ...msg, attachments: stored }
+              }
+              return msg
+            })
+          : result.messages
 
       // Merge back optimistic messages not yet present in DB results.
       // Match by content — once the DB contains a user message with the same
       // trimmed text, the optimistic copy is no longer needed.
-      const dbContents = new Set(restored.filter(m => m.role === 'user').map(m => m.content.trim()))
-      const stillPending = optimisticRef.current.filter(
-        (om) => !dbContents.has(om.content.trim())
+      const dbContents = new Set(
+        restored.filter((m) => m.role === 'user').map((m) => m.content.trim())
       )
+      const stillPending = optimisticRef.current.filter((om) => !dbContents.has(om.content.trim()))
       optimisticRef.current = stillPending
       const merged = stillPending.length > 0 ? [...restored, ...stillPending] : restored
       setMessages(merged)
@@ -156,7 +162,7 @@ function useTimeline(sessionId: string) {
     setMessages((prev) => [...prev, msg])
   }, [])
 
-  return { messages, loading, refresh, appendOptimistic, optimisticRef }
+  return { messages, setMessages, loading, refresh, appendOptimistic, optimisticRef }
 }
 
 // ---------------------------------------------------------------------------
@@ -164,15 +170,9 @@ function useTimeline(sessionId: string) {
 // ---------------------------------------------------------------------------
 
 function useSessionRuntime(sessionId: string) {
-  const lifecycle = useSessionRuntimeStore(
-    (s) => s.getSession(sessionId).lifecycle
-  )
-  const interruptQueue = useSessionRuntimeStore(
-    (s) => s.getInterruptQueue(sessionId)
-  )
-  const pendingCount = useSessionRuntimeStore(
-    (s) => s.getPendingCount(sessionId)
-  )
+  const lifecycle = useSessionRuntimeStore((s) => s.getSession(sessionId).lifecycle)
+  const interruptQueue = useSessionRuntimeStore((s) => s.getInterruptQueue(sessionId))
+  const pendingCount = useSessionRuntimeStore((s) => s.getPendingCount(sessionId))
 
   return { lifecycle, interruptQueue, pendingCount }
 }
@@ -224,19 +224,31 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     if (!connectionId) return
 
     let cancelled = false
-    window.connectionOps.get(connectionId).then((result) => {
-      if (!cancelled && result.success && result.connection?.path) {
-        setResolvedPath(result.connection.path)
-      }
-    }).catch((err) => {
-      console.error('[SessionShell:path] IPC error', err)
-    })
-    return () => { cancelled = true }
+    window.connectionOps
+      .get(connectionId)
+      .then((result) => {
+        if (!cancelled && result.success && result.connection?.path) {
+          setResolvedPath(result.connection.path)
+        }
+      })
+      .catch((err) => {
+        console.error('[SessionShell:path] IPC error', err)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [worktreePathFromStore, connectionId])
 
   const worktreePath = resolvedPath
 
-  const { messages: timelineMessages, loading, refresh, appendOptimistic, optimisticRef } = useTimeline(sessionId)
+  const {
+    messages: timelineMessages,
+    setMessages,
+    loading,
+    refresh,
+    appendOptimistic,
+    optimisticRef
+  } = useTimeline(sessionId)
   const { lifecycle, interruptQueue, pendingCount } = useSessionRuntime(sessionId)
 
   // --- Connect or reconnect to agent runtime on mount ---
@@ -246,48 +258,52 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   // --- Plan mode ---
   const mode = useSessionStore((s) => s.modeBySession?.get(sessionId) ?? 'build')
   const pendingPlan = useSessionStore((s) => s.pendingPlans?.get(sessionId) ?? null)
-  const toggleMode = useCallback(
-    () => { useSessionStore.getState().toggleSessionMode(sessionId) },
-    [sessionId]
-  )
+  const toggleMode = useCallback(() => {
+    useSessionStore.getState().toggleSessionMode(sessionId)
+  }, [sessionId])
 
   // --- Cost / tokens ---
   const sessionCost = useContextStore((s) => s.costBySession?.[sessionId] ?? 0)
   const rawTokens = useContextStore((s) => s.tokensBySession?.[sessionId] ?? null)
   const sessionTokens = useMemo(() => {
     if (!rawTokens) return null
-    return { input: rawTokens.input ?? 0, output: rawTokens.output ?? 0, cacheRead: rawTokens.cacheRead ?? 0, cacheWrite: rawTokens.cacheWrite ?? 0 }
+    return {
+      input: rawTokens.input ?? 0,
+      output: rawTokens.output ?? 0,
+      cacheRead: rawTokens.cacheRead ?? 0,
+      cacheWrite: rawTokens.cacheWrite ?? 0
+    }
   }, [rawTokens])
 
   // --- Persisted usage summary (survives restart) ---
-  const [usageSummary, setUsageSummary] = useState<import('@shared/types/usage-analytics').UsageAnalyticsSessionSummary | null>(null)
-  useEffect(() => {
-    let cancelled = false
-    window.usageAnalyticsOps.fetchSessionSummary(sessionId).then((result) => {
-      if (!cancelled && result.success && result.data) {
-        const d = result.data
-        setUsageSummary(d)
-        // Hydrate context store so ContextIndicator and cost pill work after restart
-        const store = useContextStore.getState()
-        if (!store.costBySession[sessionId] && d.total_cost > 0) {
-          store.setSessionCost(sessionId, d.total_cost)
-        }
-        if (!store.tokensBySession[sessionId] && d.total_tokens > 0) {
-          store.setSessionTokens(sessionId, {
-            input: d.input_tokens,
-            output: d.output_tokens,
-            reasoning: 0,
-            cacheRead: d.cache_read_tokens,
-            cacheWrite: d.cache_write_tokens
-          })
-        }
+  const [usageSummary, setUsageSummary] = useState<
+    import('@shared/types/usage-analytics').UsageAnalyticsSessionSummary | null
+  >(null)
+  const refreshUsageSummary = useCallback(async (): Promise<void> => {
+    if (!window.usageAnalyticsOps?.fetchSessionSummary) return
+
+    try {
+      const result = await window.usageAnalyticsOps.fetchSessionSummary(sessionId)
+      if (!result.success || !result.data) return
+
+      const data = result.data
+      setUsageSummary(data)
+
+      const store = useContextStore.getState()
+      if ((store.costBySession[sessionId] ?? 0) < data.total_cost) {
+        store.setSessionCost(sessionId, data.total_cost)
       }
-    }).catch(() => {})
-    return () => { cancelled = true }
+    } catch {
+      // Non-fatal — live context store remains the source of truth while active.
+    }
   }, [sessionId])
 
+  useEffect(() => {
+    refreshUsageSummary().catch(() => {})
+  }, [refreshUsageSummary])
+
   // --- Model resolution ---
-  const resolvedModel = useSettingsStore((s) => agentSdk ? resolveModelForSdk(agentSdk, s) : null)
+  const resolvedModel = useSettingsStore((s) => (agentSdk ? resolveModelForSdk(agentSdk, s) : null))
   const currentModelId = resolvedModel?.modelID ?? ''
   const currentProviderId = resolvedModel?.providerID ?? ''
 
@@ -299,6 +315,11 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   const _initBuffer = getStreamingBuffer(sessionId)
   const [streamingContent, setStreamingContent] = useState(_initBuffer?.streamingContent ?? '')
   const [isStreaming, setIsStreaming] = useState(_initBuffer?.isStreaming ?? false)
+  const [runStartedAt, setRunStartedAt] = useState<number | null>(_initBuffer?.runStartedAt ?? null)
+  const [compactionState, setCompactionState] = useState<{
+    phase: 'running' | 'completed'
+    timestamp: number
+  } | null>(_initBuffer?.compactionState ?? null)
   const [droidSessionId, setDroidSessionId] = useState<string | null>(
     sessionRecord?.opencode_session_id ?? null
   )
@@ -317,7 +338,9 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
   // --- Child session parts (sub-agent tool calls, keyed by parent tool_use id) ---
   const childPartsMapRef = useRef(
-    _initBuffer?.childParts ? new Map(_initBuffer.childParts) : new Map<string, SharedStreamingPart[]>()
+    _initBuffer?.childParts
+      ? new Map(_initBuffer.childParts)
+      : new Map<string, SharedStreamingPart[]>()
   )
   const [childPartsMap, setChildPartsMap] = useState<Map<string, SharedStreamingPart[]>>(
     _initBuffer?.childParts ? new Map(_initBuffer.childParts) : new Map()
@@ -331,9 +354,11 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       childParts: new Map(childPartsMapRef.current),
       streamingContent: streamingContentRef.current,
       isStreaming: true,
+      runStartedAt: runStartedAt ?? undefined,
+      compactionState,
       optimisticMessages: optimisticRef.current.length > 0 ? optimisticRef.current : undefined
     })
-  }, [sessionId, optimisticRef])
+  }, [sessionId, optimisticRef, runStartedAt, compactionState])
 
   // --- Mission Control task state ---
   const [missionTasks, setMissionTasks] = useState<MissionTask[]>([])
@@ -344,13 +369,59 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   const timelineMessagesRef = useRef<TimelineMessage[]>([])
 
   // Keep refs in sync
-  useEffect(() => { missionVisibleRef.current = missionVisible }, [missionVisible])
-  useEffect(() => { timelineMessagesRef.current = timelineMessages }, [timelineMessages])
+  useEffect(() => {
+    missionVisibleRef.current = missionVisible
+  }, [missionVisible])
+  useEffect(() => {
+    timelineMessagesRef.current = timelineMessages
+  }, [timelineMessages])
 
-  const allTasksComplete = useMemo(() =>
-    missionTasks.length > 0 && missionTasks.every((t) => t.status === 'completed'),
+  const allTasksComplete = useMemo(
+    () => missionTasks.length > 0 && missionTasks.every((t) => t.status === 'completed'),
     [missionTasks]
   )
+
+  const hasDurableCompactionMessage = useMemo(
+    () =>
+      timelineMessages.some((message) =>
+        (message.parts ?? []).some((part) => part.type === 'compaction')
+      ),
+    [timelineMessages]
+  )
+
+  const ephemeralStatusRows = useMemo<ThreadStatusRowData[]>(() => {
+    const rows: ThreadStatusRowData[] = []
+
+    if (
+      compactionState &&
+      !(compactionState.phase === 'completed' && hasDurableCompactionMessage)
+    ) {
+      rows.push({
+        id: `compaction-${sessionId}`,
+        kind: compactionState.phase === 'running' ? 'compacting' : 'compacted',
+        timestamp: compactionState.timestamp,
+        ephemeral: true
+      })
+    }
+
+    if (runStartedAt && (lifecycle === 'busy' || lifecycle === 'materializing')) {
+      rows.push({
+        id: `running-${sessionId}`,
+        kind: 'running',
+        timestamp: runStartedAt,
+        startedAt: runStartedAt,
+        ephemeral: true
+      })
+    }
+
+    return rows
+  }, [compactionState, hasDurableCompactionMessage, lifecycle, runStartedAt, sessionId])
+
+  useEffect(() => {
+    if (hasDurableCompactionMessage && compactionState?.phase === 'completed') {
+      setCompactionState(null)
+    }
+  }, [hasDurableCompactionMessage, compactionState])
 
   // Auto-hide MissionControl after all tasks complete
   useEffect(() => {
@@ -391,7 +462,10 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   }, [flushBuffer])
 
   const upsertToolUse = useCallback(
-    (toolId: string, update: Partial<NonNullable<SharedStreamingPart['toolUse']>> & { name?: string }) => {
+    (
+      toolId: string,
+      update: Partial<NonNullable<SharedStreamingPart['toolUse']>> & { name?: string }
+    ) => {
       const parts = streamingPartsRef.current
       const existingIndex = parts.findIndex(
         (p) => p.type === 'tool_use' && p.toolUse?.id === toolId
@@ -430,6 +504,36 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     [immediateFlush]
   )
 
+  const transitionToolStatus = useCallback(
+    (toolUseID: string, status: 'success' | 'error', error?: string) => {
+      const mapper = (p: SharedStreamingPart): SharedStreamingPart =>
+        p.type === 'tool_use' && p.toolUse?.id === toolUseID
+          ? { ...p, toolUse: { ...p.toolUse!, status, ...(error ? { error } : {}) } }
+          : p
+
+      streamingPartsRef.current = streamingPartsRef.current.map(mapper)
+      setStreamingParts([...streamingPartsRef.current])
+
+      // Persist the visual status in committed timeline messages too, since
+      // the plan card may already have been materialized from durable history.
+      const updatedMessages = timelineMessagesRef.current.map((msg) => {
+        if (!msg.parts) return msg
+        let changed = false
+        const updatedParts = msg.parts.map((part) => {
+          const result = mapper(part)
+          if (result !== part) changed = true
+          return result
+        })
+        return changed ? { ...msg, parts: updatedParts } : msg
+      })
+      timelineMessagesRef.current = updatedMessages
+      setMessages(updatedMessages)
+
+      flushBuffer()
+    },
+    [flushBuffer, setMessages]
+  )
+
   /** Route a child-session event into childPartsMap instead of main streaming parts. */
   const routeChildEvent = useCallback(
     (childId: string, partData: Record<string, unknown>) => {
@@ -457,7 +561,10 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         const toolName = (part.tool as string) || undefined
         const state = (part.state as Record<string, unknown>) || {}
         const statusMap: Record<string, 'pending' | 'running' | 'success' | 'error'> = {
-          pending: 'pending', running: 'running', completed: 'success', error: 'error'
+          pending: 'pending',
+          running: 'running',
+          completed: 'success',
+          error: 'error'
         }
         const stateTime = state.time as Record<string, number> | undefined
 
@@ -523,11 +630,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       try {
         if (opcSessionId) {
           console.log('[SessionShell] reconnecting', { sessionId, opcSessionId, worktreePath })
-          const result = await window.agentOps.reconnect(
-            worktreePath,
-            opcSessionId,
-            sessionId
-          )
+          const result = await window.agentOps.reconnect(worktreePath, opcSessionId, sessionId)
           console.log('[SessionShell] reconnect result', result)
           if (!cancelled && result.success) {
             setDroidSessionId(opcSessionId)
@@ -549,8 +652,61 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       }
     })()
 
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [sessionId, worktreePath, opcSessionId, agentSdk])
+
+  useEffect(() => {
+    if (!worktreePath || !droidSessionId || !window.agentOps?.getMessages) return
+
+    let cancelled = false
+    ;(async () => {
+      try {
+        const result = await window.agentOps.getMessages(worktreePath, droidSessionId)
+        if (!result.success || !Array.isArray(result.messages) || cancelled) return
+
+        const store = useContextStore.getState()
+        let totalCost = 0
+        let snapshotTokens: import('@/stores/useContextStore').TokenInfo | null = null
+        let snapshotModelRef: import('@/stores/useContextStore').SessionModelRef | undefined
+
+        for (let i = result.messages.length - 1; i >= 0; i--) {
+          const rawMessage = result.messages[i]
+          if (typeof rawMessage !== 'object' || rawMessage === null) continue
+
+          const messageRecord = rawMessage as Record<string, unknown>
+          const info = messageRecord.info as Record<string, unknown> | undefined
+          const role =
+            (info?.role as string | undefined) ?? (messageRecord.role as string | undefined)
+          if (role !== 'assistant') continue
+
+          totalCost += extractCost(messageRecord)
+
+          if (!snapshotTokens) {
+            const tokens = extractTokens(messageRecord)
+            if (tokens) {
+              snapshotTokens = tokens
+              snapshotModelRef = extractModelRef(messageRecord, currentProviderId) ?? undefined
+            }
+          }
+        }
+
+        if (!cancelled && snapshotTokens && !store.tokensBySession[sessionId]) {
+          store.setSessionTokens(sessionId, snapshotTokens, snapshotModelRef)
+        }
+        if (!cancelled && totalCost > 0 && (store.costBySession[sessionId] ?? 0) === 0) {
+          store.setSessionCost(sessionId, totalCost)
+        }
+      } catch (err) {
+        console.warn('[SessionShell] getMessages hydrate failed:', err)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [sessionId, worktreePath, droidSessionId, currentProviderId])
 
   // --- Subscribe to per-session events for streaming ---
   useEffect(() => {
@@ -592,7 +748,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
               scheduleFlush()
             }
 
-          // --- Tool events ---
+            // --- Tool events ---
           } else if (part?.type === 'tool') {
             const toolId = (part.callID as string) || (part.id as string) || `tool-${Date.now()}`
             const toolName = (part.tool as string) || undefined
@@ -623,15 +779,19 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
             if (lowerToolName === 'todowrite' || lowerToolName === 'todo_write') {
               const todos = (state.input as Record<string, unknown>)?.todos
               if (Array.isArray(todos)) {
-                const newTasks: MissionTask[] = todos.map((t: Record<string, unknown>, idx: number) => ({
-                  id: String(t.id ?? `todo-${idx}`),
-                  content: String(t.content ?? t.subject ?? t.activeForm ?? ''),
-                  status: (t.status as MissionTask['status']) ?? 'pending'
-                }))
+                const newTasks: MissionTask[] = todos.map(
+                  (t: Record<string, unknown>, idx: number) => ({
+                    id: String(t.id ?? `todo-${idx}`),
+                    content: String(t.content ?? t.subject ?? t.activeForm ?? ''),
+                    status: (t.status as MissionTask['status']) ?? 'pending'
+                  })
+                )
                 missionTasksRef.current = newTasks
                 setMissionTasks(newTasks)
                 if (!missionVisibleRef.current) {
-                  const lastUserMsg = [...timelineMessagesRef.current].reverse().find((m) => m.role === 'user')
+                  const lastUserMsg = [...timelineMessagesRef.current]
+                    .reverse()
+                    .find((m) => m.role === 'user')
                   setTriggerMessageContent(lastUserMsg?.content?.trim() ?? null)
                   setMissionVisible(true)
                   missionVisibleRef.current = true
@@ -647,7 +807,9 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
               missionTasksRef.current = [...missionTasksRef.current, newTask]
               setMissionTasks([...missionTasksRef.current])
               if (!missionVisibleRef.current) {
-                const lastUserMsg = [...timelineMessagesRef.current].reverse().find((m) => m.role === 'user')
+                const lastUserMsg = [...timelineMessagesRef.current]
+                  .reverse()
+                  .find((m) => m.role === 'user')
                 setTriggerMessageContent(lastUserMsg?.content?.trim() ?? null)
                 setMissionVisible(true)
                 missionVisibleRef.current = true
@@ -664,7 +826,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
               }
             }
 
-          // --- Reasoning deltas ---
+            // --- Reasoning deltas ---
           } else if (part?.type === 'reasoning') {
             const delta = (partData.delta as string) ?? (part.text as string) ?? ''
             if (delta) {
@@ -676,16 +838,13 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
                   { ...last, reasoning: (last.reasoning ?? '') + delta }
                 ]
               } else {
-                streamingPartsRef.current = [
-                  ...parts,
-                  { type: 'reasoning', reasoning: delta }
-                ]
+                streamingPartsRef.current = [...parts, { type: 'reasoning', reasoning: delta }]
               }
               scheduleFlush()
             }
             setIsStreaming(true)
 
-          // --- Subtask events ---
+            // --- Subtask events ---
           } else if (part?.type === 'subtask') {
             streamingPartsRef.current = [
               ...streamingPartsRef.current,
@@ -712,8 +871,15 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           const statusType = event.data?.status?.type
           if (statusType === 'busy') {
             setIsStreaming(true)
+            setRunStartedAt((current) => current ?? Date.now())
+          } else if (statusType === 'materializing') {
+            setIsStreaming(true)
+            setRunStartedAt((current) => current ?? Date.now())
+          } else if (statusType === 'retry') {
+            setRunStartedAt(null)
           } else if (statusType === 'idle') {
             setIsStreaming(false)
+            setRunStartedAt(null)
             // Refresh timeline to pick up newly committed messages
             refresh().then((msgs) => {
               // Sync mission tasks from committed timeline (source of truth after idle)
@@ -723,7 +889,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
                   // Don't overwrite if all tasks already completed in memory —
                   // streaming TaskUpdate events are more authoritative than DB
                   // snapshots for task status (DB only has original TodoWrite input)
-                  const currentAllComplete = missionTasksRef.current.length > 0 &&
+                  const currentAllComplete =
+                    missionTasksRef.current.length > 0 &&
                     missionTasksRef.current.every((t) => t.status === 'completed')
                   if (!currentAllComplete) {
                     missionTasksRef.current = extracted
@@ -750,27 +917,28 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
                 (sid) => useSessionRuntimeStore.getState().dequeueMessage(sid),
                 (wp, sid, content) => window.agentOps.prompt(wp, sid, content),
                 worktreePath
-              ).catch((err) =>
-                console.error('[SessionShell] drainNextPending failed:', err)
-              )
+              ).catch((err) => console.error('[SessionShell] drainNextPending failed:', err))
             }
           }
         }
 
         // Context compression events
         if (event.type === 'session.compaction_started') {
-          toast.info('Compressing context...', {
-            id: `compaction-${sessionId}`,
-            duration: 15000
+          setCompactionState({
+            phase: 'running',
+            timestamp: Date.now()
           })
         }
 
         if (event.type === 'session.context_compacted') {
-          useContextStore.getState().clearSessionTokenSnapshot(sessionId)
-          toast.success('Context compressed', {
-            id: `compaction-${sessionId}`,
-            duration: 2500
+          setCompactionState({
+            phase: 'completed',
+            timestamp: Date.now()
           })
+        }
+
+        if (event.type === 'session.error') {
+          setRunStartedAt(null)
         }
 
         // Token / cost tracking (active session — global bridge skips the active one)
@@ -783,7 +951,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
             if (data) {
               const tokens = extractTokens(data)
               if (tokens) {
-                const modelRef = extractModelRef(data) ?? undefined
+                const modelRef = extractModelRef(data, currentProviderId) ?? undefined
                 useContextStore.getState().setSessionTokens(sessionId, tokens, modelRef)
               }
               const cost = extractCost(data)
@@ -804,16 +972,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
         // Context usage (Codex-style direct context reporting)
         if (event.type === 'session.context_usage') {
-          const { tokens, model, contextWindow } = event.data as {
-            tokens: { input: number; output: number; reasoning: number; cacheRead: number; cacheWrite: number }
-            model?: { modelID: string; providerID: string }
-            contextWindow: number
-          }
-          useContextStore.getState().setSessionTokens(sessionId, tokens, model)
-          if (contextWindow > 0 && model) {
-            useContextStore.getState().setModelLimit(model.modelID, contextWindow, model.providerID)
-            useContextStore.getState().setModelLimit(model.modelID, contextWindow)
-          }
+          applySessionContextUsage(sessionId, event.data)
         }
 
         if (event.type === 'session.materialized') {
@@ -842,7 +1001,18 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       })
 
     return unsubscribe
-  }, [sessionId, refresh, worktreePath, droidSessionId, scheduleFlush, upsertToolUse, immediateFlush, routeChildEvent, optimisticRef])
+  }, [
+    sessionId,
+    refresh,
+    worktreePath,
+    droidSessionId,
+    scheduleFlush,
+    upsertToolUse,
+    immediateFlush,
+    routeChildEvent,
+    optimisticRef,
+    currentProviderId
+  ])
 
   // --- Composer action handler ---
   const handleComposerAction = useCallback(
@@ -872,7 +1042,10 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       }
 
       // Optimistic insert — show user message immediately in the timeline
-      if ((content.trim() || attachments.length > 0) && (action === 'send' || action === 'stop_and_send' || action === 'steer')) {
+      if (
+        (content.trim() || attachments.length > 0) &&
+        (action === 'send' || action === 'stop_and_send' || action === 'steer')
+      ) {
         const optimisticAttachments: MessagePart[] = attachments
           .filter((a) => a.kind === 'data')
           .map((a) => ({ type: 'file' as const, mime: a.mime, url: a.dataUrl, filename: a.name }))
@@ -903,8 +1076,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
             return window.agentOps.prompt(wp, sid, messageParts ?? c)
           },
           abort: (wp, sid) => window.agentOps.abort(wp, sid),
-          queueMessage: (sid, msg) =>
-            useSessionRuntimeStore.getState().queueMessage(sid, msg)
+          queueMessage: (sid, msg) => useSessionRuntimeStore.getState().queueMessage(sid, msg)
         })
 
         if (!consumed && (action === 'send' || action === 'stop_and_send')) {
@@ -915,40 +1087,99 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         setIsStreaming(false)
       }
     },
-    [worktreePath, droidSessionId, appendOptimistic, flushBuffer]
+    [worktreePath, droidSessionId, sessionId, appendOptimistic, flushBuffer]
   )
 
   // --- Plan implement/handoff handlers ---
-  const handlePlanImplement = useCallback(() => {
-    if (!worktreePath || !droidSessionId) return
-    // Insert user message optimistically FIRST, then clear plan, then send
-    appendOptimistic({
-      id: `optimistic-${Date.now()}`,
-      role: 'user',
-      content: 'Implement this plan',
-      timestamp: new Date().toISOString()
-    })
+  const handlePlanImplement = useCallback(async () => {
+    if (!worktreePath || !droidSessionId || !pendingPlan) return
+
+    const pendingBeforeAction = pendingPlan
+    const isClaudeCode = sessionRecord?.agent_sdk === 'claude-code'
+
     useSessionStore.getState().clearPendingPlan(sessionId)
-    // Fire send (will skip optimistic insert since we already did it)
-    streamingContentRef.current = ''
-    setStreamingContent('')
-    streamingPartsRef.current = []
-    setStreamingParts([])
-    childPartsMapRef.current.clear()
-    setChildPartsMap(new Map())
-    setIsStreaming(true)
-    executeSendAction('send', 'Implement this plan', [], {
-      worktreePath,
-      sessionId: droidSessionId,
-      prompt: (wp, sid, c) => window.agentOps.prompt(wp, sid, c),
-      abort: (wp, sid) => window.agentOps.abort(wp, sid),
-      queueMessage: (sid, msg) =>
-        useSessionRuntimeStore.getState().queueMessage(sid, msg)
-    }).catch((err) => {
+    useSessionRuntimeStore.getState().removeInterrupt(sessionId, pendingBeforeAction.requestId)
+    useWorktreeStatusStore.getState().clearSessionStatus(sessionId)
+
+    try {
+      if (isClaudeCode) {
+        const result = await window.agentOps.planApprove(
+          worktreePath,
+          sessionId,
+          pendingBeforeAction.requestId
+        )
+        if (!result.success) {
+          toast.error(`Plan approve failed: ${result.error ?? 'Unknown error'}`)
+          if (!(result.error ?? '').toLowerCase().includes('no pending plan')) {
+            useSessionStore.getState().setPendingPlan(sessionId, pendingBeforeAction)
+            useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'plan_ready')
+          }
+          return
+        }
+      }
+
+      if (pendingBeforeAction.toolUseID) {
+        transitionToolStatus(pendingBeforeAction.toolUseID, 'success')
+      }
+
+      await useSessionStore.getState().setSessionMode(sessionId, 'build')
+      lastSendMode.set(sessionId, 'build')
+
+      // Insert user message optimistically only after approval succeeds so we
+      // don't show a fake implementation request when the backend is still blocked.
+      const implementPrompt = isClaudeCode
+        ? 'Implement this plan'
+        : sessionRecord?.agent_sdk === 'codex'
+          ? 'Implement the plan.'
+          : buildPlanImplementationPrompt(pendingBeforeAction.planContent)
+
+      streamingContentRef.current = ''
+      setStreamingContent('')
+      streamingPartsRef.current = []
+      setStreamingParts([])
+      childPartsMapRef.current.clear()
+      setChildPartsMap(new Map())
+      setIsStreaming(true)
+
+      if (isClaudeCode) {
+        // Claude resumes within the same prompt cycle after approval; mark the
+        // session busy explicitly because no new busy edge is guaranteed.
+        useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'working')
+        return
+      }
+
+      const optimisticMsg: TimelineMessage = {
+        id: `optimistic-${Date.now()}`,
+        role: 'user',
+        content: implementPrompt,
+        timestamp: new Date().toISOString()
+      }
+      appendOptimistic(optimisticMsg)
+      timelineMessagesRef.current = [...timelineMessagesRef.current, optimisticMsg]
+
+      await executeSendAction('send', implementPrompt, [], {
+        worktreePath,
+        sessionId: droidSessionId,
+        prompt: (wp, sid, c) => window.agentOps.prompt(wp, sid, c),
+        abort: (wp, sid) => window.agentOps.abort(wp, sid),
+        queueMessage: (sid, msg) => useSessionRuntimeStore.getState().queueMessage(sid, msg)
+      })
+    } catch (err) {
       console.error('[SessionShell] plan implement failed:', err)
+      toast.error(`Plan approve error: ${err instanceof Error ? err.message : String(err)}`)
+      useSessionStore.getState().setPendingPlan(sessionId, pendingBeforeAction)
+      useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'plan_ready')
       setIsStreaming(false)
-    })
-  }, [worktreePath, droidSessionId, appendOptimistic, sessionId])
+    }
+  }, [
+    worktreePath,
+    droidSessionId,
+    pendingPlan,
+    sessionRecord?.agent_sdk,
+    sessionId,
+    appendOptimistic,
+    transitionToolStatus
+  ])
 
   const handlePlanHandoff = useCallback(() => {
     // Just clear the pending plan — user will handle it elsewhere
@@ -1007,6 +1238,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           streamingParts={streamingParts}
           isStreaming={isStreaming}
           lifecycle={lifecycle}
+          ephemeralStatusRows={ephemeralStatusRows}
           suppressTodoCards={missionVisible}
           sessionId={sessionId}
           worktreePath={worktreePath}

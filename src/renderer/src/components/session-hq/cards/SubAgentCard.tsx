@@ -97,8 +97,8 @@ export function SubAgentCard({ subtask, childParts = [] }: SubAgentCardProps): R
 
   const toolCount = allParts.filter((p) => p.type === 'tool_use').length
 
-  // Default: expanded when running, collapsed when completed
-  const [expanded, setExpanded] = useState(isRunning)
+  // Keep nested actions closed until the user explicitly opens them.
+  const [expanded, setExpanded] = useState(false)
 
   return (
     <ActionCard
@@ -130,7 +130,7 @@ export function SubAgentCard({ subtask, childParts = [] }: SubAgentCardProps): R
           </span>
         </div>
       }
-      defaultExpanded={isRunning || allParts.length > 0}
+      defaultExpanded={false}
     >
       {subtask.description && (
         <div className="text-sm text-muted-foreground">

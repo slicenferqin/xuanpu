@@ -61,7 +61,7 @@ import { toast } from '@/lib/toast'
 import { formatRelativeTime } from '@/lib/format-utils'
 import { ModelIcon } from '@/components/worktrees/ModelIcon'
 import { PulseAnimation } from '@/components/worktrees/PulseAnimation'
-import { LanguageIcon } from '@/components/projects/LanguageIcon'
+import { ProjectAvatar } from '@/components/projects/ProjectAvatar'
 import { ArchiveConfirmDialog } from '@/components/worktrees/ArchiveConfirmDialog'
 import { AddAttachmentDialog } from '@/components/worktrees/AddAttachmentDialog'
 import { ManageConnectionWorktreesDialog } from '@/components/connections/ManageConnectionWorktreesDialog'
@@ -608,7 +608,7 @@ function PinnedWorktreeItem({ worktreeId }: { worktreeId: string }): React.JSX.E
           onClick={handleClick}
           data-testid={`pinned-worktree-${worktreeId}`}
         >
-          <LanguageIcon language={project.language} customIcon={project.custom_icon} />
+          <ProjectAvatar name={project.name} customIcon={project.custom_icon} />
 
           {isRunProcessAlive && <PulseAnimation className="h-3.5 w-3.5 text-green-500 shrink-0" />}
           {(worktreeStatus === 'working' || worktreeStatus === 'planning') && (

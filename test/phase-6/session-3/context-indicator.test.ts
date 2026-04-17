@@ -9,6 +9,7 @@ beforeEach(() => {
   useContextStore.setState({
     tokensBySession: {},
     modelBySession: {},
+    contextSnapshotsBySession: {},
     costBySession: {},
     modelLimits: {}
   })
@@ -192,6 +193,56 @@ describe('Session 3: Context Indicator', () => {
 
       const usage = useContextStore.getState().getContextUsage('session-1', 'model-1')
       expect(usage.cost).toBeCloseTo(0.025)
+    })
+
+    test('getContextUsage prefers runtime snapshot over derived token totals', () => {
+      act(() => {
+        useContextStore.getState().setModelLimit('opus', 200000, 'anthropic')
+        useContextStore.getState().setSessionTokens(
+          'session-1',
+          {
+            input: 175000,
+            output: 5000,
+            reasoning: 0,
+            cacheRead: 10000,
+            cacheWrite: 5000
+          },
+          {
+            providerID: 'anthropic',
+            modelID: 'opus'
+          }
+        )
+        useContextStore.getState().setSessionContextSnapshot('session-1', {
+          usedTokens: 40000,
+          maxTokens: 200000,
+          percent: 20,
+          categories: [{ name: 'Messages', tokens: 40000 }],
+          model: { providerID: 'anthropic', modelID: 'opus' }
+        })
+      })
+
+      const usage = useContextStore.getState().getContextUsage('session-1', 'opus', 'anthropic')
+      expect(usage.used).toBe(40000)
+      expect(usage.percent).toBe(20)
+      expect(usage.source).toBe('runtime')
+      expect(usage.tokens.input).toBe(175000)
+    })
+
+    test('getContextUsage keeps previous runtime usage while refreshing', () => {
+      act(() => {
+        useContextStore.getState().setSessionContextSnapshot('session-1', {
+          usedTokens: 90000,
+          maxTokens: 200000,
+          percent: 45,
+          model: { providerID: 'anthropic', modelID: 'opus' }
+        })
+        useContextStore.getState().setSessionContextRefreshing('session-1', true)
+      })
+
+      const usage = useContextStore.getState().getContextUsage('session-1', 'opus', 'anthropic')
+      expect(usage.used).toBe(90000)
+      expect(usage.percent).toBe(45)
+      expect(usage.isRefreshing).toBe(true)
     })
   })
 

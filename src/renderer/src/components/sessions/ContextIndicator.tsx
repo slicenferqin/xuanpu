@@ -1,6 +1,6 @@
-import { useMemo } from 'react'
-import { getModelLimitKey, useContextStore } from '@/stores/useContextStore'
+import { useContextStore } from '@/stores/useContextStore'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { cn } from '@/lib/utils'
 import { useI18n } from '@/i18n/useI18n'
 
 interface ContextIndicatorProps {
@@ -26,47 +26,25 @@ export function ContextIndicator({
   providerId
 }: ContextIndicatorProps): React.JSX.Element | null {
   const { t } = useI18n()
-  const tokenInfo = useContextStore((state) => state.tokensBySession[sessionId])
-  const sessionModel = useContextStore((state) => state.modelBySession[sessionId])
-  const modelLimits = useContextStore((state) => state.modelLimits)
-  const cost = useContextStore((state) => state.costBySession[sessionId]) ?? 0
-
-  const { used, limit, percent, tokens } = useMemo(() => {
-    const t = tokenInfo ?? { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 }
-    const model =
-      sessionModel ??
-      (modelId
-        ? {
-            providerID: providerId ?? '*',
-            modelID: modelId
-          }
-        : undefined)
-
-    const lim = model
-      ? (modelLimits[getModelLimitKey(model.modelID, model.providerID)] ??
-        modelLimits[getModelLimitKey(model.modelID)])
-      : undefined
-
-    // Context window = total prompt tokens (input + cached).
-    // Output and reasoning are generated tokens — they don't occupy the context window.
-    const u = t.input + t.cacheRead + t.cacheWrite
-    const pct = typeof lim === 'number' && lim > 0 ? Math.round((u / lim) * 100) : null
-    return { used: u, limit: lim, percent: pct, tokens: t }
-  }, [tokenInfo, sessionModel, modelId, providerId, modelLimits])
+  const { used, limit, percent, tokens, cost, categories, isRefreshing } = useContextStore(
+    (state) => state.getContextUsage(sessionId, modelId, providerId)
+  )
 
   const percentLabel = Math.min(100, Math.max(0, percent ?? 0))
   const ringColor = getRingColor(percentLabel)
   const circumference = 2 * Math.PI * 12
   const strokeOffset = circumference - (percentLabel / 100) * circumference
 
-  // Don't render if no limit or no usage yet
-  if (!limit && used === 0) return null
+  if (!limit && used === 0 && !isRefreshing) return null
 
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <div
-          className="flex h-8 w-8 shrink-0 cursor-default items-center justify-center rounded-full border border-border/60 bg-background/85 shadow-sm"
+          className={cn(
+            'flex h-8 w-8 shrink-0 cursor-default items-center justify-center rounded-full border border-border/60 bg-background/85 shadow-sm',
+            isRefreshing && 'animate-pulse'
+          )}
           data-testid="context-indicator"
           aria-label={
             typeof limit === 'number'
@@ -104,7 +82,12 @@ export function ContextIndicator({
               />
             </svg>
             <span className="absolute inset-0 flex items-center justify-center">
-              <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/45" />
+              <span
+                className={cn(
+                  'h-1.5 w-1.5 rounded-full bg-muted-foreground/45',
+                  isRefreshing && 'bg-blue-500'
+                )}
+              />
             </span>
           </div>
         </div>
@@ -123,17 +106,28 @@ export function ContextIndicator({
           ) : (
             <div>{t('contextIndicator.summary.noLimit', { used: formatNumber(used) })}</div>
           )}
-          <div className="border-t border-background/20 pt-1.5 space-y-0.5 text-[10px] opacity-80">
-            <div>
-              {t('contextIndicator.labels.input')}: {formatNumber(tokens.input)}
+          {categories && categories.length > 0 ? (
+            <div className="border-t border-background/20 pt-1.5 space-y-0.5 text-[10px] opacity-80">
+              {categories.slice(0, 6).map((category) => (
+                <div key={category.name} className="flex items-center justify-between gap-3">
+                  <span className="truncate">{category.name}</span>
+                  <span className="font-mono shrink-0">{formatNumber(category.tokens)}</span>
+                </div>
+              ))}
             </div>
-            <div>
-              {t('contextIndicator.labels.cacheRead')}: {formatNumber(tokens.cacheRead)}
+          ) : (
+            <div className="border-t border-background/20 pt-1.5 space-y-0.5 text-[10px] opacity-80">
+              <div>
+                {t('contextIndicator.labels.input')}: {formatNumber(tokens.input)}
+              </div>
+              <div>
+                {t('contextIndicator.labels.cacheRead')}: {formatNumber(tokens.cacheRead)}
+              </div>
+              <div>
+                {t('contextIndicator.labels.cacheWrite')}: {formatNumber(tokens.cacheWrite)}
+              </div>
             </div>
-            <div>
-              {t('contextIndicator.labels.cacheWrite')}: {formatNumber(tokens.cacheWrite)}
-            </div>
-          </div>
+          )}
           {(tokens.output > 0 || tokens.reasoning > 0) && (
             <div className="border-t border-background/20 pt-1.5 space-y-0.5 text-[10px] opacity-60">
               <div className="opacity-100 text-[10px]">{t('contextIndicator.generated.title')}</div>
@@ -147,6 +141,11 @@ export function ContextIndicator({
                   {t('contextIndicator.generated.reasoning')}: {formatNumber(tokens.reasoning)}
                 </div>
               )}
+            </div>
+          )}
+          {isRefreshing && (
+            <div className="border-t border-background/20 pt-1.5 text-[10px] opacity-70">
+              {t('sessionView.compacting')}
             </div>
           )}
           {cost > 0 && (

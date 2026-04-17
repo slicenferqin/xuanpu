@@ -1577,7 +1577,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               const tokens = extractTokens(messageRecord)
               if (tokens) {
                 snapshotTokens = tokens
-                snapshotModelRef = extractModelRef(messageRecord) ?? undefined
+                snapshotModelRef = extractModelRef(messageRecord, currentProviderId) ?? undefined
               }
             }
           }
@@ -2113,7 +2113,6 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           // Show compacting indicator so the user knows what's happening.
           if (event.type === 'session.context_compacted') {
             setIsCompacting(true)
-            useContextStore.getState().clearSessionTokenSnapshot(sessionId)
             return
           }
 
@@ -2507,11 +2506,6 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                 ...parts,
                 { type: 'compaction' as const, compactionAuto: part.auto === true }
               ])
-              // Reset stale token snapshot — compaction truncates the context window.
-              // The next assistant message.updated will carry accurate post-compaction tokens.
-              // Use clearSessionTokenSnapshot (not resetSessionTokens) to preserve
-              // the accumulated cost and model identity for the session.
-              useContextStore.getState().clearSessionTokenSnapshot(sessionId)
               immediateFlush()
               setIsCompacting(true)
               setIsStreaming(true)
@@ -2549,7 +2543,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               if (data) {
                 const tokens = extractTokens(data)
                 if (tokens) {
-                  const modelRef = extractModelRef(data) ?? undefined
+                  const modelRef = extractModelRef(data, currentProviderId) ?? undefined
                   useContextStore.getState().setSessionTokens(sessionId, tokens, modelRef)
                 }
                 const cost = extractCost(data)

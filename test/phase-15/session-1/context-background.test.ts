@@ -106,7 +106,7 @@ describe('Session 1: Context Indicator Bug Fix', () => {
     test('extracts model ref from top-level fields', () => {
       const data = { providerID: 'anthropic', modelID: 'claude-opus-4-5-20251101' }
       const result = extractModelRef(data)
-      expect(result).toEqual({ providerID: 'anthropic', modelID: 'claude-opus-4-5-20251101' })
+      expect(result).toEqual({ providerID: 'anthropic', modelID: 'opus' })
     })
 
     test('extracts model ref from nested info fields', () => {
@@ -131,7 +131,7 @@ describe('Session 1: Context Indicator Bug Fix', () => {
 
     test('setSessionTokens stores model ref when provided', () => {
       const tokens = { input: 100, output: 50, reasoning: 0, cacheRead: 0, cacheWrite: 0 }
-      const modelRef = { providerID: 'anthropic', modelID: 'claude-opus-4-5-20251101' }
+      const modelRef = { providerID: 'anthropic', modelID: 'opus' }
       useContextStore.getState().setSessionTokens('session-B', tokens, modelRef)
       const stored = useContextStore.getState().modelBySession['session-B']
       expect(stored).toEqual(modelRef)
@@ -189,7 +189,7 @@ describe('Session 1: Context Indicator Bug Fix', () => {
 
       const storedModel = useContextStore.getState().modelBySession['session-B']
       expect(storedModel?.providerID).toBe('anthropic')
-      expect(storedModel?.modelID).toBe('claude-opus-4-5-20251101')
+      expect(storedModel?.modelID).toBe('opus')
     })
 
     test('does NOT extract tokens when info.time.completed is absent', () => {
@@ -211,7 +211,7 @@ describe('Session 1: Context Indicator Bug Fix', () => {
     test('does not reset tokens when DB scan finds no data', () => {
       // Pre-populate store with valid tokens (as if global listener set them)
       const tokens = { input: 500, output: 200, reasoning: 50, cacheRead: 0, cacheWrite: 0 }
-      const modelRef = { providerID: 'anthropic', modelID: 'claude-opus-4-5-20251101' }
+      const modelRef = { providerID: 'anthropic', modelID: 'opus' }
       useContextStore.getState().setSessionTokens('session-B', tokens, modelRef)
       useContextStore.getState().setSessionCost('session-B', 0.015)
 

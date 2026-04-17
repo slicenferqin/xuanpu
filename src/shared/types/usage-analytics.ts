@@ -112,6 +112,7 @@ export interface UsageAnalyticsSessionSummary {
   cache_read_tokens: number
   duration_seconds: number
   last_used_at: string | null
+  model_labels: string[]
   latest_model_label: string | null
   partial: boolean
 }
