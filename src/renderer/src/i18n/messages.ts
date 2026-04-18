@@ -21,6 +21,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         security: 'Security',
         privacy: 'Privacy',
         usage: 'Usage',
+        archivedChats: 'Archived Chats',
         shortcuts: 'Shortcuts',
         updates: 'Updates'
       },
@@ -294,7 +295,13 @@ export const messages: Record<AppLocale, MessageTree> = {
         },
         filters: {
           range: 'Range',
-          engine: 'Engine'
+          engine: 'Engine',
+          sessionStatus: 'Session Status'
+        },
+        sessionStatus: {
+          all: 'All Sessions',
+          active: 'Active Only',
+          archived: 'Archived Only'
         },
         ranges: {
           today: 'Today',
@@ -344,6 +351,37 @@ export const messages: Record<AppLocale, MessageTree> = {
           staleCount: '{count} sessions are being refreshed in the background.'
         },
         empty: 'No usage data available for the selected range.'
+      },
+      archivedChats: {
+        title: 'Archived Chats',
+        description: 'Browse archived sessions, open them read-only, or restore them to active worktrees.',
+        search: {
+          placeholder: 'Search session, project, or worktree...'
+        },
+        actions: {
+          open: 'Open',
+          restore: 'Restore',
+          restoring: 'Restoring...',
+          refresh: 'Refresh'
+        },
+        labels: {
+          project: 'Project',
+          worktree: 'Worktree',
+          updated: 'Updated {date}',
+          missingWorktree: 'No active worktree',
+          archivedWorktree: 'Parent worktree is archived',
+          restoreDisabled: 'This session can only be viewed because its worktree is archived or missing.'
+        },
+        empty: {
+          title: 'No archived chats',
+          filtered: 'Try a different search keyword.',
+          default: 'Archived sessions will appear here.'
+        },
+        toasts: {
+          restored: 'Session restored',
+          restoreFailed: 'Failed to restore session',
+          readOnly: 'Opening archived session in read-only mode.'
+        }
       }
     },
     fileSearch: {
@@ -562,6 +600,11 @@ export const messages: Record<AppLocale, MessageTree> = {
         copied: 'Copied to clipboard',
         copyError: 'Failed to copy'
       }
+    },
+    editMessageButton: {
+      ariaLabel: 'Edit message',
+      save: 'Save',
+      cancel: 'Cancel'
     },
     codeBlock: {
       copyButton: 'Copy code',
@@ -998,6 +1041,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         title: 'Session Cost',
         totalCost: 'Total Cost',
         totalTokens: 'Total Tokens',
+        totalsSyncing: 'Session totals are syncing…',
         input: 'Input',
         output: 'Output',
         cacheWrite: 'Cache Write',
@@ -1648,6 +1692,7 @@ export const messages: Record<AppLocale, MessageTree> = {
     },
     contextIndicator: {
       title: 'Context Window',
+      latestTurn: 'Latest turn API usage',
       summary: {
         withLimit: '{used} / {limit} tokens ({percent}%)',
         noLimit: '{used} tokens (limit unavailable)'
@@ -1935,6 +1980,14 @@ export const messages: Record<AppLocale, MessageTree> = {
         prSingular: 'pull request',
         prPlural: 'pull requests',
         matching: ' matching "{query}"'
+      },
+      forkFromMessage: {
+        title: 'Fork from an earlier message?',
+        description:
+          'This will keep your current files and workspace state unchanged. If later turns modified the filesystem, the new branch may differ from what is currently on disk.',
+        dismiss: "Don't show again",
+        cancel: 'Cancel',
+        confirm: 'Fork'
       }
     },
     header: {
@@ -2114,6 +2167,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         security: '安全',
         privacy: '隐私',
         usage: '使用统计',
+        archivedChats: '已归档聊天',
         shortcuts: '快捷键',
         updates: '更新'
       },
@@ -2372,7 +2426,13 @@ export const messages: Record<AppLocale, MessageTree> = {
         },
         filters: {
           range: '时间范围',
-          engine: '引擎'
+          engine: '引擎',
+          sessionStatus: '会话状态'
+        },
+        sessionStatus: {
+          all: '全部会话',
+          active: '仅活跃',
+          archived: '仅归档'
         },
         ranges: {
           today: '今日',
@@ -2422,6 +2482,37 @@ export const messages: Record<AppLocale, MessageTree> = {
           staleCount: '有 {count} 个会话正在后台刷新。'
         },
         empty: '当前筛选范围内还没有可用的使用数据。'
+      },
+      archivedChats: {
+        title: '已归档聊天',
+        description: '浏览已归档会话，以只读方式打开查看，或恢复到仍然活跃的 worktree。',
+        search: {
+          placeholder: '搜索会话、项目或 worktree...'
+        },
+        actions: {
+          open: '打开',
+          restore: '恢复',
+          restoring: '恢复中...',
+          refresh: '刷新'
+        },
+        labels: {
+          project: '项目',
+          worktree: 'Worktree',
+          updated: '更新于 {date}',
+          missingWorktree: '没有可用的 worktree',
+          archivedWorktree: '所属 worktree 已归档',
+          restoreDisabled: '该会话所属 worktree 已归档或缺失，因此只能查看，不能恢复。'
+        },
+        empty: {
+          title: '暂无已归档聊天',
+          filtered: '试试更换搜索关键词。',
+          default: '归档后的会话会显示在这里。'
+        },
+        toasts: {
+          restored: '会话已恢复',
+          restoreFailed: '恢复会话失败',
+          readOnly: '将以只读模式打开已归档会话。'
+        }
       }
     },
     fileSearch: {
@@ -2640,6 +2731,11 @@ export const messages: Record<AppLocale, MessageTree> = {
         copied: '已复制到剪贴板',
         copyError: '复制失败'
       }
+    },
+    editMessageButton: {
+      ariaLabel: '编辑消息',
+      save: '保存',
+      cancel: '取消'
     },
     codeBlock: {
       copyButton: '复制代码',
@@ -3071,6 +3167,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         title: '会话计费',
         totalCost: '总成本',
         totalTokens: '总 Tokens',
+        totalsSyncing: '会话总量正在汇总…',
         input: '输入',
         output: '输出',
         cacheWrite: 'Cache 写入',
@@ -3720,6 +3817,7 @@ export const messages: Record<AppLocale, MessageTree> = {
     },
     contextIndicator: {
       title: '上下文窗口',
+      latestTurn: '最近一轮 API 用量',
       summary: {
         withLimit: '{used} / {limit} tokens ({percent}%)',
         noLimit: '{used} tokens（无法获取上限）'
@@ -4006,6 +4104,14 @@ export const messages: Record<AppLocale, MessageTree> = {
         prSingular: 'PR',
         prPlural: 'PR',
         matching: '，匹配 “{query}”'
+      },
+      forkFromMessage: {
+        title: '从较早消息分叉？',
+        description:
+          '这会保持你当前的文件和工作区状态不变。如果后续轮次更改了文件系统，新分支可能与当前磁盘上的内容不一致。',
+        dismiss: '不再显示',
+        cancel: '取消',
+        confirm: '派生'
       }
     },
     header: {

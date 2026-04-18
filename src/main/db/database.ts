@@ -995,6 +995,19 @@ export class DatabaseService {
     return result.changes > 0
   }
 
+  restoreSession(id: string): Session | null {
+    const db = this.getDb()
+    const existing = this.getSession(id)
+    if (!existing) return null
+
+    db.prepare("UPDATE sessions SET status = 'active', updated_at = ? WHERE id = ?").run(
+      new Date().toISOString(),
+      id
+    )
+
+    return this.getSession(id)
+  }
+
   /**
    * @internal Hard-delete a session and all associated data (CASCADE).
    * Only for data cleanup scripts — never exposed via IPC.
@@ -1015,6 +1028,7 @@ export class DatabaseService {
         s.*,
         w.name as worktree_name,
         w.branch_name as worktree_branch_name,
+        w.status as worktree_status,
         p.name as project_name
       FROM sessions s
       LEFT JOIN worktrees w ON s.worktree_id = w.id
@@ -1040,6 +1054,12 @@ export class DatabaseService {
     if (options.worktree_id) {
       conditions.push('s.worktree_id = ?')
       values.push(options.worktree_id)
+    }
+
+    if (options.statusFilter === 'active') {
+      conditions.push("s.status = 'active'")
+    } else if (options.statusFilter === 'archived') {
+      conditions.push("s.status = 'archived'")
     }
 
     if (options.dateFrom) {
@@ -1472,13 +1492,15 @@ export class DatabaseService {
   }
 
   getUsageAnalyticsSessions(
-    agentSdks?: Array<'claude-code' | 'codex'>
+    agentSdks?: Array<'claude-code' | 'codex'>,
+    sessionStatus: 'all' | 'active' | 'archived' = 'all'
   ): Array<
     Session & {
       project_name: string
       project_path: string
       worktree_name: string | null
       worktree_path: string | null
+      worktree_status: 'active' | 'archived' | null
     }
   > {
     const db = this.getDb()
@@ -1491,6 +1513,12 @@ export class DatabaseService {
       values.push(...agentSdks)
     }
 
+    if (sessionStatus === 'active') {
+      conditions.push("s.status = 'active'")
+    } else if (sessionStatus === 'archived') {
+      conditions.push("s.status = 'archived'")
+    }
+
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
 
     return db
@@ -1500,6 +1528,7 @@ export class DatabaseService {
           p.name AS project_name,
           p.path AS project_path,
           w.name AS worktree_name,
+          w.status AS worktree_status,
           COALESCE(w.path, c.path) AS worktree_path
         FROM sessions s
         JOIN projects p ON s.project_id = p.id
@@ -1514,6 +1543,7 @@ export class DatabaseService {
         project_path: string
         worktree_name: string | null
         worktree_path: string | null
+        worktree_status: 'active' | 'archived' | null
       }
     >
   }

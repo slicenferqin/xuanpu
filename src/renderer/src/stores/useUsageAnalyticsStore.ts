@@ -3,7 +3,8 @@ import type {
   UsageAnalyticsDashboard,
   UsageAnalyticsEngineFilter,
   UsageAnalyticsFilters,
-  UsageAnalyticsRange
+  UsageAnalyticsRange,
+  UsageAnalyticsSessionStatusFilter
 } from '@shared/types/usage-analytics'
 
 export type UsageAnalyticsTab = 'overview' | 'models' | 'projects' | 'sessions' | 'timeline'
@@ -23,6 +24,7 @@ interface UsageAnalyticsState {
   cache: Record<string, CachedDashboard>
   setRange: (range: UsageAnalyticsRange) => void
   setEngine: (engine: UsageAnalyticsEngineFilter) => void
+  setSessionStatus: (status: UsageAnalyticsSessionStatusFilter) => void
   setActiveTab: (tab: UsageAnalyticsTab) => void
   fetchDashboard: (options?: { force?: boolean }) => Promise<UsageAnalyticsDashboard | null>
   resyncAndRefresh: () => Promise<void>
@@ -31,13 +33,14 @@ interface UsageAnalyticsState {
 const CACHE_TTL_MS = 60_000
 
 function getCacheKey(filters: UsageAnalyticsFilters): string {
-  return `${filters.range}:${filters.engine}`
+  return `${filters.range}:${filters.engine}:${filters.sessionStatus}`
 }
 
 export const useUsageAnalyticsStore = create<UsageAnalyticsState>()((set, get) => ({
   filters: {
     range: '7d',
-    engine: 'all'
+    engine: 'all',
+    sessionStatus: 'all'
   },
   activeTab: 'overview',
   dashboard: null,
@@ -55,6 +58,12 @@ export const useUsageAnalyticsStore = create<UsageAnalyticsState>()((set, get) =
   setEngine: (engine) => {
     set((state) => ({
       filters: { ...state.filters, engine }
+    }))
+  },
+
+  setSessionStatus: (sessionStatus) => {
+    set((state) => ({
+      filters: { ...state.filters, sessionStatus }
     }))
   },
 

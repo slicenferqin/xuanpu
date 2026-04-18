@@ -33,7 +33,7 @@ describe('Session 8: Worktree Row Structure (New UI)', () => {
       )
 
       expect(source).toContain('function truncateMiddle')
-      expect(source).toContain('PRIMARY_LABEL_MAX_LENGTH')
+      expect(source).toContain('PRIMARY_LABEL_MAX_LENGTH = 18')
       expect(source).toContain('SECONDARY_LABEL_MAX_LENGTH')
       expect(source).toContain('displayNamePreview = truncateMiddle(displayName')
     })
@@ -62,9 +62,9 @@ describe('Session 8: Worktree Row Structure (New UI)', () => {
       )
 
       expect(source).toContain('{worktree.is_default ? (')
-      expect(source).toContain('<Folder className="mt-0.5 h-3.5 w-3.5 text-muted-foreground shrink-0" />')
+      expect(source).toContain('<Folder className="h-3.5 w-3.5 text-muted-foreground shrink-0" />')
       expect(source).toContain(
-        '<GitBranch className="mt-0.5 h-3.5 w-3.5 text-muted-foreground shrink-0" />'
+        '<GitBranch className="h-3.5 w-3.5 text-muted-foreground shrink-0" />'
       )
       expect(source).not.toContain('AlertCircle')
       expect(source).not.toContain('PulseAnimation')
@@ -126,15 +126,19 @@ describe('Session 8: Worktree Row Structure (New UI)', () => {
     }
 
     test('keeps short labels unchanged', () => {
-      expect(truncateMiddle('feature/auth', 28)).toBe('feature/auth')
+      expect(truncateMiddle('feature/auth', 18)).toBe('feature/auth')
     })
 
     test('truncates long labels from the middle', () => {
-      expect(truncateMiddle('fix_20260417_uiux', 13)).toBe('fix_2026…uiux')
+      expect(truncateMiddle('fix_20260417_uiux', 18)).toBe('fix_20260417_uiux')
     })
 
     test('preserves both prefix and suffix on long slash-separated labels', () => {
       expect(truncateMiddle('fix/codex-transcript-stabilize', 19)).toBe('fix/codex…stabilize')
+    })
+
+    test('shorter primary threshold makes long branch labels visibly truncate', () => {
+      expect(truncateMiddle('fix/codex-transcript-stabilize', 18)).toBe('fix/code…stabilize')
     })
   })
 })

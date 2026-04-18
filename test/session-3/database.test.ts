@@ -330,6 +330,23 @@ describeIf('Session 3: Database', () => {
       expect(updated?.completed_at).toBeTruthy()
     })
 
+    test('Restore archived session keeps completed_at intact', () => {
+      const completedAt = '2026-04-18T10:00:00.000Z'
+      const session = db.createSession({
+        worktree_id: worktreeId,
+        project_id: projectId
+      })
+
+      db.updateSession(session.id, {
+        status: 'archived',
+        completed_at: completedAt
+      })
+
+      const restored = db.restoreSession(session.id)
+      expect(restored?.status).toBe('active')
+      expect(restored?.completed_at).toBe(completedAt)
+    })
+
     test('Search sessions by keyword matches metadata/title, not message content', () => {
       const session = db.createSession({
         worktree_id: worktreeId,
@@ -355,6 +372,41 @@ describeIf('Session 3: Database', () => {
 
       const results = db.searchSessions({ project_id: projectId })
       expect(results.length).toBe(1)
+    })
+
+    test('Search sessions can filter archived status explicitly', () => {
+      const activeSession = db.createSession({
+        worktree_id: worktreeId,
+        project_id: projectId,
+        name: 'Active Session'
+      })
+      const archivedSession = db.createSession({
+        worktree_id: worktreeId,
+        project_id: projectId,
+        name: 'Archived Session'
+      })
+
+      db.archiveSession(archivedSession.id)
+
+      const archivedResults = db.searchSessions({
+        includeArchived: true,
+        statusFilter: 'archived'
+      })
+      const activeResults = db.searchSessions({
+        includeArchived: true,
+        statusFilter: 'active'
+      })
+
+      expect(archivedResults.map((session: { id: string }) => session.id)).toContain(
+        archivedSession.id
+      )
+      expect(archivedResults.map((session: { id: string }) => session.id)).not.toContain(
+        activeSession.id
+      )
+      expect(activeResults.map((session: { id: string }) => session.id)).toContain(activeSession.id)
+      expect(activeResults.map((session: { id: string }) => session.id)).not.toContain(
+        archivedSession.id
+      )
     })
   })
 

@@ -305,7 +305,7 @@ interface DbSession {
   project_id: string
   connection_id: string | null
   name: string | null
-  status: 'active' | 'completed' | 'error'
+  status: 'active' | 'completed' | 'error' | 'archived'
   opencode_session_id: string | null
   agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal'
   model_provider_id: string | null
@@ -2887,12 +2887,11 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         // 4. Connect to OpenCode
 
         // For Claude Code sessions, set known model limits immediately so the
-        // ContextIndicator shows the 200k limit without waiting for the first
-        // SDK init message.  The init message will also emit session.model_limits
-        // to confirm, but this avoids a flash of "limit unavailable".
+        // Pre-seed Claude's common context limits so the indicator doesn't flash
+        // "limit unavailable" before the first SDK metadata arrives.
         if (sessionRecord?.agent_sdk === 'claude-code') {
           const claudeModels = [
-            { id: 'opus', context: 1000000 },
+            { id: 'opus', context: 200000 },
             { id: 'sonnet', context: 200000 },
             { id: 'haiku', context: 200000 }
           ]

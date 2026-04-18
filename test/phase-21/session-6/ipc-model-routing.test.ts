@@ -26,23 +26,15 @@ vi.mock('../../../src/main/services/logger', () => ({
 
 vi.mock('../../../src/main/services/opencode-service', () => ({
   openCodeService: {
-    setMainWindow: vi.fn(),
-    getAvailableModels: vi.fn().mockResolvedValue([{ id: 'anthropic', models: {} }]),
-    getModelInfo: vi.fn().mockResolvedValue({
-      id: 'opus',
-      name: 'Opus',
-      limit: { context: 200000 }
-    }),
-    setSelectedModel: vi.fn()
+    setMainWindow: vi.fn()
   }
 }))
 
-import { registerOpenCodeHandlers } from '../../../src/main/ipc/opencode-handlers'
-import { openCodeService } from '../../../src/main/services/opencode-service'
-import type { AgentSdkManager } from '../../../src/main/services/agent-sdk-manager'
-import type { AgentSdkImplementer } from '../../../src/main/services/agent-sdk-types'
+import { registerAgentHandlers } from '../../../src/main/ipc/agent-handlers'
+import type { AgentRuntimeManager } from '../../../src/main/services/agent-runtime-manager'
+import type { AgentRuntimeAdapter } from '../../../src/main/services/agent-runtime-types'
 
-function createMockClaudeImpl(): AgentSdkImplementer {
+function createMockClaudeImpl(): AgentRuntimeAdapter {
   return {
     id: 'claude-code' as const,
     capabilities: {
@@ -65,11 +57,11 @@ function createMockClaudeImpl(): AgentSdkImplementer {
     getAvailableModels: vi.fn().mockResolvedValue([{ id: 'claude-code', models: {} }]),
     getModelInfo: vi.fn().mockResolvedValue({
       id: 'opus',
-      name: 'Claude Opus 4',
-      limit: { context: 1000000, output: 32000 }
+      name: 'Opus 4.7',
+      limit: { context: 200000, output: 32000 }
     }),
     setSelectedModel: vi.fn(),
-    getSessionInfo: vi.fn().mockResolvedValue({ canUndo: false, canRedo: false }),
+    getSessionInfo: vi.fn().mockResolvedValue({ revertMessageID: null, revertDiff: null }),
     questionReply: vi.fn(),
     questionReject: vi.fn(),
     permissionReply: vi.fn(),
@@ -83,153 +75,207 @@ function createMockClaudeImpl(): AgentSdkImplementer {
   }
 }
 
-function createMockSdkManager(claudeImpl: AgentSdkImplementer): AgentSdkManager {
+function createMockOpenCodeImpl(): AgentRuntimeAdapter {
+  return {
+    id: 'opencode' as const,
+    capabilities: {
+      supportsUndo: true,
+      supportsRedo: true,
+      supportsCommands: true,
+      supportsPermissionRequests: true,
+      supportsQuestionPrompts: true,
+      supportsModelSelection: true,
+      supportsReconnect: true,
+      supportsPartialStreaming: true
+    },
+    connect: vi.fn(),
+    reconnect: vi.fn(),
+    disconnect: vi.fn(),
+    cleanup: vi.fn(),
+    prompt: vi.fn().mockResolvedValue(undefined),
+    abort: vi.fn().mockResolvedValue(true),
+    getMessages: vi.fn().mockResolvedValue([]),
+    getAvailableModels: vi.fn().mockResolvedValue([{ id: 'opencode', models: {} }]),
+    getModelInfo: vi.fn().mockResolvedValue({
+      id: 'opus',
+      name: 'Opus 4.7',
+      limit: { context: 200000, output: 32000 }
+    }),
+    setSelectedModel: vi.fn(),
+    getSessionInfo: vi.fn().mockResolvedValue({ revertMessageID: null, revertDiff: null }),
+    questionReply: vi.fn(),
+    questionReject: vi.fn(),
+    permissionReply: vi.fn(),
+    permissionList: vi.fn(),
+    undo: vi.fn(),
+    redo: vi.fn(),
+    listCommands: vi.fn(),
+    sendCommand: vi.fn(),
+    renameSession: vi.fn(),
+    setMainWindow: vi.fn()
+  }
+}
+
+function createMockRuntimeManager(
+  openCodeImpl: AgentRuntimeAdapter,
+  claudeImpl: AgentRuntimeAdapter
+): AgentRuntimeManager {
   return {
     getImplementer: vi.fn((id: string) => {
+      if (id === 'opencode') return openCodeImpl
       if (id === 'claude-code') return claudeImpl
       throw new Error(`Unknown agent SDK: ${id}`)
     }),
     getCapabilities: vi.fn(),
-    cleanup: vi.fn()
-  } as unknown as AgentSdkManager
+    cleanupAll: vi.fn()
+  } as unknown as AgentRuntimeManager
 }
 
 const mockEvent = {} as any
 
-describe('IPC opencode:models SDK-aware routing', () => {
-  let claudeImpl: AgentSdkImplementer
+describe('IPC agent:models runtime-aware routing', () => {
+  let claudeImpl: AgentRuntimeAdapter
+  let openCodeImpl: AgentRuntimeAdapter
 
   beforeEach(() => {
     handlers.clear()
     vi.clearAllMocks()
     claudeImpl = createMockClaudeImpl()
+    openCodeImpl = createMockOpenCodeImpl()
   })
 
-  it('opencode:models without agentSdk routes to OpenCode', async () => {
-    const sdkManager = createMockSdkManager(claudeImpl)
+  it('agent:models without runtimeId routes to OpenCode', async () => {
+    const runtimeManager = createMockRuntimeManager(openCodeImpl, claudeImpl)
     const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
 
-    registerOpenCodeHandlers(mainWindow, sdkManager)
+    registerAgentHandlers(mainWindow, runtimeManager)
 
-    const handler = handlers.get('opencode:models')!
+    const handler = handlers.get('agent:models')!
     expect(handler).toBeDefined()
 
     await handler(mockEvent, undefined)
 
-    expect(openCodeService.getAvailableModels).toHaveBeenCalled()
+    expect(runtimeManager.getImplementer).toHaveBeenCalledWith('opencode')
+    expect(openCodeImpl.getAvailableModels).toHaveBeenCalled()
     expect(claudeImpl.getAvailableModels).not.toHaveBeenCalled()
   })
 
-  it('opencode:models with agentSdk claude-code routes to Claude', async () => {
-    const sdkManager = createMockSdkManager(claudeImpl)
+  it('agent:models with runtimeId claude-code routes to Claude', async () => {
+    const runtimeManager = createMockRuntimeManager(openCodeImpl, claudeImpl)
     const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
 
-    registerOpenCodeHandlers(mainWindow, sdkManager)
+    registerAgentHandlers(mainWindow, runtimeManager)
 
-    const handler = handlers.get('opencode:models')!
-    await handler(mockEvent, { agentSdk: 'claude-code' })
+    const handler = handlers.get('agent:models')!
+    await handler(mockEvent, { runtimeId: 'claude-code' })
 
-    expect(sdkManager.getImplementer).toHaveBeenCalledWith('claude-code')
+    expect(runtimeManager.getImplementer).toHaveBeenCalledWith('claude-code')
     expect(claudeImpl.getAvailableModels).toHaveBeenCalled()
-    expect(openCodeService.getAvailableModels).not.toHaveBeenCalled()
+    expect(openCodeImpl.getAvailableModels).not.toHaveBeenCalled()
   })
 })
 
-describe('IPC opencode:setModel SDK-aware routing', () => {
-  let claudeImpl: AgentSdkImplementer
+describe('IPC agent:setModel runtime-aware routing', () => {
+  let claudeImpl: AgentRuntimeAdapter
+  let openCodeImpl: AgentRuntimeAdapter
 
   beforeEach(() => {
     handlers.clear()
     vi.clearAllMocks()
     claudeImpl = createMockClaudeImpl()
+    openCodeImpl = createMockOpenCodeImpl()
   })
 
-  it('opencode:setModel without agentSdk routes to OpenCode', async () => {
-    const sdkManager = createMockSdkManager(claudeImpl)
+  it('agent:setModel without runtimeId routes to OpenCode', async () => {
+    const runtimeManager = createMockRuntimeManager(openCodeImpl, claudeImpl)
     const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
 
-    registerOpenCodeHandlers(mainWindow, sdkManager)
+    registerAgentHandlers(mainWindow, runtimeManager)
 
-    const handler = handlers.get('opencode:setModel')!
+    const handler = handlers.get('agent:setModel')!
     expect(handler).toBeDefined()
 
     await handler(mockEvent, { providerID: 'anthropic', modelID: 'opus' })
 
-    expect(openCodeService.setSelectedModel).toHaveBeenCalledWith({
+    expect(runtimeManager.getImplementer).toHaveBeenCalledWith('opencode')
+    expect(openCodeImpl.setSelectedModel).toHaveBeenCalledWith({
       providerID: 'anthropic',
       modelID: 'opus'
     })
     expect(claudeImpl.setSelectedModel).not.toHaveBeenCalled()
   })
 
-  it('opencode:setModel with agentSdk claude-code routes to Claude', async () => {
-    const sdkManager = createMockSdkManager(claudeImpl)
+  it('agent:setModel with runtimeId claude-code routes to Claude', async () => {
+    const runtimeManager = createMockRuntimeManager(openCodeImpl, claudeImpl)
     const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
 
-    registerOpenCodeHandlers(mainWindow, sdkManager)
+    registerAgentHandlers(mainWindow, runtimeManager)
 
-    const handler = handlers.get('opencode:setModel')!
+    const handler = handlers.get('agent:setModel')!
     await handler(mockEvent, {
       providerID: 'claude-code',
       modelID: 'opus',
-      agentSdk: 'claude-code'
+      runtimeId: 'claude-code'
     })
 
-    expect(sdkManager.getImplementer).toHaveBeenCalledWith('claude-code')
+    expect(runtimeManager.getImplementer).toHaveBeenCalledWith('claude-code')
     expect(claudeImpl.setSelectedModel).toHaveBeenCalledWith({
       providerID: 'claude-code',
       modelID: 'opus',
-      agentSdk: 'claude-code'
+      runtimeId: 'claude-code'
     })
-    expect(openCodeService.setSelectedModel).not.toHaveBeenCalled()
+    expect(openCodeImpl.setSelectedModel).not.toHaveBeenCalled()
   })
 })
 
-describe('IPC opencode:modelInfo SDK-aware routing', () => {
-  let claudeImpl: AgentSdkImplementer
+describe('IPC agent:modelInfo runtime-aware routing', () => {
+  let claudeImpl: AgentRuntimeAdapter
+  let openCodeImpl: AgentRuntimeAdapter
 
   beforeEach(() => {
     handlers.clear()
     vi.clearAllMocks()
     claudeImpl = createMockClaudeImpl()
+    openCodeImpl = createMockOpenCodeImpl()
   })
 
-  it('opencode:modelInfo without agentSdk routes to OpenCode', async () => {
-    const sdkManager = createMockSdkManager(claudeImpl)
+  it('agent:modelInfo without runtimeId routes to OpenCode', async () => {
+    const runtimeManager = createMockRuntimeManager(openCodeImpl, claudeImpl)
     const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
 
-    registerOpenCodeHandlers(mainWindow, sdkManager)
+    registerAgentHandlers(mainWindow, runtimeManager)
 
-    const handler = handlers.get('opencode:modelInfo')!
+    const handler = handlers.get('agent:modelInfo')!
     expect(handler).toBeDefined()
 
     await handler(mockEvent, { worktreePath: '/path', modelId: 'opus' })
 
-    expect(openCodeService.getModelInfo).toHaveBeenCalledWith('/path', 'opus')
+    expect(runtimeManager.getImplementer).toHaveBeenCalledWith('opencode')
+    expect(openCodeImpl.getModelInfo).toHaveBeenCalledWith('/path', 'opus')
     expect(claudeImpl.getModelInfo).not.toHaveBeenCalled()
   })
 
-  it('opencode:modelInfo with agentSdk claude-code routes to Claude', async () => {
-    const sdkManager = createMockSdkManager(claudeImpl)
+  it('agent:modelInfo with runtimeId claude-code routes to Claude', async () => {
+    const runtimeManager = createMockRuntimeManager(openCodeImpl, claudeImpl)
     const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
 
-    registerOpenCodeHandlers(mainWindow, sdkManager)
+    registerAgentHandlers(mainWindow, runtimeManager)
 
-    const handler = handlers.get('opencode:modelInfo')!
+    const handler = handlers.get('agent:modelInfo')!
     await handler(mockEvent, {
       worktreePath: '/path',
       modelId: 'opus',
-      agentSdk: 'claude-code'
+      runtimeId: 'claude-code'
     })
 
-    expect(sdkManager.getImplementer).toHaveBeenCalledWith('claude-code')
+    expect(runtimeManager.getImplementer).toHaveBeenCalledWith('claude-code')
     expect(claudeImpl.getModelInfo).toHaveBeenCalledWith('/path', 'opus')
-    expect(openCodeService.getModelInfo).not.toHaveBeenCalled()
+    expect(openCodeImpl.getModelInfo).not.toHaveBeenCalled()
   })
 })
 
-describe('IPC opencode:models fallback when sdkManager is null', () => {
-  let claudeImpl: AgentSdkImplementer
+describe('IPC agent:models failure when runtimeManager is missing', () => {
+  let claudeImpl: AgentRuntimeAdapter
 
   beforeEach(() => {
     handlers.clear()
@@ -237,15 +283,15 @@ describe('IPC opencode:models fallback when sdkManager is null', () => {
     claudeImpl = createMockClaudeImpl()
   })
 
-  it('opencode:models falls through to OpenCode when sdkManager is null', async () => {
+  it('agent:models returns an error when runtimeManager is null', async () => {
     const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
 
-    registerOpenCodeHandlers(mainWindow, undefined, undefined)
+    registerAgentHandlers(mainWindow, undefined, undefined)
 
-    const handler = handlers.get('opencode:models')!
-    await handler(mockEvent, { agentSdk: 'claude-code' })
+    const handler = handlers.get('agent:models')!
+    const result = await handler(mockEvent, { runtimeId: 'claude-code' })
 
     expect(claudeImpl.getAvailableModels).not.toHaveBeenCalled()
-    expect(openCodeService.getAvailableModels).toHaveBeenCalled()
+    expect(result).toMatchObject({ success: false })
   })
 })

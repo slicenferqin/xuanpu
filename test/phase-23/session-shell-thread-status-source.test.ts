@@ -34,4 +34,27 @@ describe('SessionShell thread status flow (source verification)', () => {
     expect(source).toContain('ephemeralStatusRows={ephemeralStatusRows}')
     expect(source).toContain('hasDurableCompactionMessage')
   })
+
+  test('wires new UI user-message edit and fork flows into AgentTimeline', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(
+      path.resolve(
+        __dirname,
+        '../../src/renderer/src/components/session-hq/SessionShell.tsx'
+      ),
+      'utf-8'
+    )
+
+    expect(source).toContain('const canEditUserMessage = useCallback(')
+    expect(source).toContain('const handleSaveUserMessageEdit = useCallback(')
+    expect(source).toContain('restoreMessageModePrefix(')
+    expect(source).toContain('const performForkFromUserMessage = useCallback(')
+    expect(source).toContain('getUserMessageForkCutoff(')
+    expect(source).toContain("updateSetting('skipForkFromMessageConfirm', true)")
+    expect(source).toContain('<ForkFromMessageConfirmDialog')
+    expect(source).toContain('editingMessageId={editingMessageId}')
+    expect(source).toContain('onForkUserMessage={handleForkUserMessage}')
+    expect(source).toContain('forkingMessageId={forkingMessageId}')
+  })
 })

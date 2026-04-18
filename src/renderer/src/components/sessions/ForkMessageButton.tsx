@@ -1,17 +1,24 @@
 import { GitFork, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useI18n } from '@/i18n/useI18n'
+import { cn } from '@/lib/utils'
 
 interface ForkMessageButtonProps {
   onFork: () => void | Promise<void>
   disabled?: boolean
   isForking?: boolean
+  className?: string
+  showOnHoverClassName?: string
+  unstyled?: boolean
 }
 
 export function ForkMessageButton({
   onFork,
   disabled = false,
-  isForking = false
+  isForking = false,
+  className,
+  showOnHoverClassName = 'group-hover:opacity-100',
+  unstyled = false
 }: ForkMessageButtonProps) {
   const { t } = useI18n()
   return (
@@ -22,7 +29,13 @@ export function ForkMessageButton({
         void onFork()
       }}
       disabled={disabled || isForking}
-      className="absolute top-2 right-10 h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity z-10 bg-background/80 backdrop-blur-sm"
+      className={cn(
+        unstyled
+          ? 'h-6 w-6 p-0 opacity-0 transition-opacity z-10 bg-background/80 backdrop-blur-sm'
+          : 'absolute top-2 right-10 h-6 w-6 p-0 opacity-0 transition-opacity z-10 bg-background/80 backdrop-blur-sm',
+        showOnHoverClassName,
+        className
+      )}
       aria-label={t('forkMessageButton.ariaLabel')}
       data-testid="fork-message-button"
     >

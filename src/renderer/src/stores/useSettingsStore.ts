@@ -117,6 +117,7 @@ export interface AppSettings {
 
   // Chat
   stripAtMentions: boolean
+  skipForkFromMessageConfirm: boolean
   codexFastMode: boolean
   codexFastModeAccepted: boolean
 
@@ -166,6 +167,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   showUsageIndicator: true,
   defaultAgentSdk: 'opencode',
   stripAtMentions: true,
+  skipForkFromMessageConfirm: false,
   codexFastMode: false,
   codexFastModeAccepted: false,
   updateChannel: 'stable',
@@ -289,6 +291,7 @@ function extractSettings(state: SettingsState): AppSettings {
     showUsageIndicator: state.showUsageIndicator,
     defaultAgentSdk: state.defaultAgentSdk,
     stripAtMentions: state.stripAtMentions,
+    skipForkFromMessageConfirm: state.skipForkFromMessageConfirm,
     codexFastMode: state.codexFastMode,
     codexFastModeAccepted: state.codexFastModeAccepted,
     updateChannel: state.updateChannel,
@@ -506,6 +509,7 @@ export const useSettingsStore = create<SettingsState>()(
         defaultAgentSdk: state.defaultAgentSdk,
         activeSection: state.activeSection,
         stripAtMentions: state.stripAtMentions,
+        skipForkFromMessageConfirm: state.skipForkFromMessageConfirm,
         codexFastMode: state.codexFastMode,
         codexFastModeAccepted: state.codexFastModeAccepted,
         updateChannel: state.updateChannel,

@@ -198,7 +198,7 @@ beforeEach(() => {
     configurable: true
   })
 
-  Object.defineProperty(window, 'opencodeOps', {
+  Object.defineProperty(window, 'agentOps', {
     value: {
       getMessages: vi.fn().mockResolvedValue({ success: true, messages: [] })
     },
@@ -582,7 +582,7 @@ describe('Session 9: Session History', () => {
 
     test('Session preview loads OpenCode transcript messages', async () => {
       mockDbWorktree.get.mockResolvedValue({ ...mockWorktree, path: '/tmp/worktree-preview' })
-      ;(window.opencodeOps.getMessages as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ;(window.agentOps.getMessages as ReturnType<typeof vi.fn>).mockResolvedValue({
         success: true,
         messages: mockOpenCodeMessages
       })
@@ -599,7 +599,7 @@ describe('Session 9: Session History', () => {
 
     test('Session preview prefers OpenCode transcript when available', async () => {
       mockDbWorktree.get.mockResolvedValue({ ...mockWorktree, path: '/tmp/worktree-preview' })
-      ;(window.opencodeOps.getMessages as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ;(window.agentOps.getMessages as ReturnType<typeof vi.fn>).mockResolvedValue({
         success: true,
         messages: mockOpenCodeMessages
       })
@@ -608,7 +608,7 @@ describe('Session 9: Session History', () => {
         .getState()
         .getSessionPreviewMessages(mockOpenCodeBackedSession)
 
-      expect(window.opencodeOps.getMessages).toHaveBeenCalledWith(
+      expect(window.agentOps.getMessages).toHaveBeenCalledWith(
         '/tmp/worktree-preview',
         'opc-session-1'
       )
@@ -620,7 +620,7 @@ describe('Session 9: Session History', () => {
 
     test('Session preview returns empty when OpenCode fetch fails', async () => {
       mockDbWorktree.get.mockResolvedValue({ ...mockWorktree, path: '/tmp/worktree-preview' })
-      ;(window.opencodeOps.getMessages as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ;(window.agentOps.getMessages as ReturnType<typeof vi.fn>).mockResolvedValue({
         success: false,
         error: 'OpenCode unavailable'
       })
@@ -629,7 +629,7 @@ describe('Session 9: Session History', () => {
         .getState()
         .getSessionPreviewMessages(mockOpenCodeBackedSession)
 
-      expect(window.opencodeOps.getMessages).toHaveBeenCalledWith(
+      expect(window.agentOps.getMessages).toHaveBeenCalledWith(
         '/tmp/worktree-preview',
         'opc-session-1'
       )

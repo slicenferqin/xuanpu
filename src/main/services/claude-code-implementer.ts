@@ -35,7 +35,7 @@ const CLAUDE_MODELS = [
   {
     id: 'opus',
     name: 'Opus 4.7',
-    limit: { context: 1000000, output: 32000 },
+    limit: { context: 200000, output: 32000 },
     variants: CLAUDE_OPUS_EFFORT_VARIANTS,
     defaultVariant: 'high'
   },
@@ -1094,6 +1094,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         totalMessages: messageIndex,
         aborted: session.abortController?.signal.aborted ?? false
       })
+      await this.reconcileSessionMessagesFromTranscript(session)
       this.persistMessagesToDB(session)
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
@@ -1241,6 +1242,77 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       })
     } catch (error) {
       log.warn('Failed to persist Claude Code messages', {
+        hiveSessionId: session.hiveSessionId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
+  }
+
+  private async reconcileSessionMessagesFromTranscript(
+    session: ClaudeSessionState
+  ): Promise<void> {
+    if (!session.materialized) return
+    if (!session.claudeSessionId || session.claudeSessionId.startsWith('pending::')) return
+    if (session.messages.length === 0) return
+
+    try {
+      const transcriptMessages = await readClaudeTranscript(
+        session.worktreePath,
+        session.claudeSessionId
+      )
+      if (!Array.isArray(transcriptMessages) || transcriptMessages.length === 0) return
+
+      const transcriptAssistants = new Map<string, Record<string, unknown>>()
+      for (const message of transcriptMessages) {
+        const record = asObject(message)
+        if (!record || asString(record.role) !== 'assistant') continue
+
+        const id = asString(record.id)
+        if (!id) continue
+        transcriptAssistants.set(id, record)
+      }
+
+      if (transcriptAssistants.size === 0) return
+
+      let updatedCount = 0
+      session.messages = session.messages.map((message) => {
+        const record = asObject(message)
+        if (!record || asString(record.role) !== 'assistant') return message
+
+        const id = asString(record.id)
+        if (!id) return message
+
+        const transcriptRecord = transcriptAssistants.get(id)
+        if (!transcriptRecord) return message
+
+        const usageChanged =
+          JSON.stringify(record.usage ?? null) !== JSON.stringify(transcriptRecord.usage ?? null)
+        const modelChanged =
+          JSON.stringify(record.model ?? null) !== JSON.stringify(transcriptRecord.model ?? null)
+        const costChanged = (record.cost ?? null) !== (transcriptRecord.cost ?? null)
+        const contentChanged = (record.content ?? null) !== (transcriptRecord.content ?? null)
+        const partsChanged =
+          JSON.stringify(record.parts ?? null) !== JSON.stringify(transcriptRecord.parts ?? null)
+
+        if (!usageChanged && !modelChanged && !costChanged && !contentChanged && !partsChanged) {
+          return message
+        }
+
+        updatedCount += 1
+        return {
+          ...record,
+          ...transcriptRecord
+        }
+      })
+
+      if (updatedCount > 0) {
+        log.info('Reconciled Claude session messages from transcript', {
+          hiveSessionId: session.hiveSessionId,
+          updatedCount
+        })
+      }
+    } catch (error) {
+      log.warn('Failed to reconcile Claude transcript into session messages', {
         hiveSessionId: session.hiveSessionId,
         error: error instanceof Error ? error.message : String(error)
       })

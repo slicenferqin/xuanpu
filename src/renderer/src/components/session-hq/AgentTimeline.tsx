@@ -16,6 +16,10 @@ import { formatMessageTime } from '@/lib/format-time'
 import type { TimelineMessage, StreamingPart, ToolUseInfo } from '@shared/lib/timeline-types'
 import type { MessagePart } from '@shared/types/opencode'
 import type { SessionLifecycle } from '@/stores/useSessionRuntimeStore'
+import { CopyMessageButton } from '@/components/sessions/CopyMessageButton'
+import { ForkMessageButton } from '@/components/sessions/ForkMessageButton'
+import { Button } from '@/components/ui/button'
+import { useI18n } from '@/i18n/useI18n'
 import {
   BashCard,
   FileReadCard,
@@ -29,6 +33,7 @@ import {
   TodoCard
 } from './cards'
 import { ThreadStatusRow, type ThreadStatusRowData } from './ThreadStatusRow'
+import { getMessageDisplayContent } from '@/lib/message-actions'
 
 import {
   Terminal,
@@ -42,7 +47,8 @@ import {
   Users,
   MessageSquare,
   User,
-  Loader2
+  Loader2,
+  Pencil
 } from 'lucide-react'
 
 // ---------------------------------------------------------------------------
@@ -284,47 +290,154 @@ function TimelineNodeView({
   node,
   sessionId,
   worktreePath,
-  childPartsMap
+  childPartsMap,
+  canEditUserMessage,
+  editingMessageId,
+  editingContent,
+  onEditingContentChange,
+  onSaveUserMessageEdit,
+  onCancelUserMessageEdit,
+  onCopyUserMessage,
+  onEditUserMessage,
+  onForkUserMessage,
+  forkingMessageId
 }: {
   node: TimelineNode
   sessionId?: string
   worktreePath?: string | null
   childPartsMap?: Map<string, StreamingPart[]>
+  canEditUserMessage?: (message: TimelineMessage) => boolean
+  editingMessageId?: string | null
+  editingContent?: string
+  onEditingContentChange?: (content: string) => void
+  onSaveUserMessageEdit?: (messageId: string) => void | Promise<void>
+  onCancelUserMessageEdit?: () => void
+  onCopyUserMessage?: (message: TimelineMessage) => void
+  onEditUserMessage?: (message: TimelineMessage) => void
+  onForkUserMessage?: (message: TimelineMessage) => void | Promise<void>
+  forkingMessageId?: string | null
 }): React.JSX.Element | null {
+  const { t } = useI18n()
+
   switch (node.cardType) {
     case 'user-message': {
       type FilePart = Extract<MessagePart, { type: 'file' }>
       const images = (node.attachments?.filter((a) => a.type === 'file' && a.mime.startsWith('image/')) ?? []) as FilePart[]
       const files = (node.attachments?.filter((a) => a.type === 'file' && !a.mime.startsWith('image/')) ?? []) as FilePart[]
+      const displayText = getMessageDisplayContent(node.textContent ?? '')
+      const isEditing = editingMessageId === node.message.id
+      const canEdit = canEditUserMessage?.(node.message) ?? false
+      const timestampLabel = node.message.timestamp ? formatMessageTime(node.message.timestamp) : ''
+
       return (
-        <div className="bg-blue-500/5 border border-blue-500/20 rounded-[10px] px-3.5 py-2.5">
-          {images.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {images.map((img, i) => (
-                <img
-                  key={i}
-                  src={img.url}
-                  alt={img.filename ?? 'attachment'}
-                  className="max-h-48 max-w-[280px] rounded-lg border border-border/50 object-contain"
+        <div className="group/user-message">
+          <div className="bg-blue-500/5 border border-blue-500/20 rounded-[10px] px-3.5 py-2.5">
+            {images.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {images.map((img, i) => (
+                  <img
+                    key={i}
+                    src={img.url}
+                    alt={img.filename ?? 'attachment'}
+                    className="max-h-48 max-w-[280px] rounded-lg border border-border/50 object-contain"
+                  />
+                ))}
+              </div>
+            )}
+            {files.length > 0 && (
+              <div className={cn('flex flex-wrap gap-2', images.length > 0 && 'mt-2')}>
+                {files.map((f, i) => (
+                  <div
+                    key={i}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-background/50 px-2.5 py-1.5 text-xs text-muted-foreground"
+                  >
+                    <FileText className="h-3.5 w-3.5 shrink-0" />
+                    {f.filename ?? 'file'}
+                  </div>
+                ))}
+              </div>
+            )}
+            {isEditing ? (
+              <div className={cn((images.length > 0 || files.length > 0) && 'mt-2')}>
+                <textarea
+                  value={editingContent ?? ''}
+                  onChange={(e) => onEditingContentChange?.(e.target.value)}
+                  className="min-h-[96px] w-full resize-y rounded-lg border border-border/70 bg-background/55 px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/20"
+                  autoFocus
+                  data-testid="timeline-user-edit-textarea"
                 />
-              ))}
-            </div>
-          )}
-          {files.length > 0 && (
-            <div className={cn('flex flex-wrap gap-2', images.length > 0 && 'mt-2')}>
-              {files.map((f, i) => (
-                <div key={i} className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-background/50 px-2.5 py-1.5 text-xs text-muted-foreground">
-                  <FileText className="h-3.5 w-3.5 shrink-0" />
-                  {f.filename ?? 'file'}
+                <div className="mt-2 flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onCancelUserMessageEdit?.()}
+                  >
+                    {t('editMessageButton.cancel')}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={!editingContent?.trim()}
+                    onClick={() => {
+                      void onSaveUserMessageEdit?.(node.message.id)
+                    }}
+                  >
+                    {t('editMessageButton.save')}
+                  </Button>
                 </div>
-              ))}
-            </div>
-          )}
-          {node.textContent && (
-            <div className={cn('text-sm text-foreground whitespace-pre-wrap break-words', (images.length > 0 || files.length > 0) && 'mt-2')}>
-              {node.textContent}
-            </div>
-          )}
+              </div>
+            ) : displayText ? (
+              <div
+                className={cn(
+                  'text-sm text-foreground whitespace-pre-wrap break-words',
+                  (images.length > 0 || files.length > 0) && 'mt-2'
+                )}
+              >
+                {displayText}
+              </div>
+            ) : null}
+          </div>
+          <div
+            className="mt-1.5 flex items-center justify-end gap-1.5 text-xs text-muted-foreground"
+            data-testid={`timeline-user-actions-${node.message.id}`}
+          >
+            {timestampLabel && <span data-testid={`timeline-user-timestamp-${node.message.id}`}>{timestampLabel}</span>}
+            {!isEditing && (
+              <>
+                <CopyMessageButton
+                  content={displayText}
+                  className="h-7 w-7 rounded-full bg-transparent opacity-0 group-hover/user-message:opacity-100"
+                  showOnHoverClassName=""
+                  unstyled
+                  onCopy={() => onCopyUserMessage?.(node.message)}
+                />
+                {canEdit && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 rounded-full p-0 opacity-0 transition-opacity group-hover/user-message:opacity-100"
+                    aria-label={t('editMessageButton.ariaLabel')}
+                    data-testid="edit-message-button"
+                    onClick={() => onEditUserMessage?.(node.message)}
+                  >
+                    <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                  </Button>
+                )}
+                {onForkUserMessage && (
+                  <ForkMessageButton
+                    onFork={() => onForkUserMessage(node.message)}
+                    isForking={forkingMessageId === node.message.id}
+                    disabled={forkingMessageId !== null && forkingMessageId !== node.message.id}
+                    className="h-7 w-7 rounded-full bg-transparent opacity-0 group-hover/user-message:opacity-100"
+                    showOnHoverClassName=""
+                    unstyled
+                  />
+                )}
+              </>
+            )}
+          </div>
         </div>
       )
     }
@@ -457,6 +570,16 @@ export interface AgentTimelineProps {
   worktreePath?: string | null
   /** Child-session parts keyed by parent tool_use id (sub-agent tool calls) */
   childPartsMap?: Map<string, StreamingPart[]>
+  onCopyUserMessage?: (message: TimelineMessage) => void
+  onEditUserMessage?: (message: TimelineMessage) => void
+  onForkUserMessage?: (message: TimelineMessage) => void | Promise<void>
+  canEditUserMessage?: (message: TimelineMessage) => boolean
+  editingMessageId?: string | null
+  editingContent?: string
+  onEditingContentChange?: (content: string) => void
+  onSaveUserMessageEdit?: (messageId: string) => void | Promise<void>
+  onCancelUserMessageEdit?: () => void
+  forkingMessageId?: string | null
 }
 
 export function AgentTimeline({
@@ -470,7 +593,17 @@ export function AgentTimeline({
   finalTodoTasks,
   sessionId,
   worktreePath,
-  childPartsMap
+  childPartsMap,
+  onCopyUserMessage,
+  onEditUserMessage,
+  onForkUserMessage,
+  canEditUserMessage,
+  editingMessageId,
+  editingContent,
+  onEditingContentChange,
+  onSaveUserMessageEdit,
+  onCancelUserMessageEdit,
+  forkingMessageId
 }: AgentTimelineProps): React.JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -492,7 +625,7 @@ export function AgentTimeline({
         })
       }
     }
-  }, [timelineMessages.length, streamingContent, streamingParts.length, isStreaming])
+  }, [timelineMessages.length, streamingContent, streamingParts, isStreaming])
 
   // Flatten messages into timeline nodes
   const nodes = useMemo(() => {
@@ -629,7 +762,7 @@ export function AgentTimeline({
       ref={scrollRef}
       className="flex-1 overflow-y-auto"
     >
-      <div className="w-[85%] ml-[5%] py-6 pb-48">
+      <div className="w-[85%] ml-[5%] py-6 pb-[14.5rem]">
         {/* Timeline nodes */}
         {nodes.map((node, index) => {
           const iconCfg = ICON_MAP[node.cardType]
@@ -640,19 +773,30 @@ export function AgentTimeline({
           // before a user message or end of timeline (not on every message).
           const nextNode = nodes[index + 1]
           const showTimestamp =
-            node.cardType === 'user-message' ||
-            (node.isLastInMessage && (!nextNode || nextNode.cardType === 'user-message'))
+            node.cardType !== 'user-message'
+            && node.isLastInMessage
+            && (!nextNode || nextNode.cardType === 'user-message')
 
           // User messages render without the timeline line
           if (node.cardType === 'user-message') {
             return (
               <div key={node.key} className="mb-6">
-                <TimelineNodeView node={node} sessionId={sessionId} worktreePath={worktreePath} childPartsMap={childPartsMap} />
-                {node.message.timestamp && (
-                  <div className="mt-1.5 text-xs text-muted-foreground text-right">
-                    {formatMessageTime(node.message.timestamp)}
-                  </div>
-                )}
+                <TimelineNodeView
+                  node={node}
+                  sessionId={sessionId}
+                  worktreePath={worktreePath}
+                  childPartsMap={childPartsMap}
+                  canEditUserMessage={canEditUserMessage}
+                  editingMessageId={editingMessageId}
+                  editingContent={editingContent}
+                  onEditingContentChange={onEditingContentChange}
+                  onSaveUserMessageEdit={onSaveUserMessageEdit}
+                  onCancelUserMessageEdit={onCancelUserMessageEdit}
+                  onCopyUserMessage={onCopyUserMessage}
+                  onEditUserMessage={onEditUserMessage}
+                  onForkUserMessage={onForkUserMessage}
+                  forkingMessageId={forkingMessageId}
+                />
               </div>
             )
           }
@@ -665,7 +809,22 @@ export function AgentTimeline({
                 {renderConnector && (
                   <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border" />
                 )}
-                <TimelineNodeView node={node} sessionId={sessionId} worktreePath={worktreePath} childPartsMap={childPartsMap} />
+                <TimelineNodeView
+                  node={node}
+                  sessionId={sessionId}
+                  worktreePath={worktreePath}
+                  childPartsMap={childPartsMap}
+                  canEditUserMessage={canEditUserMessage}
+                  editingMessageId={editingMessageId}
+                  editingContent={editingContent}
+                  onEditingContentChange={onEditingContentChange}
+                  onSaveUserMessageEdit={onSaveUserMessageEdit}
+                  onCancelUserMessageEdit={onCancelUserMessageEdit}
+                  onCopyUserMessage={onCopyUserMessage}
+                  onEditUserMessage={onEditUserMessage}
+                  onForkUserMessage={onForkUserMessage}
+                  forkingMessageId={forkingMessageId}
+                />
                 {showTimestamp && node.message.timestamp && (
                   <div className="mt-1 text-xs text-muted-foreground">
                     {formatMessageTime(node.message.timestamp)}
@@ -694,7 +853,22 @@ export function AgentTimeline({
               </div>
 
               {/* Card */}
-              <TimelineNodeView node={node} sessionId={sessionId} worktreePath={worktreePath} childPartsMap={childPartsMap} />
+              <TimelineNodeView
+                node={node}
+                sessionId={sessionId}
+                worktreePath={worktreePath}
+                childPartsMap={childPartsMap}
+                canEditUserMessage={canEditUserMessage}
+                editingMessageId={editingMessageId}
+                editingContent={editingContent}
+                onEditingContentChange={onEditingContentChange}
+                onSaveUserMessageEdit={onSaveUserMessageEdit}
+                onCancelUserMessageEdit={onCancelUserMessageEdit}
+                onCopyUserMessage={onCopyUserMessage}
+                onEditUserMessage={onEditUserMessage}
+                onForkUserMessage={onForkUserMessage}
+                forkingMessageId={forkingMessageId}
+              />
               {showTimestamp && node.message.timestamp && (
                 <div className="mt-1 text-xs text-muted-foreground">
                   {formatMessageTime(node.message.timestamp)}
@@ -760,7 +934,22 @@ export function AgentTimeline({
               >
                 <Icon className="h-3 w-3" />
               </div>
-              <TimelineNodeView node={node} sessionId={sessionId} worktreePath={worktreePath} childPartsMap={childPartsMap} />
+              <TimelineNodeView
+                node={node}
+                sessionId={sessionId}
+                worktreePath={worktreePath}
+                childPartsMap={childPartsMap}
+                canEditUserMessage={canEditUserMessage}
+                editingMessageId={editingMessageId}
+                editingContent={editingContent}
+                onEditingContentChange={onEditingContentChange}
+                onSaveUserMessageEdit={onSaveUserMessageEdit}
+                onCancelUserMessageEdit={onCancelUserMessageEdit}
+                onCopyUserMessage={onCopyUserMessage}
+                onEditUserMessage={onEditUserMessage}
+                onForkUserMessage={onForkUserMessage}
+                forkingMessageId={forkingMessageId}
+              />
             </div>
           )
         })}

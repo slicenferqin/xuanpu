@@ -92,7 +92,7 @@ export interface Session {
   project_id: string
   connection_id: string | null
   name: string | null
-  status: 'active' | 'completed' | 'error'
+  status: 'active' | 'completed' | 'error' | 'archived'
   opencode_session_id: string | null
   agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal'
   mode: SessionMode
@@ -118,7 +118,7 @@ export interface SessionCreate {
 
 export interface SessionUpdate {
   name?: string | null
-  status?: 'active' | 'completed' | 'error'
+  status?: 'active' | 'completed' | 'error' | 'archived'
   opencode_session_id?: string | null
   agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
   mode?: SessionMode
@@ -382,6 +382,7 @@ export interface ConnectionWithMembers extends Connection {
 export interface SessionWithWorktree extends Session {
   worktree_name?: string
   worktree_branch_name?: string
+  worktree_status?: 'active' | 'archived' | null
   project_name?: string
 }
 
@@ -393,4 +394,5 @@ export interface SessionSearchOptions {
   dateFrom?: string
   dateTo?: string
   includeArchived?: boolean
+  statusFilter?: 'all' | 'active' | 'archived'
 }

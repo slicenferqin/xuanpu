@@ -75,7 +75,7 @@ interface Session {
   project_id: string
   connection_id: string | null
   name: string | null
-  status: 'active' | 'completed' | 'error'
+  status: 'active' | 'completed' | 'error' | 'archived'
   opencode_session_id: string | null
   agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal'
   mode: 'build' | 'plan'
@@ -143,6 +143,7 @@ interface SessionActivity {
 interface SessionWithWorktree extends Session {
   worktree_name?: string
   worktree_branch_name?: string
+  worktree_status?: 'active' | 'archived' | null
   project_name?: string
 }
 
@@ -153,6 +154,7 @@ interface SessionSearchOptions {
   dateFrom?: string
   dateTo?: string
   includeArchived?: boolean
+  statusFilter?: 'all' | 'active' | 'archived'
 }
 
 type OnboardingStatus = 'ready' | 'warning' | 'missing'
@@ -326,7 +328,7 @@ declare global {
           id: string,
           data: {
             name?: string | null
-            status?: 'active' | 'completed' | 'error'
+            status?: 'active' | 'completed' | 'error' | 'archived'
             opencode_session_id?: string | null
             agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
             mode?: 'build' | 'plan'
@@ -338,6 +340,7 @@ declare global {
           }
         ) => Promise<Session | null>
         delete: (id: string) => Promise<boolean>
+        restore: (id: string) => Promise<Session | null>
         search: (options: SessionSearchOptions) => Promise<SessionWithWorktree[]>
         getDraft: (sessionId: string) => Promise<string | null>
         updateDraft: (sessionId: string, draft: string | null) => Promise<void>
