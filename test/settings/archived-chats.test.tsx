@@ -79,6 +79,13 @@ describe('SettingsArchivedChats', () => {
       expect(searchMock).toHaveBeenCalled()
     })
 
+    expect(searchMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        includeArchived: true,
+        statusFilter: 'closed'
+      })
+    )
+
     expect(screen.getByText('Archived worktree session')).toBeTruthy()
     expect(screen.getByText('Parent worktree is archived')).toBeTruthy()
     expect(screen.getByTestId('archived-chat-restore-session-archived-worktree')).toBeDisabled()

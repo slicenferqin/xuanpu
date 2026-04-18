@@ -1060,6 +1060,8 @@ export class DatabaseService {
       conditions.push("s.status = 'active'")
     } else if (options.statusFilter === 'archived') {
       conditions.push("s.status = 'archived'")
+    } else if (options.statusFilter === 'closed') {
+      conditions.push("s.status = 'completed'")
     }
 
     if (options.dateFrom) {

@@ -31,5 +31,5 @@ export interface SessionSearchOptions {
   dateFrom?: string
   dateTo?: string
   includeArchived?: boolean
-  statusFilter?: 'all' | 'active' | 'archived'
+  statusFilter?: 'all' | 'active' | 'archived' | 'closed'
 }
