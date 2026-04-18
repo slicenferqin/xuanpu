@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events'
 import readline from 'node:readline'
 
 import { createLogger } from './logger'
-import { asObject, asString } from './codex-utils'
+import { asObject, asString, toDebugSnapshot } from './codex-utils'
 import { CODEX_DEFAULT_MODEL } from './codex-models'
 
 const log = createLogger({ component: 'CodexAppServerManager' })
@@ -918,7 +918,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         paramsKeys: notification.params
           ? Object.keys(notification.params as Record<string, unknown>)
           : [],
-        paramsSnapshot: JSON.stringify(notification.params).slice(0, 500)
+        paramsSnapshot: toDebugSnapshot(notification.params, 500)
       })
     }
 

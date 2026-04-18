@@ -565,6 +565,68 @@ describe('Codex Question Prompts', () => {
       expect(impl.getPendingApprovalSessions().has('req-a-1')).toBe(true)
     })
 
+    it('does not crash on payload-less notifications and still handles later requests', async () => {
+      const { CodexImplementer } = await import('../../../src/main/services/codex-implementer')
+      const impl = new CodexImplementer()
+      const internalManager = impl.getManager() as any
+      const mockWindow = {
+        isDestroyed: () => false,
+        webContents: { send: vi.fn() }
+      }
+      impl.setMainWindow(mockWindow as any)
+
+      impl.getSessions().set('/test::thread-q-1', {
+        threadId: 'thread-q-1',
+        hiveSessionId: 'hive-q-1',
+        worktreePath: '/test',
+        status: 'ready',
+        messages: [],
+        revertMessageID: null,
+        revertDiff: null
+      })
+
+      let managerListener: any
+      internalManager.on = vi.fn().mockImplementation((_: string, handler: any) => {
+        managerListener = handler
+      })
+      ;(impl as any).attachManagerListener()
+
+      expect(() =>
+        managerListener({
+          id: 'evt-empty',
+          kind: 'notification',
+          provider: 'codex',
+          threadId: 'thread-q-1',
+          createdAt: new Date().toISOString(),
+          method: 'thread/name/updated'
+        })
+      ).not.toThrow()
+
+      managerListener({
+        id: 'evt-followup',
+        kind: 'request',
+        provider: 'codex',
+        threadId: 'thread-q-1',
+        createdAt: new Date().toISOString(),
+        method: 'item/tool/requestUserInput',
+        requestId: 'req-q-2',
+        payload: {
+          questions: [{ id: 'q2', question: 'Still working?' }]
+        }
+      })
+
+      const sendCalls = mockWindow.webContents.send.mock.calls
+      const streamCalls = sendCalls
+        .filter((c: any[]) => c[0] === 'opencode:stream')
+        .map((c: any[]) => c[1])
+
+      const questionEvent = streamCalls.find((e: any) => e.type === 'question.asked')
+      expect(questionEvent).toBeDefined()
+      expect(questionEvent.sessionId).toBe('hive-q-1')
+      expect(questionEvent.data.requestId).toBe('req-q-2')
+      expect(questionEvent.data.questions).toHaveLength(1)
+    })
+
     it('ignores events for unknown threads', async () => {
       const { CodexImplementer } = await import('../../../src/main/services/codex-implementer')
       const impl = new CodexImplementer()
