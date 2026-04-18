@@ -1,9 +1,5 @@
 import type { SessionModelRef, TokenInfo } from '@/stores/useContextStore'
-import {
-  extractUsageCost,
-  extractUsageModelRef,
-  extractUsageTokens
-} from '@shared/usage/message'
+import { extractUsageCost, extractUsageModelRef, extractUsageTokens } from '@shared/usage/message'
 import { resolveRuntimeModelId } from '@shared/usage/models'
 
 export interface SelectedModelRef {
@@ -56,6 +52,67 @@ export function extractTokens(messageData: Record<string, unknown>): TokenInfo |
 
 export function extractCost(messageData: Record<string, unknown>): number {
   return extractUsageCost(messageData)
+}
+
+export function extractCostEventKey(messageData: Record<string, unknown>): string | null {
+  const requestId =
+    typeof messageData.requestId === 'string'
+      ? messageData.requestId
+      : typeof asRecord(messageData.info)?.requestId === 'string'
+        ? (asRecord(messageData.info)?.requestId as string)
+        : null
+  if (requestId) return `request:${requestId}`
+
+  const messageId =
+    typeof messageData.id === 'string'
+      ? messageData.id
+      : typeof asRecord(messageData.message)?.id === 'string'
+        ? (asRecord(messageData.message)?.id as string)
+        : null
+  if (messageId) return `message:${messageId}`
+
+  const info = asRecord(messageData.info)
+  const usage = asRecord(info?.usage ?? messageData.usage)
+  const model =
+    typeof messageData.model === 'string'
+      ? messageData.model
+      : typeof info?.model === 'string'
+        ? info.model
+        : null
+
+  if (usage && model) {
+    return [
+      'usage',
+      model,
+      String(firstFiniteNumber(usage.input, usage.input_tokens, usage.inputTokens)),
+      String(firstFiniteNumber(usage.output, usage.output_tokens, usage.outputTokens)),
+      String(
+        firstFiniteNumber(
+          usage.cacheRead,
+          usage.cache_read,
+          usage.cacheReadInputTokens,
+          usage.cache_read_input_tokens
+        )
+      ),
+      String(
+        firstFiniteNumber(
+          usage.cacheCreation,
+          usage.cache_creation,
+          usage.cacheCreationInputTokens,
+          usage.cache_creation_input_tokens
+        )
+      )
+    ].join(':')
+  }
+
+  const messageIndex =
+    typeof messageData.messageIndex === 'number' ? String(messageData.messageIndex) : null
+  const role = typeof messageData.role === 'string' ? messageData.role : null
+  if (messageIndex && role) {
+    return `index:${role}:${messageIndex}`
+  }
+
+  return null
 }
 
 export function extractModelRef(

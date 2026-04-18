@@ -1997,6 +1997,10 @@ export const messages: Record<AppLocale, MessageTree> = {
       title: 'Pinned',
       connectionFallback: 'Connection',
       connectionNamePlaceholder: 'Connection name',
+      meta: {
+        branch: 'Branch',
+        default: 'Default'
+      },
       menu: {
         open: 'Open',
         detach: 'Detach',
@@ -4064,6 +4068,10 @@ export const messages: Record<AppLocale, MessageTree> = {
       title: '已固定',
       connectionFallback: '连接',
       connectionNamePlaceholder: '连接名称',
+      meta: {
+        branch: '分支',
+        default: '默认'
+      },
       menu: {
         open: '打开',
         detach: '解除关联',

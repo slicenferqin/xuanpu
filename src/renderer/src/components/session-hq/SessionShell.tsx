@@ -48,7 +48,13 @@ import {
   type ComposerAction
 } from '@/lib/session-send-actions'
 import { buildPlanImplementationPrompt } from '@/lib/proposedPlan'
-import { extractTokens, extractCost, extractModelRef, extractModelUsage } from '@/lib/token-utils'
+import {
+  extractTokens,
+  extractCost,
+  extractCostEventKey,
+  extractModelRef,
+  extractModelUsage
+} from '@/lib/token-utils'
 import { applySessionContextUsage } from '@/lib/context-usage'
 import { lastSendMode } from '@/lib/message-send-times'
 import { toast } from 'sonner'
@@ -304,6 +310,22 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
   // --- Model resolution ---
   const resolvedModel = useSettingsStore((s) => (agentSdk ? resolveModelForSdk(agentSdk, s) : null))
+  const requestModel = useMemo(() => {
+    if (sessionRecord?.model_provider_id && sessionRecord.model_id) {
+      return {
+        providerID: sessionRecord.model_provider_id,
+        modelID: sessionRecord.model_id,
+        ...(resolvedModel &&
+        resolvedModel.providerID === sessionRecord.model_provider_id &&
+        resolvedModel.modelID === sessionRecord.model_id &&
+        resolvedModel.variant
+          ? { variant: resolvedModel.variant }
+          : {})
+      }
+    }
+
+    return resolvedModel ?? undefined
+  }, [resolvedModel, sessionRecord?.model_provider_id, sessionRecord?.model_id])
   const currentModelId = resolvedModel?.modelID ?? ''
   const currentProviderId = resolvedModel?.providerID ?? ''
 
@@ -878,6 +900,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           } else if (statusType === 'idle') {
             setIsStreaming(false)
             setRunStartedAt(null)
+            void refreshUsageSummary()
             // Refresh timeline to pick up newly committed messages
             refresh().then((msgs) => {
               // Sync mission tasks from committed timeline (source of truth after idle)
@@ -913,7 +936,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
                 sessionId,
                 droidSessionId,
                 (sid) => useSessionRuntimeStore.getState().dequeueMessage(sid),
-                (wp, sid, content) => window.agentOps.prompt(wp, sid, content),
+                (wp, sid, content) => window.agentOps.prompt(wp, sid, content, requestModel),
                 worktreePath
               ).catch((err) => console.error('[SessionShell] drainNextPending failed:', err))
             }
@@ -954,7 +977,12 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
               }
               const cost = extractCost(data)
               if (cost > 0) {
-                useContextStore.getState().addSessionCost(sessionId, cost)
+                const costKey = extractCostEventKey(data)
+                if (costKey) {
+                  useContextStore.getState().addSessionCostOnce(sessionId, costKey, cost)
+                } else {
+                  useContextStore.getState().addSessionCost(sessionId, cost)
+                }
               }
               const modelUsageEntries = extractModelUsage(data)
               if (modelUsageEntries) {
@@ -976,6 +1004,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         if (event.type === 'session.materialized') {
           const newId = event.data?.newSessionId as string | undefined
           if (newId) setDroidSessionId(newId)
+          void refreshUsageSummary()
         }
 
         // Handle session.updated — sync auto-generated title from SDK
@@ -1009,7 +1038,9 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     immediateFlush,
     routeChildEvent,
     optimisticRef,
-    currentProviderId
+    currentProviderId,
+    requestModel,
+    refreshUsageSummary
   ])
 
   // --- Composer action handler ---
@@ -1071,7 +1102,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
             if (attachments.length > 0) {
               messageParts = await buildMessageParts(attachments, c)
             }
-            return window.agentOps.prompt(wp, sid, messageParts ?? c)
+            return window.agentOps.prompt(wp, sid, messageParts ?? c, requestModel)
           },
           abort: (wp, sid) => window.agentOps.abort(wp, sid),
           queueMessage: (sid, msg) => useSessionRuntimeStore.getState().queueMessage(sid, msg)
@@ -1085,7 +1116,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         setIsStreaming(false)
       }
     },
-    [worktreePath, droidSessionId, sessionId, appendOptimistic, flushBuffer]
+    [worktreePath, droidSessionId, sessionId, appendOptimistic, flushBuffer, requestModel]
   )
 
   // --- Plan implement/handoff handlers ---
@@ -1158,7 +1189,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       await executeSendAction('send', implementPrompt, [], {
         worktreePath,
         sessionId: droidSessionId,
-        prompt: (wp, sid, c) => window.agentOps.prompt(wp, sid, c),
+        prompt: (wp, sid, c) => window.agentOps.prompt(wp, sid, c, requestModel),
         abort: (wp, sid) => window.agentOps.abort(wp, sid),
         queueMessage: (sid, msg) => useSessionRuntimeStore.getState().queueMessage(sid, msg)
       })
@@ -1176,7 +1207,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     sessionRecord?.agent_sdk,
     sessionId,
     appendOptimistic,
-    transitionToolStatus
+    transitionToolStatus,
+    requestModel
   ])
 
   const handlePlanHandoff = useCallback(() => {

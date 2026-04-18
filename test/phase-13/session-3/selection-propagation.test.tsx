@@ -1,6 +1,8 @@
 import { describe, test, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent } from '../../utils/render'
+import { act } from 'react'
 import { WorktreeItem } from '@/components/worktrees/WorktreeItem'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { useProjectStore, useWorktreeStore } from '@/stores'
 
 // Mock window APIs needed by WorktreeItem
@@ -75,37 +77,55 @@ describe('Session 3: Selection Auto-Propagation', () => {
     last_accessed_at: new Date().toISOString()
   }
 
-  test('clicking worktree selects parent project', () => {
-    render(<WorktreeItem worktree={worktreeA} projectPath="/path/to/project-alpha" />)
+  function renderWorktree(content: React.ReactNode) {
+    return render(<TooltipProvider>{content}</TooltipProvider>)
+  }
+
+  test('clicking worktree selects parent project', async () => {
+    renderWorktree(<WorktreeItem worktree={worktreeA} projectPath="/path/to/project-alpha" />)
 
     const worktreeItem = screen.getByTestId('worktree-item-worktree-a1')
-    fireEvent.click(worktreeItem)
+    await act(async () => {
+      fireEvent.click(worktreeItem)
+    })
 
     // Verify both worktree and project are selected
     expect(useWorktreeStore.getState().selectedWorktreeId).toBe('worktree-a1')
     expect(useProjectStore.getState().selectedProjectId).toBe('project-a')
   })
 
-  test('switching worktree across projects updates project selection', () => {
-    const { rerender } = render(
+  test('switching worktree across projects updates project selection', async () => {
+    const { rerender } = renderWorktree(
       <WorktreeItem worktree={worktreeA} projectPath="/path/to/project-alpha" />
     )
 
     // Click worktree in project A
-    fireEvent.click(screen.getByTestId('worktree-item-worktree-a1'))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('worktree-item-worktree-a1'))
+    })
     expect(useProjectStore.getState().selectedProjectId).toBe('project-a')
 
     // Render worktree B and click it
-    rerender(<WorktreeItem worktree={worktreeB} projectPath="/path/to/project-beta" />)
-    fireEvent.click(screen.getByTestId('worktree-item-worktree-b1'))
+    await act(async () => {
+      rerender(
+        <TooltipProvider>
+          <WorktreeItem worktree={worktreeB} projectPath="/path/to/project-beta" />
+        </TooltipProvider>
+      )
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('worktree-item-worktree-b1'))
+    })
     expect(useProjectStore.getState().selectedProjectId).toBe('project-b')
   })
 
-  test('clicking worktree also clears unread status', () => {
-    render(<WorktreeItem worktree={worktreeA} projectPath="/path/to/project-alpha" />)
+  test('clicking worktree also clears unread status', async () => {
+    renderWorktree(<WorktreeItem worktree={worktreeA} projectPath="/path/to/project-alpha" />)
 
     const worktreeItem = screen.getByTestId('worktree-item-worktree-a1')
-    fireEvent.click(worktreeItem)
+    await act(async () => {
+      fireEvent.click(worktreeItem)
+    })
 
     // Verify worktree is selected (core functionality preserved)
     expect(useWorktreeStore.getState().selectedWorktreeId).toBe('worktree-a1')
@@ -113,8 +133,8 @@ describe('Session 3: Selection Auto-Propagation', () => {
     expect(useProjectStore.getState().selectedProjectId).toBe('project-a')
   })
 
-  test('project selection persists after multiple worktree clicks', () => {
-    render(
+  test('project selection persists after multiple worktree clicks', async () => {
+    renderWorktree(
       <>
         <WorktreeItem worktree={worktreeA} projectPath="/path/to/project-alpha" />
         <WorktreeItem worktree={worktreeB} projectPath="/path/to/project-beta" />
@@ -122,15 +142,21 @@ describe('Session 3: Selection Auto-Propagation', () => {
     )
 
     // Click worktree A
-    fireEvent.click(screen.getByTestId('worktree-item-worktree-a1'))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('worktree-item-worktree-a1'))
+    })
     expect(useProjectStore.getState().selectedProjectId).toBe('project-a')
 
     // Click worktree B
-    fireEvent.click(screen.getByTestId('worktree-item-worktree-b1'))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('worktree-item-worktree-b1'))
+    })
     expect(useProjectStore.getState().selectedProjectId).toBe('project-b')
 
     // Click worktree A again
-    fireEvent.click(screen.getByTestId('worktree-item-worktree-a1'))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('worktree-item-worktree-a1'))
+    })
     expect(useProjectStore.getState().selectedProjectId).toBe('project-a')
   })
 })

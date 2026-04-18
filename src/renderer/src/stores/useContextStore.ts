@@ -94,6 +94,8 @@ interface ContextState {
   contextSnapshotsBySession: Record<string, SessionContextSnapshot>
   // Per-session cumulative cost
   costBySession: Record<string, number>
+  // Dedup keys for cost events already applied to a session
+  costEventKeysBySession: Record<string, Record<string, true>>
   // Model context limits (providerID::modelID -> contextLimit)
   modelLimits: Record<string, number>
   // Actions
@@ -107,6 +109,7 @@ interface ContextState {
   ) => void
   setSessionContextRefreshing: (sessionId: string, refreshing: boolean) => void
   addSessionCost: (sessionId: string, cost: number) => void
+  addSessionCostOnce: (sessionId: string, eventKey: string, cost: number) => void
   setSessionCost: (sessionId: string, cost: number) => void
   resetSessionTokens: (sessionId: string) => void
   clearSessionTokenSnapshot: (sessionId: string) => void
@@ -124,6 +127,7 @@ export const useContextStore = create<ContextState>()((set, get) => ({
   modelBySession: {},
   contextSnapshotsBySession: {},
   costBySession: {},
+  costEventKeysBySession: {},
   modelLimits: {},
 
   setSessionTokens: (sessionId: string, tokens: TokenInfo, model?: SessionModelRef) => {
@@ -197,6 +201,29 @@ export const useContextStore = create<ContextState>()((set, get) => ({
     }))
   },
 
+  addSessionCostOnce: (sessionId: string, eventKey: string, cost: number) => {
+    set((state) => {
+      const existingKeys = state.costEventKeysBySession[sessionId] ?? {}
+      if (existingKeys[eventKey]) {
+        return state
+      }
+
+      return {
+        costBySession: {
+          ...state.costBySession,
+          [sessionId]: (state.costBySession[sessionId] ?? 0) + cost
+        },
+        costEventKeysBySession: {
+          ...state.costEventKeysBySession,
+          [sessionId]: {
+            ...existingKeys,
+            [eventKey]: true
+          }
+        }
+      }
+    })
+  },
+
   setSessionCost: (sessionId: string, cost: number) => {
     set((state) => ({
       costBySession: {
@@ -212,15 +239,18 @@ export const useContextStore = create<ContextState>()((set, get) => ({
       const { [sessionId]: _removedModel, ...restModel } = state.modelBySession
       const { [sessionId]: _removedContext, ...restContext } = state.contextSnapshotsBySession
       const { [sessionId]: _removedCost, ...restCost } = state.costBySession
+      const { [sessionId]: _removedCostKeys, ...restCostKeys } = state.costEventKeysBySession
       void _removedTokens
       void _removedModel
       void _removedContext
       void _removedCost
+      void _removedCostKeys
       return {
         tokensBySession: restTokens,
         modelBySession: restModel,
         contextSnapshotsBySession: restContext,
-        costBySession: restCost
+        costBySession: restCost,
+        costEventKeysBySession: restCostKeys
       }
     })
   },

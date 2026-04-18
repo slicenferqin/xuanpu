@@ -5,6 +5,7 @@ import { applySessionContextUsage } from '../../../src/renderer/src/lib/context-
 import {
   extractTokens,
   extractCost,
+  extractCostEventKey,
   extractModelRef
 } from '../../../src/renderer/src/lib/token-utils'
 import { getCanonicalModelLabel, resolveRuntimeModelId } from '../../../src/shared/usage/models'
@@ -17,6 +18,7 @@ beforeEach(() => {
     modelBySession: {},
     contextSnapshotsBySession: {},
     costBySession: {},
+    costEventKeysBySession: {},
     modelLimits: {}
   })
 })
@@ -113,6 +115,17 @@ describe('Session 1: Context Calculation Fix', () => {
         store.setSessionCost('s1', 0.02)
       })
       expect(useContextStore.getState().costBySession['s1']).toBeCloseTo(0.02)
+    })
+
+    test('addSessionCostOnce de-duplicates repeated cost events', () => {
+      const store = useContextStore.getState()
+      act(() => {
+        store.addSessionCostOnce('s1', 'request:abc', 0.14)
+        store.addSessionCostOnce('s1', 'request:abc', 0.14)
+        store.addSessionCostOnce('s1', 'request:def', 0.14)
+      })
+
+      expect(useContextStore.getState().costBySession['s1']).toBeCloseTo(0.28)
     })
 
     test('usage percent is 0 when no limit set', () => {
@@ -446,6 +459,36 @@ describe('Session 1: Context Calculation Fix', () => {
 
     test('prefers top-level cost over info.cost', () => {
       expect(extractCost({ cost: 0.01, info: { cost: 0.99 } })).toBe(0.01)
+    })
+  })
+
+  describe('extractCostEventKey', () => {
+    test('prefers requestId when present', () => {
+      expect(
+        extractCostEventKey({
+          requestId: 'req-1',
+          id: 'msg-1',
+          info: { usage: { input: 3, output: 66, cacheCreation: 37719 } }
+        })
+      ).toBe('request:req-1')
+    })
+
+    test('falls back to message id and usage signature', () => {
+      expect(extractCostEventKey({ id: 'msg-1' })).toBe('message:msg-1')
+      expect(
+        extractCostEventKey({
+          role: 'assistant',
+          info: {
+            model: 'claude-sonnet-4-6',
+            usage: {
+              input: 3,
+              output: 66,
+              cacheRead: 0,
+              cacheCreation: 37719
+            }
+          }
+        })
+      ).toBe('usage:claude-sonnet-4-6:3:66:0:37719')
     })
   })
 

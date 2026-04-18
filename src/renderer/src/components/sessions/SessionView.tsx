@@ -15,10 +15,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { toast } from '@/lib/toast'
 import { ModelSelector } from './ModelSelector'
-import {
-  VirtualizedMessageList,
-  type VirtualizedMessageListHandle
-} from './VirtualizedMessageList'
+import { VirtualizedMessageList, type VirtualizedMessageListHandle } from './VirtualizedMessageList'
 import { ContextIndicator } from './ContextIndicator'
 import { AttachmentButton } from './AttachmentButton'
 import { AttachmentPreview } from './AttachmentPreview'
@@ -40,6 +37,7 @@ import type { TokenInfo, SessionModelRef } from '@/stores/useContextStore'
 import {
   extractTokens,
   extractCost,
+  extractCostEventKey,
   extractModelRef,
   extractSelectedModel,
   extractModelUsage
@@ -599,8 +597,8 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   const [editingContent, setEditingContent] = useState<string>('')
   const [_editingAttachments, _setEditingAttachments] = useState<MessagePart[]>([])
   const [queuedMessages, setQueuedMessages] = useState<QueuedMsg[]>([])
-  const [attachments, setAttachments] = useState<Attachment[]>(
-    () => useDraftAttachmentStore.getState().restore(sessionId)
+  const [attachments, setAttachments] = useState<Attachment[]>(() =>
+    useDraftAttachmentStore.getState().restore(sessionId)
   )
   // Keep a ref for the unmount cleanup (closure can't capture latest state)
   const attachmentsStateRef = useRef(attachments)
@@ -735,8 +733,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     return null
   })
   const sessionAgentSdk = sessionRecord?.agent_sdk ?? 'opencode'
-  const supportsUsageAnalytics =
-    sessionAgentSdk === 'claude-code' || sessionAgentSdk === 'codex'
+  const supportsUsageAnalytics = sessionAgentSdk === 'claude-code' || sessionAgentSdk === 'codex'
   const globalModel = useSettingsStore((state) => resolveModelForSdk(sessionAgentSdk, state))
   const effectiveModel: SelectedModel | null =
     sessionRecord?.model_provider_id && sessionRecord.model_id
@@ -762,9 +759,8 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   const pendingPlan = useSessionStore((s) => s.pendingPlans.get(sessionId) ?? null)
   const sessionCostSnapshot = useContextStore((state) => state.costBySession[sessionId] ?? 0)
   const sessionTokenSnapshot = useContextStore((state) => state.tokensBySession[sessionId] ?? null)
-  const [sessionUsageSummary, setSessionUsageSummary] = useState<UsageAnalyticsSessionSummary | null>(
-    null
-  )
+  const [sessionUsageSummary, setSessionUsageSummary] =
+    useState<UsageAnalyticsSessionSummary | null>(null)
 
   // Streaming parts - tracks interleaved text and tool use during streaming
   const [streamingParts, setStreamingParts] = useState<StreamingPart[]>([])
@@ -1087,8 +1083,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       const nextHeight = entries[0]?.contentRect.height ?? bottomArea.getBoundingClientRect().height
       if (nextHeight < 1) return
 
-      const distanceFromBottom =
-        scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight
+      const distanceFromBottom = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight
       const shouldCompensate = isAutoScrollEnabledRef.current || distanceFromBottom < 96
 
       if (!shouldCompensate) return
@@ -1150,9 +1145,14 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   useEffect(() => {
     const model = getModelForRequests()
     if (!model) return
-    window.agentOps.setModel({ ...model, runtimeId: sessionAgentSdk === 'terminal' ? 'opencode' : sessionAgentSdk }).catch((error) => {
-      console.error('Failed to push session model to agent backend:', error)
-    })
+    window.agentOps
+      .setModel({
+        ...model,
+        runtimeId: sessionAgentSdk === 'terminal' ? 'opencode' : sessionAgentSdk
+      })
+      .catch((error) => {
+        console.error('Failed to push session model to agent backend:', error)
+      })
   }, [
     getModelForRequests,
     sessionId,
@@ -1440,8 +1440,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     })
 
     // Restore queued messages from store
-    const followUpMessages =
-      useSessionStore.getState().pendingFollowUpMessages.get(sessionId) ?? []
+    const followUpMessages = useSessionStore.getState().pendingFollowUpMessages.get(sessionId) ?? []
     if (followUpMessages.length > 0) {
       setQueuedMessages(
         followUpMessages.map((content) => ({
@@ -1786,802 +1785,894 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     const unsubscribe = useSessionRuntimeStore
       .getState()
       .subscribeToSessionEvents(sessionId, (event) => {
-          // Guard: generation check — prevents stale closures from processing
-          // events when the user has already switched to a different session.
-          if (streamGenerationRef.current !== currentGeneration) return
+        // Guard: generation check — prevents stale closures from processing
+        // events when the user has already switched to a different session.
+        if (streamGenerationRef.current !== currentGeneration) return
 
-          // Log event if response logging is active
-          if (isLogModeRef.current && logFilePathRef.current) {
-            try {
-              if (event.type === 'message.part.updated') {
-                window.loggingOps.appendResponseLog(logFilePathRef.current, {
-                  type: 'part_updated',
-                  event: event.data
-                })
-              } else if (event.type === 'message.updated') {
-                window.loggingOps.appendResponseLog(logFilePathRef.current, {
-                  type: 'message_updated',
-                  event: event.data
-                })
-              } else if (event.type === 'session.idle') {
-                window.loggingOps.appendResponseLog(logFilePathRef.current, {
-                  type: 'session_idle'
-                })
-              }
-            } catch {
-              // Never let logging failures break the UI
+        // Log event if response logging is active
+        if (isLogModeRef.current && logFilePathRef.current) {
+          try {
+            if (event.type === 'message.part.updated') {
+              window.loggingOps.appendResponseLog(logFilePathRef.current, {
+                type: 'part_updated',
+                event: event.data
+              })
+            } else if (event.type === 'message.updated') {
+              window.loggingOps.appendResponseLog(logFilePathRef.current, {
+                type: 'message_updated',
+                event: event.data
+              })
+            } else if (event.type === 'session.idle') {
+              window.loggingOps.appendResponseLog(logFilePathRef.current, {
+                type: 'session_idle'
+              })
+            }
+          } catch {
+            // Never let logging failures break the UI
+          }
+        }
+
+        // Handle session.updated events — update session title in store
+        // The SDK event structure is: { data: { info: { title, ... } } }
+        if (event.type === 'session.updated') {
+          const sessionTitle = event.data?.info?.title || event.data?.title
+          // Skip OpenCode default placeholder titles like "New session - 2026-02-12T21:33:03.013Z"
+          const isOpenCodeDefault = /^New session\s*-?\s*\d{4}-\d{2}-\d{2}/i.test(
+            sessionTitle || ''
+          )
+          if (sessionTitle && !isOpenCodeDefault) {
+            useSessionStore.getState().updateSessionName(sessionId, sessionTitle)
+          }
+          return
+        }
+
+        // Handle session materialization — update the stale pending:: session ID
+        // so subsequent loadMessages() calls use the real SDK session ID.
+        // Also handles fork transitions: when the SDK returns a new session ID
+        // after forkSession: true, clear old messages to avoid showing stale
+        // content from the pre-fork branch.
+        if (event.type === 'session.materialized') {
+          const newId = event.data?.newSessionId as string | undefined
+          if (newId) {
+            // Use the authoritative wasFork flag from the backend instead of
+            // guessing based on the old session ID format. The backend knows
+            // whether this is initial materialization (pending:: → real ID),
+            // an actual fork (undo+resend with forkSession: true), or just an
+            // SDK session ID change during normal resume. Only true forks
+            // should clear messages. Defaults to false (safe — no clearing)
+            // if the backend doesn't send the flag.
+            const wasFork = event.data?.wasFork === true
+            setOpencodeSessionId(newId)
+            transcriptSourceRef.current.opencodeSessionId = newId
+            useSessionStore.getState().setOpenCodeSessionId(sessionId, newId)
+
+            // Persist to DB so runtime dispatch (getRuntimeIdForSession) can
+            // look up the real SDK session ID instead of the stale pending:: ID.
+            window.db.session
+              .update(sessionId, { opencode_session_id: newId })
+              .catch((err: unknown) => {
+                console.warn('Failed to persist materialized session ID:', err)
+              })
+
+            // On fork, the new session has its own transcript. Clear old
+            // messages so the user only sees the local prompt bubble while
+            // the fork streams. finalizeResponse() will reload from the
+            // new transcript when the stream completes.
+            if (wasFork) {
+              setMessages((prev) => prev.filter((m) => m.id.startsWith('local-')))
             }
           }
+          return
+        }
 
-          // Handle session.updated events — update session title in store
-          // The SDK event structure is: { data: { info: { title, ... } } }
-          if (event.type === 'session.updated') {
-            const sessionTitle = event.data?.info?.title || event.data?.title
-            // Skip OpenCode default placeholder titles like "New session - 2026-02-12T21:33:03.013Z"
-            const isOpenCodeDefault = /^New session\s*-?\s*\d{4}-\d{2}-\d{2}/i.test(
-              sessionTitle || ''
-            )
-            if (sessionTitle && !isOpenCodeDefault) {
-              useSessionStore.getState().updateSessionName(sessionId, sessionTitle)
-            }
-            return
+        // Handle commands_available — re-fetch slash commands after SDK init
+        if (event.type === 'session.commands_available') {
+          const wtPath = transcriptSourceRef.current.worktreePath
+          const opcSid = transcriptSourceRef.current.opencodeSessionId
+          if (wtPath) {
+            window.agentOps
+              .commands(wtPath, opcSid ?? undefined)
+              .then((result) => {
+                if (result.success && result.commands) {
+                  setSlashCommands(result.commands)
+                }
+              })
+              .catch(() => {
+                // Silently ignore — commands will be fetched on next prompt cycle
+              })
           }
+          return
+        }
 
-          // Handle session materialization — update the stale pending:: session ID
-          // so subsequent loadMessages() calls use the real SDK session ID.
-          // Also handles fork transitions: when the SDK returns a new session ID
-          // after forkSession: true, clear old messages to avoid showing stale
-          // content from the pre-fork branch.
-          if (event.type === 'session.materialized') {
-            const newId = event.data?.newSessionId as string | undefined
-            if (newId) {
-              // Use the authoritative wasFork flag from the backend instead of
-              // guessing based on the old session ID format. The backend knows
-              // whether this is initial materialization (pending:: → real ID),
-              // an actual fork (undo+resend with forkSession: true), or just an
-              // SDK session ID change during normal resume. Only true forks
-              // should clear messages. Defaults to false (safe — no clearing)
-              // if the backend doesn't send the flag.
-              const wasFork = event.data?.wasFork === true
-              setOpencodeSessionId(newId)
-              transcriptSourceRef.current.opencodeSessionId = newId
-              useSessionStore.getState().setOpenCodeSessionId(sessionId, newId)
-
-              // Persist to DB so runtime dispatch (getRuntimeIdForSession) can
-              // look up the real SDK session ID instead of the stale pending:: ID.
-              window.db.session
-                .update(sessionId, { opencode_session_id: newId })
-                .catch((err: unknown) => {
-                  console.warn('Failed to persist materialized session ID:', err)
-                })
-
-              // On fork, the new session has its own transcript. Clear old
-              // messages so the user only sees the local prompt bubble while
-              // the fork streams. finalizeResponse() will reload from the
-              // new transcript when the stream completes.
-              if (wasFork) {
-                setMessages((prev) => prev.filter((m) => m.id.startsWith('local-')))
-              }
-            }
-            return
+        // Handle question events
+        if (event.type === 'question.asked') {
+          const request = event.data
+          if (request?.id && request?.questions) {
+            useQuestionStore.getState().addQuestion(sessionId, request)
           }
+          return
+        }
 
-          // Handle commands_available — re-fetch slash commands after SDK init
-          if (event.type === 'session.commands_available') {
-            const wtPath = transcriptSourceRef.current.worktreePath
-            const opcSid = transcriptSourceRef.current.opencodeSessionId
-            if (wtPath) {
+        if (event.type === 'question.replied' || event.type === 'question.rejected') {
+          const requestId = event.data?.requestID || event.data?.requestId || event.data?.id
+          if (requestId) {
+            useQuestionStore.getState().removeQuestion(sessionId, requestId)
+          }
+          return
+        }
+
+        // Handle permission events
+        if (event.type === 'permission.asked') {
+          const request = event.data
+          if (request?.id && request?.permission) {
+            const { commandFilter } = useSettingsStore.getState()
+            // Security globally off OR all sub-patterns in commandFilter allowlist → auto-approve
+            if (
+              !commandFilter.enabled ||
+              checkAutoApprove(request as PermissionRequest, commandFilter.allowlist)
+            ) {
               window.agentOps
-                .commands(wtPath, opcSid ?? undefined)
-                .then((result) => {
-                  if (result.success && result.commands) {
-                    setSlashCommands(result.commands)
-                  }
+                .permissionReply(request.id, 'once', worktreePath || undefined)
+                .catch((err: unknown) => {
+                  console.warn('Auto-approve permissionReply failed:', err)
                 })
-                .catch(() => {
-                  // Silently ignore — commands will be fetched on next prompt cycle
-                })
+              return
             }
-            return
+            usePermissionStore.getState().addPermission(sessionId, request)
           }
+          return
+        }
 
-          // Handle question events
-          if (event.type === 'question.asked') {
-            const request = event.data
-            if (request?.id && request?.questions) {
-              useQuestionStore.getState().addQuestion(sessionId, request)
-            }
-            return
+        if (event.type === 'permission.replied') {
+          const requestId = event.data?.requestID || event.data?.requestId || event.data?.id
+          if (requestId) {
+            usePermissionStore.getState().removePermission(sessionId, requestId)
           }
+          return
+        }
 
-          if (event.type === 'question.replied' || event.type === 'question.rejected') {
-            const requestId = event.data?.requestID || event.data?.requestId || event.data?.id
-            if (requestId) {
-              useQuestionStore.getState().removeQuestion(sessionId, requestId)
-            }
-            return
+        // Handle command approval events (command filter system)
+        if (event.type === 'command.approval_needed') {
+          const request = event.data
+          if (request?.id && request?.toolName) {
+            useCommandApprovalStore.getState().addApproval(sessionId, request)
           }
+          return
+        }
 
-          // Handle permission events
-          if (event.type === 'permission.asked') {
-            const request = event.data
-            if (request?.id && request?.permission) {
-              const { commandFilter } = useSettingsStore.getState()
-              // Security globally off OR all sub-patterns in commandFilter allowlist → auto-approve
-              if (
-                !commandFilter.enabled ||
-                checkAutoApprove(request as PermissionRequest, commandFilter.allowlist)
-              ) {
-                window.agentOps
-                  .permissionReply(request.id, 'once', worktreePath || undefined)
-                  .catch((err: unknown) => {
-                    console.warn('Auto-approve permissionReply failed:', err)
-                  })
-                return
+        // Handle command approval replies
+        if (event.type === 'command.approval_replied') {
+          const requestId = event.data?.requestID || event.data?.requestId || event.data?.id
+          if (requestId) {
+            useCommandApprovalStore.getState().removeApproval(sessionId, requestId)
+            // Reset status if no more pending approvals (handles transition from background to active)
+            const remaining = useCommandApprovalStore.getState().getApprovals(sessionId)
+            if (remaining.length === 0) {
+              const currentStatus = useWorktreeStatusStore.getState().sessionStatuses[sessionId]
+              if (currentStatus?.status === 'command_approval') {
+                const mode = useSessionStore.getState().getSessionMode(sessionId)
+                useWorktreeStatusStore
+                  .getState()
+                  .setSessionStatus(sessionId, mode === 'plan' ? 'planning' : 'working')
               }
-              usePermissionStore.getState().addPermission(sessionId, request)
             }
-            return
           }
+          return
+        }
 
-          if (event.type === 'permission.replied') {
-            const requestId = event.data?.requestID || event.data?.requestId || event.data?.id
-            if (requestId) {
-              usePermissionStore.getState().removePermission(sessionId, requestId)
-            }
-            return
+        // Handle plan events (ExitPlanMode blocking tool)
+        if (event.type === 'plan.ready') {
+          const data = event.data as {
+            id?: string
+            requestId?: string
+            plan?: string
+            toolUseID?: string
           }
+          const requestId = data?.id || data?.requestId
+          if (requestId) {
+            let planText = data.plan ?? ''
 
-          // Handle command approval events (command filter system)
-          if (event.type === 'command.approval_needed') {
-            const request = event.data
-            if (request?.id && request?.toolName) {
-              useCommandApprovalStore.getState().addApproval(sessionId, request)
-            }
-            return
-          }
-
-          // Handle command approval replies
-          if (event.type === 'command.approval_replied') {
-            const requestId = event.data?.requestID || event.data?.requestId || event.data?.id
-            if (requestId) {
-              useCommandApprovalStore.getState().removeApproval(sessionId, requestId)
-              // Reset status if no more pending approvals (handles transition from background to active)
-              const remaining = useCommandApprovalStore.getState().getApprovals(sessionId)
-              if (remaining.length === 0) {
-                const currentStatus = useWorktreeStatusStore.getState().sessionStatuses[sessionId]
-                if (currentStatus?.status === 'command_approval') {
-                  const mode = useSessionStore.getState().getSessionMode(sessionId)
-                  useWorktreeStatusStore
-                    .getState()
-                    .setSessionStatus(sessionId, mode === 'plan' ? 'planning' : 'working')
+            // If backend didn't provide plan content, extract from preceding streaming text
+            if (!planText && data.toolUseID) {
+              const parts = streamingPartsRef.current
+              const toolIdx = parts.findIndex(
+                (p) => p.type === 'tool_use' && p.toolUse?.id === data.toolUseID
+              )
+              if (toolIdx > 0) {
+                for (let i = toolIdx - 1; i >= 0; i--) {
+                  if (parts[i].type === 'text' && parts[i].text) {
+                    planText = parts[i].text!
+                    break
+                  }
                 }
               }
             }
-            return
-          }
 
-          // Handle plan events (ExitPlanMode blocking tool)
-          if (event.type === 'plan.ready') {
-            const data = event.data as {
-              id?: string
-              requestId?: string
-              plan?: string
-              toolUseID?: string
+            // Finalize the streaming plan card (if XML tag detection created one)
+            // or create a new one from plan.ready data (fallback for Claude Code /
+            // sessions where <proposed_plan> tags weren't present).
+            const det = planXmlDetectionRef.current
+            const streamingCardId = det.cardId
+
+            // Flush any leftover scanning buffer as regular text
+            if (det.buffer) {
+              appendTextDelta(det.buffer)
+              det.buffer = ''
             }
-            const requestId = data?.id || data?.requestId
-            if (requestId) {
-              let planText = data.plan ?? ''
+            // Reset detection state
+            planXmlDetectionRef.current = { state: 'scanning', buffer: '', cardId: null }
 
-              // If backend didn't provide plan content, extract from preceding streaming text
-              if (!planText && data.toolUseID) {
-                const parts = streamingPartsRef.current
-                const toolIdx = parts.findIndex(
+            if (streamingCardId) {
+              // Progressive card exists — finalize with clean plan text + real ID
+              updateStreamingPartsRef((parts) =>
+                parts.map((p) => {
+                  if (p.type !== 'tool_use' || p.toolUse?.id !== streamingCardId) return p
+                  const finalPlan = planText || (p.toolUse!.input.plan as string) || ''
+                  return {
+                    ...p,
+                    toolUse: {
+                      ...p.toolUse!,
+                      id: data.toolUseID || p.toolUse!.id,
+                      input: { ...p.toolUse!.input, plan: finalPlan },
+                      status: 'pending' as const
+                    }
+                  }
+                })
+              )
+              immediateFlush()
+            } else {
+              // No progressive card — strip XML from text parts and inject card
+              updateStreamingPartsRef((parts) =>
+                parts.map((p) => {
+                  if (p.type !== 'text' || !p.text) return p
+                  const stripped = p.text
+                    .replace(/<proposed_plan>\s*[\s\S]*?\s*<\/proposed_plan>/gi, '')
+                    .trim()
+                  if (!stripped) return { ...p, text: '' }
+                  return { ...p, text: stripped }
+                })
+              )
+
+              if (planText && data.toolUseID) {
+                const hasExisting = streamingPartsRef.current.some(
                   (p) => p.type === 'tool_use' && p.toolUse?.id === data.toolUseID
                 )
-                if (toolIdx > 0) {
-                  for (let i = toolIdx - 1; i >= 0; i--) {
-                    if (parts[i].type === 'text' && parts[i].text) {
-                      planText = parts[i].text!
-                      break
-                    }
-                  }
-                }
-              }
-
-              // Finalize the streaming plan card (if XML tag detection created one)
-              // or create a new one from plan.ready data (fallback for Claude Code /
-              // sessions where <proposed_plan> tags weren't present).
-              const det = planXmlDetectionRef.current
-              const streamingCardId = det.cardId
-
-              // Flush any leftover scanning buffer as regular text
-              if (det.buffer) {
-                appendTextDelta(det.buffer)
-                det.buffer = ''
-              }
-              // Reset detection state
-              planXmlDetectionRef.current = { state: 'scanning', buffer: '', cardId: null }
-
-              if (streamingCardId) {
-                // Progressive card exists — finalize with clean plan text + real ID
-                updateStreamingPartsRef((parts) =>
-                  parts.map((p) => {
-                    if (p.type !== 'tool_use' || p.toolUse?.id !== streamingCardId) return p
-                    const finalPlan = planText || (p.toolUse!.input.plan as string) || ''
-                    return {
-                      ...p,
-                      toolUse: {
-                        ...p.toolUse!,
-                        id: data.toolUseID || p.toolUse!.id,
-                        input: { ...p.toolUse!.input, plan: finalPlan },
-                        status: 'pending' as const
-                      }
-                    }
-                  })
-                )
-                immediateFlush()
-              } else {
-                // No progressive card — strip XML from text parts and inject card
-                updateStreamingPartsRef((parts) =>
-                  parts.map((p) => {
-                    if (p.type !== 'text' || !p.text) return p
-                    const stripped = p.text
-                      .replace(/<proposed_plan>\s*[\s\S]*?\s*<\/proposed_plan>/gi, '')
-                      .trim()
-                    if (!stripped) return { ...p, text: '' }
-                    return { ...p, text: stripped }
-                  })
-                )
-
-                if (planText && data.toolUseID) {
-                  const hasExisting = streamingPartsRef.current.some(
-                    (p) => p.type === 'tool_use' && p.toolUse?.id === data.toolUseID
-                  )
-                  if (hasExisting) {
-                    updateStreamingPartsRef((parts) =>
-                      parts.map((p) =>
-                        p.type === 'tool_use' && p.toolUse?.id === data.toolUseID
-                          ? {
-                              ...p,
-                              toolUse: {
-                                ...p.toolUse!,
-                                input: { ...p.toolUse!.input, plan: planText },
-                                status: 'pending' as const
-                              }
-                            }
-                          : p
-                      )
-                    )
-                  } else {
-                    updateStreamingPartsRef((parts) => [
-                      ...parts,
-                      {
-                        type: 'tool_use' as const,
-                        toolUse: {
-                          id: data.toolUseID,
-                          name: 'ExitPlanMode',
-                          input: { plan: planText },
-                          status: 'pending' as const,
-                          startTime: Date.now()
-                        }
-                      }
-                    ])
-                  }
-                  immediateFlush()
-                }
-              }
-
-              useSessionStore.getState().setPendingPlan(sessionId, {
-                requestId,
-                planContent: planText,
-                toolUseID: data.toolUseID ?? ''
-              })
-              setIsStreaming(false)
-              setIsSending(false)
-              setQueuedMessages([])
-              useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'plan_ready')
-            }
-            return
-          }
-
-          if (event.type === 'plan.resolved') {
-            useSessionStore.getState().clearPendingPlan(sessionId)
-            return
-          }
-
-          // Handle different event types
-          const eventRole = getEventMessageRole(event.data)
-
-          if (event.type === 'session.error') {
-            if (event.childSessionId) return
-            setSessionErrorMessage(extractSessionErrorMessage(event.data))
-            setSessionErrorStderr(extractSessionErrorStderr(event.data))
-            return
-          }
-
-          // CLI compatibility warning (e.g. old Claude CLI missing --thinking)
-          if (event.type === 'session.warning') {
-            const msg =
-              (event.data as Record<string, unknown> | undefined)?.message ??
-              'Claude Code CLI warning'
-            toast.warning(String(msg), { duration: 10000 })
-            return
-          }
-
-          // Codex context compaction — no streaming part, just a notification.
-          // Show compacting indicator so the user knows what's happening.
-          if (event.type === 'session.context_compacted') {
-            setIsCompacting(true)
-            return
-          }
-
-          // Claude Code compaction started — the SDK sends
-          // system { subtype: 'status', status: 'compacting' } BEFORE
-          // compact_boundary, so we can show a loading indicator immediately.
-          if (event.type === 'session.compaction_started') {
-            setIsCompacting(true)
-            return
-          }
-
-          if (event.type === 'message.part.updated') {
-            // Skip user-message echoes; user messages are already rendered locally.
-            if (eventRole === 'user') return
-
-            // Skip system messages (task-notification etc.) — they're rendered
-            // as lightweight notification bars from the transcript, not streamed.
-            if (eventRole === 'system') return
-
-            // Route child/subagent events into their SubtaskCard
-            if (event.childSessionId) {
-              let subtaskIdx = childToSubtaskIndexRef.current.get(event.childSessionId)
-
-              // Auto-create subtask entry on first child event (SDK doesn't
-              // emit a dedicated "subtask" part — the child session just starts
-              // streaming).
-              if (subtaskIdx === undefined) {
-                subtaskIdx = streamingPartsRef.current.length
-                updateStreamingPartsRef((parts) => [
-                  ...parts,
-                  {
-                    type: 'subtask',
-                    subtask: {
-                      id: event.childSessionId!,
-                      sessionID: event.childSessionId!,
-                      prompt: '',
-                      description: '',
-                      agent: 'task',
-                      parts: [],
-                      status: 'running'
-                    }
-                  }
-                ])
-                childToSubtaskIndexRef.current.set(event.childSessionId, subtaskIdx)
-                immediateFlush()
-              }
-
-              if (subtaskIdx !== undefined) {
-                const childPart = event.data?.part
-                if (childPart?.type === 'text') {
-                  updateStreamingPartsRef((parts) => {
-                    const updated = [...parts]
-                    const subtask = updated[subtaskIdx]
-                    if (subtask?.type === 'subtask' && subtask.subtask) {
-                      const lastPart = subtask.subtask.parts[subtask.subtask.parts.length - 1]
-                      if (lastPart?.type === 'text') {
-                        lastPart.text =
-                          (lastPart.text || '') + (event.data?.delta || childPart.text || '')
-                      } else {
-                        subtask.subtask.parts = [
-                          ...subtask.subtask.parts,
-                          { type: 'text', text: event.data?.delta || childPart.text || '' }
-                        ]
-                      }
-                    }
-                    return updated
-                  })
-                  scheduleFlush()
-                } else if (childPart?.type === 'tool') {
-                  const state = childPart.state || childPart
-                  const toolId =
-                    state.toolCallId || childPart.callID || childPart.id || `tool-${Date.now()}`
-                  updateStreamingPartsRef((parts) => {
-                    const updated = [...parts]
-                    const subtask = updated[subtaskIdx]
-                    if (subtask?.type === 'subtask' && subtask.subtask) {
-                      const existing = subtask.subtask.parts.find(
-                        (p) => p.type === 'tool_use' && p.toolUse?.id === toolId
-                      )
-                      if (existing && existing.type === 'tool_use' && existing.toolUse) {
-                        // Update existing tool
-                        const statusMap: Record<string, string> = {
-                          running: 'running',
-                          completed: 'success',
-                          error: 'error'
-                        }
-                        existing.toolUse.status = (statusMap[state.status] || 'running') as
-                          | 'pending'
-                          | 'running'
-                          | 'success'
-                          | 'error'
-                        if (state.time?.end) existing.toolUse.endTime = state.time.end
-                        if (state.status === 'completed') existing.toolUse.output = state.output
-                        if (state.status === 'error') existing.toolUse.error = state.error
-                      } else {
-                        // Add new tool
-                        subtask.subtask.parts = [
-                          ...subtask.subtask.parts,
-                          {
-                            type: 'tool_use',
+                if (hasExisting) {
+                  updateStreamingPartsRef((parts) =>
+                    parts.map((p) =>
+                      p.type === 'tool_use' && p.toolUse?.id === data.toolUseID
+                        ? {
+                            ...p,
                             toolUse: {
-                              id: toolId,
-                              name: childPart.tool || state.name || 'unknown',
-                              input: state.input,
-                              status: 'running',
-                              startTime: state.time?.start || Date.now()
+                              ...p.toolUse!,
+                              input: { ...p.toolUse!.input, plan: planText },
+                              status: 'pending' as const
                             }
                           }
-                        ]
-                      }
-                    }
-                    return updated
-                  })
-                  immediateFlush()
-                }
-                setIsStreaming(true)
-                return // Don't process as top-level part
-              }
-            }
-
-            const part = event.data?.part
-            if (!part) return
-
-            // Detect echoed user prompts by content.  The SDK often re-emits
-            // the user message as a text part without any role field, so we
-            // compare against the prompt we just sent.  Once we see non-matching
-            // content (i.e. the real assistant response) we clear the ref so it
-            // doesn't interfere with later messages.
-            if (lastSentPromptRef.current && part.type === 'text') {
-              const incoming = (event.data?.delta || part.text || '').trimEnd()
-              if (incoming.length > 0 && lastSentPromptRef.current.startsWith(incoming)) {
-                // Looks like an echo — skip it
-                return
-              }
-              // First non-matching text means assistant response has started
-              lastSentPromptRef.current = null
-            }
-
-            // New stream content means we're processing a new assistant response.
-            if (
-              streamingPartsRef.current.length === 0 &&
-              streamingContentRef.current.length === 0
-            ) {
-              hasFinalizedCurrentResponseRef.current = false
-            }
-
-            if (part.type === 'text') {
-              const delta = event.data?.delta
-
-              // Codex plan mode: scan for <proposed_plan> XML tags and route
-              // only the plan content into an ExitPlanMode card. Text before/
-              // after the tags renders as normal chat text.
-              const isCodexPlan =
-                sessionRecord?.agent_sdk === 'codex' &&
-                useSessionStore.getState().getSessionMode(sessionId) === 'plan'
-
-              if (isCodexPlan) {
-                const textDelta = delta || part.text || ''
-                if (!textDelta) {
-                  setIsStreaming(true)
-                } else {
-                  const det = planXmlDetectionRef.current
-                  const OPEN_TAG = '<proposed_plan>'
-                  const CLOSE_TAG = '</proposed_plan>'
-
-                  if (det.state === 'scanning') {
-                    det.buffer += textDelta
-                    const tagIdx = det.buffer.toLowerCase().indexOf(OPEN_TAG)
-
-                    if (tagIdx !== -1) {
-                      // Found opening tag — split at the tag boundary
-                      const beforeTag = det.buffer.slice(0, tagIdx)
-                      const afterTag = det.buffer.slice(tagIdx + OPEN_TAG.length)
-                      det.buffer = ''
-
-                      if (beforeTag) appendTextDelta(beforeTag)
-
-                      // Check if closing tag is already present
-                      const closeIdx = afterTag.toLowerCase().indexOf(CLOSE_TAG)
-                      let planContent: string
-
-                      if (closeIdx !== -1) {
-                        planContent = afterTag.slice(0, closeIdx).trim()
-                        det.state = 'done'
-                        const afterClose = afterTag.slice(closeIdx + CLOSE_TAG.length)
-                        if (afterClose.trim()) appendTextDelta(afterClose)
-                      } else {
-                        planContent = afterTag
-                        det.state = 'routing'
-                      }
-
-                      const tempId = `codex-plan-streaming-${Date.now()}`
-                      det.cardId = tempId
-                      updateStreamingPartsRef((parts) => [
-                        ...parts,
-                        {
-                          type: 'tool_use' as const,
-                          toolUse: {
-                            id: tempId,
-                            name: 'ExitPlanMode',
-                            input: { plan: planContent },
-                            status: 'running' as const,
-                            startTime: Date.now()
-                          }
-                        }
-                      ])
-                      immediateFlush()
-                    } else {
-                      // No opening tag yet — flush text that can't be a partial tag match.
-                      // Any suffix of the buffer that matches a prefix of the open tag
-                      // must be retained (e.g. buffer ends with "<propo").
-                      const maxPartial = Math.min(det.buffer.length, OPEN_TAG.length - 1)
-                      let safePoint = det.buffer.length
-                      for (let len = maxPartial; len >= 1; len--) {
-                        if (OPEN_TAG.startsWith(det.buffer.slice(-len).toLowerCase())) {
-                          safePoint = det.buffer.length - len
-                          break
-                        }
-                      }
-                      if (safePoint > 0) {
-                        appendTextDelta(det.buffer.slice(0, safePoint))
-                        det.buffer = det.buffer.slice(safePoint)
-                      }
-                    }
-                  } else if (det.state === 'routing') {
-                    // Inside <proposed_plan> — append to card, watch for close tag
-                    const toolId = det.cardId!
-                    const currentCard = streamingPartsRef.current.find(
-                      (p) => p.type === 'tool_use' && p.toolUse?.id === toolId
+                        : p
                     )
-                    const currentPlan = (currentCard?.toolUse?.input?.plan as string) || ''
-                    const combined = currentPlan + textDelta
-                    const closeIdx = combined.toLowerCase().indexOf(CLOSE_TAG)
-
-                    if (closeIdx !== -1) {
-                      const planContent = combined.slice(0, closeIdx)
-                      const afterClose = combined.slice(closeIdx + CLOSE_TAG.length)
-                      det.state = 'done'
-
-                      updateStreamingPartsRef((parts) =>
-                        parts.map((p) =>
-                          p.type === 'tool_use' && p.toolUse?.id === toolId
-                            ? {
-                                ...p,
-                                toolUse: {
-                                  ...p.toolUse!,
-                                  input: { ...p.toolUse!.input, plan: planContent }
-                                }
-                              }
-                            : p
-                        )
-                      )
-                      scheduleFlush()
-                      if (afterClose.trim()) appendTextDelta(afterClose)
-                    } else {
-                      updateStreamingPartsRef((parts) =>
-                        parts.map((p) =>
-                          p.type === 'tool_use' && p.toolUse?.id === toolId
-                            ? {
-                                ...p,
-                                toolUse: {
-                                  ...p.toolUse!,
-                                  input: { ...p.toolUse!.input, plan: combined }
-                                }
-                              }
-                            : p
-                        )
-                      )
-                      scheduleFlush()
+                  )
+                } else {
+                  updateStreamingPartsRef((parts) => [
+                    ...parts,
+                    {
+                      type: 'tool_use' as const,
+                      toolUse: {
+                        id: data.toolUseID,
+                        name: 'ExitPlanMode',
+                        input: { plan: planText },
+                        status: 'pending' as const,
+                        startTime: Date.now()
+                      }
                     }
-                  } else {
-                    // state === 'done' — after closing tag, route as regular text
-                    if (delta) appendTextDelta(delta)
-                    else if (part.text) setTextContent(part.text)
-                  }
-                  setIsStreaming(true)
+                  ])
                 }
-              } else {
-                // Normal text handling (non-Codex or non-plan mode)
-                if (delta) {
-                  appendTextDelta(delta)
-                } else if (part.text) {
-                  setTextContent(part.text)
-                }
-                setIsStreaming(true)
+                immediateFlush()
               }
-            } else if (part.type === 'tool') {
-              // Tool part from OpenCode SDK - has callID, tool (name), state
-              const toolId = part.callID || part.id || `tool-${Date.now()}`
-              const toolName = part.tool || undefined
-              const state = part.state || {}
+            }
 
-              console.debug('[TOOL_DEBUG] stream event', {
-                toolId,
-                toolName,
-                status: state.status,
-                hasOutput: !!state.output,
-                hasError: !!state.error,
-                hasInput: !!state.input
-              })
+            useSessionStore.getState().setPendingPlan(sessionId, {
+              requestId,
+              planContent: planText,
+              toolUseID: data.toolUseID ?? ''
+            })
+            setIsStreaming(false)
+            setIsSending(false)
+            setQueuedMessages([])
+            useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'plan_ready')
+          }
+          return
+        }
 
-              const statusMap: Record<string, ToolStatus> = {
-                pending: 'pending',
-                running: 'running',
-                completed: 'success',
-                error: 'error'
-              }
+        if (event.type === 'plan.resolved') {
+          useSessionStore.getState().clearPendingPlan(sessionId)
+          return
+        }
 
-              upsertToolUse(toolId, {
-                ...(toolName ? { name: toolName } : {}),
-                // Only include input when the SDK actually provides it, so we don't
-                // overwrite the initial input with {} on subsequent status updates.
-                ...(state.input ? { input: state.input } : {}),
-                status: statusMap[state.status] || 'running',
-                startTime: state.time?.start || Date.now(),
-                endTime: state.time?.end,
-                output: state.status === 'completed' ? state.output : undefined,
-                error: state.status === 'error' ? state.error : undefined
-              })
-              setIsStreaming(true)
-            } else if (part.type === 'subtask') {
-              const subtaskIndex = streamingPartsRef.current.length // index it will be at
+        // Handle different event types
+        const eventRole = getEventMessageRole(event.data)
+
+        if (event.type === 'session.error') {
+          if (event.childSessionId) return
+          setSessionErrorMessage(extractSessionErrorMessage(event.data))
+          setSessionErrorStderr(extractSessionErrorStderr(event.data))
+          return
+        }
+
+        // CLI compatibility warning (e.g. old Claude CLI missing --thinking)
+        if (event.type === 'session.warning') {
+          const msg =
+            (event.data as Record<string, unknown> | undefined)?.message ??
+            'Claude Code CLI warning'
+          toast.warning(String(msg), { duration: 10000 })
+          return
+        }
+
+        // Codex context compaction — no streaming part, just a notification.
+        // Show compacting indicator so the user knows what's happening.
+        if (event.type === 'session.context_compacted') {
+          setIsCompacting(true)
+          return
+        }
+
+        // Claude Code compaction started — the SDK sends
+        // system { subtype: 'status', status: 'compacting' } BEFORE
+        // compact_boundary, so we can show a loading indicator immediately.
+        if (event.type === 'session.compaction_started') {
+          setIsCompacting(true)
+          return
+        }
+
+        if (event.type === 'message.part.updated') {
+          // Skip user-message echoes; user messages are already rendered locally.
+          if (eventRole === 'user') return
+
+          // Skip system messages (task-notification etc.) — they're rendered
+          // as lightweight notification bars from the transcript, not streamed.
+          if (eventRole === 'system') return
+
+          // Route child/subagent events into their SubtaskCard
+          if (event.childSessionId) {
+            let subtaskIdx = childToSubtaskIndexRef.current.get(event.childSessionId)
+
+            // Auto-create subtask entry on first child event (SDK doesn't
+            // emit a dedicated "subtask" part — the child session just starts
+            // streaming).
+            if (subtaskIdx === undefined) {
+              subtaskIdx = streamingPartsRef.current.length
               updateStreamingPartsRef((parts) => [
                 ...parts,
                 {
                   type: 'subtask',
                   subtask: {
-                    id: part.id || `subtask-${Date.now()}`,
-                    sessionID: part.sessionID || '',
-                    prompt: part.prompt || '',
-                    description: part.description || '',
-                    agent: part.agent || 'unknown',
+                    id: event.childSessionId!,
+                    sessionID: event.childSessionId!,
+                    prompt: '',
+                    description: '',
+                    agent: 'task',
                     parts: [],
                     status: 'running'
                   }
                 }
               ])
-              // Map child session ID to this subtask's index
-              if (part.sessionID) {
-                childToSubtaskIndexRef.current.set(part.sessionID, subtaskIndex)
-              }
+              childToSubtaskIndexRef.current.set(event.childSessionId, subtaskIdx)
               immediateFlush()
-              setIsStreaming(true)
-            } else if (part.type === 'reasoning') {
-              updateStreamingPartsRef((parts) => {
-                const last = parts[parts.length - 1]
-                if (last?.type === 'reasoning') {
-                  return [
-                    ...parts.slice(0, -1),
-                    {
-                      ...last,
-                      reasoning: (last.reasoning || '') + (event.data?.delta || part.text || '')
-                    }
-                  ]
-                }
-                return [
-                  ...parts,
-                  { type: 'reasoning' as const, reasoning: event.data?.delta || part.text || '' }
-                ]
-              })
-              scheduleFlush()
-              setIsStreaming(true)
-            } else if (part.type === 'step-start') {
-              updateStreamingPartsRef((parts) => [
-                ...parts,
-                { type: 'step_start' as const, stepStart: { snapshot: part.snapshot } }
-              ])
-              immediateFlush()
-              setIsStreaming(true)
-            } else if (part.type === 'step-finish') {
-              updateStreamingPartsRef((parts) => [
-                ...parts,
-                {
-                  type: 'step_finish' as const,
-                  stepFinish: {
-                    reason: part.reason || '',
-                    cost: typeof part.cost === 'number' ? part.cost : 0,
-                    tokens: {
-                      input: typeof part.tokens?.input === 'number' ? part.tokens.input : 0,
-                      output: typeof part.tokens?.output === 'number' ? part.tokens.output : 0,
-                      reasoning:
-                        typeof part.tokens?.reasoning === 'number' ? part.tokens.reasoning : 0
-                    }
-                  }
-                }
-              ])
-              immediateFlush()
-              setIsStreaming(true)
-            } else if (part.type === 'compaction') {
-              updateStreamingPartsRef((parts) => [
-                ...parts,
-                { type: 'compaction' as const, compactionAuto: part.auto === true }
-              ])
-              immediateFlush()
-              setIsCompacting(true)
-              setIsStreaming(true)
-            }
-          } else if (event.type === 'message.updated') {
-            // Skip user-message echoes
-            if (eventRole === 'user') return
-
-            // Skip system messages (task-notification etc.)
-            if (eventRole === 'system') return
-
-            // Skip child/subagent messages
-            if (event.childSessionId) return
-
-            // Content-based echo detection for message.updated
-            if (lastSentPromptRef.current) {
-              const parts = event.data?.parts
-              if (Array.isArray(parts) && parts.length > 0) {
-                const textContent = parts
-                  .filter((p: { type?: string }) => p?.type === 'text')
-                  .map((p: { text?: string }) => p?.text || '')
-                  .join('')
-                  .trimEnd()
-                if (textContent.length > 0 && lastSentPromptRef.current.startsWith(textContent)) {
-                  return // echo -- skip
-                }
-              }
             }
 
-            // Extract token usage from completed messages (snapshot replacement).
-            // On each completed assistant message, replace the token snapshot.
-            const info = event.data?.info
-            if (info?.time?.completed) {
-              const data = event.data as Record<string, unknown> | undefined
-              if (data) {
-                const tokens = extractTokens(data)
-                if (tokens) {
-                  const modelRef = extractModelRef(data, currentProviderId) ?? undefined
-                  useContextStore.getState().setSessionTokens(sessionId, tokens, modelRef)
-                }
-                const cost = extractCost(data)
-                if (cost > 0) {
-                  useContextStore.getState().addSessionCost(sessionId, cost)
-                }
-                // Extract per-model usage (from SDK result messages) to update context limits
-                const modelUsageEntries = extractModelUsage(data)
-                if (modelUsageEntries) {
-                  for (const entry of modelUsageEntries) {
-                    if (entry.contextWindow > 0) {
-                      useContextStore.getState().setModelLimit(entry.modelName, entry.contextWindow)
-                    }
-                  }
-                }
-              }
-            }
-          } else if (event.type === 'session.idle') {
-            // Child session idle — update subtask status, don't finalize parent
-            if (event.childSessionId) {
-              const subtaskIdx = childToSubtaskIndexRef.current.get(event.childSessionId)
-              if (subtaskIdx !== undefined) {
+            if (subtaskIdx !== undefined) {
+              const childPart = event.data?.part
+              if (childPart?.type === 'text') {
                 updateStreamingPartsRef((parts) => {
                   const updated = [...parts]
                   const subtask = updated[subtaskIdx]
                   if (subtask?.type === 'subtask' && subtask.subtask) {
-                    subtask.subtask.status = 'completed'
+                    const lastPart = subtask.subtask.parts[subtask.subtask.parts.length - 1]
+                    if (lastPart?.type === 'text') {
+                      lastPart.text =
+                        (lastPart.text || '') + (event.data?.delta || childPart.text || '')
+                    } else {
+                      subtask.subtask.parts = [
+                        ...subtask.subtask.parts,
+                        { type: 'text', text: event.data?.delta || childPart.text || '' }
+                      ]
+                    }
+                  }
+                  return updated
+                })
+                scheduleFlush()
+              } else if (childPart?.type === 'tool') {
+                const state = childPart.state || childPart
+                const toolId =
+                  state.toolCallId || childPart.callID || childPart.id || `tool-${Date.now()}`
+                updateStreamingPartsRef((parts) => {
+                  const updated = [...parts]
+                  const subtask = updated[subtaskIdx]
+                  if (subtask?.type === 'subtask' && subtask.subtask) {
+                    const existing = subtask.subtask.parts.find(
+                      (p) => p.type === 'tool_use' && p.toolUse?.id === toolId
+                    )
+                    if (existing && existing.type === 'tool_use' && existing.toolUse) {
+                      // Update existing tool
+                      const statusMap: Record<string, string> = {
+                        running: 'running',
+                        completed: 'success',
+                        error: 'error'
+                      }
+                      existing.toolUse.status = (statusMap[state.status] || 'running') as
+                        | 'pending'
+                        | 'running'
+                        | 'success'
+                        | 'error'
+                      if (state.time?.end) existing.toolUse.endTime = state.time.end
+                      if (state.status === 'completed') existing.toolUse.output = state.output
+                      if (state.status === 'error') existing.toolUse.error = state.error
+                    } else {
+                      // Add new tool
+                      subtask.subtask.parts = [
+                        ...subtask.subtask.parts,
+                        {
+                          type: 'tool_use',
+                          toolUse: {
+                            id: toolId,
+                            name: childPart.tool || state.name || 'unknown',
+                            input: state.input,
+                            status: 'running',
+                            startTime: state.time?.start || Date.now()
+                          }
+                        }
+                      ]
+                    }
                   }
                   return updated
                 })
                 immediateFlush()
               }
-              return // Don't finalize the parent session
+              setIsStreaming(true)
+              return // Don't process as top-level part
+            }
+          }
+
+          const part = event.data?.part
+          if (!part) return
+
+          // Detect echoed user prompts by content.  The SDK often re-emits
+          // the user message as a text part without any role field, so we
+          // compare against the prompt we just sent.  Once we see non-matching
+          // content (i.e. the real assistant response) we clear the ref so it
+          // doesn't interfere with later messages.
+          if (lastSentPromptRef.current && part.type === 'text') {
+            const incoming = (event.data?.delta || part.text || '').trimEnd()
+            if (incoming.length > 0 && lastSentPromptRef.current.startsWith(incoming)) {
+              // Looks like an echo — skip it
+              return
+            }
+            // First non-matching text means assistant response has started
+            lastSentPromptRef.current = null
+          }
+
+          // New stream content means we're processing a new assistant response.
+          if (streamingPartsRef.current.length === 0 && streamingContentRef.current.length === 0) {
+            hasFinalizedCurrentResponseRef.current = false
+          }
+
+          if (part.type === 'text') {
+            const delta = event.data?.delta
+
+            // Codex plan mode: scan for <proposed_plan> XML tags and route
+            // only the plan content into an ExitPlanMode card. Text before/
+            // after the tags renders as normal chat text.
+            const isCodexPlan =
+              sessionRecord?.agent_sdk === 'codex' &&
+              useSessionStore.getState().getSessionMode(sessionId) === 'plan'
+
+            if (isCodexPlan) {
+              const textDelta = delta || part.text || ''
+              if (!textDelta) {
+                setIsStreaming(true)
+              } else {
+                const det = planXmlDetectionRef.current
+                const OPEN_TAG = '<proposed_plan>'
+                const CLOSE_TAG = '</proposed_plan>'
+
+                if (det.state === 'scanning') {
+                  det.buffer += textDelta
+                  const tagIdx = det.buffer.toLowerCase().indexOf(OPEN_TAG)
+
+                  if (tagIdx !== -1) {
+                    // Found opening tag — split at the tag boundary
+                    const beforeTag = det.buffer.slice(0, tagIdx)
+                    const afterTag = det.buffer.slice(tagIdx + OPEN_TAG.length)
+                    det.buffer = ''
+
+                    if (beforeTag) appendTextDelta(beforeTag)
+
+                    // Check if closing tag is already present
+                    const closeIdx = afterTag.toLowerCase().indexOf(CLOSE_TAG)
+                    let planContent: string
+
+                    if (closeIdx !== -1) {
+                      planContent = afterTag.slice(0, closeIdx).trim()
+                      det.state = 'done'
+                      const afterClose = afterTag.slice(closeIdx + CLOSE_TAG.length)
+                      if (afterClose.trim()) appendTextDelta(afterClose)
+                    } else {
+                      planContent = afterTag
+                      det.state = 'routing'
+                    }
+
+                    const tempId = `codex-plan-streaming-${Date.now()}`
+                    det.cardId = tempId
+                    updateStreamingPartsRef((parts) => [
+                      ...parts,
+                      {
+                        type: 'tool_use' as const,
+                        toolUse: {
+                          id: tempId,
+                          name: 'ExitPlanMode',
+                          input: { plan: planContent },
+                          status: 'running' as const,
+                          startTime: Date.now()
+                        }
+                      }
+                    ])
+                    immediateFlush()
+                  } else {
+                    // No opening tag yet — flush text that can't be a partial tag match.
+                    // Any suffix of the buffer that matches a prefix of the open tag
+                    // must be retained (e.g. buffer ends with "<propo").
+                    const maxPartial = Math.min(det.buffer.length, OPEN_TAG.length - 1)
+                    let safePoint = det.buffer.length
+                    for (let len = maxPartial; len >= 1; len--) {
+                      if (OPEN_TAG.startsWith(det.buffer.slice(-len).toLowerCase())) {
+                        safePoint = det.buffer.length - len
+                        break
+                      }
+                    }
+                    if (safePoint > 0) {
+                      appendTextDelta(det.buffer.slice(0, safePoint))
+                      det.buffer = det.buffer.slice(safePoint)
+                    }
+                  }
+                } else if (det.state === 'routing') {
+                  // Inside <proposed_plan> — append to card, watch for close tag
+                  const toolId = det.cardId!
+                  const currentCard = streamingPartsRef.current.find(
+                    (p) => p.type === 'tool_use' && p.toolUse?.id === toolId
+                  )
+                  const currentPlan = (currentCard?.toolUse?.input?.plan as string) || ''
+                  const combined = currentPlan + textDelta
+                  const closeIdx = combined.toLowerCase().indexOf(CLOSE_TAG)
+
+                  if (closeIdx !== -1) {
+                    const planContent = combined.slice(0, closeIdx)
+                    const afterClose = combined.slice(closeIdx + CLOSE_TAG.length)
+                    det.state = 'done'
+
+                    updateStreamingPartsRef((parts) =>
+                      parts.map((p) =>
+                        p.type === 'tool_use' && p.toolUse?.id === toolId
+                          ? {
+                              ...p,
+                              toolUse: {
+                                ...p.toolUse!,
+                                input: { ...p.toolUse!.input, plan: planContent }
+                              }
+                            }
+                          : p
+                      )
+                    )
+                    scheduleFlush()
+                    if (afterClose.trim()) appendTextDelta(afterClose)
+                  } else {
+                    updateStreamingPartsRef((parts) =>
+                      parts.map((p) =>
+                        p.type === 'tool_use' && p.toolUse?.id === toolId
+                          ? {
+                              ...p,
+                              toolUse: {
+                                ...p.toolUse!,
+                                input: { ...p.toolUse!.input, plan: combined }
+                              }
+                            }
+                          : p
+                      )
+                    )
+                    scheduleFlush()
+                  }
+                } else {
+                  // state === 'done' — after closing tag, route as regular text
+                  if (delta) appendTextDelta(delta)
+                  else if (part.text) setTextContent(part.text)
+                }
+                setIsStreaming(true)
+              }
+            } else {
+              // Normal text handling (non-Codex or non-plan mode)
+              if (delta) {
+                appendTextDelta(delta)
+              } else if (part.text) {
+                setTextContent(part.text)
+              }
+              setIsStreaming(true)
+            }
+          } else if (part.type === 'tool') {
+            // Tool part from OpenCode SDK - has callID, tool (name), state
+            const toolId = part.callID || part.id || `tool-${Date.now()}`
+            const toolName = part.tool || undefined
+            const state = part.state || {}
+
+            console.debug('[TOOL_DEBUG] stream event', {
+              toolId,
+              toolName,
+              status: state.status,
+              hasOutput: !!state.output,
+              hasError: !!state.error,
+              hasInput: !!state.input
+            })
+
+            const statusMap: Record<string, ToolStatus> = {
+              pending: 'pending',
+              running: 'running',
+              completed: 'success',
+              error: 'error'
             }
 
-            // Fallback: session.idle for parent acts as safety net.
-            // Primary finalization is handled by session.status {type:'idle'}.
-            // This catches edge cases where session.status events are unavailable.
+            upsertToolUse(toolId, {
+              ...(toolName ? { name: toolName } : {}),
+              // Only include input when the SDK actually provides it, so we don't
+              // overwrite the initial input with {} on subsequent status updates.
+              ...(state.input ? { input: state.input } : {}),
+              status: statusMap[state.status] || 'running',
+              startTime: state.time?.start || Date.now(),
+              endTime: state.time?.end,
+              output: state.status === 'completed' ? state.output : undefined,
+              error: state.status === 'error' ? state.error : undefined
+            })
+            setIsStreaming(true)
+          } else if (part.type === 'subtask') {
+            const subtaskIndex = streamingPartsRef.current.length // index it will be at
+            updateStreamingPartsRef((parts) => [
+              ...parts,
+              {
+                type: 'subtask',
+                subtask: {
+                  id: part.id || `subtask-${Date.now()}`,
+                  sessionID: part.sessionID || '',
+                  prompt: part.prompt || '',
+                  description: part.description || '',
+                  agent: part.agent || 'unknown',
+                  parts: [],
+                  status: 'running'
+                }
+              }
+            ])
+            // Map child session ID to this subtask's index
+            if (part.sessionID) {
+              childToSubtaskIndexRef.current.set(part.sessionID, subtaskIndex)
+            }
+            immediateFlush()
+            setIsStreaming(true)
+          } else if (part.type === 'reasoning') {
+            updateStreamingPartsRef((parts) => {
+              const last = parts[parts.length - 1]
+              if (last?.type === 'reasoning') {
+                return [
+                  ...parts.slice(0, -1),
+                  {
+                    ...last,
+                    reasoning: (last.reasoning || '') + (event.data?.delta || part.text || '')
+                  }
+                ]
+              }
+              return [
+                ...parts,
+                { type: 'reasoning' as const, reasoning: event.data?.delta || part.text || '' }
+              ]
+            })
+            scheduleFlush()
+            setIsStreaming(true)
+          } else if (part.type === 'step-start') {
+            updateStreamingPartsRef((parts) => [
+              ...parts,
+              { type: 'step_start' as const, stepStart: { snapshot: part.snapshot } }
+            ])
+            immediateFlush()
+            setIsStreaming(true)
+          } else if (part.type === 'step-finish') {
+            updateStreamingPartsRef((parts) => [
+              ...parts,
+              {
+                type: 'step_finish' as const,
+                stepFinish: {
+                  reason: part.reason || '',
+                  cost: typeof part.cost === 'number' ? part.cost : 0,
+                  tokens: {
+                    input: typeof part.tokens?.input === 'number' ? part.tokens.input : 0,
+                    output: typeof part.tokens?.output === 'number' ? part.tokens.output : 0,
+                    reasoning:
+                      typeof part.tokens?.reasoning === 'number' ? part.tokens.reasoning : 0
+                  }
+                }
+              }
+            ])
+            immediateFlush()
+            setIsStreaming(true)
+          } else if (part.type === 'compaction') {
+            updateStreamingPartsRef((parts) => [
+              ...parts,
+              { type: 'compaction' as const, compactionAuto: part.auto === true }
+            ])
+            immediateFlush()
+            setIsCompacting(true)
+            setIsStreaming(true)
+          }
+        } else if (event.type === 'message.updated') {
+          // Skip user-message echoes
+          if (eventRole === 'user') return
+
+          // Skip system messages (task-notification etc.)
+          if (eventRole === 'system') return
+
+          // Skip child/subagent messages
+          if (event.childSessionId) return
+
+          // Content-based echo detection for message.updated
+          if (lastSentPromptRef.current) {
+            const parts = event.data?.parts
+            if (Array.isArray(parts) && parts.length > 0) {
+              const textContent = parts
+                .filter((p: { type?: string }) => p?.type === 'text')
+                .map((p: { text?: string }) => p?.text || '')
+                .join('')
+                .trimEnd()
+              if (textContent.length > 0 && lastSentPromptRef.current.startsWith(textContent)) {
+                return // echo -- skip
+              }
+            }
+          }
+
+          // Extract token usage from completed messages (snapshot replacement).
+          // On each completed assistant message, replace the token snapshot.
+          const info = event.data?.info
+          if (info?.time?.completed) {
+            const data = event.data as Record<string, unknown> | undefined
+            if (data) {
+              const tokens = extractTokens(data)
+              if (tokens) {
+                const modelRef = extractModelRef(data, currentProviderId) ?? undefined
+                useContextStore.getState().setSessionTokens(sessionId, tokens, modelRef)
+              }
+              const cost = extractCost(data)
+              if (cost > 0) {
+                const costKey = extractCostEventKey(data)
+                if (costKey) {
+                  useContextStore.getState().addSessionCostOnce(sessionId, costKey, cost)
+                } else {
+                  useContextStore.getState().addSessionCost(sessionId, cost)
+                }
+              }
+              // Extract per-model usage (from SDK result messages) to update context limits
+              const modelUsageEntries = extractModelUsage(data)
+              if (modelUsageEntries) {
+                for (const entry of modelUsageEntries) {
+                  if (entry.contextWindow > 0) {
+                    useContextStore.getState().setModelLimit(entry.modelName, entry.contextWindow)
+                  }
+                }
+              }
+            }
+          }
+        } else if (event.type === 'session.idle') {
+          // Child session idle — update subtask status, don't finalize parent
+          if (event.childSessionId) {
+            const subtaskIdx = childToSubtaskIndexRef.current.get(event.childSessionId)
+            if (subtaskIdx !== undefined) {
+              updateStreamingPartsRef((parts) => {
+                const updated = [...parts]
+                const subtask = updated[subtaskIdx]
+                if (subtask?.type === 'subtask' && subtask.subtask) {
+                  subtask.subtask.status = 'completed'
+                }
+                return updated
+              })
+              immediateFlush()
+            }
+            return // Don't finalize the parent session
+          }
+
+          // Fallback: session.idle for parent acts as safety net.
+          // Primary finalization is handled by session.status {type:'idle'}.
+          // This catches edge cases where session.status events are unavailable.
+          immediateFlush()
+          setIsSending(false)
+          setIsCompacting(false)
+          setQueuedMessages([])
+          void refreshSessionUsageSummary()
+          // Clear any stale command approvals when session goes idle
+          useCommandApprovalStore.getState().clearSession(sessionId)
+
+          if (!hasFinalizedCurrentResponseRef.current) {
+            hasFinalizedCurrentResponseRef.current = true
+            void finalizeResponse()
+          }
+        } else if (event.type === 'session.status') {
+          const status = event.statusPayload || event.data?.status
+          if (!status) return
+
+          // Skip child session status -- only parent status drives isStreaming
+          if (event.childSessionId) return
+
+          if (status.type === 'busy') {
+            // Don't overwrite plan_ready — session is blocked waiting for plan approval
+            if (useSessionStore.getState().getPendingPlan(sessionId)) return
+
+            // Session became active (again) — restart streaming state.
+            // If we previously finalized on idle, reset so the next idle
+            // can finalize the new response.
+            setSessionRetry(null)
+            setSessionErrorMessage(null)
+            setSessionErrorStderr(null)
+            setIsStreaming(true)
+            setIsCompacting(false)
+            hasFinalizedCurrentResponseRef.current = false
+            newPromptPendingRef.current = false
+            planXmlDetectionRef.current = { state: 'scanning', buffer: '', cardId: null }
+            setIsSending(true)
+
+            // Restore worktree status to working/planning
+            const currentMode = useSessionStore.getState().getSessionMode(sessionId)
+            useWorktreeStatusStore
+              .getState()
+              .setSessionStatus(sessionId, currentMode === 'plan' ? 'planning' : 'working')
+          } else if (status.type === 'idle') {
+            // Don't overwrite plan_ready — session is blocked waiting for plan approval
+            if (useSessionStore.getState().getPendingPlan(sessionId)) return
+
+            // If there are queued follow-up messages, send the next one instead of finalizing
+            const followUp = useSessionStore.getState().consumeFollowUpMessage(sessionId)
+            if (followUp) {
+              hasFinalizedCurrentResponseRef.current = false
+              setIsSending(true)
+              setMessages((prev) => [...prev, createLocalMessage('user', followUp)])
+              // Remove the consumed message from the UI queue
+              setQueuedMessages((prev) => {
+                const idx = prev.findIndex((m) => m.content === followUp)
+                return idx >= 0 ? [...prev.slice(0, idx), ...prev.slice(idx + 1)] : prev
+              })
+              newPromptPendingRef.current = true
+              messageSendTimes.set(sessionId, Date.now())
+              lastSendMode.set(sessionId, 'build')
+              useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'working')
+              lastSentPromptRef.current = followUp
+              const wtPath = transcriptSourceRef.current.worktreePath
+              const opcSid = transcriptSourceRef.current.opencodeSessionId
+              if (!wtPath || !opcSid) {
+                useSessionStore.getState().requeueFollowUpMessageFront(sessionId, followUp)
+                useWorktreeStatusStore.getState().clearSessionStatus(sessionId)
+                setIsSending(false)
+                return
+              }
+              window.agentOps
+                .prompt(wtPath, opcSid, [{ type: 'text', text: followUp }], getModelForRequests())
+                .then((result) => {
+                  if (!result.success) {
+                    console.error('Failed to send follow-up message:', result.error)
+                    toast.error(t('sessionView.toasts.followUpPromptError'))
+                    setIsSending(false)
+                  }
+                })
+                .catch((err) => {
+                  console.error('Failed to send follow-up message:', err)
+                  toast.error(t('sessionView.toasts.followUpPromptError'))
+                  setIsSending(false)
+                })
+              return
+            }
+
+            // Session is done — flush and finalize immediately
+            setSessionRetry(null)
+            setSessionErrorMessage(null)
+            setSessionErrorStderr(null)
             immediateFlush()
             setIsSending(false)
             setIsCompacting(false)
@@ -2594,114 +2685,24 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               hasFinalizedCurrentResponseRef.current = true
               void finalizeResponse()
             }
-          } else if (event.type === 'session.status') {
-            const status = event.statusPayload || event.data?.status
-            if (!status) return
 
-            // Skip child session status -- only parent status drives isStreaming
-            if (event.childSessionId) return
-
-            if (status.type === 'busy') {
-              // Don't overwrite plan_ready — session is blocked waiting for plan approval
-              if (useSessionStore.getState().getPendingPlan(sessionId)) return
-
-              // Session became active (again) — restart streaming state.
-              // If we previously finalized on idle, reset so the next idle
-              // can finalize the new response.
-              setSessionRetry(null)
-              setSessionErrorMessage(null)
-              setSessionErrorStderr(null)
-              setIsStreaming(true)
-              setIsCompacting(false)
-              hasFinalizedCurrentResponseRef.current = false
-              newPromptPendingRef.current = false
-              planXmlDetectionRef.current = { state: 'scanning', buffer: '', cardId: null }
-              setIsSending(true)
-
-              // Restore worktree status to working/planning
-              const currentMode = useSessionStore.getState().getSessionMode(sessionId)
-              useWorktreeStatusStore
-                .getState()
-                .setSessionStatus(sessionId, currentMode === 'plan' ? 'planning' : 'working')
-            } else if (status.type === 'idle') {
-              // Don't overwrite plan_ready — session is blocked waiting for plan approval
-              if (useSessionStore.getState().getPendingPlan(sessionId)) return
-
-              // If there are queued follow-up messages, send the next one instead of finalizing
-              const followUp = useSessionStore.getState().consumeFollowUpMessage(sessionId)
-              if (followUp) {
-                hasFinalizedCurrentResponseRef.current = false
-                setIsSending(true)
-                setMessages((prev) => [...prev, createLocalMessage('user', followUp)])
-                // Remove the consumed message from the UI queue
-                setQueuedMessages((prev) => {
-                  const idx = prev.findIndex((m) => m.content === followUp)
-                  return idx >= 0 ? [...prev.slice(0, idx), ...prev.slice(idx + 1)] : prev
-                })
-                newPromptPendingRef.current = true
-                messageSendTimes.set(sessionId, Date.now())
-                lastSendMode.set(sessionId, 'build')
-                useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'working')
-                lastSentPromptRef.current = followUp
-                const wtPath = transcriptSourceRef.current.worktreePath
-                const opcSid = transcriptSourceRef.current.opencodeSessionId
-                if (!wtPath || !opcSid) {
-                  useSessionStore.getState().requeueFollowUpMessageFront(sessionId, followUp)
-                  useWorktreeStatusStore.getState().clearSessionStatus(sessionId)
-                  setIsSending(false)
-                  return
-                }
-                window.agentOps
-                  .prompt(wtPath, opcSid, [{ type: 'text', text: followUp }], getModelForRequests())
-                  .then((result) => {
-                    if (!result.success) {
-                      console.error('Failed to send follow-up message:', result.error)
-                      toast.error(t('sessionView.toasts.followUpPromptError'))
-                      setIsSending(false)
-                    }
-                  })
-                  .catch((err) => {
-                    console.error('Failed to send follow-up message:', err)
-                    toast.error(t('sessionView.toasts.followUpPromptError'))
-                    setIsSending(false)
-                  })
-                return
-              }
-
-              // Session is done — flush and finalize immediately
-              setSessionRetry(null)
-              setSessionErrorMessage(null)
-              setSessionErrorStderr(null)
-              immediateFlush()
-              setIsSending(false)
-              setIsCompacting(false)
-              setQueuedMessages([])
-              void refreshSessionUsageSummary()
-              // Clear any stale command approvals when session goes idle
-              useCommandApprovalStore.getState().clearSession(sessionId)
-
-              if (!hasFinalizedCurrentResponseRef.current) {
-                hasFinalizedCurrentResponseRef.current = true
-                void finalizeResponse()
-              }
-
-              // Track duration metadata for completed-session status bookkeeping
-              const sendTime = messageSendTimes.get(sessionId)
-              const durationMs = sendTime ? Date.now() - sendTime : 0
-              const word = COMPLETION_WORDS[Math.floor(Math.random() * COMPLETION_WORDS.length)]
-              const statusStore = useWorktreeStatusStore.getState()
-              statusStore.setSessionStatus(sessionId, 'completed', { word, durationMs })
-            } else if (status.type === 'retry') {
-              setIsStreaming(true)
-              setIsSending(true)
-              setSessionRetry({
-                attempt: asNumber(status.attempt),
-                message: asString(status.message),
-                next: asNumber(status.next)
-              })
-            }
+            // Track duration metadata for completed-session status bookkeeping
+            const sendTime = messageSendTimes.get(sessionId)
+            const durationMs = sendTime ? Date.now() - sendTime : 0
+            const word = COMPLETION_WORDS[Math.floor(Math.random() * COMPLETION_WORDS.length)]
+            const statusStore = useWorktreeStatusStore.getState()
+            statusStore.setSessionStatus(sessionId, 'completed', { word, durationMs })
+          } else if (status.type === 'retry') {
+            setIsStreaming(true)
+            setIsSending(true)
+            setSessionRetry({
+              attempt: asNumber(status.attempt),
+              message: asString(status.message),
+              next: asNumber(status.next)
+            })
           }
-        })
+        }
+      })
 
     const initializeSession = async (): Promise<void> => {
       if (shouldAbortInit()) return
@@ -2850,9 +2851,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                     restoredToolIds.size > 0 &&
                     (currentLast.parts?.some(
                       (p) =>
-                        p.type === 'tool_use' &&
-                        p.toolUse?.id &&
-                        restoredToolIds.has(p.toolUse.id)
+                        p.type === 'tool_use' && p.toolUse?.id && restoredToolIds.has(p.toolUse.id)
                     ) ??
                       false)
                   if (idMatch || toolOverlap) {
@@ -2924,9 +2923,10 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         // This avoids model-id collisions across providers and lets context usage use
         // the exact model that produced the latest assistant message.
         const fetchModelLimits = (): void => {
-          const runtimeId = sessionRecord?.agent_sdk === 'terminal'
-            ? 'opencode'
-            : (sessionRecord?.agent_sdk ?? 'opencode')
+          const runtimeId =
+            sessionRecord?.agent_sdk === 'terminal'
+              ? 'opencode'
+              : (sessionRecord?.agent_sdk ?? 'opencode')
           window.agentOps
             .listModels({ runtimeId })
             .then((result) => {
@@ -3314,10 +3314,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         }
       }
 
-      const transcriptResult = await window.agentOps.getMessages(
-        worktree.path,
-        activeOpcSessionId
-      )
+      const transcriptResult = await window.agentOps.getMessages(worktree.path, activeOpcSessionId)
       if (!transcriptResult.success) {
         console.warn('Retry transcript load from OpenCode failed:', transcriptResult.error)
         setMessages([])
@@ -3384,12 +3381,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   const handlePermissionReply = useCallback(
     async (requestId: string, reply: 'once' | 'always' | 'reject', message?: string) => {
       try {
-        await window.agentOps.permissionReply(
-          requestId,
-          reply,
-          worktreePath || undefined,
-          message
-        )
+        await window.agentOps.permissionReply(requestId, reply, worktreePath || undefined, message)
       } catch (err) {
         console.error('Failed to reply to permission:', err)
         toast.error(t('sessionView.toasts.permissionReplyError'))
@@ -3433,7 +3425,10 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         const timeline = await window.agentOps.getTimeline(sessionId)
         if (timeline.messages.length > 0) {
           setMessages(
-            restoreUserAttachments(timeline.messages as OpenCodeMessage[], userAttachmentsRef.current)
+            restoreUserAttachments(
+              timeline.messages as OpenCodeMessage[],
+              userAttachmentsRef.current
+            )
           )
           return true
         }
@@ -3446,10 +3441,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     if (sessionRecord?.agent_sdk === 'codex') {
       const durableState = await loadCodexDurableState(sessionId)
       if (worktreePath && opencodeSessionId) {
-        const transcriptResult = await window.agentOps.getMessages(
-          worktreePath,
-          opencodeSessionId
-        )
+        const transcriptResult = await window.agentOps.getMessages(worktreePath, opencodeSessionId)
         if (transcriptResult.success) {
           const liveMessages = mergeCodexActivityMessages(
             mapOpencodeMessagesToSessionViewMessages(
@@ -3569,8 +3561,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       })
       // Sync store (keyed by content string, first-match FIFO)
       if (removedContent !== undefined) {
-        const existing =
-          useSessionStore.getState().pendingFollowUpMessages.get(sessionId) ?? []
+        const existing = useSessionStore.getState().pendingFollowUpMessages.get(sessionId) ?? []
         const idx = existing.indexOf(removedContent)
         if (idx >= 0) {
           const next = [...existing.slice(0, idx), ...existing.slice(idx + 1)]
@@ -3807,8 +3798,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           { id: crypto.randomUUID(), content: trimmedValue, timestamp: Date.now() }
         ])
         // Also persist in session store so it gets sent when session goes idle
-        const existing =
-          useSessionStore.getState().pendingFollowUpMessages.get(sessionId) ?? []
+        const existing = useSessionStore.getState().pendingFollowUpMessages.get(sessionId) ?? []
         useSessionStore
           .getState()
           .setPendingFollowUpMessages(sessionId, [...existing, trimmedValue])
@@ -4162,21 +4152,18 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     t
   ])
 
-  const handleEditMessage = useCallback(
-    (message: OpenCodeMessage) => {
-      setEditingMessageId(message.id)
-      const isPlanMode = message.content.startsWith(PLAN_MODE_PREFIX)
-      const isAskMode = message.content.startsWith(ASK_MODE_PREFIX)
-      const displayContent = isPlanMode
-        ? message.content.slice(PLAN_MODE_PREFIX.length)
-        : isAskMode
-          ? message.content.slice(ASK_MODE_PREFIX.length)
-          : message.content
-      setEditingContent(displayContent)
-      _setEditingAttachments(message.attachments ?? [])
-    },
-    []
-  )
+  const handleEditMessage = useCallback((message: OpenCodeMessage) => {
+    setEditingMessageId(message.id)
+    const isPlanMode = message.content.startsWith(PLAN_MODE_PREFIX)
+    const isAskMode = message.content.startsWith(ASK_MODE_PREFIX)
+    const displayContent = isPlanMode
+      ? message.content.slice(PLAN_MODE_PREFIX.length)
+      : isAskMode
+        ? message.content.slice(ASK_MODE_PREFIX.length)
+        : message.content
+    setEditingContent(displayContent)
+    _setEditingAttachments(message.attachments ?? [])
+  }, [])
 
   const handleCancelEdit = useCallback(() => {
     setEditingMessageId(null)
@@ -4274,15 +4261,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'plan_ready')
       }
     },
-    [
-      sessionId,
-      worktreePath,
-      pendingPlan,
-      isClaudeCode,
-      transitionToolStatus,
-      handleSend,
-      t
-    ]
+    [sessionId, worktreePath, pendingPlan, isClaudeCode, transitionToolStatus, handleSend, t]
   )
 
   const handlePlanReadyHandoff = useCallback(async () => {
@@ -5209,227 +5188,227 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           aria-label={t('sessionView.composer.inputAriaLabel')}
         >
           <div className="max-w-4xl mx-auto relative">
-          {/* Slash command popover — outside overflow-hidden so it can render above */}
-          <SlashCommandPopover
-            commands={allSlashCommands}
-            filter={inputValue}
-            onSelect={handleCommandSelect}
-            onClose={handleSlashClose}
-            visible={showSlashCommands}
-          />
-          {/* File mention popover — only when slash commands are not showing */}
-          <FileMentionPopover
-            suggestions={fileMentions.suggestions}
-            selectedIndex={fileMentions.selectedIndex}
-            visible={fileMentions.isOpen && !showSlashCommands}
-            onSelect={handleFileMentionSelect}
-            onClose={fileMentions.dismiss}
-            onNavigate={fileMentions.moveSelection}
-          />
-          {/* PR review comment attachments — above the input container */}
-          <PrCommentAttachments />
-          {/* Queued follow-up messages — attached above the input box */}
-          <QueuedMessagesBar
-            messages={queuedMessages}
-            onCancel={handleCancelQueuedMessage}
-            onClearAll={handleClearAllQueuedMessages}
-          />
-          <div
-            className={cn(
-              'overflow-hidden rounded-2xl border border-border/80 bg-card/88 shadow-[0_4px_14px_rgba(15,23,42,0.035)] transition-colors duration-200',
-              mode === 'build' ? 'ring-1 ring-blue-500/10' : 'ring-1 ring-primary/10',
-              hasBlockingInterrupt && 'border-border/70 bg-card/78'
-            )}
-          >
-            {/* Attachment previews */}
-            <AttachmentPreview attachments={attachments} onRemove={handleRemoveAttachment} />
-            {hasBlockingInterrupt && blockingComposerCopy ? (
-              <div className="flex items-center gap-3 px-4 py-3.5">
-                <span className="inline-flex size-8 items-center justify-center rounded-xl bg-muted/70 text-muted-foreground">
-                  <blockingComposerCopy.Icon className="h-4 w-4" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium text-foreground">
-                    {blockingComposerCopy.title}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {blockingComposerCopy.subtitle}
+            {/* Slash command popover — outside overflow-hidden so it can render above */}
+            <SlashCommandPopover
+              commands={allSlashCommands}
+              filter={inputValue}
+              onSelect={handleCommandSelect}
+              onClose={handleSlashClose}
+              visible={showSlashCommands}
+            />
+            {/* File mention popover — only when slash commands are not showing */}
+            <FileMentionPopover
+              suggestions={fileMentions.suggestions}
+              selectedIndex={fileMentions.selectedIndex}
+              visible={fileMentions.isOpen && !showSlashCommands}
+              onSelect={handleFileMentionSelect}
+              onClose={fileMentions.dismiss}
+              onNavigate={fileMentions.moveSelection}
+            />
+            {/* PR review comment attachments — above the input container */}
+            <PrCommentAttachments />
+            {/* Queued follow-up messages — attached above the input box */}
+            <QueuedMessagesBar
+              messages={queuedMessages}
+              onCancel={handleCancelQueuedMessage}
+              onClearAll={handleClearAllQueuedMessages}
+            />
+            <div
+              className={cn(
+                'overflow-hidden rounded-2xl border border-border/80 bg-card/88 shadow-[0_4px_14px_rgba(15,23,42,0.035)] transition-colors duration-200',
+                mode === 'build' ? 'ring-1 ring-blue-500/10' : 'ring-1 ring-primary/10',
+                hasBlockingInterrupt && 'border-border/70 bg-card/78'
+              )}
+            >
+              {/* Attachment previews */}
+              <AttachmentPreview attachments={attachments} onRemove={handleRemoveAttachment} />
+              {hasBlockingInterrupt && blockingComposerCopy ? (
+                <div className="flex items-center gap-3 px-4 py-3.5">
+                  <span className="inline-flex size-8 items-center justify-center rounded-xl bg-muted/70 text-muted-foreground">
+                    <blockingComposerCopy.Icon className="h-4 w-4" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-foreground">
+                      {blockingComposerCopy.title}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {blockingComposerCopy.subtitle}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ) : (
-              <>
-                {/* Middle: textarea */}
-                <textarea
-                  ref={textareaRef}
-                  value={inputValue}
-                  onChange={(e) => {
-                    const pos = e.currentTarget.selectionStart ?? 0
-                    handleInputChange(e.target.value, pos)
-                  }}
-                  onKeyUp={(e) => {
-                    // Only update cursor position for navigation keys that don't trigger onChange.
-                    // onChange already handles position updates for typed characters.
-                    if (
-                      e.key === 'ArrowLeft' ||
-                      e.key === 'ArrowRight' ||
-                      e.key === 'ArrowUp' ||
-                      e.key === 'ArrowDown' ||
-                      e.key === 'Home' ||
-                      e.key === 'End'
-                    ) {
+              ) : (
+                <>
+                  {/* Middle: textarea */}
+                  <textarea
+                    ref={textareaRef}
+                    value={inputValue}
+                    onChange={(e) => {
+                      const pos = e.currentTarget.selectionStart ?? 0
+                      handleInputChange(e.target.value, pos)
+                    }}
+                    onKeyUp={(e) => {
+                      // Only update cursor position for navigation keys that don't trigger onChange.
+                      // onChange already handles position updates for typed characters.
+                      if (
+                        e.key === 'ArrowLeft' ||
+                        e.key === 'ArrowRight' ||
+                        e.key === 'ArrowUp' ||
+                        e.key === 'ArrowDown' ||
+                        e.key === 'Home' ||
+                        e.key === 'End'
+                      ) {
+                        const pos = e.currentTarget.selectionStart ?? 0
+                        cursorPositionRef.current = pos
+                        setCursorPosition(pos)
+                      }
+                    }}
+                    onClick={(e) => {
                       const pos = e.currentTarget.selectionStart ?? 0
                       cursorPositionRef.current = pos
                       setCursorPosition(pos)
+                    }}
+                    onKeyDown={handleKeyDown}
+                    onCompositionStart={() => {
+                      isImeComposingRef.current = true
+                    }}
+                    onCompositionEnd={() => {
+                      isImeComposingRef.current = false
+                    }}
+                    onPaste={handlePaste}
+                    disabled={false}
+                    placeholder={
+                      pendingPlan
+                        ? t('sessionView.composer.planFeedbackPlaceholder')
+                        : t('sessionView.composer.messagePlaceholder')
                     }
-                  }}
-                  onClick={(e) => {
-                    const pos = e.currentTarget.selectionStart ?? 0
-                    cursorPositionRef.current = pos
-                    setCursorPosition(pos)
-                  }}
-                  onKeyDown={handleKeyDown}
-                  onCompositionStart={() => {
-                    isImeComposingRef.current = true
-                  }}
-                  onCompositionEnd={() => {
-                    isImeComposingRef.current = false
-                  }}
-                  onPaste={handlePaste}
-                  disabled={false}
-                  placeholder={
-                    pendingPlan
-                      ? t('sessionView.composer.planFeedbackPlaceholder')
-                      : t('sessionView.composer.messagePlaceholder')
-                  }
-                  aria-label={t('sessionView.composer.inputAriaLabel')}
-                  aria-haspopup="listbox"
-                  aria-expanded={fileMentions.isOpen && !showSlashCommands}
-                  className={cn(
-                    'w-full resize-none bg-transparent px-4 py-4',
-                    'text-[15px] leading-7 placeholder:text-muted-foreground',
-                    'focus:outline-none border-none',
-                    'disabled:cursor-not-allowed disabled:opacity-50',
-                    'min-h-[92px] max-h-[220px]',
-                    '[field-sizing:content]'
-                  )}
-                  rows={3}
-                  data-testid="message-input"
-                />
+                    aria-label={t('sessionView.composer.inputAriaLabel')}
+                    aria-haspopup="listbox"
+                    aria-expanded={fileMentions.isOpen && !showSlashCommands}
+                    className={cn(
+                      'w-full resize-none bg-transparent px-4 py-4',
+                      'text-[15px] leading-7 placeholder:text-muted-foreground',
+                      'focus:outline-none border-none',
+                      'disabled:cursor-not-allowed disabled:opacity-50',
+                      'min-h-[92px] max-h-[220px]',
+                      '[field-sizing:content]'
+                    )}
+                    rows={3}
+                    data-testid="message-input"
+                  />
 
-                {/* Bottom row: model selector + context indicator + hint text + send/implement buttons */}
-                <div className="flex items-center justify-between px-4 pb-3 pt-3">
-                  <div className="flex min-w-0 items-center gap-2.5">
-                    <ModelSelector sessionId={sessionId} showProviderPrefix={false} />
-                    {sessionAgentSdk === 'codex' && (
-                      <CodexFastToggle
-                        enabled={codexFastMode}
-                        accepted={codexFastModeAccepted}
-                        onToggle={() => updateSetting('codexFastMode', !codexFastMode)}
-                        onAccept={() => updateSetting('codexFastModeAccepted', true)}
+                  {/* Bottom row: model selector + context indicator + hint text + send/implement buttons */}
+                  <div className="flex items-center justify-between px-4 pb-3 pt-3">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <ModelSelector sessionId={sessionId} showProviderPrefix={false} />
+                      {sessionAgentSdk === 'codex' && (
+                        <CodexFastToggle
+                          enabled={codexFastMode}
+                          accepted={codexFastModeAccepted}
+                          onToggle={() => updateSetting('codexFastMode', !codexFastMode)}
+                          onAccept={() => updateSetting('codexFastModeAccepted', true)}
+                        />
+                      )}
+                      <AttachmentButton onAttach={handleAttach} />
+                      <ContextIndicator
+                        sessionId={sessionId}
+                        modelId={currentModelId}
+                        providerId={currentProviderId}
                       />
-                    )}
-                    <AttachmentButton onAttach={handleAttach} />
-                    <ContextIndicator
-                      sessionId={sessionId}
-                      modelId={currentModelId}
-                      providerId={currentProviderId}
-                    />
-                    <SessionCostPill
-                      summary={sessionUsageSummary}
-                      fallbackCost={sessionCostSnapshot}
-                      fallbackTokens={
-                        sessionTokenSnapshot
-                          ? {
-                              input: sessionTokenSnapshot.input,
-                              output: sessionTokenSnapshot.output,
-                              cacheRead: sessionTokenSnapshot.cacheRead,
-                              cacheWrite: sessionTokenSnapshot.cacheWrite
+                      <SessionCostPill
+                        summary={sessionUsageSummary}
+                        fallbackCost={sessionCostSnapshot}
+                        fallbackTokens={
+                          sessionTokenSnapshot
+                            ? {
+                                input: sessionTokenSnapshot.input,
+                                output: sessionTokenSnapshot.output,
+                                cacheRead: sessionTokenSnapshot.cacheRead,
+                                cacheWrite: sessionTokenSnapshot.cacheWrite
+                              }
+                            : null
+                        }
+                      />
+                      {pendingPlan ? (
+                        <span className="text-[12px] text-muted-foreground">
+                          {t('sessionView.composer.planFeedbackHint')}
+                        </span>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className={cn(
+                            'h-7 rounded-full border px-2.5 text-[12px] font-medium transition-[color,background-color,border-color,box-shadow]',
+                            mode === 'plan'
+                              ? 'border-violet-300/80 bg-violet-500/10 text-violet-700 shadow-[0_0_0_1px_rgba(196,181,253,0.26),0_0_14px_rgba(167,139,250,0.18)] hover:bg-violet-500/14 hover:text-violet-800 dark:border-violet-400/45 dark:bg-violet-500/12 dark:text-violet-200 dark:shadow-[0_0_0_1px_rgba(167,139,250,0.22),0_0_16px_rgba(139,92,246,0.18)]'
+                              : 'border-border/70 bg-background/65 text-muted-foreground shadow-none hover:border-border hover:bg-background/85 hover:text-foreground'
+                          )}
+                          onClick={() => void toggleSessionMode(sessionId)}
+                          title={`${t('keyboardShortcuts.items.sessionModeToggle')} (Tab)`}
+                          data-testid="composer-mode-toggle"
+                        >
+                          {t('sessionView.composer.planModeLabel')}
+                        </Button>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {isStreaming && !inputValue.trim() ? (
+                        <Button
+                          onClick={handleAbort}
+                          size="sm"
+                          variant="destructive"
+                          className="h-7 w-7 p-0"
+                          aria-label={t('sessionView.composer.stopStreaming')}
+                          title={t('sessionView.composer.stopStreaming')}
+                          data-testid="stop-button"
+                        >
+                          <Square className="h-3 w-3" />
+                        </Button>
+                      ) : (
+                        <Button
+                          onClick={() => {
+                            // When a plan is pending and there's text, send as feedback (reject)
+                            if (pendingPlan && inputValue.trim()) {
+                              void handlePlanReject(inputValue.trim())
+                              setInputValue('')
+                              inputValueRef.current = ''
+                              if (draftTimerRef.current) clearTimeout(draftTimerRef.current)
+                              window.db.session.updateDraft(sessionId, null)
+                              return
                             }
-                          : null
-                      }
-                    />
-                    {pendingPlan ? (
-                      <span className="text-[12px] text-muted-foreground">
-                        {t('sessionView.composer.planFeedbackHint')}
-                      </span>
-                    ) : (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className={cn(
-                          'h-7 rounded-full border px-2.5 text-[12px] font-medium transition-[color,background-color,border-color,box-shadow]',
-                          mode === 'plan'
-                            ? 'border-violet-300/80 bg-violet-500/10 text-violet-700 shadow-[0_0_0_1px_rgba(196,181,253,0.26),0_0_14px_rgba(167,139,250,0.18)] hover:bg-violet-500/14 hover:text-violet-800 dark:border-violet-400/45 dark:bg-violet-500/12 dark:text-violet-200 dark:shadow-[0_0_0_1px_rgba(167,139,250,0.22),0_0_16px_rgba(139,92,246,0.18)]'
-                            : 'border-border/70 bg-background/65 text-muted-foreground shadow-none hover:border-border hover:bg-background/85 hover:text-foreground'
-                        )}
-                        onClick={() => void toggleSessionMode(sessionId)}
-                        title={`${t('keyboardShortcuts.items.sessionModeToggle')} (Tab)`}
-                        data-testid="composer-mode-toggle"
-                      >
-                        {t('sessionView.composer.planModeLabel')}
-                      </Button>
-                    )}
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    {isStreaming && !inputValue.trim() ? (
-                      <Button
-                        onClick={handleAbort}
-                        size="sm"
-                        variant="destructive"
-                        className="h-7 w-7 p-0"
-                        aria-label={t('sessionView.composer.stopStreaming')}
-                        title={t('sessionView.composer.stopStreaming')}
-                        data-testid="stop-button"
-                      >
-                        <Square className="h-3 w-3" />
-                      </Button>
-                    ) : (
-                      <Button
-                        onClick={() => {
-                          // When a plan is pending and there's text, send as feedback (reject)
-                          if (pendingPlan && inputValue.trim()) {
-                            void handlePlanReject(inputValue.trim())
-                            setInputValue('')
-                            inputValueRef.current = ''
-                            if (draftTimerRef.current) clearTimeout(draftTimerRef.current)
-                            window.db.session.updateDraft(sessionId, null)
-                            return
+                            void handleSend()
+                          }}
+                          disabled={!inputValue.trim()}
+                          size="sm"
+                          className="h-7 w-7 p-0"
+                          aria-label={
+                            pendingPlan && inputValue.trim()
+                              ? t('sessionView.composer.sendFeedback')
+                              : isStreaming
+                                ? t('sessionView.composer.queueMessage')
+                                : t('sessionView.composer.sendMessage')
                           }
-                          void handleSend()
-                        }}
-                        disabled={!inputValue.trim()}
-                        size="sm"
-                        className="h-7 w-7 p-0"
-                        aria-label={
-                          pendingPlan && inputValue.trim()
-                            ? t('sessionView.composer.sendFeedback')
-                            : isStreaming
-                              ? t('sessionView.composer.queueMessage')
-                              : t('sessionView.composer.sendMessage')
-                        }
-                        title={
-                          pendingPlan && inputValue.trim()
-                            ? t('sessionView.composer.sendFeedbackTitle')
-                            : isStreaming
-                              ? t('sessionView.composer.queueMessage')
-                              : t('sessionView.composer.sendMessage')
-                        }
-                        data-testid="send-button"
-                      >
-                        {isStreaming ? (
-                          <ListPlus className="h-3.5 w-3.5" />
-                        ) : (
-                          <Send className="h-3.5 w-3.5" />
-                        )}
-                      </Button>
-                    )}
+                          title={
+                            pendingPlan && inputValue.trim()
+                              ? t('sessionView.composer.sendFeedbackTitle')
+                              : isStreaming
+                                ? t('sessionView.composer.queueMessage')
+                                : t('sessionView.composer.sendMessage')
+                          }
+                          data-testid="send-button"
+                        >
+                          {isStreaming ? (
+                            <ListPlus className="h-3.5 w-3.5" />
+                          ) : (
+                            <Send className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </>
-            )}
-          </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>

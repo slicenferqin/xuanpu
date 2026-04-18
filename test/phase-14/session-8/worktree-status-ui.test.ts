@@ -1,19 +1,16 @@
-import { describe, test, expect } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
 /**
- * Session 8: Worktree Status UI (Two-Line Rows) — Tests
+ * Session 8: Worktree Row Structure (New UI) — Tests
  *
  * These tests verify:
- * 1. WorktreeItem shows status text ("Working", "Planning", "Answer questions", "Archiving")
- * 2. WorktreeItem shows no second line when idle
- * 3. Status text uses correct styling
- * 4. Archiving status takes precedence over worktree status
+ * 1. WorktreeItem uses fixed semantic icons instead of status-driven icons
+ * 2. New UI exposes primary and meta rows rather than status text
+ * 3. Long labels use middle truncation
+ * 4. Selected rows keep the actions trigger visible
  */
 
-// We test by reading the source file to verify the implementation,
-// since rendering WorktreeItem requires deep mocking of multiple stores and window APIs.
-
-describe('Session 8: Worktree Status UI', () => {
+describe('Session 8: Worktree Row Structure (New UI)', () => {
   describe('WorktreeItem source verification', () => {
     let source: string
 
@@ -27,7 +24,7 @@ describe('Session 8: Worktree Status UI', () => {
       expect(source).toBeTruthy()
     })
 
-    test('contains displayStatus derivation with all status types', async () => {
+    test('adds a middle truncation helper for primary labels', async () => {
       const fs = await import('fs')
       const path = await import('path')
       source = fs.readFileSync(
@@ -35,14 +32,13 @@ describe('Session 8: Worktree Status UI', () => {
         'utf-8'
       )
 
-      // Should have all four display status mappings
-      expect(source).toContain("'Archiving'")
-      expect(source).toContain("'Answer questions'")
-      expect(source).toContain("'Planning'")
-      expect(source).toContain("'Working'")
+      expect(source).toContain('function truncateMiddle')
+      expect(source).toContain('PRIMARY_LABEL_MAX_LENGTH')
+      expect(source).toContain('SECONDARY_LABEL_MAX_LENGTH')
+      expect(source).toContain('displayNamePreview = truncateMiddle(displayName')
     })
 
-    test('Archiving has highest priority in displayStatus', async () => {
+    test('renders primary and metadata rows instead of status text', async () => {
       const fs = await import('fs')
       const path = await import('path')
       source = fs.readFileSync(
@@ -50,20 +46,14 @@ describe('Session 8: Worktree Status UI', () => {
         'utf-8'
       )
 
-      // Archiving should be checked first (isArchiving before worktreeStatus checks)
-      const archivingIndex = source.indexOf('isArchiving')
-      const answeringIndex = source.indexOf("=== 'answering'")
-      const planningIndex = source.indexOf("=== 'planning'")
-      const workingDisplayIndex = source.indexOf("'Working'")
-
-      // Verify ordering in the displayStatus ternary chain
-      expect(archivingIndex).toBeGreaterThan(-1)
-      expect(answeringIndex).toBeGreaterThan(archivingIndex)
-      expect(planningIndex).toBeGreaterThan(answeringIndex)
-      expect(workingDisplayIndex).toBeGreaterThan(planningIndex)
+      expect(source).toContain('data-testid="worktree-primary-name"')
+      expect(source).toContain('data-testid="worktree-meta-type"')
+      expect(source).not.toContain('worktree-status-text')
+      expect(source).toContain("t('pinned.meta.branch')")
+      expect(source).toContain("t('pinned.meta.default')")
     })
 
-    test('status text always renders with displayStatus', async () => {
+    test('uses fixed semantic icons for normal and default worktrees', async () => {
       const fs = await import('fs')
       const path = await import('path')
       source = fs.readFileSync(
@@ -71,13 +61,17 @@ describe('Session 8: Worktree Status UI', () => {
         'utf-8'
       )
 
-      // Should always render status text (no conditional guard)
-      expect(source).toContain('{displayStatus}')
-      // Should include 'Ready' as the fallback
-      expect(source).toContain("'Ready'")
+      expect(source).toContain('{worktree.is_default ? (')
+      expect(source).toContain('<Folder className="mt-0.5 h-3.5 w-3.5 text-muted-foreground shrink-0" />')
+      expect(source).toContain(
+        '<GitBranch className="mt-0.5 h-3.5 w-3.5 text-muted-foreground shrink-0" />'
+      )
+      expect(source).not.toContain('AlertCircle')
+      expect(source).not.toContain('PulseAnimation')
+      expect(source).not.toContain('ModelIcon')
     })
 
-    test('status text uses correct styling with per-status colors', async () => {
+    test('keeps the actions button visible for selected rows and hover', async () => {
       const fs = await import('fs')
       const path = await import('path')
       source = fs.readFileSync(
@@ -85,106 +79,62 @@ describe('Session 8: Worktree Status UI', () => {
         'utf-8'
       )
 
-      // Should use 11px text size
-      expect(source).toContain('text-[11px]')
-      // Active statuses should be bold
-      expect(source).toContain('font-semibold')
-      // Per-status colors
-      expect(source).toContain('text-amber-500') // answering
-      expect(source).toContain('text-blue-400') // planning
-      expect(source).toContain('text-primary') // working
-      expect(source).toContain('text-muted-foreground') // ready / archiving
-    })
-
-    test('name area uses flex-col wrapper with min-w-0', async () => {
-      const fs = await import('fs')
-      const path = await import('path')
-      source = fs.readFileSync(
-        path.resolve(__dirname, '../../../src/renderer/src/components/worktrees/WorktreeItem.tsx'),
-        'utf-8'
-      )
-
-      // Should wrap name + status in a flex-col container
-      expect(source).toContain('flex-1 min-w-0')
-      // Name should use block display for proper stacking
-      expect(source).toContain('truncate block')
-    })
-
-    test('has data-testid on status text element', async () => {
-      const fs = await import('fs')
-      const path = await import('path')
-      source = fs.readFileSync(
-        path.resolve(__dirname, '../../../src/renderer/src/components/worktrees/WorktreeItem.tsx'),
-        'utf-8'
-      )
-
-      expect(source).toContain('worktree-status-text')
-    })
-
-    test('icons handle planning and answering statuses', async () => {
-      const fs = await import('fs')
-      const path = await import('path')
-      source = fs.readFileSync(
-        path.resolve(__dirname, '../../../src/renderer/src/components/worktrees/WorktreeItem.tsx'),
-        'utf-8'
-      )
-
-      // Spinner should show for both working and planning
-      expect(source).toContain("worktreeStatus === 'working' || worktreeStatus === 'planning'")
-      // AlertCircle icon should be used for answering
-      expect(source).toContain("worktreeStatus === 'answering'")
-      expect(source).toContain('AlertCircle')
-      // Fallback icon condition should exclude all active statuses
-      expect(source).toContain("worktreeStatus !== 'planning'")
-      expect(source).toContain("worktreeStatus !== 'answering'")
+      expect(source).toContain('group-hover:opacity-100')
+      expect(source).toContain("isSelected && 'opacity-100'")
+      expect(source).toContain('data-testid={`worktree-actions-${worktree.id}`}')
     })
   })
 
-  describe('displayStatus logic unit tests', () => {
-    // Unit-test the displayStatus derivation logic in isolation
+  describe('truncateMiddle helper behavior', () => {
+    function truncateMiddle(value: string, maxLength: number): string {
+      if (value.length <= maxLength) return value
+      if (maxLength <= 1) return value.slice(0, maxLength)
 
-    function deriveDisplayStatus(
-      isArchiving: boolean,
-      worktreeStatus: string | null
-    ): string | null {
-      return isArchiving
-        ? 'Archiving'
-        : worktreeStatus === 'answering'
-          ? 'Answer questions'
-          : worktreeStatus === 'planning'
-            ? 'Planning'
-            : worktreeStatus === 'working'
-              ? 'Working'
-              : 'Ready'
+      const ellipsis = '…'
+      const lastSeparatorIndex = Math.max(
+        value.lastIndexOf('/'),
+        value.lastIndexOf('-'),
+        value.lastIndexOf('_')
+      )
+
+      if (lastSeparatorIndex > 0 && lastSeparatorIndex < value.length - 1) {
+        const suffixToken = value.slice(lastSeparatorIndex + 1)
+        const prefixLength = maxLength - ellipsis.length - suffixToken.length
+
+        if (prefixLength >= 4) {
+          return `${value.slice(0, prefixLength)}${ellipsis}${suffixToken}`
+        }
+      }
+
+      const visibleChars = maxLength - ellipsis.length
+      let prefixLength = Math.ceil(visibleChars / 2)
+      let suffixLength = Math.floor(visibleChars / 2)
+      let prefix = value.slice(0, prefixLength)
+      let suffix = value.slice(-suffixLength)
+
+      while (/[/_-]$/.test(prefix) && prefixLength > 1) {
+        prefixLength -= 1
+        prefix = value.slice(0, prefixLength)
+      }
+
+      while (/^[/_-]/.test(suffix) && suffixLength > 1) {
+        suffixLength -= 1
+        suffix = value.slice(-suffixLength)
+      }
+
+      return `${prefix}${ellipsis}${suffix}`
     }
 
-    test('shows "Working" when worktreeStatus is working', () => {
-      expect(deriveDisplayStatus(false, 'working')).toBe('Working')
+    test('keeps short labels unchanged', () => {
+      expect(truncateMiddle('feature/auth', 28)).toBe('feature/auth')
     })
 
-    test('shows "Planning" when worktreeStatus is planning', () => {
-      expect(deriveDisplayStatus(false, 'planning')).toBe('Planning')
+    test('truncates long labels from the middle', () => {
+      expect(truncateMiddle('fix_20260417_uiux', 13)).toBe('fix_2026…uiux')
     })
 
-    test('shows "Answer questions" when worktreeStatus is answering', () => {
-      expect(deriveDisplayStatus(false, 'answering')).toBe('Answer questions')
-    })
-
-    test('shows "Archiving" when isArchiving is true', () => {
-      expect(deriveDisplayStatus(true, null)).toBe('Archiving')
-    })
-
-    test('Archiving takes priority over worktreeStatus', () => {
-      expect(deriveDisplayStatus(true, 'working')).toBe('Archiving')
-      expect(deriveDisplayStatus(true, 'answering')).toBe('Archiving')
-    })
-
-    test('shows "Ready" when idle', () => {
-      expect(deriveDisplayStatus(false, null)).toBe('Ready')
-    })
-
-    test('shows "Ready" for unread status', () => {
-      expect(deriveDisplayStatus(false, 'unread')).toBe('Ready')
+    test('preserves both prefix and suffix on long slash-separated labels', () => {
+      expect(truncateMiddle('fix/codex-transcript-stabilize', 19)).toBe('fix/codex…stabilize')
     })
   })
 })

@@ -70,6 +70,44 @@ describe('usage analytics UI', () => {
     expect(screen.getByText('2m 5s')).toBeTruthy()
   })
 
+  it('falls back to live token totals when summary is partial and still zeroed', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <SessionCostPill
+        summary={{
+          session_id: 'session-2',
+          engine: 'claude-code',
+          total_cost: 0,
+          total_tokens: 0,
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_write_tokens: 0,
+          cache_read_tokens: 0,
+          duration_seconds: 0,
+          last_used_at: '2026-04-18T00:35:40.000Z',
+          model_labels: [],
+          latest_model_label: null,
+          partial: true
+        }}
+        fallbackCost={0.2374}
+        fallbackTokens={{
+          input: 3,
+          output: 66,
+          cacheRead: 0,
+          cacheWrite: 37719
+        }}
+      />
+    )
+
+    expect(screen.getByTestId('session-cost-pill')).toHaveTextContent('$0.2374')
+    await user.click(screen.getByTestId('session-cost-pill'))
+
+    expect(screen.getByText('37.8K')).toBeTruthy()
+    expect(screen.getByText('3')).toBeTruthy()
+    expect(screen.getByText('66')).toBeTruthy()
+  })
+
   it('renders settings usage dashboard and supports tab switching', async () => {
     const user = userEvent.setup()
     fetchDashboardMock.mockResolvedValue({

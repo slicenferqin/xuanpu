@@ -60,6 +60,12 @@ export interface AgentPartUpdatedData {
 }
 
 export interface AgentMessageUpdatedData {
+  id?: string
+  requestId?: string
+  messageIndex?: number
+  role?: string
+  content?: unknown
+  isError?: boolean
   usage?: Record<string, unknown>
   cost?: number
   info?: Record<string, unknown>
@@ -145,141 +151,141 @@ export interface AgentCommandApprovalProblemData {
 // ---------------------------------------------------------------------------
 // Canonical Agent Event — the union consumed by renderer
 // ---------------------------------------------------------------------------
-export type CanonicalAgentEvent = EventEnvelope & (
-  | {
-      type: 'session.materialized'
-      sessionId: string
-      runtimeId?: SharedAgentRuntimeId
-      data: AgentSessionMaterializedData
-      childSessionId?: string
-    }
-  | {
-      type: 'session.status'
-      sessionId: string
-      runtimeId?: SharedAgentRuntimeId
-      data: { status: AgentStatusPayload }
-      /** Canonical location for status payload (normalizer ensures this). */
-      statusPayload?: AgentStatusPayload
-      childSessionId?: string
-    }
-  | {
-      type: 'session.updated'
-      sessionId: string
-      runtimeId?: SharedAgentRuntimeId
-      data: AgentSessionUpdatedData
-      childSessionId?: string
-    }
-  | {
-      type:
-        | 'session.warning'
-        | 'session.error'
-        | 'session.context_compacted'
-        | 'session.compaction_started'
-        | 'session.idle'
-      sessionId: string
-      runtimeId?: SharedAgentRuntimeId
-      data: Record<string, unknown>
-      childSessionId?: string
-    }
-  | {
-      type: 'session.commands_available'
-      sessionId: string
-      runtimeId?: SharedAgentRuntimeId
-      data: Record<string, unknown>
-      childSessionId?: string
-    }
-  | {
-      type: 'session.model_limits'
-      sessionId: string
-      runtimeId?: SharedAgentRuntimeId
-      data: AgentModelLimitsData
-      childSessionId?: string
-    }
-  | {
-      type: 'session.context_usage'
-      sessionId: string
-      runtimeId?: SharedAgentRuntimeId
-      data: AgentSessionContextUsageData
-      childSessionId?: string
-    }
-  | {
-      type: 'message.part.updated'
-      sessionId: string
-      runtimeId?: SharedAgentRuntimeId
-      data: AgentPartUpdatedData
-      childSessionId?: string
-    }
-  | {
-      type: 'message.updated'
-      sessionId: string
-      runtimeId?: SharedAgentRuntimeId
-      data: AgentMessageUpdatedData
-      childSessionId?: string
-    }
-  | {
-      type: 'question.asked'
-      sessionId: string
-      runtimeId?: SharedAgentRuntimeId
-      data: AgentQuestionData
-      childSessionId?: string
-    }
-  | {
-      type: 'question.replied' | 'question.rejected'
-      sessionId: string
-      runtimeId?: SharedAgentRuntimeId
-      data: AgentQuestionResolutionData
-      childSessionId?: string
-    }
-  | {
-      type: 'permission.asked'
-      sessionId: string
-      runtimeId?: SharedAgentRuntimeId
-      data: AgentPermissionData
-      childSessionId?: string
-    }
-  | {
-      type: 'permission.replied'
-      sessionId: string
-      runtimeId?: SharedAgentRuntimeId
-      data: AgentPermissionResolutionData
-      childSessionId?: string
-    }
-  | {
-      type: 'command.approval_needed' | 'command.approval_replied'
-      sessionId: string
-      runtimeId?: SharedAgentRuntimeId
-      data: Record<string, unknown>
-      childSessionId?: string
-    }
-  | {
-      type: 'command.approval_problem'
-      sessionId: string
-      runtimeId?: SharedAgentRuntimeId
-      data: AgentCommandApprovalProblemData
-      childSessionId?: string
-    }
-  | {
-      type: 'plan.ready'
-      sessionId: string
-      runtimeId?: SharedAgentRuntimeId
-      data: AgentPlanReadyData
-      childSessionId?: string
-    }
-  | {
-      type: 'plan.resolved'
-      sessionId: string
-      runtimeId?: SharedAgentRuntimeId
-      data: AgentPlanResolvedData
-      childSessionId?: string
-    }
-)
+export type CanonicalAgentEvent = EventEnvelope &
+  (
+    | {
+        type: 'session.materialized'
+        sessionId: string
+        runtimeId?: SharedAgentRuntimeId
+        data: AgentSessionMaterializedData
+        childSessionId?: string
+      }
+    | {
+        type: 'session.status'
+        sessionId: string
+        runtimeId?: SharedAgentRuntimeId
+        data: { status: AgentStatusPayload }
+        /** Canonical location for status payload (normalizer ensures this). */
+        statusPayload?: AgentStatusPayload
+        childSessionId?: string
+      }
+    | {
+        type: 'session.updated'
+        sessionId: string
+        runtimeId?: SharedAgentRuntimeId
+        data: AgentSessionUpdatedData
+        childSessionId?: string
+      }
+    | {
+        type:
+          | 'session.warning'
+          | 'session.error'
+          | 'session.context_compacted'
+          | 'session.compaction_started'
+          | 'session.idle'
+        sessionId: string
+        runtimeId?: SharedAgentRuntimeId
+        data: Record<string, unknown>
+        childSessionId?: string
+      }
+    | {
+        type: 'session.commands_available'
+        sessionId: string
+        runtimeId?: SharedAgentRuntimeId
+        data: Record<string, unknown>
+        childSessionId?: string
+      }
+    | {
+        type: 'session.model_limits'
+        sessionId: string
+        runtimeId?: SharedAgentRuntimeId
+        data: AgentModelLimitsData
+        childSessionId?: string
+      }
+    | {
+        type: 'session.context_usage'
+        sessionId: string
+        runtimeId?: SharedAgentRuntimeId
+        data: AgentSessionContextUsageData
+        childSessionId?: string
+      }
+    | {
+        type: 'message.part.updated'
+        sessionId: string
+        runtimeId?: SharedAgentRuntimeId
+        data: AgentPartUpdatedData
+        childSessionId?: string
+      }
+    | {
+        type: 'message.updated'
+        sessionId: string
+        runtimeId?: SharedAgentRuntimeId
+        data: AgentMessageUpdatedData
+        childSessionId?: string
+      }
+    | {
+        type: 'question.asked'
+        sessionId: string
+        runtimeId?: SharedAgentRuntimeId
+        data: AgentQuestionData
+        childSessionId?: string
+      }
+    | {
+        type: 'question.replied' | 'question.rejected'
+        sessionId: string
+        runtimeId?: SharedAgentRuntimeId
+        data: AgentQuestionResolutionData
+        childSessionId?: string
+      }
+    | {
+        type: 'permission.asked'
+        sessionId: string
+        runtimeId?: SharedAgentRuntimeId
+        data: AgentPermissionData
+        childSessionId?: string
+      }
+    | {
+        type: 'permission.replied'
+        sessionId: string
+        runtimeId?: SharedAgentRuntimeId
+        data: AgentPermissionResolutionData
+        childSessionId?: string
+      }
+    | {
+        type: 'command.approval_needed' | 'command.approval_replied'
+        sessionId: string
+        runtimeId?: SharedAgentRuntimeId
+        data: Record<string, unknown>
+        childSessionId?: string
+      }
+    | {
+        type: 'command.approval_problem'
+        sessionId: string
+        runtimeId?: SharedAgentRuntimeId
+        data: AgentCommandApprovalProblemData
+        childSessionId?: string
+      }
+    | {
+        type: 'plan.ready'
+        sessionId: string
+        runtimeId?: SharedAgentRuntimeId
+        data: AgentPlanReadyData
+        childSessionId?: string
+      }
+    | {
+        type: 'plan.resolved'
+        sessionId: string
+        runtimeId?: SharedAgentRuntimeId
+        data: AgentPlanResolvedData
+        childSessionId?: string
+      }
+  )
 
 // ---------------------------------------------------------------------------
 // Legacy event shape — what implementers emit before the envelope is added.
 // Used by emitAgentEvent() and normalizeAgentEvent() as input type.
 // ---------------------------------------------------------------------------
-export type RawAgentEvent = Omit<CanonicalAgentEvent, keyof EventEnvelope> &
-  Partial<EventEnvelope>
+export type RawAgentEvent = Omit<CanonicalAgentEvent, keyof EventEnvelope> & Partial<EventEnvelope>
 
 export interface AgentCommand {
   name: string

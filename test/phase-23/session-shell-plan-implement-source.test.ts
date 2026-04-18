@@ -5,17 +5,14 @@ describe('SessionShell plan implement flow (source verification)', () => {
     const fs = await import('fs')
     const path = await import('path')
     const source = fs.readFileSync(
-      path.resolve(
-        __dirname,
-        '../../src/renderer/src/components/session-hq/SessionShell.tsx'
-      ),
+      path.resolve(__dirname, '../../src/renderer/src/components/session-hq/SessionShell.tsx'),
       'utf-8'
     )
 
     expect(source).toContain('window.agentOps.planApprove(')
     expect(source).toContain("setSessionMode(sessionId, 'build')")
     expect(source).toContain("lastSendMode.set(sessionId, 'build')")
-    expect(source).toContain("removeInterrupt(sessionId, pendingBeforeAction.requestId)")
+    expect(source).toContain('removeInterrupt(sessionId, pendingBeforeAction.requestId)')
     expect(source).toContain("transitionToolStatus(pendingBeforeAction.toolUseID, 'success')")
   })
 
@@ -23,16 +20,26 @@ describe('SessionShell plan implement flow (source verification)', () => {
     const fs = await import('fs')
     const path = await import('path')
     const source = fs.readFileSync(
-      path.resolve(
-        __dirname,
-        '../../src/renderer/src/components/session-hq/SessionShell.tsx'
-      ),
+      path.resolve(__dirname, '../../src/renderer/src/components/session-hq/SessionShell.tsx'),
       'utf-8'
     )
 
     expect(source).toContain('buildPlanImplementationPrompt(pendingBeforeAction.planContent)')
-    expect(source).toContain("const implementPrompt = isClaudeCode")
+    expect(source).toContain('const implementPrompt = isClaudeCode')
     expect(source).toContain("sessionRecord?.agent_sdk === 'codex'")
     expect(source).toContain("'Implement the plan.'")
+  })
+
+  test('new UI forwards the resolved session model when sending prompts', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../../src/renderer/src/components/session-hq/SessionShell.tsx'),
+      'utf-8'
+    )
+
+    expect(source).toContain('const requestModel = useMemo(() => {')
+    expect(source).toContain('window.agentOps.prompt(wp, sid, messageParts ?? c, requestModel)')
+    expect(source).toContain('window.agentOps.prompt(wp, sid, c, requestModel)')
   })
 })
