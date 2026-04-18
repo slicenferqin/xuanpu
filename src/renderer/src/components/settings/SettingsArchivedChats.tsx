@@ -55,7 +55,7 @@ export function SettingsArchivedChats(): React.JSX.Element {
       const results = await window.db.session.search({
         ...(debouncedKeyword.trim() ? { keyword: debouncedKeyword.trim() } : {}),
         includeArchived: true,
-        statusFilter: 'archived'
+        statusFilter: 'closed'
       })
       setSessions(results)
     } finally {

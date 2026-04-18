@@ -408,6 +408,36 @@ describeIf('Session 3: Database', () => {
         archivedSession.id
       )
     })
+
+    test('Search sessions can filter closed status explicitly', () => {
+      const activeSession = db.createSession({
+        worktree_id: worktreeId,
+        project_id: projectId,
+        name: 'Active Session'
+      })
+      const closedSession = db.createSession({
+        worktree_id: worktreeId,
+        project_id: projectId,
+        name: 'Closed Session'
+      })
+
+      db.updateSession(closedSession.id, {
+        status: 'completed',
+        completed_at: '2026-04-18T11:00:00.000Z'
+      })
+
+      const closedResults = db.searchSessions({
+        includeArchived: true,
+        statusFilter: 'closed'
+      })
+
+      expect(closedResults.map((session: { id: string }) => session.id)).toContain(
+        closedSession.id
+      )
+      expect(closedResults.map((session: { id: string }) => session.id)).not.toContain(
+        activeSession.id
+      )
+    })
   })
 
   describe('Session message operations', () => {
