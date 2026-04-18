@@ -47,8 +47,7 @@ import {
   Users,
   MessageSquare,
   User,
-  Loader2,
-  Pencil
+  Loader2
 } from 'lucide-react'
 
 // ---------------------------------------------------------------------------
