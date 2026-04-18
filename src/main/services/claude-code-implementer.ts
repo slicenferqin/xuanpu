@@ -2991,11 +2991,29 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       case 'assistant': {
         const usage = innerMessage?.usage as Record<string, unknown> | undefined
         const modelStr = typeof innerMessage?.model === 'string' ? innerMessage.model : undefined
+        const visibleContentBlocks = Array.isArray(innerContent)
+          ? innerContent.filter((block) => {
+              const type = (block as Record<string, unknown>)?.type as string | undefined
+              return type !== 'thinking'
+            })
+          : []
+        const requestId =
+          typeof msg.requestId === 'string'
+            ? msg.requestId
+            : typeof msg.request_id === 'string'
+              ? (msg.request_id as string)
+              : undefined
+        const messageId =
+          typeof msg.uuid === 'string'
+            ? msg.uuid
+            : typeof innerMessage?.id === 'string'
+              ? innerMessage.id
+              : undefined
 
         // Compute per-turn cost from usage + model so the renderer can display it.
         // Claude Code SDK result messages don't always carry total_cost_usd.
         let turnCost: number | undefined
-        if (usage && modelStr) {
+        if (usage && modelStr && visibleContentBlocks.length > 0) {
           try {
             const pricingKey = resolvePricingModelKey(modelStr, 'claude-code')
             turnCost = calculateUsageCost(
@@ -3031,9 +3049,12 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
           sessionId: hiveSessionId,
           childSessionId,
           data: {
+            ...(messageId ? { id: messageId } : {}),
+            ...(requestId ? { requestId } : {}),
             role: 'assistant',
             messageIndex,
             info: {
+              ...(requestId ? { requestId } : {}),
               time: { completed: new Date().toISOString() },
               usage: usage
                 ? {
@@ -3089,6 +3110,12 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         // Result content is in msg.result (array of content blocks or text)
         const resultContent = msg.result as unknown[] | unknown
         const resultArray = Array.isArray(resultContent) ? resultContent : undefined
+        const requestId =
+          typeof msg.requestId === 'string'
+            ? msg.requestId
+            : typeof msg.request_id === 'string'
+              ? (msg.request_id as string)
+              : undefined
         log.info('emitSdkMessage: result', {
           hiveSessionId,
           messageIndex,
@@ -3107,19 +3134,18 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
           sessionId: hiveSessionId,
           childSessionId,
           data: {
+            ...(requestId ? { requestId } : {}),
             role: 'assistant',
             content: resultArray ?? resultContent,
             isError: msg.is_error ?? false,
             messageIndex,
             // Include cost and modelUsage (for context limit detection) but
-            // NOT per-token usage — the `result` message carries **cumulative**
-            // session-wide token counts.  Using them for the context-window
-            // indicator would overwrite the correct per-turn numbers from the
-            // preceding `assistant` message and, after compaction, make the
-            // indicator jump *higher* instead of resetting.
+            // NOT per-turn cost or per-token usage — the `assistant` event is
+            // the authoritative per-turn source. Re-counting the same turn on
+            // `result` causes duplicate session cost accumulation.
             info: {
               time: { completed: new Date().toISOString() },
-              cost: msg.total_cost_usd,
+              ...(requestId ? { requestId } : {}),
               modelUsage: msg.modelUsage
             }
           }

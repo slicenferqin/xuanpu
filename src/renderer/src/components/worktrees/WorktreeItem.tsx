@@ -1,12 +1,9 @@
 import { useCallback, useState, useRef, useEffect } from 'react'
 import { fileManagerName } from '@/lib/platform'
 import {
-  AlertCircle,
   GitBranch,
   Folder,
   Link,
-  Loader2,
-  Map,
   MoreHorizontal,
   Terminal,
   Code,
@@ -58,12 +55,9 @@ import {
 } from '@/stores'
 import { HintBadge } from '@/components/ui/HintBadge'
 import { useGitStore } from '@/stores/useGitStore'
-import { useScriptStore } from '@/stores/useScriptStore'
 import { useWorktreeStatusStore } from '@/stores/useWorktreeStatusStore'
 import { toast } from '@/lib/toast'
 import { formatRelativeTime } from '@/lib/format-utils'
-import { PulseAnimation } from './PulseAnimation'
-import { ModelIcon } from './ModelIcon'
 import { ArchiveConfirmDialog } from './ArchiveConfirmDialog'
 import { AddAttachmentDialog } from './AddAttachmentDialog'
 import { useFileViewerStore } from '@/stores/useFileViewerStore'
@@ -95,6 +89,48 @@ interface WorktreeItemProps {
   onDragEnd?: () => void
 }
 
+const PRIMARY_LABEL_MAX_LENGTH = 28
+const SECONDARY_LABEL_MAX_LENGTH = 18
+
+function truncateMiddle(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value
+  if (maxLength <= 1) return value.slice(0, maxLength)
+
+  const ellipsis = '…'
+  const lastSeparatorIndex = Math.max(
+    value.lastIndexOf('/'),
+    value.lastIndexOf('-'),
+    value.lastIndexOf('_')
+  )
+
+  if (lastSeparatorIndex > 0 && lastSeparatorIndex < value.length - 1) {
+    const suffixToken = value.slice(lastSeparatorIndex + 1)
+    const prefixLength = maxLength - ellipsis.length - suffixToken.length
+
+    if (prefixLength >= 4) {
+      return `${value.slice(0, prefixLength)}${ellipsis}${suffixToken}`
+    }
+  }
+
+  const visibleChars = maxLength - ellipsis.length
+  let prefixLength = Math.ceil(visibleChars / 2)
+  let suffixLength = Math.floor(visibleChars / 2)
+  let prefix = value.slice(0, prefixLength)
+  let suffix = value.slice(-suffixLength)
+
+  while (/[/_-]$/.test(prefix) && prefixLength > 1) {
+    prefixLength -= 1
+    prefix = value.slice(0, prefixLength)
+  }
+
+  while (/^[/_-]/.test(suffix) && suffixLength > 1) {
+    suffixLength -= 1
+    suffix = value.slice(-suffixLength)
+  }
+
+  return `${prefix}${ellipsis}${suffix}`
+}
+
 export function WorktreeItem({
   worktree,
   projectPath,
@@ -118,9 +154,10 @@ export function WorktreeItem({
   // Show last activity time: prefer last message time, fallback to last_accessed_at
   const displayTime = lastMessageTime
     ?? (worktree.last_accessed_at ? new Date(worktree.last_accessed_at).getTime() : null)
-  const isRunProcessAlive = useScriptStore((s) => s.scriptStates[worktree.id]?.runRunning ?? false)
   const liveBranch = useGitStore((s) => s.branchInfoByWorktree.get(worktree.path))
+  const activeBranchName = liveBranch?.name ?? worktree.branch_name
   const displayName = liveBranch?.name ?? worktree.name
+  const displayNamePreview = truncateMiddle(displayName, PRIMARY_LABEL_MAX_LENGTH)
   const isSelected = selectedWorktreeId === worktree.id
 
   // Connection mode state
@@ -162,14 +199,32 @@ export function WorktreeItem({
   const hasNamedBranch = Boolean(worktree.branch_name)
 
   const worktreeLabel =
-    worktree.is_default || !worktree.branch_name || displayName === worktree.branch_name
+    worktree.is_default || !activeBranchName || displayName === activeBranchName
       ? displayName
-      : `${displayName} - ${worktree.branch_name}`
+      : `${displayName} - ${activeBranchName}`
+
+  const secondaryBranchLabel =
+    activeBranchName && displayName !== activeBranchName
+      ? truncateMiddle(activeBranchName, SECONDARY_LABEL_MAX_LENGTH)
+      : null
+
+  const worktreeMetaLabel = worktree.is_default
+    ? t('pinned.meta.default')
+    : secondaryBranchLabel
+      ? `${t('pinned.meta.branch')} · ${secondaryBranchLabel}`
+      : activeBranchName
+        ? t('pinned.meta.branch')
+        : t('pinned.menu.detachedHead')
 
   const renderWorktreeName = (): React.JSX.Element => (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="text-sm truncate block cursor-default">{displayName}</span>
+        <span
+          className="block cursor-default truncate text-[13px] font-medium leading-5"
+          data-testid="worktree-primary-name"
+        >
+          {displayNamePreview}
+        </span>
       </TooltipTrigger>
       <TooltipContent side="top" sideOffset={8} className="max-w-[32rem] px-3.5 py-2.5 text-sm">
         <div className="space-y-1.5">
@@ -189,52 +244,6 @@ export function WorktreeItem({
     const timer = setInterval(() => setTick((n) => n + 1), 60000)
     return () => clearInterval(timer)
   }, [displayTime])
-
-  // Derive display status text + color (kept for potential future use)
-  const { displayStatus: _displayStatus, statusClass: _statusClass } = isArchiving
-    ? {
-        displayStatus: t('pinned.status.archiving'),
-        statusClass: 'font-semibold text-muted-foreground'
-      }
-    : worktreeStatus === 'answering'
-      ? {
-          displayStatus: t('pinned.status.answering'),
-          statusClass: 'font-semibold text-amber-500'
-        }
-      : worktreeStatus === 'command_approval'
-        ? {
-            displayStatus: t('pinned.status.commandApproval'),
-            statusClass: 'font-semibold text-orange-500'
-          }
-        : worktreeStatus === 'permission'
-          ? {
-              displayStatus: t('pinned.status.permission'),
-              statusClass: 'font-semibold text-amber-500'
-            }
-          : worktreeStatus === 'planning'
-            ? {
-                displayStatus: t('pinned.status.planning'),
-                statusClass: 'font-semibold text-blue-400'
-              }
-            : worktreeStatus === 'working'
-              ? {
-                  displayStatus: t('pinned.status.working'),
-                  statusClass: 'font-semibold text-primary'
-                }
-              : worktreeStatus === 'plan_ready'
-                ? {
-                    displayStatus: t('pinned.status.planReady'),
-                    statusClass: 'font-semibold text-blue-400'
-                  }
-                : worktreeStatus === 'completed'
-                  ? {
-                      displayStatus: t('pinned.status.ready'),
-                      statusClass: 'font-semibold text-green-400'
-                    }
-                  : {
-                      displayStatus: t('pinned.status.ready'),
-                      statusClass: 'text-muted-foreground'
-                    }
 
   // Archive confirmation state
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false)
@@ -521,7 +530,7 @@ export function WorktreeItem({
       <>
         <div
           className={cn(
-            'group flex items-center gap-1.5 pl-8 pr-1 py-1.5 rounded-md cursor-pointer transition-colors',
+            'group flex items-start gap-2 pl-8 pr-1.5 py-2 rounded-lg cursor-pointer transition-colors',
             isChecked ? 'bg-accent/30' : 'hover:bg-accent/50',
             isSource && isChecked && 'bg-accent/20',
             isArchiving && 'opacity-50 pointer-events-none'
@@ -534,16 +543,21 @@ export function WorktreeItem({
             checked={isChecked}
             onCheckedChange={() => toggleConnectionModeWorktree(worktree.id)}
             disabled={isSource}
-            className={cn('h-3.5 w-3.5 shrink-0', isSource && 'opacity-70')}
+            className={cn('mt-0.5 h-3.5 w-3.5 shrink-0', isSource && 'opacity-70')}
             onClick={(e) => e.stopPropagation()}
             data-testid={`connection-mode-checkbox-${worktree.id}`}
           />
 
-          {/* Worktree Name + Status Line */}
+          {/* Worktree Name + Meta Line */}
           <div className="flex-1 min-w-0">
             {renderWorktreeName()}
-            <div className="flex items-center pr-1">
-              <ModelIcon worktreeId={worktree.id} className="h-2.5 w-2.5 mr-1 shrink-0" />
+            <div className="mt-0.5 flex items-center gap-2 pr-1">
+              <span
+                className="min-w-0 truncate text-[11px] text-muted-foreground/75"
+                data-testid="worktree-meta-type"
+              >
+                {worktreeMetaLabel}
+              </span>
               <span className="flex-1" />
               {displayTime && (
                 <span
@@ -575,7 +589,7 @@ export function WorktreeItem({
       <ContextMenuTrigger asChild>
         <div
           className={cn(
-            'group flex items-center gap-2 pl-6 pr-2.5 py-2.5 rounded-xl cursor-pointer transition-colors',
+            'group flex items-start gap-2.5 pl-6 pr-2 py-2 rounded-lg cursor-pointer transition-colors',
             isSelected
               ? 'bg-sidebar-accent text-sidebar-accent-foreground ring-1 ring-sidebar-border/60 shadow-sm'
               : 'hover:bg-sidebar-accent/70',
@@ -589,48 +603,16 @@ export function WorktreeItem({
           onDrop={onDrop}
           onDragEnd={onDragEnd}
           onClick={handleClick}
+          data-selected={isSelected ? 'true' : 'false'}
           data-testid={`worktree-item-${worktree.id}`}
         >
-          {/* Branch Icons / Status Badges — show up to 2 */}
-          {isArchiving ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0" />
+          {worktree.is_default ? (
+            <Folder className="mt-0.5 h-3.5 w-3.5 text-muted-foreground shrink-0" />
           ) : (
-            <>
-              {isRunProcessAlive && (
-                <PulseAnimation className="h-3.5 w-3.5 text-green-500 shrink-0" />
-              )}
-              {(worktreeStatus === 'working' || worktreeStatus === 'planning') && (
-                <Loader2 className="h-3.5 w-3.5 text-primary shrink-0 animate-spin" />
-              )}
-              {(worktreeStatus === 'answering' ||
-                worktreeStatus === 'command_approval' ||
-                worktreeStatus === 'permission') && (
-                <AlertCircle
-                  className={cn(
-                    'h-3.5 w-3.5 shrink-0',
-                    worktreeStatus === 'command_approval' ? 'text-orange-500' : 'text-amber-500'
-                  )}
-                />
-              )}
-              {worktreeStatus === 'plan_ready' && (
-                <Map className="h-3.5 w-3.5 text-blue-400 shrink-0" />
-              )}
-              {!isRunProcessAlive &&
-                worktreeStatus !== 'working' &&
-                worktreeStatus !== 'planning' &&
-                worktreeStatus !== 'answering' &&
-                worktreeStatus !== 'command_approval' &&
-                worktreeStatus !== 'permission' &&
-                worktreeStatus !== 'plan_ready' &&
-                (worktree.is_default ? (
-                  <Folder className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                ) : (
-                  <GitBranch className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                ))}
-            </>
+            <GitBranch className="mt-0.5 h-3.5 w-3.5 text-muted-foreground shrink-0" />
           )}
 
-          {/* Worktree Name / Inline Rename Input + Status Line */}
+          {/* Worktree Name / Inline Rename Input + Meta Line */}
           <div className="flex-1 min-w-0">
             {isRenamingBranch ? (
               <input
@@ -689,8 +671,13 @@ export function WorktreeItem({
             ) : (
               renderWorktreeName()
             )}
-            <div className="flex items-center pr-1 mt-0.5">
-              <ModelIcon worktreeId={worktree.id} className="h-2.5 w-2.5 mr-1 shrink-0" />
+            <div className="mt-0.5 flex items-center gap-2 pr-1">
+              <span
+                className="min-w-0 truncate text-[11px] text-muted-foreground/75"
+                data-testid="worktree-meta-type"
+              >
+                {worktreeMetaLabel}
+              </span>
               <span className="flex-1" />
               {displayTime && (
                 <span
@@ -716,20 +703,22 @@ export function WorktreeItem({
 
           {/* Unread dot badge */}
           {worktreeStatus === 'unread' && (
-            <span className="h-2 w-2 rounded-full bg-primary shrink-0" />
+            <span className="mt-1.5 h-2 w-2 rounded-full bg-primary shrink-0" />
           )}
 
-          {/* More Options Dropdown (visible on hover) */}
+          {/* More Options Dropdown (visible on hover and selection) */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon"
                 className={cn(
-                  'h-6 w-6 rounded-md p-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground',
+                  'mt-0.5 h-6 w-6 rounded-md p-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground',
+                  isSelected && 'opacity-100',
                   'hover:bg-sidebar-accent hover:text-foreground'
                 )}
                 onClick={(e) => e.stopPropagation()}
+                data-testid={`worktree-actions-${worktree.id}`}
               >
                 <MoreHorizontal className="h-3.5 w-3.5" />
               </Button>

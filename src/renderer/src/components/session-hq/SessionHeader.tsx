@@ -186,12 +186,13 @@ function CostCapsule({
   fallbackTokens: { input: number; output: number; cacheRead: number; cacheWrite: number } | null
 }): React.JSX.Element | null {
   const totalCost = Math.max(summary?.total_cost ?? 0, fallbackCost ?? 0)
-  const totalTokens =
-    summary?.total_tokens ??
-    ((fallbackTokens?.input ?? 0) +
+  const hasSummaryTokens = (summary?.total_tokens ?? 0) > 0
+  const totalTokens = hasSummaryTokens
+    ? (summary?.total_tokens ?? 0)
+    : (fallbackTokens?.input ?? 0) +
       (fallbackTokens?.output ?? 0) +
       (fallbackTokens?.cacheRead ?? 0) +
-      (fallbackTokens?.cacheWrite ?? 0))
+      (fallbackTokens?.cacheWrite ?? 0)
   const modelSummary = formatModelLabelSummary(getSessionSummaryModelLabels(summary))
 
   if (totalCost <= 0 && totalTokens <= 0) return null
@@ -226,25 +227,43 @@ function CostCapsule({
             <div className="rounded-lg bg-muted/45 px-2 py-1.5">
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Input</div>
               <div className="mt-1 font-mono">
-                {formatTokensShort(summary?.input_tokens ?? fallbackTokens?.input ?? 0)}
+                {formatTokensShort(
+                  hasSummaryTokens ? (summary?.input_tokens ?? 0) : (fallbackTokens?.input ?? 0)
+                )}
               </div>
             </div>
             <div className="rounded-lg bg-muted/45 px-2 py-1.5">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Output</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Output
+              </div>
               <div className="mt-1 font-mono">
-                {formatTokensShort(summary?.output_tokens ?? fallbackTokens?.output ?? 0)}
+                {formatTokensShort(
+                  hasSummaryTokens ? (summary?.output_tokens ?? 0) : (fallbackTokens?.output ?? 0)
+                )}
               </div>
             </div>
             <div className="rounded-lg bg-muted/45 px-2 py-1.5">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Cache write</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Cache write
+              </div>
               <div className="mt-1 font-mono">
-                {formatTokensShort(summary?.cache_write_tokens ?? fallbackTokens?.cacheWrite ?? 0)}
+                {formatTokensShort(
+                  hasSummaryTokens
+                    ? (summary?.cache_write_tokens ?? 0)
+                    : (fallbackTokens?.cacheWrite ?? 0)
+                )}
               </div>
             </div>
             <div className="rounded-lg bg-muted/45 px-2 py-1.5">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Cache read</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Cache read
+              </div>
               <div className="mt-1 font-mono">
-                {formatTokensShort(summary?.cache_read_tokens ?? fallbackTokens?.cacheRead ?? 0)}
+                {formatTokensShort(
+                  hasSummaryTokens
+                    ? (summary?.cache_read_tokens ?? 0)
+                    : (fallbackTokens?.cacheRead ?? 0)
+                )}
               </div>
             </div>
           </div>

@@ -30,7 +30,13 @@ import { useContextStore } from '@/stores/useContextStore'
 import { useRecentStore } from '@/stores/useRecentStore'
 import { useUsageStore, resolveUsageProvider } from '@/stores'
 import { useSessionRuntimeStore, clearStreamingBuffer } from '@/stores/useSessionRuntimeStore'
-import { extractTokens, extractCost, extractModelRef, extractModelUsage } from '@/lib/token-utils'
+import {
+  extractTokens,
+  extractCost,
+  extractCostEventKey,
+  extractModelRef,
+  extractModelUsage
+} from '@/lib/token-utils'
 import { applySessionContextUsage } from '@/lib/context-usage'
 import { COMPLETION_WORDS } from '@/lib/format-utils'
 import { messageSendTimes } from '@/lib/message-send-times'
@@ -322,7 +328,12 @@ export function useAgentEventBridge(): void {
                 }
                 const cost = extractCost(data)
                 if (cost > 0) {
-                  useContextStore.getState().addSessionCost(sessionId, cost)
+                  const costKey = extractCostEventKey(data)
+                  if (costKey) {
+                    useContextStore.getState().addSessionCostOnce(sessionId, costKey, cost)
+                  } else {
+                    useContextStore.getState().addSessionCost(sessionId, cost)
+                  }
                 }
                 const modelUsageEntries = extractModelUsage(data)
                 if (modelUsageEntries) {

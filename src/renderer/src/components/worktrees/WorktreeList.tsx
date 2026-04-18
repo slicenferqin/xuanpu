@@ -77,7 +77,7 @@ export function WorktreeList({ project }: WorktreeListProps): React.JSX.Element 
   }, [])
 
   return (
-    <div className="mt-1.5 pl-5 pr-1 space-y-1.5" data-testid={`worktree-list-${project.id}`}>
+    <div className="mt-1 pl-5 pr-1 space-y-1" data-testid={`worktree-list-${project.id}`}>
       {worktrees.map((worktree, index) => (
         <WorktreeItem
           key={worktree.id}

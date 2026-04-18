@@ -55,12 +55,13 @@ export function SessionCostPill({
   const { t } = useI18n()
   const modelSummary = formatModelLabelSummary(getSessionSummaryModelLabels(summary))
   const totalCost = Math.max(summary?.total_cost ?? 0, fallbackCost ?? 0)
-  const totalTokens =
-    summary?.total_tokens ??
-    ((fallbackTokens?.input ?? 0) +
+  const hasSummaryTokens = (summary?.total_tokens ?? 0) > 0
+  const totalTokens = hasSummaryTokens
+    ? (summary?.total_tokens ?? 0)
+    : (fallbackTokens?.input ?? 0) +
       (fallbackTokens?.output ?? 0) +
       (fallbackTokens?.cacheRead ?? 0) +
-      (fallbackTokens?.cacheWrite ?? 0))
+      (fallbackTokens?.cacheWrite ?? 0)
 
   if (totalCost <= 0 && totalTokens <= 0) return null
 
@@ -102,20 +103,32 @@ export function SessionCostPill({
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
                 {t('sessionView.costPill.input')}
               </div>
-              <div className="mt-1 font-mono">{formatTokens(summary?.input_tokens ?? fallbackTokens?.input ?? 0)}</div>
+              <div className="mt-1 font-mono">
+                {formatTokens(
+                  hasSummaryTokens ? (summary?.input_tokens ?? 0) : (fallbackTokens?.input ?? 0)
+                )}
+              </div>
             </div>
             <div className="rounded-lg bg-muted/45 px-2 py-1.5">
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
                 {t('sessionView.costPill.output')}
               </div>
-              <div className="mt-1 font-mono">{formatTokens(summary?.output_tokens ?? fallbackTokens?.output ?? 0)}</div>
+              <div className="mt-1 font-mono">
+                {formatTokens(
+                  hasSummaryTokens ? (summary?.output_tokens ?? 0) : (fallbackTokens?.output ?? 0)
+                )}
+              </div>
             </div>
             <div className="rounded-lg bg-muted/45 px-2 py-1.5">
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
                 {t('sessionView.costPill.cacheWrite')}
               </div>
               <div className="mt-1 font-mono">
-                {formatTokens(summary?.cache_write_tokens ?? fallbackTokens?.cacheWrite ?? 0)}
+                {formatTokens(
+                  hasSummaryTokens
+                    ? (summary?.cache_write_tokens ?? 0)
+                    : (fallbackTokens?.cacheWrite ?? 0)
+                )}
               </div>
             </div>
             <div className="rounded-lg bg-muted/45 px-2 py-1.5">
@@ -123,7 +136,11 @@ export function SessionCostPill({
                 {t('sessionView.costPill.cacheRead')}
               </div>
               <div className="mt-1 font-mono">
-                {formatTokens(summary?.cache_read_tokens ?? fallbackTokens?.cacheRead ?? 0)}
+                {formatTokens(
+                  hasSummaryTokens
+                    ? (summary?.cache_read_tokens ?? 0)
+                    : (fallbackTokens?.cacheRead ?? 0)
+                )}
               </div>
             </div>
           </div>

@@ -11,6 +11,7 @@ beforeEach(() => {
     modelBySession: {},
     contextSnapshotsBySession: {},
     costBySession: {},
+    costEventKeysBySession: {},
     modelLimits: {}
   })
 })
