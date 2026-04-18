@@ -63,8 +63,8 @@ describe('ClaudeCodeImplementer model catalog', () => {
     const info = await impl.getModelInfo('any', 'opus')
     expect(info).toEqual({
       id: 'opus',
-      name: 'Opus 4.6',
-      limit: { context: 1000000, output: 32000 }
+      name: 'Opus 4.7',
+      limit: { context: 200000, output: 32000 }
     })
   })
 

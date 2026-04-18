@@ -7,13 +7,14 @@ interface SessionWithWorktree {
   worktree_id: string | null
   project_id: string
   name: string | null
-  status: 'active' | 'completed' | 'error'
+  status: 'active' | 'completed' | 'error' | 'archived'
   opencode_session_id: string | null
   created_at: string
   updated_at: string
   completed_at: string | null
   worktree_name?: string
   worktree_branch_name?: string
+  worktree_status?: 'active' | 'archived' | null
   project_name?: string
 }
 

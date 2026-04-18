@@ -23,6 +23,7 @@ import type {
   UsageAnalyticsPartialSession,
   UsageAnalyticsResyncResult,
   UsageAnalyticsSessionRow,
+  UsageAnalyticsSessionStatusFilter,
   UsageAnalyticsSessionSummary,
   UsageAnalyticsSessionSummaryResult,
   UsageAnalyticsTimelineRow
@@ -36,6 +37,7 @@ type SupportedSession = Session & {
   project_path: string
   worktree_name: string | null
   worktree_path: string | null
+  worktree_status: 'active' | 'archived' | null
 }
 
 interface SessionSyncSnapshot {
@@ -123,7 +125,8 @@ export class UsageAnalyticsService {
 
   async fetchDashboard(filters: UsageAnalyticsFilters): Promise<UsageAnalyticsDashboardResult> {
     try {
-      const sessions = this.db.getUsageAnalyticsSessions(['claude-code', 'codex'])
+      const sessionStatus: UsageAnalyticsSessionStatusFilter = filters.sessionStatus ?? 'all'
+      const sessions = this.db.getUsageAnalyticsSessions(['claude-code', 'codex'], sessionStatus)
       const syncStates = new Map(
         this.db.getUsageSyncStates().map((state) => [state.session_id, state] as const)
       )
@@ -260,6 +263,7 @@ export class UsageAnalyticsService {
           project_path: session.project_path,
           worktree_name: session.worktree_name,
           model_label: canonicalModelLabel,
+          model_labels: [],
           total_cost: 0,
           total_tokens: 0,
           input_tokens: 0,
@@ -277,6 +281,7 @@ export class UsageAnalyticsService {
         sessionBucket.cache_write_tokens += entry.cache_write_tokens
         sessionBucket.cache_read_tokens += entry.cache_read_tokens
         sessionBucket.model_label = canonicalModelLabel
+        appendUnique(sessionBucket.model_labels, canonicalModelLabel)
         if (entry.occurred_at > sessionBucket.last_used_at) {
           sessionBucket.last_used_at = entry.occurred_at
         }
@@ -397,7 +402,7 @@ export class UsageAnalyticsService {
   async fetchSessionSummary(sessionId: string): Promise<UsageAnalyticsSessionSummaryResult> {
     try {
       const session = this.db
-        .getUsageAnalyticsSessions(['claude-code', 'codex'])
+        .getUsageAnalyticsSessions(['claude-code', 'codex'], 'all')
         .find((item) => item.id === sessionId)
 
       if (!session) {
@@ -456,7 +461,7 @@ export class UsageAnalyticsService {
   }
 
   async resync(): Promise<UsageAnalyticsResyncResult> {
-    const sessions = this.db.getUsageAnalyticsSessions(['claude-code', 'codex'])
+    const sessions = this.db.getUsageAnalyticsSessions(['claude-code', 'codex'], 'all')
     const syncStates = new Map(
       this.db.getUsageSyncStates().map((state) => [state.session_id, state] as const)
     )

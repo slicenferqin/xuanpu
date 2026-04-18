@@ -23,6 +23,7 @@ import type { ThreadStatusRowData } from './ThreadStatusRow'
 import { MissionControl, type MissionTask } from './MissionControl'
 import { InterruptDock } from './InterruptDock'
 import { ComposerBar } from './ComposerBar'
+import { ForkFromMessageConfirmDialog } from './ForkFromMessageConfirmDialog'
 import { PlanReadyImplementFab } from '../sessions/PlanReadyImplementFab'
 import { useSessionRuntimeStore } from '@/stores/useSessionRuntimeStore'
 import { useSessionStore } from '@/stores/useSessionStore'
@@ -57,6 +58,12 @@ import {
 } from '@/lib/token-utils'
 import { applySessionContextUsage } from '@/lib/context-usage'
 import { lastSendMode } from '@/lib/message-send-times'
+import {
+  getMessageDisplayContent,
+  getUserMessageForkCutoff,
+  restoreMessageModePrefix
+} from '@/lib/message-actions'
+import { useI18n } from '@/i18n/useI18n'
 import { toast } from 'sonner'
 
 // ---------------------------------------------------------------------------
@@ -192,6 +199,7 @@ export interface SessionShellProps {
 }
 
 export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Element {
+  const { t } = useI18n()
   // --- Data sources ---
   const sessionRecord = useSessionStore((state) => {
     for (const sessions of state.sessionsByWorktree.values()) {
@@ -328,6 +336,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   }, [resolvedModel, sessionRecord?.model_provider_id, sessionRecord?.model_id])
   const currentModelId = resolvedModel?.modelID ?? ''
   const currentProviderId = resolvedModel?.providerID ?? ''
+  const skipForkFromMessageConfirm = useSettingsStore((s) => s.skipForkFromMessageConfirm)
 
   // --- Live streaming state (view-layer) ---
   // Restore from buffer on mount so switching away mid-stream and back
@@ -346,6 +355,11 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
   // Incremented when session.commands_available fires — triggers ComposerBar re-fetch
   const [commandsVersion, setCommandsVersion] = useState(0)
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
+  const [editingContent, setEditingContent] = useState('')
+  const [forkingMessageId, setForkingMessageId] = useState<string | null>(null)
+  const [pendingForkMessageId, setPendingForkMessageId] = useState<string | null>(null)
+  const [forkConfirmDismissChecked, setForkConfirmDismissChecked] = useState(false)
 
   const streamingContentRef = useRef(_initBuffer?.streamingContent ?? '')
 
@@ -400,6 +414,13 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     () => missionTasks.length > 0 && missionTasks.every((t) => t.status === 'completed'),
     [missionTasks]
   )
+
+  const lastUserMessageId = useMemo(() => {
+    for (let i = timelineMessages.length - 1; i >= 0; i--) {
+      if (timelineMessages[i].role === 'user') return timelineMessages[i].id
+    }
+    return null
+  }, [timelineMessages])
 
   const hasDurableCompactionMessage = useMemo(
     () =>
@@ -1119,6 +1140,187 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     [worktreePath, droidSessionId, sessionId, appendOptimistic, flushBuffer, requestModel]
   )
 
+  const canEditUserMessage = useCallback(
+    (message: TimelineMessage) =>
+      message.role === 'user'
+      && message.id === lastUserMessageId
+      && !isStreaming
+      && lifecycle !== 'busy'
+      && lifecycle !== 'materializing',
+    [lastUserMessageId, isStreaming, lifecycle]
+  )
+
+  const handleEditUserMessage = useCallback((message: TimelineMessage) => {
+    setEditingMessageId(message.id)
+    setEditingContent(getMessageDisplayContent(message.content))
+  }, [])
+
+  const handleCancelUserMessageEdit = useCallback(() => {
+    setEditingMessageId(null)
+    setEditingContent('')
+  }, [])
+
+  const handleSaveUserMessageEdit = useCallback(
+    async (messageId: string) => {
+      const trimmedContent = editingContent.trim()
+      if (!trimmedContent || !worktreePath || !droidSessionId) return
+
+      const messageIndex = timelineMessages.findIndex((message) => message.id === messageId)
+      if (messageIndex === -1) return
+
+      const originalMessage = timelineMessages[messageIndex]
+      const contentToSend = restoreMessageModePrefix(originalMessage.content, trimmedContent)
+      const trimmedMessages = timelineMessages.slice(0, messageIndex)
+
+      setMessages(trimmedMessages)
+      timelineMessagesRef.current = trimmedMessages
+      optimisticRef.current = optimisticRef.current.filter(
+        (message) => trimmedMessages.some((candidate) => candidate.id === message.id)
+      )
+      setEditingMessageId(null)
+      setEditingContent('')
+
+      streamingContentRef.current = ''
+      setStreamingContent('')
+      streamingPartsRef.current = []
+      setStreamingParts([])
+      childPartsMapRef.current.clear()
+      setChildPartsMap(new Map())
+      setIsStreaming(true)
+      clearStreamingBuffer(sessionId)
+
+      const optimisticMsg: TimelineMessage = {
+        id: `optimistic-${Date.now()}`,
+        role: 'user',
+        content: trimmedContent,
+        timestamp: new Date().toISOString()
+      }
+      appendOptimistic(optimisticMsg)
+      timelineMessagesRef.current = [...trimmedMessages, optimisticMsg]
+      flushBuffer()
+
+      try {
+        const consumed = await executeSendAction('send', contentToSend, [], {
+          worktreePath,
+          sessionId: droidSessionId,
+          prompt: (wp, sid, content) => window.agentOps.prompt(wp, sid, content, requestModel),
+          abort: (wp, sid) => window.agentOps.abort(wp, sid),
+          queueMessage: (sid, msg) => useSessionRuntimeStore.getState().queueMessage(sid, msg)
+        })
+
+        if (!consumed) {
+          setIsStreaming(false)
+        }
+      } catch (error) {
+        console.error('[SessionShell] edit resend failed:', error)
+        toast.error(t('sessionView.toasts.messageError'))
+        setIsStreaming(false)
+      }
+    },
+    [
+      editingContent,
+      worktreePath,
+      droidSessionId,
+      timelineMessages,
+      setMessages,
+      sessionId,
+      appendOptimistic,
+      flushBuffer,
+      requestModel,
+      t,
+      optimisticRef
+    ]
+  )
+
+  const performForkFromUserMessage = useCallback(
+    async (messageId: string) => {
+      if (forkingMessageId || !worktreePath || !droidSessionId) {
+        toast.error(t('sessionView.toasts.forkNotReady'))
+        return
+      }
+
+      const sourceSession = sessionRecord ?? (await window.db.session.get(sessionId))
+      if (!sourceSession) {
+        toast.error(t('sessionView.toasts.forkNotReady'))
+        return
+      }
+
+      const targetWorktreeId = worktreeId ?? sourceSession.worktree_id
+      if (!targetWorktreeId) {
+        toast.error(t('sessionView.toasts.forkNoWorktree'))
+        return
+      }
+
+      const message = timelineMessages.find((candidate) => candidate.id === messageId)
+      if (!message) {
+        toast.error(t('sessionView.toasts.forkMessageNotFound'))
+        return
+      }
+
+      const cutoffMessageId = getUserMessageForkCutoff(timelineMessages, messageId)
+      setForkingMessageId(messageId)
+
+      try {
+        const forkResult = await window.agentOps.fork(worktreePath, droidSessionId, cutoffMessageId)
+        if (!forkResult.success || !forkResult.sessionId) {
+          throw new Error(forkResult.error || t('sessionView.toasts.forkFailed'))
+        }
+
+        const fallbackForkName = sourceSession.name ? `${sourceSession.name} (fork)` : null
+        const forkedSession = await window.db.session.create({
+          worktree_id: targetWorktreeId,
+          project_id: sourceSession.project_id,
+          name: fallbackForkName,
+          opencode_session_id: forkResult.sessionId,
+          model_provider_id: sourceSession.model_provider_id,
+          model_id: sourceSession.model_id,
+          model_variant: sourceSession.model_variant
+        })
+
+        await useSessionStore.getState().loadSessions(targetWorktreeId, sourceSession.project_id)
+        useSessionStore.getState().setActiveSession(forkedSession.id)
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : t('sessionView.toasts.forkFailed'))
+      } finally {
+        setForkingMessageId(null)
+        setPendingForkMessageId(null)
+      }
+    },
+    [
+      droidSessionId,
+      forkingMessageId,
+      sessionId,
+      sessionRecord,
+      timelineMessages,
+      t,
+      worktreeId,
+      worktreePath
+    ]
+  )
+
+  const handleForkUserMessage = useCallback(
+    async (message: TimelineMessage) => {
+      if (skipForkFromMessageConfirm) {
+        await performForkFromUserMessage(message.id)
+        return
+      }
+
+      setForkConfirmDismissChecked(false)
+      setPendingForkMessageId(message.id)
+    },
+    [performForkFromUserMessage, skipForkFromMessageConfirm]
+  )
+
+  const handleConfirmForkFromMessage = useCallback(async () => {
+    if (!pendingForkMessageId) return
+
+    if (forkConfirmDismissChecked) {
+      await useSettingsStore.getState().updateSetting('skipForkFromMessageConfirm', true)
+    }
+
+    await performForkFromUserMessage(pendingForkMessageId)
+  }, [forkConfirmDismissChecked, pendingForkMessageId, performForkFromUserMessage])
+
   // --- Plan implement/handoff handlers ---
   const handlePlanImplement = useCallback(async () => {
     if (!worktreePath || !droidSessionId || !pendingPlan) return
@@ -1273,6 +1475,16 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           sessionId={sessionId}
           worktreePath={worktreePath}
           childPartsMap={childPartsMap}
+          canEditUserMessage={canEditUserMessage}
+          editingMessageId={editingMessageId}
+          editingContent={editingContent}
+          onEditingContentChange={setEditingContent}
+          onSaveUserMessageEdit={handleSaveUserMessageEdit}
+          onCancelUserMessageEdit={handleCancelUserMessageEdit}
+          onEditUserMessage={handleEditUserMessage}
+          onForkUserMessage={handleForkUserMessage}
+          onCopyUserMessage={() => {}}
+          forkingMessageId={forkingMessageId}
         />
 
         <InterruptDock
@@ -1300,6 +1512,19 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           pendingPlan={pendingPlan}
           worktreePath={worktreePath}
           commandsVersion={commandsVersion}
+        />
+
+        <ForkFromMessageConfirmDialog
+          open={pendingForkMessageId !== null}
+          dontShowAgain={forkConfirmDismissChecked}
+          onDontShowAgainChange={setForkConfirmDismissChecked}
+          onCancel={() => {
+            setPendingForkMessageId(null)
+            setForkConfirmDismissChecked(false)
+          }}
+          onConfirm={() => {
+            void handleConfirmForkFromMessage()
+          }}
         />
       </div>
     </div>

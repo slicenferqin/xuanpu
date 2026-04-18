@@ -3,10 +3,12 @@ import { BarChart3, Loader2, RefreshCw, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/i18n/useI18n'
+import { formatModelLabelSummary } from '@/lib/model-labels'
 import { useUsageAnalyticsStore } from '@/stores'
 
 const RANGE_OPTIONS = ['today', '7d', '30d', 'all'] as const
 const ENGINE_OPTIONS = ['all', 'claude-code', 'codex'] as const
+const SESSION_STATUS_OPTIONS = ['all', 'active', 'archived'] as const
 const TAB_OPTIONS = ['overview', 'models', 'projects', 'sessions', 'timeline'] as const
 
 function formatCurrency(amount: number): string {
@@ -34,6 +36,7 @@ export function SettingsUsage(): React.JSX.Element {
     error,
     setRange,
     setEngine,
+    setSessionStatus,
     setActiveTab,
     fetchDashboard,
     resyncAndRefresh
@@ -42,13 +45,13 @@ export function SettingsUsage(): React.JSX.Element {
 
   useEffect(() => {
     void fetchDashboard()
-  }, [filters.range, filters.engine, fetchDashboard])
+  }, [filters.range, filters.engine, filters.sessionStatus, fetchDashboard])
 
   useEffect(() => {
     if (!dashboard || isResyncing) return
     if (dashboard.sync.stale_session_count <= 0) return
 
-    const syncKey = `${dashboard.filters.range}:${dashboard.filters.engine}:${dashboard.generated_at}`
+    const syncKey = `${dashboard.filters.range}:${dashboard.filters.engine}:${dashboard.filters.sessionStatus}:${dashboard.generated_at}`
     if (backgroundSyncedKeyRef.current === syncKey) return
 
     backgroundSyncedKeyRef.current = syncKey
@@ -138,6 +141,27 @@ export function SettingsUsage(): React.JSX.Element {
               data-testid={`usage-engine-${engine}`}
             >
               {t(`settings.usage.engines.${engine}`)}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-muted-foreground">
+            {t('settings.usage.filters.sessionStatus')}
+          </span>
+          {SESSION_STATUS_OPTIONS.map((status) => (
+            <button
+              key={status}
+              type="button"
+              onClick={() => setSessionStatus(status)}
+              className={cn(
+                'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                filters.sessionStatus === status
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-border bg-background text-muted-foreground hover:text-foreground'
+              )}
+              data-testid={`usage-session-status-${status}`}
+            >
+              {t(`settings.usage.sessionStatus.${status}`)}
             </button>
           ))}
         </div>
@@ -373,14 +397,22 @@ export function SettingsUsage(): React.JSX.Element {
               </div>
               <div className="divide-y divide-border/60">
                 {dashboard.sessions.map((row) => (
-                  <div key={row.session_id} className="grid grid-cols-[minmax(0,1.8fr)_120px_120px_120px_180px] gap-3 px-4 py-3 text-sm">
+                  <div
+                    key={row.session_id}
+                    className="grid grid-cols-[minmax(0,1.8fr)_120px_120px_120px_180px] gap-3 px-4 py-3 text-sm"
+                  >
                     <div className="min-w-0">
                       <div className="truncate font-medium">{row.session_name}</div>
                       <div className="truncate text-xs text-muted-foreground">
                         {row.project_name} · {t(`settings.usage.engines.${row.engine}`)}
                       </div>
                     </div>
-                    <div className="truncate">{row.model_label ?? '-'}</div>
+                    <div
+                      className="truncate"
+                      title={formatModelLabelSummary(row.model_labels)?.full ?? row.model_label ?? undefined}
+                    >
+                      {formatModelLabelSummary(row.model_labels)?.short ?? row.model_label ?? '-'}
+                    </div>
                     <div>{formatTokens(row.total_tokens)}</div>
                     <div className="font-mono">{formatCurrency(row.total_cost)}</div>
                     <div className="text-xs text-muted-foreground">{formatRelativeDate(row.last_used_at)}</div>

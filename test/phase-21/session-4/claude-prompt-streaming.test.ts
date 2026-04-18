@@ -38,6 +38,9 @@ import {
   ClaudeCodeImplementer,
   type ClaudeSessionState
 } from '../../../src/main/services/claude-code-implementer'
+import { readClaudeTranscript } from '../../../src/main/services/claude-transcript-reader'
+
+const readClaudeTranscriptMock = vi.mocked(readClaudeTranscript)
 
 function createMockWindow(): BrowserWindow {
   return {
@@ -77,6 +80,7 @@ describe('ClaudeCodeImplementer – prompt streaming (Session 4)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    readClaudeTranscriptMock.mockResolvedValue([])
     impl = new ClaudeCodeImplementer()
     sessions = (impl as any).sessions
     mockWindow = createMockWindow()
@@ -459,6 +463,65 @@ describe('ClaudeCodeImplementer – prompt streaming (Session 4)', () => {
 
       // DB should NOT be updated since session was already materialized
       expect(mockDb.updateSession).not.toHaveBeenCalled()
+    })
+
+    it('reconciles final assistant usage from transcript before persisting messages', async () => {
+      const mockDb = {
+        updateSession: vi.fn(),
+        getSession: vi.fn(),
+        replaceSessionMessages: vi.fn()
+      }
+      impl.setDatabaseService(mockDb as any)
+
+      readClaudeTranscriptMock.mockResolvedValue([
+        {
+          id: 'assistant-final-1',
+          role: 'assistant',
+          timestamp: '2026-04-18T10:00:01.000Z',
+          content: 'Done.',
+          parts: [{ type: 'text', text: 'Done.' }],
+          usage: {
+            input_tokens: 1,
+            output_tokens: 42,
+            cache_creation_input_tokens: 63194,
+            cache_read_input_tokens: 0
+          },
+          model: 'claude-opus-4-7',
+          cost: 0.395111
+        }
+      ])
+
+      const { sessionId } = await impl.connect('/proj', 'hive-1')
+      const iter = createMockQueryIterator([
+        {
+          type: 'assistant',
+          session_id: 'real-sdk-id',
+          uuid: 'assistant-final-1',
+          message: {
+            id: 'assistant-message-1',
+            role: 'assistant',
+            content: [{ type: 'text', text: 'Done.' }],
+            usage: {
+              input_tokens: 1,
+              output_tokens: 1,
+              cache_creation_input_tokens: 63194,
+              cache_read_input_tokens: 0
+            },
+            model: 'claude-opus-4-7'
+          }
+        }
+      ])
+      mockQuery.mockReturnValue(iter)
+
+      await impl.prompt('/proj', sessionId, 'hello')
+
+      const lastPersistCall = mockDb.replaceSessionMessages.mock.calls.at(-1)
+      expect(lastPersistCall).toBeDefined()
+
+      const persistedRows = lastPersistCall?.[1] as Array<{ opencode_message_json: string }>
+      const persistedMessage = JSON.parse(persistedRows[0].opencode_message_json)
+      expect(persistedMessage.usage.output_tokens).toBe(42)
+      expect(persistedMessage.cost).toBe(0.395111)
     })
   })
 

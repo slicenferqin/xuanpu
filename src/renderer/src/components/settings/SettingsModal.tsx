@@ -10,7 +10,8 @@ import {
   Shield,
   Eye,
   Sparkles,
-  BarChart3
+  BarChart3,
+  Archive
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { useSettingsStore } from '@/stores/useSettingsStore'
@@ -25,6 +26,7 @@ import { SettingsUpdates } from './SettingsUpdates'
 import { SettingsSecurity } from './SettingsSecurity'
 import { SettingsPrivacy } from './SettingsPrivacy'
 import { SettingsUsage } from './SettingsUsage'
+import { SettingsArchivedChats } from './SettingsArchivedChats'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/i18n/useI18n'
 
@@ -37,6 +39,7 @@ const SECTIONS = [
   { id: 'security', icon: Shield },
   { id: 'privacy', icon: Eye },
   { id: 'usage', icon: BarChart3 },
+  { id: 'archivedChats', icon: Archive },
   { id: 'shortcuts', icon: Keyboard },
   { id: 'updates', icon: Download }
 ] as const
@@ -66,7 +69,9 @@ export function SettingsModal(): React.JSX.Element {
       <DialogContent
         className={cn(
           'p-0 gap-0 overflow-hidden',
-          activeSection === 'usage' ? 'max-w-[min(96vw,1280px)] h-[88vh]' : 'max-w-3xl h-[70vh]'
+          activeSection === 'usage' || activeSection === 'archivedChats'
+            ? 'max-w-[min(96vw,1280px)] h-[88vh]'
+            : 'max-w-3xl h-[70vh]'
         )}
         data-testid="settings-modal"
       >
@@ -108,6 +113,7 @@ export function SettingsModal(): React.JSX.Element {
             {activeSection === 'security' && <SettingsSecurity />}
             {activeSection === 'privacy' && <SettingsPrivacy />}
             {activeSection === 'usage' && <SettingsUsage />}
+            {activeSection === 'archivedChats' && <SettingsArchivedChats />}
             {activeSection === 'shortcuts' && <SettingsShortcuts />}
             {activeSection === 'updates' && <SettingsUpdates />}
           </div>

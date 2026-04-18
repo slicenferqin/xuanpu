@@ -272,6 +272,10 @@ export function registerDatabaseHandlers(): void {
     return getDatabase().archiveSession(id)
   })
 
+  ipcMain.handle('db:session:restore', (_event, id: string) => {
+    return getDatabase().restoreSession(id)
+  })
+
   ipcMain.handle('db:session:getByConnection', (_event, connectionId: string) => {
     return getDatabase().getSessionsByConnection(connectionId)
   })

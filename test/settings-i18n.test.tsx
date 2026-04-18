@@ -177,6 +177,8 @@ describe('Settings i18n', () => {
     expect(translate('zh-CN', 'setupTab.empty.configure')).toBe('配置 setup 脚本')
     expect(translate('zh-CN', 'setupTab.actions.rerun')).toBe('重新运行 Setup')
     expect(translate('zh-CN', 'copyMessageButton.ariaLabel')).toBe('复制消息')
+    expect(translate('zh-CN', 'editMessageButton.ariaLabel')).toBe('编辑消息')
+    expect(translate('zh-CN', 'dialogs.forkFromMessage.dismiss')).toBe('不再显示')
     expect(translate('zh-CN', 'codeBlock.toasts.copied')).toBe('代码已复制到剪贴板')
     expect(translate('zh-CN', 'errorFallback.title')).toBe('出了点问题')
     expect(translate('zh-CN', 'errorFallback.retry')).toBe('重试')

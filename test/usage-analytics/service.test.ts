@@ -88,13 +88,18 @@ describeDb('UsageAnalyticsService', () => {
     expect(entries).toHaveLength(1)
     expect(entries[0].cost).toBe(0.42)
 
-    const dashboard = await service.fetchDashboard({ range: 'all', engine: 'all' })
+    const dashboard = await service.fetchDashboard({
+      range: 'all',
+      engine: 'all',
+      sessionStatus: 'all'
+    })
     expect(dashboard.success).toBe(true)
     expect(dashboard.data?.total_cost).toBe(0.42)
     expect(dashboard.data?.total_sessions).toBe(1)
     expect(dashboard.data?.by_engine.find((row) => row.engine === 'codex')?.total_cost).toBe(0.42)
     expect(dashboard.data?.by_project[0].project_name).toBe('Xuanpu')
     expect(dashboard.data?.sessions[0].session_name).toBe('Codex usage session')
+    expect(dashboard.data?.sessions[0].model_labels).toEqual(['GPT-5.4'])
   })
 
   it('syncs Claude transcript usage into session summary totals', async () => {
@@ -165,6 +170,66 @@ describeDb('UsageAnalyticsService', () => {
     expect(db.getUsageEntriesBySession(session.id)).toHaveLength(3)
   })
 
+  it('aggregates session dashboard rows with all participating model labels', async () => {
+    const project = db.createProject({ name: 'Mixed Models', path: '/tmp/mixed-models' })
+    const worktree = db.createWorktree({
+      project_id: project.id,
+      path: '/tmp/mixed-models',
+      name: 'main',
+      branch_name: 'main',
+      is_default: true
+    })
+    db.createSession({
+      worktree_id: worktree.id,
+      project_id: project.id,
+      name: 'Mixed model session',
+      opencode_session_id: 'claude-mixed',
+      agent_sdk: 'claude-code',
+      model_provider_id: 'claude-code',
+      model_id: 'opus'
+    })
+
+    mockReadClaudeTranscriptUsage.mockResolvedValue({
+      entries: [
+        {
+          sourceMessageId: 'assistant-1',
+          occurredAt: '2026-04-04T08:00:00.000Z',
+          model: 'claude-sonnet-4-6',
+          inputTokens: 100,
+          outputTokens: 20,
+          cacheWriteTokens: 10,
+          cacheReadTokens: 5,
+          totalTokens: 135,
+          cost: 0.001
+        },
+        {
+          sourceMessageId: 'assistant-2',
+          occurredAt: '2026-04-04T08:05:00.000Z',
+          model: 'claude-opus-4-7',
+          inputTokens: 200,
+          outputTokens: 40,
+          cacheWriteTokens: 20,
+          cacheReadTokens: 10,
+          totalTokens: 270,
+          cost: 0.002
+        }
+      ],
+      filePath: '/tmp/mixed-transcript.jsonl',
+      mtimeMs: 456
+    })
+
+    await service.resync()
+    const dashboard = await service.fetchDashboard({
+      range: 'all',
+      engine: 'all',
+      sessionStatus: 'all'
+    })
+
+    expect(dashboard.success).toBe(true)
+    expect(dashboard.data?.sessions[0].model_labels).toEqual(['Sonnet 4.6', 'Opus 4.7'])
+    expect(dashboard.data?.sessions[0].model_label).toBe('Opus 4.7')
+  })
+
   it('marks missing Claude transcript data as partial instead of zero-cost data', async () => {
     const project = db.createProject({
       name: 'Missing Transcript',
@@ -193,11 +258,95 @@ describeDb('UsageAnalyticsService', () => {
     })
 
     await service.resync()
-    const dashboard = await service.fetchDashboard({ range: 'all', engine: 'all' })
+    const dashboard = await service.fetchDashboard({
+      range: 'all',
+      engine: 'all',
+      sessionStatus: 'all'
+    })
 
     expect(dashboard.success).toBe(true)
     expect(dashboard.data?.partial_sessions).toHaveLength(1)
     expect(dashboard.data?.total_cost).toBe(0)
+  })
+
+  it('filters dashboard totals by archived session status', async () => {
+    const project = db.createProject({ name: 'Archive Filter', path: '/tmp/archive-filter' })
+    const activeSession = db.createSession({
+      worktree_id: null,
+      project_id: project.id,
+      name: 'Active session',
+      agent_sdk: 'codex'
+    })
+    const archivedSession = db.createSession({
+      worktree_id: null,
+      project_id: project.id,
+      name: 'Archived session',
+      agent_sdk: 'codex'
+    })
+
+    db.archiveSession(archivedSession.id)
+
+    db.upsertUsageEntry({
+      session_id: activeSession.id,
+      project_id: project.id,
+      worktree_id: null,
+      agent_sdk: 'codex',
+      source_kind: 'codex-message',
+      source_message_id: 'active-msg',
+      provider_id: 'codex',
+      model_id: 'gpt-5.4',
+      model_label: 'gpt-5.4',
+      input_tokens: 100,
+      output_tokens: 10,
+      cache_write_tokens: 0,
+      cache_read_tokens: 0,
+      total_tokens: 110,
+      cost: 0.1,
+      occurred_at: '2026-04-04T08:00:00.000Z'
+    })
+    db.upsertUsageEntry({
+      session_id: archivedSession.id,
+      project_id: project.id,
+      worktree_id: null,
+      agent_sdk: 'codex',
+      source_kind: 'codex-message',
+      source_message_id: 'archived-msg',
+      provider_id: 'codex',
+      model_id: 'gpt-5.4',
+      model_label: 'gpt-5.4',
+      input_tokens: 200,
+      output_tokens: 20,
+      cache_write_tokens: 0,
+      cache_read_tokens: 0,
+      total_tokens: 220,
+      cost: 0.2,
+      occurred_at: '2026-04-04T09:00:00.000Z'
+    })
+
+    const allDashboard = await service.fetchDashboard({
+      range: 'all',
+      engine: 'all',
+      sessionStatus: 'all'
+    })
+    const activeDashboard = await service.fetchDashboard({
+      range: 'all',
+      engine: 'all',
+      sessionStatus: 'active'
+    })
+    const archivedDashboard = await service.fetchDashboard({
+      range: 'all',
+      engine: 'all',
+      sessionStatus: 'archived'
+    })
+
+    expect(allDashboard.data?.total_cost).toBeCloseTo(0.3, 10)
+    expect(allDashboard.data?.total_sessions).toBe(2)
+    expect(activeDashboard.data?.total_cost).toBeCloseTo(0.1, 10)
+    expect(activeDashboard.data?.total_sessions).toBe(1)
+    expect(activeDashboard.data?.sessions[0].session_id).toBe(activeSession.id)
+    expect(archivedDashboard.data?.total_cost).toBeCloseTo(0.2, 10)
+    expect(archivedDashboard.data?.total_sessions).toBe(1)
+    expect(archivedDashboard.data?.sessions[0].session_id).toBe(archivedSession.id)
   })
 })
 

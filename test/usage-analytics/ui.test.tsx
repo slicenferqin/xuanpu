@@ -18,7 +18,7 @@ describe('usage analytics UI', () => {
 
     useSettingsStore.setState((state) => ({ ...state, locale: 'en' }))
     useUsageAnalyticsStore.setState({
-      filters: { range: '7d', engine: 'all' },
+      filters: { range: '7d', engine: 'all', sessionStatus: 'all' },
       activeTab: 'overview',
       dashboard: null,
       isLoading: false,
@@ -70,7 +70,7 @@ describe('usage analytics UI', () => {
     expect(screen.getByText('2m 5s')).toBeTruthy()
   })
 
-  it('falls back to live token totals when summary is partial and still zeroed', async () => {
+  it('keeps session cost visible while token totals are still syncing', async () => {
     const user = userEvent.setup()
 
     render(
@@ -103,9 +103,8 @@ describe('usage analytics UI', () => {
     expect(screen.getByTestId('session-cost-pill')).toHaveTextContent('$0.2374')
     await user.click(screen.getByTestId('session-cost-pill'))
 
-    expect(screen.getByText('37.8K')).toBeTruthy()
-    expect(screen.getByText('3')).toBeTruthy()
-    expect(screen.getByText('66')).toBeTruthy()
+    expect(screen.getByText('Session totals are syncing…')).toBeTruthy()
+    expect(screen.queryByText('37.8K')).toBeNull()
   })
 
   it('renders settings usage dashboard and supports tab switching', async () => {
@@ -113,7 +112,7 @@ describe('usage analytics UI', () => {
     fetchDashboardMock.mockResolvedValue({
       success: true,
       data: {
-        filters: { range: '7d', engine: 'all' },
+        filters: { range: '7d', engine: 'all', sessionStatus: 'all' },
         generated_at: '2026-04-04T12:00:00.000Z',
         total_cost: 12.34,
         total_tokens: 34000,
@@ -162,6 +161,7 @@ describe('usage analytics UI', () => {
             project_path: '/tmp/xuanpu',
             worktree_name: 'bloodhound',
             model_label: 'Sonnet 4.6',
+            model_labels: ['Opus 4.7', 'Sonnet 4.6'],
             total_cost: 12.34,
             total_tokens: 34000,
             input_tokens: 22000,
@@ -212,6 +212,11 @@ describe('usage analytics UI', () => {
     await user.click(screen.getByTestId('usage-engine-codex'))
     await waitFor(() => {
       expect(fetchDashboardMock).toHaveBeenCalledTimes(2)
+    })
+
+    await user.click(screen.getByTestId('usage-session-status-archived'))
+    await waitFor(() => {
+      expect(fetchDashboardMock).toHaveBeenCalledTimes(3)
     })
   })
 })

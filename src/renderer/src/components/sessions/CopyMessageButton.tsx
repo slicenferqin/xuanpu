@@ -3,12 +3,23 @@ import { Copy, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from '@/lib/toast'
 import { useI18n } from '@/i18n/useI18n'
+import { cn } from '@/lib/utils'
 
 interface CopyMessageButtonProps {
   content: string
+  className?: string
+  showOnHoverClassName?: string
+  onCopy?: () => void
+  unstyled?: boolean
 }
 
-export function CopyMessageButton({ content }: CopyMessageButtonProps) {
+export function CopyMessageButton({
+  content,
+  className,
+  showOnHoverClassName = 'group-hover:opacity-100',
+  onCopy,
+  unstyled = false
+}: CopyMessageButtonProps) {
   const { t } = useI18n()
   const [copied, setCopied] = useState(false)
 
@@ -18,6 +29,7 @@ export function CopyMessageButton({ content }: CopyMessageButtonProps) {
     try {
       await navigator.clipboard.writeText(content)
       setCopied(true)
+      onCopy?.()
       toast.success(t('copyMessageButton.toasts.copied'))
       setTimeout(() => setCopied(false), 2000)
     } catch {
@@ -30,7 +42,13 @@ export function CopyMessageButton({ content }: CopyMessageButtonProps) {
       variant="ghost"
       size="sm"
       onClick={handleCopy}
-      className="absolute top-2 right-2 h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity z-10 bg-background/80 backdrop-blur-sm"
+      className={cn(
+        unstyled
+          ? 'h-6 w-6 p-0 opacity-0 transition-opacity z-10 bg-background/80 backdrop-blur-sm'
+          : 'absolute top-2 right-2 h-6 w-6 p-0 opacity-0 transition-opacity z-10 bg-background/80 backdrop-blur-sm',
+        showOnHoverClassName,
+        className
+      )}
       aria-label={t('copyMessageButton.ariaLabel')}
       data-testid="copy-message-button"
     >

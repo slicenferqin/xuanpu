@@ -122,7 +122,7 @@ const db = {
       id: string,
       data: {
         name?: string | null
-        status?: 'active' | 'completed' | 'error'
+        status?: 'active' | 'completed' | 'error' | 'archived'
         opencode_session_id?: string | null
         agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
         mode?: 'build' | 'plan'
@@ -134,6 +134,7 @@ const db = {
       }
     ) => ipcRenderer.invoke('db:session:update', id, data),
     delete: (id: string) => ipcRenderer.invoke('db:session:delete', id),
+    restore: (id: string) => ipcRenderer.invoke('db:session:restore', id),
     search: (options: {
       keyword?: string
       project_id?: string
@@ -141,6 +142,7 @@ const db = {
       dateFrom?: string
       dateTo?: string
       includeArchived?: boolean
+      statusFilter?: 'all' | 'active' | 'archived'
     }) => ipcRenderer.invoke('db:session:search', options),
     getDraft: (sessionId: string) => ipcRenderer.invoke('db:session:getDraft', sessionId),
     updateDraft: (sessionId: string, draft: string | null) =>

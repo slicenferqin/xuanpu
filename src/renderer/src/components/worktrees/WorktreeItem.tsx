@@ -89,8 +89,8 @@ interface WorktreeItemProps {
   onDragEnd?: () => void
 }
 
-const PRIMARY_LABEL_MAX_LENGTH = 28
-const SECONDARY_LABEL_MAX_LENGTH = 18
+const PRIMARY_LABEL_MAX_LENGTH = 18
+const SECONDARY_LABEL_MAX_LENGTH = 14
 
 function truncateMiddle(value: string, maxLength: number): string {
   if (value.length <= maxLength) return value
@@ -530,7 +530,7 @@ export function WorktreeItem({
       <>
         <div
           className={cn(
-            'group flex items-start gap-2 pl-8 pr-1.5 py-2 rounded-lg cursor-pointer transition-colors',
+            'group flex items-center gap-2 pl-8 pr-1.5 py-2 rounded-lg cursor-pointer transition-colors',
             isChecked ? 'bg-accent/30' : 'hover:bg-accent/50',
             isSource && isChecked && 'bg-accent/20',
             isArchiving && 'opacity-50 pointer-events-none'
@@ -543,7 +543,7 @@ export function WorktreeItem({
             checked={isChecked}
             onCheckedChange={() => toggleConnectionModeWorktree(worktree.id)}
             disabled={isSource}
-            className={cn('mt-0.5 h-3.5 w-3.5 shrink-0', isSource && 'opacity-70')}
+            className={cn('h-3.5 w-3.5 shrink-0', isSource && 'opacity-70')}
             onClick={(e) => e.stopPropagation()}
             data-testid={`connection-mode-checkbox-${worktree.id}`}
           />
@@ -589,7 +589,7 @@ export function WorktreeItem({
       <ContextMenuTrigger asChild>
         <div
           className={cn(
-            'group flex items-start gap-2.5 pl-6 pr-2 py-2 rounded-lg cursor-pointer transition-colors',
+            'group flex items-center gap-2.5 pl-6 pr-2 py-2 rounded-lg cursor-pointer transition-colors',
             isSelected
               ? 'bg-sidebar-accent text-sidebar-accent-foreground ring-1 ring-sidebar-border/60 shadow-sm'
               : 'hover:bg-sidebar-accent/70',
@@ -607,9 +607,9 @@ export function WorktreeItem({
           data-testid={`worktree-item-${worktree.id}`}
         >
           {worktree.is_default ? (
-            <Folder className="mt-0.5 h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <Folder className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
           ) : (
-            <GitBranch className="mt-0.5 h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <GitBranch className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
           )}
 
           {/* Worktree Name / Inline Rename Input + Meta Line */}
@@ -713,7 +713,7 @@ export function WorktreeItem({
                 variant="ghost"
                 size="icon"
                 className={cn(
-                  'mt-0.5 h-6 w-6 rounded-md p-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground',
+                  'h-6 w-6 rounded-md p-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground',
                   isSelected && 'opacity-100',
                   'hover:bg-sidebar-accent hover:text-foreground'
                 )}

@@ -139,6 +139,7 @@ function ContextCapsule({
             </div>
           ) : (
             <div className="border-t border-background/20 pt-1.5 space-y-0.5 text-[10px] opacity-80">
+              <div className="text-[10px] opacity-100">Latest turn API usage</div>
               <div>Input: {formatNumber(tokens.input)}</div>
               <div>Cache read: {formatNumber(tokens.cacheRead)}</div>
               <div>Cache write: {formatNumber(tokens.cacheWrite)}</div>
@@ -165,7 +166,7 @@ function ContextCapsule({
 function CostCapsule({
   summary,
   fallbackCost,
-  fallbackTokens
+  fallbackTokens: _fallbackTokens
 }: {
   summary: UsageAnalyticsSessionSummary | null
   fallbackCost: number
@@ -173,15 +174,12 @@ function CostCapsule({
 }): React.JSX.Element | null {
   const totalCost = Math.max(summary?.total_cost ?? 0, fallbackCost ?? 0)
   const hasSummaryTokens = (summary?.total_tokens ?? 0) > 0
-  const totalTokens = hasSummaryTokens
-    ? (summary?.total_tokens ?? 0)
-    : (fallbackTokens?.input ?? 0) +
-      (fallbackTokens?.output ?? 0) +
-      (fallbackTokens?.cacheRead ?? 0) +
-      (fallbackTokens?.cacheWrite ?? 0)
+  const totalTokens = summary?.total_tokens ?? 0
   const modelSummary = formatModelLabelSummary(getSessionSummaryModelLabels(summary))
 
-  if (totalCost <= 0 && totalTokens <= 0) return null
+  void _fallbackTokens
+
+  if (totalCost <= 0 && !hasSummaryTokens) return null
 
   return (
     <Popover>
@@ -207,52 +205,46 @@ function CostCapsule({
           </div>
           <div className="flex items-center justify-between gap-3">
             <span className="text-muted-foreground">Total tokens</span>
-            <span className="font-mono">{formatTokensShort(totalTokens)}</span>
+            {hasSummaryTokens ? (
+              <span className="font-mono">{formatTokensShort(totalTokens)}</span>
+            ) : (
+              <span className="text-muted-foreground">Session totals are syncing…</span>
+            )}
           </div>
-          <div className="grid grid-cols-2 gap-2 border-t border-border/70 pt-2">
-            <div className="rounded-lg bg-muted/45 px-2 py-1.5">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Input</div>
-              <div className="mt-1 font-mono">
-                {formatTokensShort(
-                  hasSummaryTokens ? (summary?.input_tokens ?? 0) : (fallbackTokens?.input ?? 0)
-                )}
+          {hasSummaryTokens ? (
+            <div className="grid grid-cols-2 gap-2 border-t border-border/70 pt-2">
+              <div className="rounded-lg bg-muted/45 px-2 py-1.5">
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Input</div>
+                <div className="mt-1 font-mono">
+                  {formatTokensShort(summary?.input_tokens ?? 0)}
+                </div>
+              </div>
+              <div className="rounded-lg bg-muted/45 px-2 py-1.5">
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  Output
+                </div>
+                <div className="mt-1 font-mono">
+                  {formatTokensShort(summary?.output_tokens ?? 0)}
+                </div>
+              </div>
+              <div className="rounded-lg bg-muted/45 px-2 py-1.5">
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  Cache write
+                </div>
+                <div className="mt-1 font-mono">
+                  {formatTokensShort(summary?.cache_write_tokens ?? 0)}
+                </div>
+              </div>
+              <div className="rounded-lg bg-muted/45 px-2 py-1.5">
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  Cache read
+                </div>
+                <div className="mt-1 font-mono">
+                  {formatTokensShort(summary?.cache_read_tokens ?? 0)}
+                </div>
               </div>
             </div>
-            <div className="rounded-lg bg-muted/45 px-2 py-1.5">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                Output
-              </div>
-              <div className="mt-1 font-mono">
-                {formatTokensShort(
-                  hasSummaryTokens ? (summary?.output_tokens ?? 0) : (fallbackTokens?.output ?? 0)
-                )}
-              </div>
-            </div>
-            <div className="rounded-lg bg-muted/45 px-2 py-1.5">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                Cache write
-              </div>
-              <div className="mt-1 font-mono">
-                {formatTokensShort(
-                  hasSummaryTokens
-                    ? (summary?.cache_write_tokens ?? 0)
-                    : (fallbackTokens?.cacheWrite ?? 0)
-                )}
-              </div>
-            </div>
-            <div className="rounded-lg bg-muted/45 px-2 py-1.5">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                Cache read
-              </div>
-              <div className="mt-1 font-mono">
-                {formatTokensShort(
-                  hasSummaryTokens
-                    ? (summary?.cache_read_tokens ?? 0)
-                    : (fallbackTokens?.cacheRead ?? 0)
-                )}
-              </div>
-            </div>
-          </div>
+          ) : null}
           {modelSummary && (
             <div className="flex items-center justify-between gap-3 border-t border-border/70 pt-2">
               <span className="flex items-center gap-1.5 text-muted-foreground">

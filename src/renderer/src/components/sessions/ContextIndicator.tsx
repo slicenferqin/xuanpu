@@ -117,6 +117,7 @@ export function ContextIndicator({
             </div>
           ) : (
             <div className="border-t border-background/20 pt-1.5 space-y-0.5 text-[10px] opacity-80">
+              <div className="opacity-100 text-[10px]">{t('contextIndicator.latestTurn')}</div>
               <div>
                 {t('contextIndicator.labels.input')}: {formatNumber(tokens.input)}
               </div>
