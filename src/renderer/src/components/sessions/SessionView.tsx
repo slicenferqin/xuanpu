@@ -1495,10 +1495,12 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       //   - window.agentOps.getMessages() → SDK API + mapOpencodeMessagesToSessionViewMessages
       // The timeline service handles all provider-specific mapping internally.
       let timelineLoaded = false
+      let timelineCallSucceeded = false
       if (window.agentOps?.getTimeline) {
         try {
           let timeline = await window.agentOps.getTimeline(sessionId)
           loadedMessages = timeline.messages as OpenCodeMessage[]
+          timelineCallSucceeded = true
 
           // For codex sessions with preferDurableCodex, retry if suspicious
           // role grouping detected (DB not yet fully committed)
@@ -1521,6 +1523,16 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         }
       }
 
+      // For Codex: once `getTimeline` returned successfully, its result is
+      // authoritative — `deriveCodexTimeline` in the main process produces
+      // canonical (turn-aggregated) messages, and the IPC handler already
+      // performs an implementer-flush retry when the DB is momentarily empty.
+      // The legacy `mergeCodexActivityMessages` path below produces a
+      // different (non-canonical) message shape; letting it overwrite the
+      // canonical result causes the transcript to flicker mid-stream as
+      // reloads alternate between the two shapes.
+      const codexTimelineAuthoritative = isCodexSession && timelineCallSucceeded
+
       // Fallback: if the unified timeline returned no messages, try the legacy
       // loading paths. This handles edge cases where:
       //   - The SDK has in-memory messages not yet persisted to DB
@@ -1534,8 +1546,10 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           loadedFromOpenCode = true
           const opencodeMessages = Array.isArray(result.messages) ? result.messages : []
 
-          if (isCodexSession) {
-            // Codex fallback: load activities from DB for merge
+          if (isCodexSession && !codexTimelineAuthoritative) {
+            // Codex fallback: load activities from DB for merge. Only engaged
+            // when getTimeline itself threw — otherwise we preserve whatever
+            // canonical result getTimeline already returned (possibly empty).
             let codexActivities: SessionActivity[] = []
             if (window.db.sessionActivity?.list) {
               codexActivities = await window.db.sessionActivity.list(sessionId)
@@ -1544,7 +1558,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               mapOpencodeMessagesToSessionViewMessages(opencodeMessages),
               codexActivities
             )
-          } else if (loadedMessages.length === 0) {
+          } else if (!isCodexSession && loadedMessages.length === 0) {
             loadedMessages = mapOpencodeMessagesToSessionViewMessages(opencodeMessages)
           }
 
