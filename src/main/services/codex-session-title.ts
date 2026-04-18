@@ -1,6 +1,7 @@
 import { homedir } from 'node:os'
 
 import { CodexAppServerManager, type CodexManagerEvent } from './codex-app-server-manager'
+import { ensureCodexAppServerLaunchSpec } from './codex-binary-resolver'
 import { createLogger } from './logger'
 
 const log = createLogger({ component: 'CodexSessionTitle' })
@@ -169,7 +170,8 @@ export async function generateCodexSessionTitle(
     try {
       const session = await manager.startSession({
         cwd: worktreePath || homedir(),
-        model: TITLE_MODEL
+        model: TITLE_MODEL,
+        codexLaunchSpec: await ensureCodexAppServerLaunchSpec()
       })
 
       threadId = session.threadId

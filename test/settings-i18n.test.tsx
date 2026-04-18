@@ -91,6 +91,7 @@ describe('Settings i18n', () => {
       showModelIcons: false,
       showModelProvider: false,
       showUsageIndicator: true,
+      keepAwakeEnabled: true,
       defaultAgentSdk: 'opencode',
       updateChannel: 'stable',
       stripAtMentions: true,
@@ -120,6 +121,7 @@ describe('Settings i18n', () => {
     expect(screen.getByText('通用')).toBeInTheDocument()
     expect(screen.getByText('语言')).toBeInTheDocument()
     expect(screen.getByText('AI 提供方')).toBeInTheDocument()
+    expect(screen.getByText('会话期间保持唤醒')).toBeInTheDocument()
     expect(screen.getByText('分支命名')).toBeInTheDocument()
     expect(screen.getByTestId('reset-all-settings')).toHaveTextContent('重置全部设置')
   })

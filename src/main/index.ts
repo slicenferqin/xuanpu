@@ -44,6 +44,7 @@ import { CodexImplementer } from './services/codex-implementer'
 import { openCodeService } from './services/opencode-service'
 import { AgentRuntimeManager } from './services/agent-runtime-manager'
 import { resolveClaudeBinaryPath } from './services/claude-binary-resolver'
+import { powerSaveBlockerService } from './services/power-save-blocker'
 import { telemetryService } from './services/telemetry-service'
 import { ensureForkDataDir } from './services/fork-data-migration'
 import { APP_BUNDLE_ID, APP_CLI_NAME, APP_PRODUCT_NAME } from '@shared/app-identity'
@@ -162,8 +163,42 @@ function createWindow(): void {
     mainWindow.maximize()
   }
 
+  let readyToShowFired = false
   mainWindow.on('ready-to-show', () => {
+    readyToShowFired = true
     mainWindow.show()
+  })
+
+  if (process.platform === 'win32') {
+    setTimeout(() => {
+      if (!mainWindow || mainWindow.isDestroyed() || readyToShowFired) return
+      log.warn('ready-to-show did not fire in time, force-showing window', {
+        timeoutMs: 3000
+      })
+      mainWindow.show()
+    }, 3000)
+  }
+
+  mainWindow.webContents.on(
+    'did-fail-load',
+    (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      log.error('Renderer failed to load', new Error(errorDescription), {
+        errorCode,
+        validatedURL,
+        isMainFrame
+      })
+    }
+  )
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    log.error('Renderer process gone', new Error(details.reason), {
+      reason: details.reason,
+      exitCode: details.exitCode
+    })
+  })
+
+  mainWindow.on('unresponsive', () => {
+    log.warn('Main window became unresponsive')
   })
 
   // Emit focus event to renderer for git refresh on window focus
@@ -373,7 +408,7 @@ function registerSystemHandlers(): void {
   })
 
   // Detect which agent SDKs are installed on the system (first-launch setup)
-  ipcMain.handle('system:detectAgentRuntimes', () => {
+  ipcMain.handle('system:detectAgentRuntimes', async () => {
     return detectAgentSdks()
   })
 
@@ -413,6 +448,15 @@ function registerSystemHandlers(): void {
   // Get the current platform (darwin, win32, linux)
   ipcMain.handle('system:getPlatform', () => {
     return process.platform
+  })
+
+  ipcMain.handle('system:setKeepAwakeEnabled', (_event, enabled: boolean) => {
+    if (enabled) {
+      powerSaveBlockerService.enable()
+    } else {
+      powerSaveBlockerService.disable()
+    }
+    return { success: true }
   })
 
   // Set the UI zoom level (clamped to Electron's -5..5 range)
@@ -708,6 +752,9 @@ app.whenReady().then(async () => {
     // dock icon is clicked and there are no other windows open.
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+}).catch((error) => {
+  log.error('Fatal app startup error', error instanceof Error ? error : new Error(String(error)))
+  app.quit()
 })
 
 // Quit when all windows are closed, except on macOS. There, it's common

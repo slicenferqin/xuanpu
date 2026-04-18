@@ -13,11 +13,13 @@ import { createLogger } from './logger'
 import { CodexAppServerManager, type CodexManagerEvent } from './codex-app-server-manager'
 import { mapCodexManagerEventToActivity } from './codex-activity-mapper'
 import { mapCodexEventToStreamEvents, contentStreamKindFromMethod } from './codex-event-mapper'
+import { ensureCodexAppServerLaunchSpec } from './codex-binary-resolver'
 import { asNumber, asObject, asString } from './codex-utils'
 import { generateCodexSessionTitle } from './codex-session-title'
 import type { DatabaseService } from '../db/database'
 import { autoRenameWorktreeBranch } from './git-service'
 import { emitAgentEvent } from '@shared/lib/normalize-agent-event'
+import { notificationService } from './notification-service'
 
 const log = createLogger({ component: 'CodexImplementer' })
 
@@ -136,6 +138,46 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
 
   setDatabaseService(db: DatabaseService): void {
     this.dbService = db
+  }
+
+  private async resolveLaunchSpec() {
+    return ensureCodexAppServerLaunchSpec()
+  }
+
+  private maybeNotifyPendingUserFeedback(
+    hiveSessionId: string,
+    kind: 'question' | 'approval'
+  ): void {
+    try {
+      if (!this.mainWindow || this.mainWindow.isDestroyed() || this.mainWindow.isFocused()) {
+        return
+      }
+
+      if (!this.dbService) return
+
+      const session = this.dbService.getSession(hiveSessionId)
+      if (!session) return
+
+      const project = this.dbService.getProject(session.project_id)
+      if (!project) return
+
+      notificationService.showPendingUserFeedback(
+        {
+          projectName: project.name,
+          sessionName: session.name || 'Untitled',
+          projectId: session.project_id,
+          worktreeId: session.worktree_id || '',
+          sessionId: hiveSessionId
+        },
+        kind
+      )
+    } catch (error) {
+      log.warn('Failed to show pending user feedback notification', {
+        hiveSessionId,
+        kind,
+        error
+      })
+    }
   }
 
   // ── Manager event listener (handles approval/question routing) ──
@@ -267,6 +309,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
           event.itemId
         )
       })
+      this.maybeNotifyPendingUserFeedback(targetSession.hiveSessionId, 'approval')
       return
     }
 
@@ -291,6 +334,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
           questions
         }
       })
+      this.maybeNotifyPendingUserFeedback(targetSession.hiveSessionId, 'question')
     }
   }
 
@@ -332,7 +376,8 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
 
     const providerSession = await this.manager.startSession({
       cwd: worktreePath,
-      model: resolvedModel
+      model: resolvedModel,
+      codexLaunchSpec: await this.resolveLaunchSpec()
     })
 
     const threadId = providerSession.threadId
@@ -401,7 +446,8 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       const providerSession = await this.manager.startSession({
         cwd: worktreePath,
         model: resolvedModel,
-        resumeThreadId: agentSessionId
+        resumeThreadId: agentSessionId,
+        codexLaunchSpec: await this.resolveLaunchSpec()
       })
 
       const threadId = providerSession.threadId
@@ -1696,10 +1742,43 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     if (isComplete()) return Promise.resolve()
 
     return new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        cleanup()
-        reject(new Error('Turn timed out'))
-      }, timeoutMs)
+      let remainingMs = timeoutMs
+      let timerStartedAt = Date.now()
+      let timer: ReturnType<typeof setTimeout> | null = null
+
+      const hasPendingHitlForThread = (): boolean => {
+        for (const entry of this.pendingQuestions.values()) {
+          if (entry.threadId === session.threadId) return true
+        }
+        for (const entry of this.pendingApprovalSessions.values()) {
+          if (entry.threadId === session.threadId) return true
+        }
+        return false
+      }
+
+      const clearTimer = () => {
+        if (timer) {
+          clearTimeout(timer)
+          timer = null
+        }
+      }
+
+      const startTimer = () => {
+        clearTimer()
+        timerStartedAt = Date.now()
+        timer = setTimeout(() => {
+          cleanup()
+          reject(new Error('Turn timed out'))
+        }, remainingMs)
+      }
+
+      const pauseTimer = () => {
+        if (!timer) return
+        clearTimeout(timer)
+        timer = null
+        const elapsed = Date.now() - timerStartedAt
+        remainingMs = Math.max(0, remainingMs - elapsed)
+      }
 
       const checkEvent = (event: CodexManagerEvent) => {
         if (event.threadId !== session.threadId) return
@@ -1739,14 +1818,33 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
           cleanup()
           reject(new Error(reason))
         }
+
+        if (event.kind === 'request') {
+          pauseTimer()
+          return
+        }
+
+        const hitlStateChanged =
+          event.method === 'item/tool/requestUserInput/answered' ||
+          event.method === 'approval/responded' ||
+          event.method === 'userInput/rejected' ||
+          event.method === 'session/closed' ||
+          event.method === 'session/exited'
+
+        if (hitlStateChanged && !hasPendingHitlForThread() && remainingMs > 0) {
+          startTimer()
+        }
       }
 
       const cleanup = () => {
-        clearTimeout(timer)
+        clearTimer()
         this.manager.removeListener('event', checkEvent)
       }
 
       this.manager.on('event', checkEvent)
+      if (!hasPendingHitlForThread()) {
+        startTimer()
+      }
 
       // Check again in case it completed between the start and listener setup
       if (isComplete()) {
@@ -1835,7 +1933,8 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       const providerSession = await this.manager.startSession({
         cwd: worktreePath,
         model: resolveCodexModelSlug(persistedSession.model_id ?? this.selectedModel),
-        resumeThreadId: agentSessionId
+        resumeThreadId: agentSessionId,
+        codexLaunchSpec: await this.resolveLaunchSpec()
       })
 
       const threadId = providerSession.threadId

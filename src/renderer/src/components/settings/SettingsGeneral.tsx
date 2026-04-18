@@ -22,6 +22,7 @@ export function SettingsGeneral(): React.JSX.Element {
     defaultAgentSdk,
     stripAtMentions,
     autoPullBeforeWorktree,
+    keepAwakeEnabled,
     sessionUiV2Enabled,
     updateSetting,
     resetToDefaults
@@ -326,6 +327,33 @@ export function SettingsGeneral(): React.JSX.Element {
         </button>
       </div>
 
+      {/* Keep awake during active sessions */}
+      <div className="flex items-center justify-between">
+        <div>
+          <label className="text-sm font-medium">{t('settings.general.keepAwake.label')}</label>
+          <p className="text-xs text-muted-foreground">
+            {t('settings.general.keepAwake.description')}
+          </p>
+        </div>
+        <button
+          role="switch"
+          aria-checked={keepAwakeEnabled}
+          onClick={() => updateSetting('keepAwakeEnabled', !keepAwakeEnabled)}
+          className={cn(
+            'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
+            keepAwakeEnabled ? 'bg-primary' : 'bg-muted'
+          )}
+          data-testid="keep-awake-toggle"
+        >
+          <span
+            className={cn(
+              'pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform',
+              keepAwakeEnabled ? 'translate-x-4' : 'translate-x-0'
+            )}
+          />
+        </button>
+      </div>
+
       {/* Branch naming */}
       <div className="space-y-2">
         <label className="text-sm font-medium">{t('settings.general.branchNaming.label')}</label>
@@ -364,13 +392,16 @@ export function SettingsGeneral(): React.JSX.Element {
       <div className="space-y-3 pt-4 border-t">
         <div>
           <h4 className="text-sm font-medium">实验性功能</h4>
-          <p className="text-xs text-muted-foreground mt-0.5">以下功能仍在测试中，可能存在不稳定情况</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            以下功能仍在测试中，可能存在不稳定情况
+          </p>
         </div>
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-0.5">
             <label className="text-sm font-medium">新版 Session UI</label>
             <p className="text-xs text-muted-foreground">
-              启用重构后的 SessionShell（统一 timeline、三态 Composer、Agent Rail）。关闭后回退到旧版 SessionView。
+              启用重构后的 SessionShell（统一 timeline、三态 Composer、Agent
+              Rail）。关闭后回退到旧版 SessionView。
             </p>
           </div>
           <button

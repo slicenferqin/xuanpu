@@ -1064,6 +1064,36 @@ export class GitService {
     }
   }
 
+  private async resolveBranchDiffBase(branch: string): Promise<string> {
+    try {
+      const mergeBase = (await this.git.raw(['merge-base', 'HEAD', branch])).trim()
+      if (mergeBase) return mergeBase
+    } catch (error) {
+      log.warn('Falling back to branch tip for diff base', {
+        branch,
+        repoPath: this.repoPath,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
+    return branch
+  }
+
+  async getBranchBaseContent(
+    branch: string,
+    filePath: string
+  ): Promise<{ success: boolean; content?: string; error?: string }> {
+    const baseRef = await this.resolveBranchDiffBase(branch)
+    return this.getRefContent(baseRef, filePath)
+  }
+
+  async getBranchBaseContentBase64(
+    branch: string,
+    filePath: string
+  ): Promise<{ success: boolean; data?: string; mimeType?: string; error?: string }> {
+    const baseRef = await this.resolveBranchDiffBase(branch)
+    return this.getRefContentBase64(baseRef, filePath)
+  }
+
   /**
    * Write patch content to a temp file, run git apply, then clean up.
    * simple-git's applyPatch() treats the first arg as a file path,
@@ -1615,7 +1645,8 @@ export class GitService {
       return { success: false, error: 'Invalid branch name' }
     }
     try {
-      const result = await this.git.raw(['diff', '--name-status', '--no-renames', branch])
+      const baseRef = await this.resolveBranchDiffBase(branch)
+      const result = await this.git.raw(['diff', '--name-status', '--no-renames', baseRef])
       const files: { relativePath: string; status: string }[] = []
       for (const line of result.trim().split('\n')) {
         if (!line) continue
@@ -1648,7 +1679,8 @@ export class GitService {
       return { success: false, error: 'Invalid branch name' }
     }
     try {
-      const result = await this.git.raw(['diff', branch, '--', filePath])
+      const baseRef = await this.resolveBranchDiffBase(branch)
+      const result = await this.git.raw(['diff', baseRef, '--', filePath])
       return { success: true, diff: result || '' }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)

@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
+import { type ChildProcess, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import readline from 'node:readline'
@@ -6,6 +6,8 @@ import readline from 'node:readline'
 import { createLogger } from './logger'
 import { asObject, asString } from './codex-utils'
 import { CODEX_DEFAULT_MODEL } from './codex-models'
+import { type CodexLaunchSpec } from './codex-binary-resolver'
+import { spawnLaunchSpec } from './command-launch-utils'
 
 const log = createLogger({ component: 'CodexAppServerManager' })
 
@@ -97,6 +99,7 @@ export interface CodexStartSessionOptions {
   resumeCursor?: string
   codexBinaryPath?: string
   codexHomePath?: string
+  codexLaunchSpec?: CodexLaunchSpec
 }
 
 // ── Turn input ────────────────────────────────────────────────────
@@ -346,15 +349,19 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         updatedAt: now
       }
 
-      const codexBinaryPath = options.codexBinaryPath ?? 'codex'
-      const child = spawn(codexBinaryPath, ['app-server'], {
+      const launchSpec =
+        options.codexLaunchSpec ??
+        (options.codexBinaryPath
+          ? { command: options.codexBinaryPath, shell: process.platform === 'win32' }
+          : { command: 'codex', shell: process.platform === 'win32' })
+      const child = spawnLaunchSpec(launchSpec, ['app-server'], {
         cwd: resolvedCwd,
         env: {
           ...process.env,
           ...(options.codexHomePath ? { CODEX_HOME: options.codexHomePath } : {})
         },
         stdio: ['pipe', 'pipe', 'pipe'],
-        shell: process.platform === 'win32'
+        windowsHide: true
       })
       const output = readline.createInterface({ input: child.stdout! })
 
