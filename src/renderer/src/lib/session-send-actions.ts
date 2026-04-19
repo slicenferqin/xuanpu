@@ -29,6 +29,7 @@ export interface ComposerInput {
   hasInterrupt: boolean
   hasPendingMessages: boolean
   isConnected: boolean
+  supportsSteer?: boolean
 }
 
 /** Result of the state-machine evaluation */
@@ -60,7 +61,7 @@ export interface ComposerActionSet {
  *   5. retry → queue (primary), stop+send (alt)
  */
 export function determineComposerActions(input: ComposerInput): ComposerActionSet {
-  const { lifecycle, hasInterrupt, hasPendingMessages, isConnected } = input
+  const { lifecycle, hasInterrupt, hasPendingMessages, isConnected, supportsSteer = false } = input
 
   // 1. Not connected
   if (!isConnected) {
@@ -100,7 +101,7 @@ export function determineComposerActions(input: ComposerInput): ComposerActionSe
     case 'materializing':
       return {
         primary: 'stop_and_send',
-        alternatives: ['queue', 'steer'],
+        alternatives: supportsSteer ? ['queue', 'steer'] : ['queue'],
         inputEnabled: true,
         primaryLabel: 'Stop',
         iconHint: 'stop'
@@ -173,6 +174,12 @@ export interface SendContext {
     sessionId: string,
     content: string
   ) => Promise<{ success: boolean; error?: string }>
+  /** IPC: steer the active turn */
+  steer: (
+    worktreePath: string,
+    sessionId: string,
+    content: string
+  ) => Promise<{ success: boolean; error?: string }>
   /** IPC: abort the current agent run */
   abort: (
     worktreePath: string,
@@ -198,9 +205,22 @@ export async function executeSendAction(
   attachments: Array<{ kind: string; id: string; name: string; mime: string; [k: string]: unknown }>,
   ctx: SendContext
 ): Promise<boolean> {
+  const ensureSuccess = async (
+    op: Promise<{ success: boolean; error?: string }>,
+    fallbackMessage: string
+  ): Promise<void> => {
+    const result = await op
+    if (!result.success) {
+      throw new Error(result.error || fallbackMessage)
+    }
+  }
+
   switch (action) {
     case 'send': {
-      await ctx.prompt(ctx.worktreePath, ctx.sessionId, content)
+      await ensureSuccess(
+        ctx.prompt(ctx.worktreePath, ctx.sessionId, content),
+        'Failed to send message'
+      )
       return true
     }
 
@@ -211,24 +231,38 @@ export async function executeSendAction(
     }
 
     case 'steer': {
-      // Steer = send the message while the agent is busy; the agent reads it
-      // as redirecting context and adjusts its current task.
-      await ctx.prompt(ctx.worktreePath, ctx.sessionId, content)
+      if (attachments.length > 0) {
+        throw new Error('Steer only supports text messages')
+      }
+
+      await ensureSuccess(
+        ctx.steer(ctx.worktreePath, ctx.sessionId, content),
+        'Failed to steer active turn'
+      )
       return true
     }
 
     case 'stop_and_send': {
-      await ctx.abort(ctx.worktreePath, ctx.sessionId)
+      await ensureSuccess(
+        ctx.abort(ctx.worktreePath, ctx.sessionId),
+        'Failed to stop active turn'
+      )
       // Brief delay so the abort propagates before the new prompt
       await new Promise((r) => setTimeout(r, 100))
-      await ctx.prompt(ctx.worktreePath, ctx.sessionId, content)
+      await ensureSuccess(
+        ctx.prompt(ctx.worktreePath, ctx.sessionId, content),
+        'Failed to send message after stopping active turn'
+      )
       return true
     }
 
     case 'reply_interrupt': {
       // The interrupt dock handles the structured reply; the composer just
       // sends the free-text content as a regular prompt.
-      await ctx.prompt(ctx.worktreePath, ctx.sessionId, content)
+      await ensureSuccess(
+        ctx.prompt(ctx.worktreePath, ctx.sessionId, content),
+        'Failed to reply to interrupt'
+      )
       return true
     }
   }

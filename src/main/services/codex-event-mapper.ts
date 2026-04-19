@@ -44,6 +44,13 @@ interface ContentDelta {
   text: string
 }
 
+export interface CodexPlanTodo {
+  id: string
+  content: string
+  status: 'pending' | 'in_progress' | 'completed' | 'cancelled'
+  priority: 'high' | 'medium' | 'low'
+}
+
 function toTextPart(text: string): { part: { type: 'text'; text: string }; delta: string } {
   return {
     part: { type: 'text', text },
@@ -145,6 +152,159 @@ function extractContentDelta(event: CodexManagerEvent): ContentDelta | null {
   }
 
   return null
+}
+
+function normalizePlanStatus(value: unknown, item?: Record<string, unknown>): CodexPlanTodo['status'] {
+  switch (value) {
+    case 'pending':
+      return 'pending'
+    case 'in_progress':
+    case 'in-progress':
+    case 'running':
+      return 'in_progress'
+    case 'completed':
+    case 'complete':
+    case 'done':
+      return 'completed'
+    case 'cancelled':
+    case 'canceled':
+      return 'cancelled'
+    default:
+      if (item?.completed === true || item?.done === true) return 'completed'
+      if (item?.cancelled === true || item?.canceled === true) return 'cancelled'
+      if (item?.current === true || item?.active === true || item?.inProgress === true) {
+        return 'in_progress'
+      }
+      return 'pending'
+  }
+}
+
+function normalizePlanPriority(value: unknown): CodexPlanTodo['priority'] {
+  switch (value) {
+    case 'high':
+    case 'medium':
+    case 'low':
+      return value
+    default:
+      return 'medium'
+  }
+}
+
+function extractPlanItemContent(item: Record<string, unknown>): string {
+  const candidates = [
+    item.content,
+    item.title,
+    item.text,
+    item.label,
+    item.task,
+    item.subject,
+    item.activeForm,
+    item.description
+  ]
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim()
+    }
+  }
+
+  return ''
+}
+
+function extractPlanItems(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value
+
+  const record = asObject(value)
+  if (!record) return []
+
+  const collections = [
+    record.todos,
+    record.items,
+    record.steps,
+    record.plan,
+    record.checklist,
+    record.checklistItems,
+    record.updates
+  ]
+
+  for (const collection of collections) {
+    if (Array.isArray(collection)) return collection
+
+    const nested = asObject(collection)
+    if (!nested) continue
+
+    const nestedCollections = [
+      nested.todos,
+      nested.items,
+      nested.steps,
+      nested.checklist,
+      nested.checklistItems
+    ]
+
+    for (const nestedCollection of nestedCollections) {
+      if (Array.isArray(nestedCollection)) return nestedCollection
+    }
+  }
+
+  return []
+}
+
+export function normalizeCodexPlanUpdateTodos(payload: unknown): CodexPlanTodo[] {
+  return extractPlanItems(payload).flatMap((item, index) => {
+    if (typeof item === 'string' && item.trim()) {
+      return [
+        {
+          id: `plan-${index}-${item.trim()}`,
+          content: item.trim(),
+          status: 'pending',
+          priority: 'medium'
+        }
+      ]
+    }
+
+    const record = asObject(item)
+    if (!record) return []
+
+    const content = extractPlanItemContent(record)
+    if (!content) return []
+
+    return [
+      {
+        id:
+          (typeof record.id === 'string' && record.id.trim()) ||
+          `plan-${index}-${content}`,
+        content,
+        status: normalizePlanStatus(record.status ?? record.state, record),
+        priority: normalizePlanPriority(record.priority)
+      }
+    ]
+  })
+}
+
+export function buildCodexUpdatePlanCallId(event: CodexManagerEvent): string {
+  const payload = asObject(event.payload)
+  const turnId = event.turnId ?? asString(payload?.turnId) ?? asString(asObject(payload?.turn)?.id)
+  return `${turnId ?? event.threadId}:update_plan`
+}
+
+export function buildCodexPlanUpdateSummary(todos: CodexPlanTodo[]): string {
+  if (todos.length === 0) {
+    return 'Plan updated'
+  }
+
+  const completed = todos.filter((todo) => todo.status === 'completed').length
+  const inProgress = todos.filter((todo) => todo.status === 'in_progress').length
+  const cancelled = todos.filter((todo) => todo.status === 'cancelled').length
+
+  const fragments = [`${completed}/${todos.length} completed`]
+  if (inProgress > 0) {
+    fragments.push(`${inProgress} in progress`)
+  }
+  if (cancelled > 0) {
+    fragments.push(`${cancelled} cancelled`)
+  }
+
+  return fragments.join(', ')
 }
 
 // ── Turn payload extraction ───────────────────────────────────────
@@ -279,6 +439,28 @@ export function mapCodexEventToStreamEvents(
   }
 
   // ── Turn started ──────────────────────────────────────────────
+  if (method === 'turn/plan/updated') {
+    const todos = normalizeCodexPlanUpdateTodos(event.payload)
+
+    return [
+      {
+        type: 'message.part.updated',
+        sessionId: hiveSessionId,
+        data: {
+          part: {
+            type: 'tool',
+            callID: buildCodexUpdatePlanCallId(event),
+            tool: 'update_plan',
+            state: {
+              status: 'completed',
+              input: { todos }
+            }
+          }
+        }
+      }
+    ]
+  }
+
   if (method === 'turn/started') {
     return [
       {

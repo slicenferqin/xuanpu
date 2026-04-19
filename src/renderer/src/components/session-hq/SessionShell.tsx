@@ -65,13 +65,14 @@ import {
 } from '@/lib/message-actions'
 import { useI18n } from '@/i18n/useI18n'
 import { toast } from 'sonner'
+import { isTodoWriteTool } from '@/components/sessions/tools/todo-utils'
 
 // ---------------------------------------------------------------------------
 // Extract mission tasks from committed timeline messages
 // ---------------------------------------------------------------------------
 
 function extractMissionTasks(messages: TimelineMessage[]): MissionTask[] {
-  // Scan from end to find the latest TodoWrite
+  // Scan from end to find the latest todo-like tool snapshot
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i]
     if (msg.role !== 'assistant') continue
@@ -79,7 +80,7 @@ function extractMissionTasks(messages: TimelineMessage[]): MissionTask[] {
     for (const part of msg.parts ?? []) {
       if (part.type !== 'tool_use' || !part.toolUse) continue
       const toolName = part.toolUse.name?.toLowerCase() ?? ''
-      if (toolName !== 'todowrite' && toolName !== 'todo_write') continue
+      if (!isTodoWriteTool(toolName)) continue
 
       const todos = part.toolUse.input?.todos
       if (!Array.isArray(todos)) continue
@@ -357,6 +358,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
   // Incremented when session.commands_available fires — triggers ComposerBar re-fetch
   const [commandsVersion, setCommandsVersion] = useState(0)
+  const [supportsSteer, setSupportsSteer] = useState(agentSdk === 'codex')
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [editingContent, setEditingContent] = useState('')
   const [forkingMessageId, setForkingMessageId] = useState<string | null>(null)
@@ -364,6 +366,31 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   const [forkConfirmDismissChecked, setForkConfirmDismissChecked] = useState(false)
 
   const streamingContentRef = useRef(_initBuffer?.streamingContent ?? '')
+
+  useEffect(() => {
+    if (!droidSessionId || !window.agentOps?.capabilities) {
+      setSupportsSteer(agentSdk === 'codex')
+      return
+    }
+
+    let cancelled = false
+
+    window.agentOps
+      .capabilities(droidSessionId)
+      .then((result) => {
+        if (cancelled) return
+        setSupportsSteer(Boolean(result.success && result.capabilities?.supportsSteer))
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSupportsSteer(agentSdk === 'codex')
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [agentSdk, droidSessionId])
 
   // --- Streaming parts for real-time tool rendering ---
   const [streamingParts, setStreamingParts] = useState<SharedStreamingPart[]>(
@@ -819,7 +846,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
             // --- Mission Control: detect todo/task tools ---
             const lowerToolName = toolName?.toLowerCase() ?? ''
-            if (lowerToolName === 'todowrite' || lowerToolName === 'todo_write') {
+            if (isTodoWriteTool(lowerToolName)) {
               const todos = (state.input as Record<string, unknown>)?.todos
               if (Array.isArray(todos)) {
                 const newTasks: MissionTask[] = todos.map(
@@ -1068,8 +1095,9 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
   // --- Composer action handler ---
   const handleComposerAction = useCallback(
-    async (action: ComposerAction, content: string, attachments: Attachment[]) => {
-      if (!worktreePath || !droidSessionId) return
+    async (action: ComposerAction, content: string, attachments: Attachment[]): Promise<boolean> => {
+      if (!worktreePath || !droidSessionId) return false
+      let optimisticMessageId: string | null = null
 
       // Pure stop (no content) — just abort, don't clear anything
       if (action === 'stop_and_send' && !content.trim()) {
@@ -1078,7 +1106,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         } catch (err) {
           console.error('[SessionShell] abort failed:', err)
         }
-        return
+        return false
       }
 
       if (action === 'send' || action === 'stop_and_send' || action === 'steer') {
@@ -1108,6 +1136,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           timestamp: new Date().toISOString(),
           ...(optimisticAttachments.length > 0 ? { attachments: optimisticAttachments } : {})
         }
+        optimisticMessageId = optimisticMsg.id
         appendOptimistic(optimisticMsg)
         // Sync ref immediately so MissionControl's streaming callback can find
         // the user message before the next useEffect tick
@@ -1127,6 +1156,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
             }
             return window.agentOps.prompt(wp, sid, messageParts ?? c, requestModel)
           },
+          steer: (wp, sid, c) => window.agentOps.steer(wp, sid, c, requestModel),
           abort: (wp, sid) => window.agentOps.abort(wp, sid),
           queueMessage: (sid, msg) => useSessionRuntimeStore.getState().queueMessage(sid, msg)
         })
@@ -1134,12 +1164,33 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         if (!consumed && (action === 'send' || action === 'stop_and_send')) {
           setIsStreaming(false)
         }
+
+        return consumed
       } catch (err) {
         console.error('[SessionShell] action failed:', err)
+        if (optimisticMessageId) {
+          optimisticRef.current = optimisticRef.current.filter((msg) => msg.id !== optimisticMessageId)
+          timelineMessagesRef.current = timelineMessagesRef.current.filter(
+            (msg) => msg.id !== optimisticMessageId
+          )
+          setMessages((prev) => prev.filter((msg) => msg.id !== optimisticMessageId))
+          flushBuffer()
+        }
+        toast.error(err instanceof Error ? err.message : 'Failed to send message')
         setIsStreaming(false)
+        return false
       }
     },
-    [worktreePath, droidSessionId, sessionId, appendOptimistic, flushBuffer, requestModel]
+    [
+      worktreePath,
+      droidSessionId,
+      sessionId,
+      appendOptimistic,
+      flushBuffer,
+      optimisticRef,
+      requestModel,
+      setMessages
+    ]
   )
 
   const canEditUserMessage = useCallback(
@@ -1509,6 +1560,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           firstInterrupt={composerInterrupt}
           onAction={handleComposerAction}
           isConnected={!!droidSessionId && !!worktreePath}
+          supportsSteer={supportsSteer}
           mode={mode}
           onToggleMode={toggleMode}
           pendingPlan={pendingPlan}

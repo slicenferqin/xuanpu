@@ -235,6 +235,55 @@ describe('mapCodexEventToStreamEvents', () => {
 
   // ── Turn started ────────────────────────────────────────────
 
+  describe('turn/plan/updated', () => {
+    it('maps plan updates into a synthetic update_plan tool event', () => {
+      const event = makeEvent({
+        method: 'turn/plan/updated',
+        turnId: 'turn-plan-1',
+        payload: {
+          items: [
+            { id: 'a', content: 'Inspect logs', status: 'completed' },
+            { id: 'b', content: 'Patch timeout', status: 'in_progress' }
+          ]
+        }
+      })
+
+      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
+
+      expect(result).toHaveLength(1)
+      expect(result[0]).toEqual({
+        type: 'message.part.updated',
+        sessionId: HIVE_SESSION,
+        data: {
+          part: {
+            type: 'tool',
+            callID: 'turn-plan-1:update_plan',
+            tool: 'update_plan',
+            state: {
+              status: 'completed',
+              input: {
+                todos: [
+                  {
+                    id: 'a',
+                    content: 'Inspect logs',
+                    status: 'completed',
+                    priority: 'medium'
+                  },
+                  {
+                    id: 'b',
+                    content: 'Patch timeout',
+                    status: 'in_progress',
+                    priority: 'medium'
+                  }
+                ]
+              }
+            }
+          }
+        }
+      })
+    })
+  })
+
   describe('turn/started', () => {
     it('maps to session.status busy', () => {
       const event = makeEvent({ method: 'turn/started' })

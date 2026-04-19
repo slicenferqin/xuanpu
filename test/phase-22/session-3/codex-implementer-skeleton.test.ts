@@ -208,6 +208,91 @@ describe('CodexImplementer skeleton', () => {
     })
   })
 
+  describe('steer', () => {
+    it('throws when there is no active Codex turn', async () => {
+      ;(impl as any).sessions.set('/worktree::thread-1', {
+        threadId: 'thread-1',
+        hiveSessionId: 'hive-1',
+        worktreePath: '/worktree',
+        status: 'running',
+        messages: [],
+        liveAssistantDraft: null,
+        revertMessageID: null,
+        revertDiff: null,
+        titleGenerated: true,
+        titleGenerationStarted: true
+      })
+      ;(impl as any).manager = {
+        getSession: vi.fn().mockReturnValue({ activeTurnId: null }),
+        steerTurn: vi.fn()
+      }
+
+      await expect(impl.steer('/worktree', 'thread-1', 'redirect')).rejects.toThrow(
+        'Steer is unavailable because there is no active Codex turn'
+      )
+    })
+
+    it('rejects attachments because steer is text-only', async () => {
+      ;(impl as any).sessions.set('/worktree::thread-1', {
+        threadId: 'thread-1',
+        hiveSessionId: 'hive-1',
+        worktreePath: '/worktree',
+        status: 'running',
+        messages: [],
+        liveAssistantDraft: null,
+        revertMessageID: null,
+        revertDiff: null,
+        titleGenerated: true,
+        titleGenerationStarted: true
+      })
+
+      await expect(
+        impl.steer('/worktree', 'thread-1', [
+          { type: 'text', text: 'redirect' },
+          { type: 'file', mime: 'image/png', url: 'data:image/png;base64,abc', filename: 'a.png' }
+        ])
+      ).rejects.toThrow('Steer only supports text messages')
+    })
+
+    it('calls manager.steerTurn and persists a steered user message', async () => {
+      const replaceSessionMessages = vi.fn()
+      impl.setDatabaseService({
+        replaceSessionMessages
+      } as any)
+
+      const session = {
+        threadId: 'thread-1',
+        hiveSessionId: 'hive-1',
+        worktreePath: '/worktree',
+        status: 'running',
+        messages: [],
+        liveAssistantDraft: null,
+        revertMessageID: null,
+        revertDiff: null,
+        titleGenerated: true,
+        titleGenerationStarted: true
+      }
+      ;(impl as any).sessions.set('/worktree::thread-1', session)
+
+      const steerTurn = vi.fn().mockResolvedValue(undefined)
+      ;(impl as any).manager = {
+        getSession: vi.fn().mockReturnValue({ activeTurnId: 'turn-1' }),
+        steerTurn
+      }
+
+      await impl.steer('/worktree', 'thread-1', 'redirect the task')
+
+      expect(steerTurn).toHaveBeenCalledWith('thread-1', { text: 'redirect the task' }, 'turn-1')
+      expect(session.messages).toHaveLength(1)
+      expect(session.messages[0]).toMatchObject({
+        role: 'user',
+        steered: true,
+        parts: [{ type: 'text', text: 'redirect the task' }]
+      })
+      expect(replaceSessionMessages).toHaveBeenCalledTimes(1)
+    })
+  })
+
   describe('turn timeout handling', () => {
     beforeEach(() => {
       vi.useFakeTimers()

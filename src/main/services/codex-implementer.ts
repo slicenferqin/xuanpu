@@ -841,6 +841,59 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     }
   }
 
+  async steer(
+    worktreePath: string,
+    agentSessionId: string,
+    message:
+      | string
+      | Array<
+          | { type: 'text'; text: string }
+          | { type: 'file'; mime: string; url: string; filename?: string }
+        >,
+    _modelOverride?: { providerID: string; modelID: string; variant?: string },
+    _options?: PromptOptions
+  ): Promise<void> {
+    const key = this.getSessionKey(worktreePath, agentSessionId)
+    const session = this.sessions.get(key)
+    if (!session) {
+      throw new Error(`Steer failed: session not found for ${worktreePath} / ${agentSessionId}`)
+    }
+
+    const hasAttachments = Array.isArray(message) && message.some((part) => part.type !== 'text')
+    if (hasAttachments) {
+      throw new Error('Steer only supports text messages')
+    }
+
+    const text =
+      typeof message === 'string'
+        ? message
+        : message
+            .filter((part) => part.type === 'text')
+            .map((part) => part.text)
+            .join('\n')
+
+    if (!text.trim()) {
+      throw new Error('Steer message cannot be empty')
+    }
+
+    const managerSession = this.manager.getSession(session.threadId)
+    const activeTurnId = managerSession?.activeTurnId
+    if (!activeTurnId) {
+      throw new Error('Steer is unavailable because there is no active Codex turn')
+    }
+
+    await this.manager.steerTurn(session.threadId, { text }, activeTurnId)
+
+    const syntheticTimestamp = new Date().toISOString()
+    session.messages.push({
+      role: 'user',
+      steered: true,
+      parts: [{ type: 'text', text, timestamp: syntheticTimestamp }],
+      timestamp: syntheticTimestamp
+    })
+    this.persistCanonicalMessages(session)
+  }
+
   async abort(worktreePath: string, agentSessionId: string): Promise<boolean> {
     const key = this.getSessionKey(worktreePath, agentSessionId)
     const session = this.sessions.get(key)

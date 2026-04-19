@@ -45,6 +45,10 @@ import { openCodeService } from './services/opencode-service'
 import { AgentRuntimeManager } from './services/agent-runtime-manager'
 import { resolveClaudeBinaryPath } from './services/claude-binary-resolver'
 import { powerSaveBlockerService } from './services/power-save-blocker'
+import {
+  checkFullDiskAccess,
+  openFullDiskAccessSettings
+} from './services/full-disk-access'
 import { telemetryService } from './services/telemetry-service'
 import { ensureForkDataDir } from './services/fork-data-migration'
 import { APP_BUNDLE_ID, APP_CLI_NAME, APP_PRODUCT_NAME } from '@shared/app-identity'
@@ -457,6 +461,19 @@ function registerSystemHandlers(): void {
       powerSaveBlockerService.disable()
     }
     return { success: true }
+  })
+
+  ipcMain.handle('system:setSessionQueuedState', (_event, sessionId: string, queued: boolean) => {
+    notificationService.setSessionQueuedState(sessionId, queued)
+    return { success: true }
+  })
+
+  ipcMain.handle('system:checkFullDiskAccess', () => {
+    return checkFullDiskAccess()
+  })
+
+  ipcMain.handle('system:openFullDiskAccessSettings', () => {
+    return openFullDiskAccessSettings()
   })
 
   // Set the UI zoom level (clamped to Electron's -5..5 range)

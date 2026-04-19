@@ -7,17 +7,24 @@
  */
 
 import React, { useRef, useCallback, useState, useEffect, useMemo } from 'react'
-import { ArrowUp, Square, CornerDownLeft } from 'lucide-react'
+import { ArrowUp, Square, CornerDownLeft, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AttachmentButton } from '../sessions/AttachmentButton'
 import { AttachmentPreview, type Attachment } from '../sessions/AttachmentPreview'
 import { SlashCommandPopover } from '../sessions/SlashCommandPopover'
 import { BUILT_IN_SLASH_COMMANDS } from '../sessions/SessionView'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import type { SessionLifecycle, InterruptItem } from '@/stores/useSessionRuntimeStore'
 import { isComposingKeyboardEvent } from '@/lib/message-composer-shortcuts'
 import {
   determineComposerActions,
+  getActionLabel,
   type ComposerAction,
   type ComposerActionSet
 } from '@/lib/session-send-actions'
@@ -32,9 +39,15 @@ export interface ComposerBarProps {
   pendingCount: number
   firstInterrupt: InterruptItem | null
   /** Called when user executes the primary action with content */
-  onAction: (action: ComposerAction, content: string, attachments: Attachment[]) => void
+  onAction: (
+    action: ComposerAction,
+    content: string,
+    attachments: Attachment[]
+  ) => Promise<boolean>
   /** Whether the session is connected and ready to accept input */
   isConnected: boolean
+  /** Runtime capability gate for steer */
+  supportsSteer?: boolean
   /** Max attachments allowed */
   maxAttachments?: number
   /** Current session mode */
@@ -75,6 +88,7 @@ export function ComposerBar({
   firstInterrupt,
   onAction,
   isConnected,
+  supportsSteer = false,
   maxAttachments = 10,
   mode = 'build',
   onToggleMode,
@@ -135,11 +149,20 @@ export function ComposerBar({
     lifecycle,
     hasInterrupt: firstInterrupt != null,
     hasPendingMessages: pendingCount > 0,
-    isConnected
+    isConnected,
+    supportsSteer
   })
 
   const canSend = content.trim().length > 0 || attachments.length > 0
   const isDisabled = !actionSet.inputEnabled
+  const availableAlternatives = useMemo(
+    () =>
+      actionSet.alternatives.filter((action) => {
+        if (action !== 'steer') return true
+        return supportsSteer && attachments.length === 0
+      }),
+    [actionSet.alternatives, attachments.length, supportsSteer]
+  )
 
   // Auto-resize textarea
   useEffect(() => {
@@ -162,27 +185,44 @@ export function ComposerBar({
     if (ta) ta.style.height = 'auto'
   }, [sessionId])
 
-  const handleSubmit = useCallback(() => {
+  const handleActionSelection = useCallback(
+    async (action: ComposerAction): Promise<void> => {
+      const hasContent = content.trim().length > 0 || attachments.length > 0
+
+      if (action === 'stop_and_send' && !hasContent) {
+        await onAction('stop_and_send', '', [])
+        return
+      }
+
+      if (!hasContent && action !== 'reply_interrupt') return
+
+      const consumed = await onAction(action, content.trim(), attachments)
+      if (consumed) {
+        clearInput()
+      }
+    },
+    [attachments, clearInput, content, onAction]
+  )
+
+  const handleSubmit = useCallback(async () => {
     if (!actionSet.primary) return
 
-    // Stop actions don't need content
     if (actionSet.primary === 'stop_and_send' && !canSend) {
-      onAction('stop_and_send', '', [])
+      await handleActionSelection('stop_and_send')
       return
     }
 
     if (!canSend && actionSet.primary !== 'reply_interrupt') return
 
-    onAction(actionSet.primary, content.trim(), attachments)
-    clearInput()
-  }, [actionSet.primary, canSend, content, attachments, onAction, clearInput])
+    await handleActionSelection(actionSet.primary)
+  }, [actionSet.primary, canSend, handleActionSelection])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (isComposingKeyboardEvent(e.nativeEvent)) return
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
-        handleSubmit()
+        void handleSubmit()
       }
     },
     [handleSubmit]
@@ -247,6 +287,9 @@ export function ComposerBar({
   const buttonEnabled =
     actionSet.primary != null &&
     (actionSet.iconHint === 'stop' || canSend || actionSet.primary === 'reply_interrupt')
+  const alternativesEnabled =
+    availableAlternatives.length > 0 &&
+    (canSend || availableAlternatives.includes('stop_and_send'))
 
   return (
     <div
@@ -345,9 +388,44 @@ export function ComposerBar({
 
         <div className="flex-1" />
 
+        {availableAlternatives.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                disabled={!alternativesEnabled}
+                className={cn(
+                  'h-8 w-8 rounded-full flex items-center justify-center shrink-0 transition-colors',
+                  alternativesEnabled
+                    ? 'border border-border/70 bg-background/70 text-muted-foreground hover:bg-background'
+                    : 'border border-border/50 bg-muted text-muted-foreground cursor-not-allowed'
+                )}
+                aria-label="More send actions"
+                title="More send actions"
+              >
+                <ChevronDown className="h-4 w-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              {availableAlternatives.map((action) => (
+                <DropdownMenuItem
+                  key={action}
+                  onClick={() => {
+                    void handleActionSelection(action)
+                  }}
+                >
+                  {getActionLabel(action)}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+
         {/* Send / Stop icon button */}
         <button
-          onClick={handleSubmit}
+          onClick={() => {
+            void handleSubmit()
+          }}
           disabled={!buttonEnabled}
           className={cn(
             'h-8 w-8 rounded-full flex items-center justify-center shrink-0 transition-colors',

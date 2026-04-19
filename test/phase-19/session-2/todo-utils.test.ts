@@ -10,6 +10,7 @@ describe('todo utils', () => {
     expect(isTodoWriteTool('TodoWrite')).toBe(true)
     expect(isTodoWriteTool('mcp_todowrite')).toBe(true)
     expect(isTodoWriteTool('todo_write')).toBe(true)
+    expect(isTodoWriteTool('update_plan')).toBe(true)
     expect(isTodoWriteTool('Write')).toBe(false)
   })
 

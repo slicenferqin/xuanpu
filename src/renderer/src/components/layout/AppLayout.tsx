@@ -18,6 +18,9 @@ const SettingsModal = lazy(() =>
 const AgentSetupGuard = lazy(() =>
   import('@/components/setup').then((m) => ({ default: m.AgentSetupGuard }))
 )
+const FdaSetupGuard = lazy(() =>
+  import('@/components/setup').then((m) => ({ default: m.FdaSetupGuard }))
+)
 const HelpOverlay = lazy(() =>
   import('@/components/ui/HelpOverlay').then((m) => ({ default: m.HelpOverlay }))
 )
@@ -238,6 +241,7 @@ export function AppLayout({ children }: AppLayoutProps): React.JSX.Element {
         </ErrorBoundary>
         <GlobalProjectSettings />
         <AgentSetupGuard />
+        <FdaSetupGuard />
         <HelpOverlay />
       </Suspense>
     </div>

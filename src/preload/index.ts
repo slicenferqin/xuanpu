@@ -439,9 +439,21 @@ const systemOps = {
   setKeepAwakeEnabled: (enabled: boolean): Promise<{ success: boolean }> =>
     ipcRenderer.invoke('system:setKeepAwakeEnabled', enabled),
 
+  setSessionQueuedState: (
+    sessionId: string,
+    queued: boolean
+  ): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('system:setSessionQueuedState', sessionId, queued),
+
   // Run the first-launch onboarding doctor
   runOnboardingDoctor: (): Promise<OnboardingDoctorResult> =>
     ipcRenderer.invoke('system:runOnboardingDoctor'),
+
+  checkFullDiskAccess: (): Promise<{ supported: boolean; granted: boolean }> =>
+    ipcRenderer.invoke('system:checkFullDiskAccess'),
+
+  openFullDiskAccessSettings: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('system:openFullDiskAccessSettings'),
 
   // Open a command in the user's system terminal
   openCommandInTerminal: (
@@ -1232,6 +1244,15 @@ const agentOps = {
   ): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('agent:question:reply', { requestId, answers, worktreePath }),
 
+  steer: (
+    worktreePath: string,
+    sessionId: string,
+    messageOrParts: string | MessagePart[],
+    model?: { providerID: string; modelID: string; variant?: string },
+    options?: { codexFastMode?: boolean }
+  ): Promise<{ success: boolean; error?: string; errorCode?: string }> =>
+    ipcRenderer.invoke('agent:steer', worktreePath, sessionId, messageOrParts, model, options),
+
   // Reject/dismiss a pending question from the AI
   questionReject: (
     requestId: string,
@@ -1372,12 +1393,13 @@ const agentOps = {
     sessionId?: string
   ): Promise<{
     success: boolean
-    capabilities?: {
-      supportsUndo: boolean
-      supportsRedo: boolean
-      supportsCommands: boolean
-      supportsPermissionRequests: boolean
-      supportsQuestionPrompts: boolean
+      capabilities?: {
+        supportsUndo: boolean
+        supportsRedo: boolean
+        supportsSteer: boolean
+        supportsCommands: boolean
+        supportsPermissionRequests: boolean
+        supportsQuestionPrompts: boolean
       supportsModelSelection: boolean
       supportsReconnect: boolean
       supportsPartialStreaming: boolean
