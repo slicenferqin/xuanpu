@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { Check, ChevronDown, Search, Star } from 'lucide-react'
+import { Check, ChevronDown, Lock, Search, Star } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSettingsStore, resolveModelForSdk } from '@/stores/useSettingsStore'
 import { useSessionStore } from '@/stores/useSessionStore'
@@ -46,6 +46,8 @@ interface ModelSelectorProps {
   showProviderPrefix?: boolean
   // Compact capsule style for SessionHeader
   compact?: boolean
+  // When true, disables the selector (e.g. session has already sent first message)
+  disabled?: boolean
 }
 
 export function ModelSelector({
@@ -54,7 +56,8 @@ export function ModelSelector({
   onChange,
   agentSdkOverride,
   showProviderPrefix = true,
-  compact = false
+  compact = false,
+  disabled = false
 }: ModelSelectorProps): React.JSX.Element {
   const { t } = useI18n()
   // Read per-session model from session store (with global fallback)
@@ -322,20 +325,26 @@ export function ModelSelector({
       <DropdownMenu
         open={dropdownOpen}
         onOpenChange={(open) => {
+          if (disabled) {
+            setDropdownOpen(false)
+            return
+          }
           setDropdownOpen(open)
           if (!open) setFilter('')
           else setTimeout(() => filterInputRef.current?.focus(), 0)
         }}
       >
-        <DropdownMenuTrigger asChild>
+        <DropdownMenuTrigger asChild disabled={disabled}>
           <button
+            disabled={disabled}
             className={cn(
               'flex items-center gap-1 transition-colors select-none',
               compact
                 ? 'border border-border/40 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted/40 hover:text-foreground'
-                : 'px-2 py-0.5 rounded-full text-[11px] font-medium border bg-muted/50 border-border text-muted-foreground hover:bg-muted hover:text-foreground'
+                : 'px-2 py-0.5 rounded-full text-[11px] font-medium border bg-muted/50 border-border text-muted-foreground hover:bg-muted hover:text-foreground',
+              disabled && 'opacity-70 cursor-not-allowed hover:bg-transparent hover:text-muted-foreground'
             )}
-            title={t('modelSelector.title')}
+            title={disabled ? t('newSessionDialog.lock.description') : t('modelSelector.title')}
             aria-label={t('modelSelector.ariaLabel', { model: displayName })}
             data-testid="model-selector"
           >
@@ -350,7 +359,11 @@ export function ModelSelector({
                 {selectedModel.variant}
               </span>
             )}
-            <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
+            {disabled ? (
+              <Lock className="h-3 w-3 shrink-0 opacity-60" />
+            ) : (
+              <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
+            )}
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-64 max-h-80 overflow-y-auto">
