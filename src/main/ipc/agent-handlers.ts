@@ -50,6 +50,13 @@ const log = createLogger({ component: 'AgentHandlers' })
 // when the ID changes.
 const injectedWorktrees = new Set<string>()
 
+// Dedupe concurrent agent:connect calls per hive session. React StrictMode
+// double-invokes the renderer effect in dev, and stray callers may also retry —
+// without dedupe each call spins up a fresh runtime session (e.g. an extra
+// Codex thread) that nobody owns. The entry is cleared once the connect
+// settles so genuine reconnects after teardown still work.
+const inflightConnects = new Map<string, Promise<{ sessionId: string }>>()
+
 export function registerAgentHandlers(
   mainWindow: BrowserWindow,
   runtimeManager?: AgentRuntimeManager,
@@ -85,9 +92,45 @@ export function registerAgentHandlers(
           return { sessionId: hiveSessionId }
         }
         const impl = c.runtimeManager.getImplementer(runtimeId)
-        const result = await impl.connect(worktreePath, hiveSessionId)
-        telemetryService.track('session_started', { runtime_id: runtimeId })
-        return { ...result }
+
+        // Dedupe concurrent connects for the same hive session so StrictMode
+        // double-mount doesn't create duplicate runtime sessions.
+        const existing = inflightConnects.get(hiveSessionId)
+        if (existing) {
+          log.info('IPC: agent:connect reusing in-flight connect', { hiveSessionId })
+          const reused = await existing
+          return { ...reused }
+        }
+
+        const connectPromise = (async () => {
+          const result = await impl.connect(worktreePath, hiveSessionId)
+          // Persist opencode_session_id atomically in the main process so
+          // resolveRuntimeId() can route subsequent prompts/reconnects without
+          // depending on the renderer winning a state race.
+          if (result?.sessionId && result.sessionId !== hiveSessionId) {
+            try {
+              c.dbService.updateSession(hiveSessionId, {
+                opencode_session_id: result.sessionId
+              })
+            } catch (err) {
+              log.warn('Failed to persist opencode_session_id after connect', {
+                hiveSessionId,
+                runtimeSessionId: result.sessionId,
+                error: err instanceof Error ? err.message : String(err)
+              })
+            }
+          }
+          return result
+        })()
+
+        inflightConnects.set(hiveSessionId, connectPromise)
+        try {
+          const result = await connectPromise
+          telemetryService.track('session_started', { runtime_id: runtimeId })
+          return { ...result }
+        } finally {
+          inflightConnects.delete(hiveSessionId)
+        }
       }
     })
   )
