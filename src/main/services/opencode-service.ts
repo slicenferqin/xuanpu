@@ -7,7 +7,7 @@ import { autoRenameWorktreeBranch } from './git-service'
 import { getEventBus } from '../../server/event-bus'
 import type { AgentSdkImplementer } from './agent-runtime-types'
 import type { AgentRuntimeAdapter } from './agent-runtime-types'
-import { emitAgentEvent } from '@shared/lib/normalize-agent-event'
+import { beginSessionRun, emitAgentEvent } from '@shared/lib/normalize-agent-event'
 import {
   resolveOpenCodeLaunchSpec,
   type OpenCodeLaunchSpec
@@ -698,6 +698,13 @@ class OpenCodeService implements AgentSdkImplementer, AgentRuntimeAdapter {
 
     if (!this.instance) {
       throw new Error('No OpenCode instance available')
+    }
+
+    const hiveSessionId =
+      this.getMappedHiveSessionId(this.instance, opencodeSessionId, worktreePath) ??
+      getDatabase().getSessionByOpenCodeSessionId(opencodeSessionId)?.id
+    if (hiveSessionId) {
+      beginSessionRun(hiveSessionId)
     }
 
     const { variant, ...model } = modelOverride ?? this.getSelectedModel()

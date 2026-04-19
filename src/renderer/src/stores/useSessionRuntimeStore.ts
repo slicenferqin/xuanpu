@@ -106,6 +106,90 @@ export function clearStreamingBuffer(sessionId: string): void {
 }
 
 // ---------------------------------------------------------------------------
+// Per-session event guard registry (module-level, non-reactive)
+// Tracks the active run epoch and latest accepted sessionSequence so the global
+// event bridge can drop stale events before they reach any mounted view.
+// ---------------------------------------------------------------------------
+
+export interface SessionEventGuardState {
+  activeRunEpoch: number
+  lastAppliedSequence: number
+}
+
+export interface SessionEventGuardResult {
+  accepted: boolean
+  advancedRun: boolean
+  state: SessionEventGuardState
+}
+
+const _sessionEventGuards = new Map<string, SessionEventGuardState>()
+const DEFAULT_EVENT_GUARD_STATE: Readonly<SessionEventGuardState> = {
+  activeRunEpoch: 0,
+  lastAppliedSequence: -1
+}
+
+export function getSessionEventGuardState(sessionId: string): SessionEventGuardState | undefined {
+  const state = _sessionEventGuards.get(sessionId)
+  return state ? { ...state } : undefined
+}
+
+export function acceptSessionEvent(
+  event: Pick<CanonicalAgentEvent, 'sessionId' | 'runEpoch' | 'sessionSequence'>
+): SessionEventGuardResult {
+  const current = _sessionEventGuards.get(event.sessionId) ?? DEFAULT_EVENT_GUARD_STATE
+  const nextRunEpoch = event.runEpoch
+  const nextSequence = event.sessionSequence
+
+  if (nextRunEpoch < current.activeRunEpoch) {
+    return {
+      accepted: false,
+      advancedRun: false,
+      state: { ...current }
+    }
+  }
+
+  if (nextRunEpoch > current.activeRunEpoch) {
+    const nextState = {
+      activeRunEpoch: nextRunEpoch,
+      lastAppliedSequence: nextSequence
+    }
+    _sessionEventGuards.set(event.sessionId, nextState)
+    return {
+      accepted: true,
+      advancedRun: true,
+      state: { ...nextState }
+    }
+  }
+
+  if (nextSequence <= current.lastAppliedSequence) {
+    return {
+      accepted: false,
+      advancedRun: false,
+      state: { ...current }
+    }
+  }
+
+  const nextState = {
+    activeRunEpoch: current.activeRunEpoch,
+    lastAppliedSequence: nextSequence
+  }
+  _sessionEventGuards.set(event.sessionId, nextState)
+  return {
+    accepted: true,
+    advancedRun: false,
+    state: { ...nextState }
+  }
+}
+
+export function clearSessionEventGuard(sessionId: string): void {
+  _sessionEventGuards.delete(sessionId)
+}
+
+export function resetSessionEventGuardsForTests(): void {
+  _sessionEventGuards.clear()
+}
+
+// ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
 
@@ -423,6 +507,7 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
     })
     _sessionEventCallbacks.delete(sessionId)
     _streamingBuffers.delete(sessionId)
+    _sessionEventGuards.delete(sessionId)
     if (hadPending) {
       syncQueuedState(sessionId, false)
     }
