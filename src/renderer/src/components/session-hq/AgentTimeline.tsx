@@ -20,6 +20,7 @@ import { CopyMessageButton } from '@/components/sessions/CopyMessageButton'
 import { ForkMessageButton } from '@/components/sessions/ForkMessageButton'
 import { Button } from '@/components/ui/button'
 import { useI18n } from '@/i18n/useI18n'
+import { isTodoWriteTool } from '@/components/sessions/tools/todo-utils'
 import {
   BashCard,
   FileReadCard,
@@ -193,7 +194,7 @@ function messageToNodes(message: TimelineMessage): TimelineNode[] {
       } else if (toolName === 'askuserquestion' || toolName === 'ask_user') {
         cardType = 'ask-user'
       } else if (
-        toolName === 'todowrite' || toolName === 'todo_write' ||
+        isTodoWriteTool(toolName) ||
         toolName === 'taskcreate' || toolName === 'task_create' ||
         toolName === 'taskupdate' || toolName === 'task_update' ||
         toolName === 'todoread' || toolName === 'todo_read' ||
@@ -331,6 +332,13 @@ function TimelineNodeView({
       return (
         <div className="group/user-message">
           <div className="bg-blue-500/5 border border-blue-500/20 rounded-[10px] px-3.5 py-2.5">
+            {node.message.steered === true && (
+              <div className="mb-2">
+                <span className="inline-flex items-center rounded-md bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold text-sky-500">
+                  STEERED
+                </span>
+              </div>
+            )}
             {images.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {images.map((img, i) => (

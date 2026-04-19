@@ -69,6 +69,7 @@ export interface TimelineMessage {
   role: 'user' | 'assistant' | 'system'
   content: string
   timestamp: string
+  steered?: boolean
   parts?: StreamingPart[]
   /** File attachments for user messages (images, PDFs, etc.) */
   attachments?: MessagePart[]

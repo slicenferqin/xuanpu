@@ -46,6 +46,7 @@ export const messagesSchema = z.tuple([z.string(), z.string()])
 // Prompt supports both positional and object-style call with varied shapes.
 // Schema is intentionally permissive — the handler body unpacks args manually.
 export const promptSchema = z.array(z.unknown())
+export const steerSchema = z.array(z.unknown())
 
 export const modelsSchema = z.tuple([
   z.object({ runtimeId: runtimeIdSchema.optional() }).optional()

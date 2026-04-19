@@ -16,6 +16,7 @@ type PendingUserFeedbackKind = 'question' | 'approval'
 class NotificationService {
   private mainWindow: BrowserWindow | null = null
   private unreadCount = 0
+  private queuedSessionIds = new Set<string>()
 
   setMainWindow(window: BrowserWindow): void {
     this.mainWindow = window
@@ -27,6 +28,13 @@ class NotificationService {
   }
 
   showSessionComplete(data: SessionNotificationData): void {
+    if (this.queuedSessionIds.has(data.sessionId)) {
+      log.info('Skipping completion notification because session still has queued follow-up', {
+        sessionId: data.sessionId
+      })
+      return
+    }
+
     this.showNotification({
       data,
       body: `"${data.sessionName}" completed`
@@ -41,6 +49,17 @@ class NotificationService {
           ? `"${data.sessionName}" needs your answer`
           : `"${data.sessionName}" needs your permission`
     })
+  }
+
+  setSessionQueuedState(sessionId: string, queued: boolean): void {
+    if (!sessionId) return
+
+    if (queued) {
+      this.queuedSessionIds.add(sessionId)
+      return
+    }
+
+    this.queuedSessionIds.delete(sessionId)
   }
 
   private showNotification({ data, body }: { data: SessionNotificationData; body: string }): void {

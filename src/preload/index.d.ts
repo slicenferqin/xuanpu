@@ -495,7 +495,10 @@ declare global {
       isLogMode: () => Promise<boolean>
       detectAgentRuntimes: () => Promise<{ opencode: boolean; claude: boolean; codex: boolean }>
       setKeepAwakeEnabled: (enabled: boolean) => Promise<{ success: boolean }>
+      setSessionQueuedState: (sessionId: string, queued: boolean) => Promise<{ success: boolean }>
       runOnboardingDoctor: () => Promise<OnboardingDoctorResult>
+      checkFullDiskAccess: () => Promise<{ supported: boolean; granted: boolean }>
+      openFullDiskAccessSettings: () => Promise<{ success: boolean; error?: string }>
       openCommandInTerminal: (
         command: string,
         options?: { cwd?: string }
@@ -685,6 +688,13 @@ declare global {
       ) => Promise<
         import('../shared/types/agent-ipc').AgentIpcResult<{ commands: AgentCommand[] }>
       >
+      steer: (
+        worktreePath: string,
+        sessionId: string,
+        messageOrParts: string | MessagePart[],
+        model?: { providerID: string; modelID: string; variant?: string },
+        options?: { codexFastMode?: boolean }
+      ) => Promise<import('../shared/types/agent-ipc').AgentIpcResult>
       // Rename a session's title via the agent PATCH API
       renameSession: (
         sessionId: string,
@@ -697,6 +707,7 @@ declare global {
           capabilities?: {
             supportsUndo: boolean
             supportsRedo: boolean
+            supportsSteer: boolean
             supportsCommands: boolean
             supportsPermissionRequests: boolean
             supportsQuestionPrompts: boolean

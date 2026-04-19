@@ -5,6 +5,7 @@ export type AgentRuntimeId = 'opencode' | 'claude-code' | 'codex' | 'terminal'
 export interface AgentRuntimeCapabilities {
   supportsUndo: boolean
   supportsRedo: boolean
+  supportsSteer: boolean
   supportsCommands: boolean
   supportsPermissionRequests: boolean
   supportsQuestionPrompts: boolean
@@ -37,6 +38,18 @@ export interface AgentRuntimeAdapter {
 
   // Messaging
   prompt(
+    worktreePath: string,
+    agentSessionId: string,
+    message:
+      | string
+      | Array<
+          | { type: 'text'; text: string }
+          | { type: 'file'; mime: string; url: string; filename?: string }
+        >,
+    modelOverride?: { providerID: string; modelID: string; variant?: string },
+    options?: PromptOptions
+  ): Promise<void>
+  steer?(
     worktreePath: string,
     agentSessionId: string,
     message:
@@ -135,6 +148,7 @@ export interface AgentRuntimeAdapter {
 export const OPENCODE_CAPABILITIES: AgentRuntimeCapabilities = {
   supportsUndo: true,
   supportsRedo: true,
+  supportsSteer: false,
   supportsCommands: true,
   supportsPermissionRequests: true,
   supportsQuestionPrompts: true,
@@ -146,6 +160,7 @@ export const OPENCODE_CAPABILITIES: AgentRuntimeCapabilities = {
 export const CLAUDE_CODE_CAPABILITIES: AgentRuntimeCapabilities = {
   supportsUndo: true,
   supportsRedo: false,
+  supportsSteer: false,
   supportsCommands: true,
   supportsPermissionRequests: true,
   supportsQuestionPrompts: true,
@@ -157,6 +172,7 @@ export const CLAUDE_CODE_CAPABILITIES: AgentRuntimeCapabilities = {
 export const CODEX_CAPABILITIES: AgentRuntimeCapabilities = {
   supportsUndo: true,
   supportsRedo: false,
+  supportsSteer: true,
   supportsCommands: false,
   supportsPermissionRequests: true,
   supportsQuestionPrompts: true,
@@ -168,6 +184,7 @@ export const CODEX_CAPABILITIES: AgentRuntimeCapabilities = {
 export const TERMINAL_CAPABILITIES: AgentRuntimeCapabilities = {
   supportsUndo: false,
   supportsRedo: false,
+  supportsSteer: false,
   supportsCommands: false,
   supportsPermissionRequests: false,
   supportsQuestionPrompts: false,

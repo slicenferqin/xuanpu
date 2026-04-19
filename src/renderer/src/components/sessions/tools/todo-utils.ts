@@ -18,7 +18,7 @@ export interface TodoTrackerSnapshot {
 
 export function isTodoWriteTool(name: string): boolean {
   const lower = name.toLowerCase()
-  return lower.includes('todowrite') || lower.includes('todo_write')
+  return lower.includes('todowrite') || lower.includes('todo_write') || lower === 'update_plan'
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

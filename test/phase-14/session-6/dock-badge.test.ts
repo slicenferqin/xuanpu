@@ -162,4 +162,32 @@ describe('Session 6: Dock Badge', () => {
     expect(mockNotificationShow).toHaveBeenCalledTimes(1)
     expect(mockSetBadge).toHaveBeenCalledWith('1')
   })
+
+  test('suppresses completion notification while session still has queued follow-up', () => {
+    notificationService.setSessionQueuedState(mockSessionData.sessionId, true)
+
+    notificationService.showSessionComplete(mockSessionData)
+
+    expect(mockNotificationShow).not.toHaveBeenCalled()
+    expect(mockSetBadge).not.toHaveBeenCalled()
+  })
+
+  test('queued-state suppression does not affect pending-user-feedback notifications', () => {
+    notificationService.setSessionQueuedState(mockSessionData.sessionId, true)
+
+    notificationService.showPendingUserFeedback(mockSessionData, 'question')
+
+    expect(mockNotificationShow).toHaveBeenCalledTimes(1)
+    expect(mockSetBadge).toHaveBeenCalledWith('1')
+  })
+
+  test('completion notification resumes after queued state is cleared', () => {
+    notificationService.setSessionQueuedState(mockSessionData.sessionId, true)
+    notificationService.setSessionQueuedState(mockSessionData.sessionId, false)
+
+    notificationService.showSessionComplete(mockSessionData)
+
+    expect(mockNotificationShow).toHaveBeenCalledTimes(1)
+    expect(mockSetBadge).toHaveBeenCalledWith('1')
+  })
 })

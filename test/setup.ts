@@ -26,6 +26,49 @@ if (typeof window !== 'undefined') {
     }))
   })
 
+  if (!document.fonts) {
+    Object.defineProperty(document, 'fonts', {
+      writable: true,
+      configurable: true,
+      value: {
+        load: vi.fn().mockResolvedValue([])
+      }
+    })
+  }
+
+  if (!HTMLCanvasElement.prototype.getContext) {
+    Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+      writable: true,
+      configurable: true,
+      value: vi.fn(() => ({
+        fillRect: vi.fn(),
+        clearRect: vi.fn(),
+        getImageData: vi.fn(),
+        putImageData: vi.fn(),
+        createImageData: vi.fn(),
+        setTransform: vi.fn(),
+        drawImage: vi.fn(),
+        save: vi.fn(),
+        fillText: vi.fn(),
+        restore: vi.fn(),
+        beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        closePath: vi.fn(),
+        stroke: vi.fn(),
+        translate: vi.fn(),
+        scale: vi.fn(),
+        rotate: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        measureText: vi.fn(() => ({ width: 0 })),
+        transform: vi.fn(),
+        rect: vi.fn(),
+        clip: vi.fn()
+      }))
+    })
+  }
+
   if (typeof window.localStorage?.getItem !== 'function') {
     const storage = new Map<string, string>()
     Object.defineProperty(window, 'localStorage', {
@@ -117,6 +160,9 @@ if (typeof window !== 'undefined') {
           claude: true,
           codex: false
         }),
+        setSessionQueuedState: vi.fn().mockResolvedValue({ success: true }),
+        checkFullDiskAccess: vi.fn().mockResolvedValue({ supported: true, granted: false }),
+        openFullDiskAccessSettings: vi.fn().mockResolvedValue({ success: true }),
         setKeepAwakeEnabled: vi.fn().mockResolvedValue({ success: true }),
         runOnboardingDoctor: vi.fn().mockResolvedValue({
           platform: 'darwin',

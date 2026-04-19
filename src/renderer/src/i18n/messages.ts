@@ -241,6 +241,24 @@ export const messages: Record<AppLocale, MessageTree> = {
           label: 'Send anonymous usage analytics',
           description: 'Help improve Xuanpu by sharing anonymous feature usage data'
         },
+        fda: {
+          title: 'Full Disk Access',
+          description: 'Helps Xuanpu and agent runtimes read files in protected macOS locations.',
+          statusGranted: 'Full Disk Access is granted.',
+          statusNotGranted: 'Full Disk Access is not granted.',
+          grantedBadge: 'Granted',
+          notGrantedBadge: 'Not granted',
+          checking: 'Checking...',
+          checkAgain: 'Check Again',
+          openSettings: 'Open System Settings',
+          showOnboardingAgain: 'Show onboarding again',
+          skipForNow: 'Skip for now',
+          guardTitle: 'Grant Full Disk Access',
+          guardDescription:
+            'Some coding tasks need access to files protected by macOS. You can enable Full Disk Access now or dismiss this reminder.',
+          checkFailed: 'Failed to check Full Disk Access status',
+          openFailed: 'Failed to open Full Disk Access settings'
+        },
         collect: {
           title: 'What we collect:',
           description: 'Feature usage counts, app version, platform (macOS/Windows/Linux).'
@@ -2382,6 +2400,24 @@ export const messages: Record<AppLocale, MessageTree> = {
         analytics: {
           label: '发送匿名使用分析数据',
           description: '通过共享匿名功能使用数据帮助改进玄圃'
+        },
+        fda: {
+          title: '完全磁盘访问权限',
+          description: '帮助玄圃和 Agent 运行时读取 macOS 受保护目录中的文件。',
+          statusGranted: '已授予完全磁盘访问权限。',
+          statusNotGranted: '尚未授予完全磁盘访问权限。',
+          grantedBadge: '已授予',
+          notGrantedBadge: '未授予',
+          checking: '检查中...',
+          checkAgain: '重新检查',
+          openSettings: '打开系统设置',
+          showOnboardingAgain: '再次显示引导',
+          skipForNow: '暂时跳过',
+          guardTitle: '授予完全磁盘访问权限',
+          guardDescription:
+            '部分编码任务需要访问 macOS 保护的文件。你可以现在开启完全磁盘访问权限，或先关闭这条提醒。',
+          checkFailed: '检查完全磁盘访问权限状态失败',
+          openFailed: '打开完全磁盘访问权限设置失败'
         },
         collect: {
           title: '我们会收集：',

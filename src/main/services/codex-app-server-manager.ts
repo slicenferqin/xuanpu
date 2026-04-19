@@ -626,6 +626,39 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
   }
 
+  async steerTurn(threadId: string, input: CodexTurnInput, turnId?: string): Promise<void> {
+    const context = this.sessions.get(threadId)
+    if (!context) {
+      throw new Error(`steerTurn: no session found for threadId=${threadId}`)
+    }
+
+    if (!context.session.threadId) {
+      throw new Error('steerTurn: session has no threadId')
+    }
+
+    const targetTurnId = turnId ?? context.session.activeTurnId
+    if (!targetTurnId) {
+      throw new Error('steerTurn: no active turn to steer')
+    }
+
+    const turnInput =
+      input.input && input.input.length > 0
+        ? input.input
+        : input.text
+          ? [{ type: 'text', text: input.text }]
+          : []
+
+    if (turnInput.length === 0) {
+      throw new Error('steerTurn: input is empty')
+    }
+
+    await this.sendRequest(context, 'turn/steer', {
+      threadId: context.session.threadId,
+      turnId: targetTurnId,
+      input: turnInput
+    })
+  }
+
   // ── HITL / control-plane API ──────────────────────────────────
 
   respondToApproval(

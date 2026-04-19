@@ -90,6 +90,7 @@ export function MessageRenderer({
           timestamp={message.timestamp}
           isPlanMode={isPlanMode}
           isAskMode={isAskMode}
+          isSteered={message.steered === true}
           attachments={message.attachments}
           isEditing={isEditing}
           isLastUserMessage={isLastUserMessage}

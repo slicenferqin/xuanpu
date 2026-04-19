@@ -8,6 +8,8 @@ import type { AgentRuntimeAdapter, PromptOptions } from '../services/agent-runti
 import { ClaudeCodeImplementer } from '../services/claude-code-implementer'
 import {
   createAgentHandler,
+  AgentErrorCode,
+  AgentHandlerError,
   resolveRuntimeId,
   type AgentHandlerContext
 } from './agent-handler-wrapper'
@@ -28,6 +30,7 @@ import {
   planApproveSchema,
   planRejectSchema,
   promptSchema,
+  steerSchema,
   questionRejectSchema,
   questionReplySchema,
   reconnectSchema,
@@ -238,6 +241,94 @@ export function registerAgentHandlers(
         const impl = c.runtimeManager.getImplementer(runtimeId)
         await impl.prompt(worktreePath, runtimeSessionId, messageOrParts, model, options)
         telemetryService.track('prompt_sent', { runtime_id: runtimeId })
+        return {}
+      }
+    })
+  )
+
+  // Steer an actively running turn without interrupting it (Codex-only in this wave).
+  ipcMain.handle(
+    'agent:steer',
+    createAgentHandler(ctx, {
+      channel: 'agent:steer',
+      schema: steerSchema,
+      handler: async (args, c) => {
+        let worktreePath: string
+        let runtimeSessionId: string
+        let messageOrParts:
+          | string
+          | Array<{ type: string; text?: string; mime?: string; url?: string; filename?: string }>
+        let model: { providerID: string; modelID: string; variant?: string } | undefined
+        let options: PromptOptions | undefined
+
+        if (args.length === 1 && typeof args[0] === 'object' && args[0] !== null) {
+          const obj = args[0] as Record<string, unknown>
+          worktreePath = obj.worktreePath as string
+          runtimeSessionId = obj.sessionId as string
+          messageOrParts = (obj.parts as typeof messageOrParts) || [
+            { type: 'text', text: obj.message as string }
+          ]
+          const rawModel = obj.model as Record<string, unknown> | undefined
+          if (
+            rawModel &&
+            typeof rawModel.providerID === 'string' &&
+            typeof rawModel.modelID === 'string'
+          ) {
+            model = {
+              providerID: rawModel.providerID,
+              modelID: rawModel.modelID,
+              variant: typeof rawModel.variant === 'string' ? rawModel.variant : undefined
+            }
+          }
+          const rawOptions = obj.options as Record<string, unknown> | undefined
+          if (rawOptions && typeof rawOptions.codexFastMode === 'boolean') {
+            options = { codexFastMode: rawOptions.codexFastMode }
+          }
+        } else {
+          worktreePath = args[0] as string
+          runtimeSessionId = args[1] as string
+          messageOrParts = args[2] as string
+          const rawModel = args[3] as Record<string, unknown> | undefined
+          if (
+            rawModel &&
+            typeof rawModel.providerID === 'string' &&
+            typeof rawModel.modelID === 'string'
+          ) {
+            model = {
+              providerID: rawModel.providerID,
+              modelID: rawModel.modelID,
+              variant: typeof rawModel.variant === 'string' ? rawModel.variant : undefined
+            }
+          }
+          const rawOptions = args[4] as Record<string, unknown> | undefined
+          if (rawOptions && typeof rawOptions.codexFastMode === 'boolean') {
+            options = { codexFastMode: rawOptions.codexFastMode }
+          }
+        }
+
+        log.info('IPC: agent:steer', {
+          worktreePath,
+          runtimeSessionId,
+          partsCount: Array.isArray(messageOrParts) ? messageOrParts.length : 1
+        })
+
+        const runtimeId = resolveRuntimeId(c, runtimeSessionId)
+        if (runtimeId === 'terminal') {
+          throw new AgentHandlerError(
+            AgentErrorCode.STEER_NOT_SUPPORTED,
+            'Terminal sessions do not support steering'
+          )
+        }
+
+        const impl = c.runtimeManager.getImplementer(runtimeId)
+        if (!impl.capabilities.supportsSteer || !impl.steer) {
+          throw new AgentHandlerError(
+            AgentErrorCode.STEER_NOT_SUPPORTED,
+            `Runtime ${runtimeId} does not support steering`
+          )
+        }
+
+        await impl.steer(worktreePath, runtimeSessionId, messageOrParts, model, options)
         return {}
       }
     })

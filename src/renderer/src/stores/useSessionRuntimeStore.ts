@@ -164,6 +164,20 @@ export type SessionRuntimeStore = SessionRuntimeStoreState & SessionRuntimeStore
 const EMPTY_INTERRUPT_QUEUE: readonly InterruptItem[] = []
 const EMPTY_PENDING_MESSAGES: readonly PendingMessage[] = []
 
+function syncQueuedState(sessionId: string, queued: boolean): void {
+  if (typeof window === 'undefined' || !window.systemOps?.setSessionQueuedState) {
+    return
+  }
+
+  window.systemOps.setSessionQueuedState(sessionId, queued).catch((error) => {
+    console.warn('[SessionRuntimeStore] Failed to sync queued state', {
+      sessionId,
+      queued,
+      error
+    })
+  })
+}
+
 function ensureSession(
   sessions: Map<string, SessionRuntimeState>,
   sessionId: string
@@ -346,16 +360,19 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
       pending.set(sessionId, queue)
       return { pendingMessages: pending }
     })
+    syncQueuedState(sessionId, true)
   },
 
   dequeueMessage(sessionId) {
     // P1-5 CR fix: read-then-write inside the set() updater to avoid TOCTOU race
     let first: PendingMessage | null = null
+    let stillQueued = false
     set((state) => {
       const queue = state.pendingMessages.get(sessionId)
       if (!queue || queue.length === 0) return state
       const [head, ...rest] = queue
       first = head
+      stillQueued = rest.length > 0
       const pending = new Map(state.pendingMessages)
       if (rest.length === 0) {
         pending.delete(sessionId)
@@ -364,6 +381,9 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
       }
       return { pendingMessages: pending }
     })
+    if (first) {
+      syncQueuedState(sessionId, stillQueued)
+    }
     return first
   },
 
@@ -376,16 +396,22 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
   },
 
   clearPendingMessages(sessionId) {
+    let changed = false
     set((state) => {
       const pending = new Map(state.pendingMessages)
       if (!pending.has(sessionId)) return state
+      changed = true
       pending.delete(sessionId)
       return { pendingMessages: pending }
     })
+    if (changed) {
+      syncQueuedState(sessionId, false)
+    }
   },
 
   // -- Cleanup --
   clearSession(sessionId) {
+    const hadPending = get().pendingMessages.has(sessionId)
     set((state) => {
       const sessions = new Map(state.sessions)
       const queues = new Map(state.interruptQueues)
@@ -397,5 +423,8 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
     })
     _sessionEventCallbacks.delete(sessionId)
     _streamingBuffers.delete(sessionId)
+    if (hadPending) {
+      syncQueuedState(sessionId, false)
+    }
   }
 }))
