@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 14
+export const CURRENT_SCHEMA_VERSION = 15
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -450,5 +450,23 @@ export const MIGRATIONS: Migration[] = [
          AND id IN (SELECT DISTINCT session_id FROM session_activities);
     `,
     down: `-- SQLite cannot drop columns; this is a no-op for safety`
+  },
+  {
+    version: 15,
+    name: 'add_remote_skill_hubs',
+    up: `
+      CREATE TABLE IF NOT EXISTS remote_skill_hubs (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        repo TEXT NOT NULL,
+        ref TEXT NOT NULL DEFAULT 'main',
+        last_refreshed_at TEXT,
+        last_sha TEXT,
+        builtin INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (repo, ref)
+      );
+    `,
+    down: `DROP TABLE IF EXISTS remote_skill_hubs;`
   }
 ]

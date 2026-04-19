@@ -11,7 +11,8 @@ import {
   Eye,
   Sparkles,
   BarChart3,
-  Archive
+  Archive,
+  BookOpen
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { useSettingsStore } from '@/stores/useSettingsStore'
@@ -27,6 +28,7 @@ import { SettingsSecurity } from './SettingsSecurity'
 import { SettingsPrivacy } from './SettingsPrivacy'
 import { SettingsUsage } from './SettingsUsage'
 import { SettingsArchivedChats } from './SettingsArchivedChats'
+import { SettingsSkills } from './SettingsSkills'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/i18n/useI18n'
 
@@ -40,6 +42,7 @@ const SECTIONS = [
   { id: 'privacy', icon: Eye },
   { id: 'usage', icon: BarChart3 },
   { id: 'archivedChats', icon: Archive },
+  { id: 'skills', icon: BookOpen },
   { id: 'shortcuts', icon: Keyboard },
   { id: 'updates', icon: Download }
 ] as const
@@ -69,7 +72,7 @@ export function SettingsModal(): React.JSX.Element {
       <DialogContent
         className={cn(
           'p-0 gap-0 overflow-hidden',
-          activeSection === 'usage' || activeSection === 'archivedChats'
+          activeSection === 'usage' || activeSection === 'archivedChats' || activeSection === 'skills'
             ? 'max-w-[min(96vw,1280px)] h-[88vh]'
             : 'max-w-3xl h-[70vh]'
         )}
@@ -104,7 +107,12 @@ export function SettingsModal(): React.JSX.Element {
           </nav>
 
           {/* Content area */}
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className={cn(
+            "flex-1 p-6 min-h-0 flex flex-col",
+            activeSection === 'usage' || activeSection === 'archivedChats' || activeSection === 'skills'
+              ? "overflow-hidden"
+              : "overflow-y-auto"
+          )}>
             {activeSection === 'appearance' && <SettingsAppearance />}
             {activeSection === 'general' && <SettingsGeneral />}
             {activeSection === 'models' && <SettingsModels />}
@@ -114,6 +122,7 @@ export function SettingsModal(): React.JSX.Element {
             {activeSection === 'privacy' && <SettingsPrivacy />}
             {activeSection === 'usage' && <SettingsUsage />}
             {activeSection === 'archivedChats' && <SettingsArchivedChats />}
+            {activeSection === 'skills' && <SettingsSkills />}
             {activeSection === 'shortcuts' && <SettingsShortcuts />}
             {activeSection === 'updates' && <SettingsUpdates />}
           </div>

@@ -814,11 +814,13 @@ const CompactFileToolCard = memo(function CompactFileToolCard({
   const isError = toolUse.status === 'error'
   const hasOutput = !!(toolUse.output || toolUse.error)
   // FileChange tools carry their content in input.changes, not output
+  // Skill tools are never expandable — only show compact header (⚡ Skill name)
   const hasExpandableContent =
-    hasOutput ||
-    (isFileChange &&
-      Array.isArray(toolUse.input.changes) &&
-      (toolUse.input.changes as unknown[]).length > 0)
+    !isSkill &&
+    (hasOutput ||
+      (isFileChange &&
+        Array.isArray(toolUse.input.changes) &&
+        (toolUse.input.changes as unknown[]).length > 0))
 
   const Renderer = useMemo(() => getToolRenderer(toolUse.name), [toolUse.name])
 

@@ -77,7 +77,12 @@ export class DatabaseService {
     }
   }
 
-  private getDb(): Database.Database {
+  /**
+   * Returns the raw better-sqlite3 handle. Public so feature services can
+   * issue scoped queries without bloating this class. Throws if init() has
+   * not been called.
+   */
+  public getDb(): Database.Database {
     if (!this.db) {
       throw new Error('Database not initialized. Call init() first.')
     }
