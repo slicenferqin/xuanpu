@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { useSessionRuntimeStore } from '../../src/renderer/src/stores/useSessionRuntimeStore'
+import {
+  getStreamingBufferSnapshot,
+  subscribeToStreamingBuffer,
+  syncStreamingBufferGuardState,
+  updateStreamingBuffer,
+  useSessionRuntimeStore
+} from '../../src/renderer/src/stores/useSessionRuntimeStore'
 import type { CanonicalAgentEvent } from '../../src/shared/types/agent-protocol'
 
 // Reset store state between tests
@@ -266,6 +272,118 @@ describe('useSessionRuntimeStore', () => {
       store.removeInterrupt('sess-1', 'q-1')
       // The internal map entry should be deleted when queue is empty
       expect(useSessionRuntimeStore.getState().interruptQueues.has('sess-1')).toBe(false)
+    })
+  })
+
+  describe('streaming mirror registry', () => {
+    it('stores live overlay outside Zustand state and notifies immediate subscribers', () => {
+      let callbackCount = 0
+      const unsubscribe = subscribeToStreamingBuffer('sess-1', () => {
+        callbackCount += 1
+      })
+
+      updateStreamingBuffer(
+        'sess-1',
+        (current) => ({
+          ...current,
+          streamingContent: 'hello',
+          parts: [{ type: 'text', text: 'hello' }],
+          isStreaming: true
+        }),
+        { notify: 'immediate' }
+      )
+
+      const snapshot = getStreamingBufferSnapshot('sess-1')
+      expect(snapshot.streamingContent).toBe('hello')
+      expect(snapshot.parts).toEqual([{ type: 'text', text: 'hello' }])
+      expect(snapshot.isStreaming).toBe(true)
+      expect(snapshot.mirrorVersion).toBe(1)
+      expect(callbackCount).toBe(1)
+
+      unsubscribe()
+    })
+
+    it('coalesces multiple frame writes into a single mirrorVersion tick', () => {
+      vi.useFakeTimers()
+      const originalRaf = globalThis.requestAnimationFrame
+      globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) =>
+        setTimeout(() => cb(Date.now()), 0)) as typeof requestAnimationFrame
+
+      let callbackCount = 0
+      const unsubscribe = subscribeToStreamingBuffer('sess-2', () => {
+        callbackCount += 1
+      })
+
+      updateStreamingBuffer(
+        'sess-2',
+        (current) => ({
+          ...current,
+          streamingContent: 'a'
+        }),
+        { notify: 'frame' }
+      )
+      updateStreamingBuffer(
+        'sess-2',
+        (current) => ({
+          ...current,
+          streamingContent: `${current.streamingContent}b`
+        }),
+        { notify: 'frame' }
+      )
+
+      expect(callbackCount).toBe(0)
+      vi.runAllTimers()
+
+      const snapshot = getStreamingBufferSnapshot('sess-2')
+      expect(snapshot.streamingContent).toBe('ab')
+      expect(snapshot.mirrorVersion).toBe(1)
+      expect(callbackCount).toBe(1)
+
+      unsubscribe()
+      globalThis.requestAnimationFrame = originalRaf
+      vi.useRealTimers()
+    })
+
+    it('resets only the live overlay when a newer run is accepted', () => {
+      updateStreamingBuffer(
+        'sess-3',
+        (current) => ({
+          ...current,
+          streamingContent: 'old run text',
+          parts: [{ type: 'text', text: 'old run text' }],
+          isStreaming: true,
+          optimisticMessages: [
+            {
+              id: 'optimistic-1',
+              role: 'user',
+              content: 'please continue',
+              timestamp: '2026-04-19T00:00:00.000Z'
+            }
+          ]
+        }),
+        { notify: 'none' }
+      )
+
+      syncStreamingBufferGuardState(
+        'sess-3',
+        { activeRunEpoch: 2, lastAppliedSequence: 8 },
+        { resetOverlay: true, notify: 'immediate' }
+      )
+
+      const snapshot = getStreamingBufferSnapshot('sess-3')
+      expect(snapshot.activeRunEpoch).toBe(2)
+      expect(snapshot.lastAppliedSequence).toBe(8)
+      expect(snapshot.streamingContent).toBe('')
+      expect(snapshot.parts).toEqual([])
+      expect(snapshot.isStreaming).toBe(false)
+      expect(snapshot.optimisticMessages).toEqual([
+        {
+          id: 'optimistic-1',
+          role: 'user',
+          content: 'please continue',
+          timestamp: '2026-04-19T00:00:00.000Z'
+        }
+      ])
     })
   })
 

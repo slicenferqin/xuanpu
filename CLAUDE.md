@@ -67,6 +67,25 @@ All renderer↔main communication goes through the preload layer via typed IPC. 
 4. Main process handler in `src/main/ipc/` processes and returns
 5. Store updates with result, component re-renders
 
+### Session Truth Sources
+
+Session rendering uses three distinct truth layers. Do not add a fourth without
+an explicit design review.
+
+- **Runtime truth** — `useSessionRuntimeStore` plus its module-level mirror
+  registry in `src/renderer/src/stores/useSessionRuntimeStore.ts`. This owns
+  transient agent runtime state: lifecycle, interrupts, pending queue, accepted
+  stream ordering metadata, and live streaming overlay for Session HQ. The
+  global `useAgentEventBridge` hook is the canonical event ingress for this
+  layer.
+- **Durable truth** — SQLite plus `session:getTimeline` in the main process.
+  This owns committed transcript/history. `useSessionStore` is **not** a
+  transcript store; it tracks session records, selection, tabs, and related
+  metadata only.
+- **View truth** — session-scoped UI affordances such as scroll anchors,
+  hover/edit state, and composer draft state. Keep these out of the durable
+  session stores unless they must survive process restart.
+
 ### Shared Types (`src/shared/`)
 
 - **`types/`** — Shared type definitions used across main, preload, and renderer (project, worktree, session, connection, space, git, terminal, etc.). This is the source of truth for cross-process types.
