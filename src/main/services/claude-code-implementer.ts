@@ -2391,6 +2391,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
             sessionId: session.hiveSessionId,
             data: questionRequest
           })
+          this.maybeNotifyPendingUserFeedback(session.hiveSessionId, 'question')
 
           log.info('canUseTool: emitted question.asked, waiting for response', {
             requestId,
@@ -2571,6 +2572,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       sessionId: session.hiveSessionId,
       data: approvalRequest
     })
+    this.maybeNotifyPendingUserFeedback(session.hiveSessionId, 'approval')
 
     // Log timestamp for debugging approval dialog issues
     log.info('APPROVAL FLOW: Waiting for user response', {
@@ -2887,6 +2889,42 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       })
     } catch (error) {
       log.warn('Failed to show session completion notification', { hiveSessionId, error })
+    }
+  }
+
+  private maybeNotifyPendingUserFeedback(
+    hiveSessionId: string,
+    kind: 'question' | 'approval'
+  ): void {
+    try {
+      if (!this.mainWindow || this.mainWindow.isDestroyed() || this.mainWindow.isFocused()) {
+        return
+      }
+
+      if (!this.dbService) return
+
+      const session = this.dbService.getSession(hiveSessionId)
+      if (!session) return
+
+      const project = this.dbService.getProject(session.project_id)
+      if (!project) return
+
+      notificationService.showPendingUserFeedback(
+        {
+          projectName: project.name,
+          sessionName: session.name || 'Untitled',
+          projectId: session.project_id,
+          worktreeId: session.worktree_id || '',
+          sessionId: hiveSessionId
+        },
+        kind
+      )
+    } catch (error) {
+      log.warn('Failed to show pending user feedback notification', {
+        hiveSessionId,
+        kind,
+        error
+      })
     }
   }
 

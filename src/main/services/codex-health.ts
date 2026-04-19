@@ -1,6 +1,11 @@
-import { execFile } from 'node:child_process'
-
 import { createLogger } from './logger'
+import {
+  ensureCodexAppServerLaunchSpec,
+  getCodexLaunchInfo,
+  getCodexVersion as getResolvedCodexVersion,
+  type CodexLaunchSpec
+} from './codex-binary-resolver'
+import { executeLaunchSpec } from './command-launch-utils'
 
 const log = createLogger({ component: 'CodexHealth' })
 
@@ -11,31 +16,13 @@ export interface CodexHealthStatus {
   message?: string
 }
 
-const EXEC_TIMEOUT_MS = 5000
-
-/**
- * Run a command and return stdout, or throw on error/timeout.
- */
-function execCommand(cmd: string, args: string[], timeoutMs = EXEC_TIMEOUT_MS): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(cmd, args, { timeout: timeoutMs, encoding: 'utf-8' }, (error, stdout) => {
-      if (error) {
-        reject(error)
-      } else {
-        resolve(stdout)
-      }
-    })
-  })
-}
-
 /**
  * Run `codex --version` and return the parsed version string.
  * Returns null if codex is not installed or the command fails.
  */
-export async function getCodexVersion(): Promise<string | null> {
+export async function getCodexVersion(spec?: CodexLaunchSpec | null): Promise<string | null> {
   try {
-    const output = await execCommand('codex', ['--version'])
-    return parseVersionOutput(output)
+    return await getResolvedCodexVersion(spec)
   } catch (error) {
     log.debug('codex --version failed', { error })
     return null
@@ -104,10 +91,13 @@ export function parseAuthOutput(output: string): 'authenticated' | 'unauthentica
  * Check `codex login status` to determine authentication state.
  * Returns 'unknown' if the command is not available or fails.
  */
-export async function checkCodexAuth(): Promise<'authenticated' | 'unauthenticated' | 'unknown'> {
+export async function checkCodexAuth(
+  spec?: CodexLaunchSpec | null
+): Promise<'authenticated' | 'unauthenticated' | 'unknown'> {
   try {
-    const output = await execCommand('codex', ['login', 'status'])
-    return parseAuthOutput(output)
+    const resolved = spec ?? (await ensureCodexAppServerLaunchSpec())
+    const { stdout, stderr } = await executeLaunchSpec(resolved, ['login', 'status'])
+    return parseAuthOutput(`${stdout}\n${stderr}`)
   } catch (error) {
     log.debug('codex login status failed', { error })
     return 'unknown'
@@ -123,9 +113,8 @@ export async function checkCodexHealth(
 ): Promise<CodexHealthStatus> {
   const { checkAuth = true } = options
 
-  // Step 1: Check if codex is installed
-  const version = await getCodexVersion()
-  if (!version) {
+  const info = await getCodexLaunchInfo()
+  if (!info.spec) {
     return {
       available: false,
       authStatus: 'unknown',
@@ -133,15 +122,24 @@ export async function checkCodexHealth(
     }
   }
 
+  if (!info.supportsAppServer) {
+    return {
+      available: false,
+      version: info.version ?? undefined,
+      authStatus: 'unknown',
+      message: `Codex CLI${info.version ? ` ${info.version}` : ''} does not support codex app-server. Upgrade @openai/codex.`
+    }
+  }
+
   // Step 2: Optionally check auth
   let authStatus: CodexHealthStatus['authStatus'] = 'unknown'
   if (checkAuth) {
-    authStatus = await checkCodexAuth()
+    authStatus = await checkCodexAuth(info.spec)
   }
 
   const result: CodexHealthStatus = {
     available: true,
-    version,
+    version: info.version ?? undefined,
     authStatus
   }
 

@@ -1,6 +1,6 @@
 import { createYoga, createSchema } from 'graphql-yoga'
 import { GraphQLError } from 'graphql'
-import { useServer } from 'graphql-ws/use/ws'
+import { useServer as attachGraphQLWsServer } from 'graphql-ws/use/ws'
 import { createServer as createHttpsServer } from 'node:https'
 import { createServer as createHttpServer } from 'node:http'
 import { readFileSync, readdirSync } from 'node:fs'
@@ -107,7 +107,7 @@ export function startGraphQLServer(opts: ServerOptions): ServerHandle {
     path: yoga.graphqlEndpoint
   })
 
-  useServer(
+  attachGraphQLWsServer(
     {
       schema,
       context: (ctx) => ({

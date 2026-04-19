@@ -7,7 +7,7 @@ export const systemQueryResolvers: Resolvers = {
     systemLogDir: () => getLogDir(),
     systemAppVersion: () => getAppVersion(),
     systemAppPaths: () => getAppPaths(),
-    systemDetectAgentSdks: () => detectAgentSdks(),
+    systemDetectAgentSdks: async () => detectAgentSdks(),
     systemServerStatus: () => ({
       uptime: Math.floor(process.uptime()),
       connections: 0,

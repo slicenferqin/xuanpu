@@ -80,7 +80,7 @@ export function ImageDiffView({
         // Branch diff: original = branch ref, modified = working tree
         if (isSvg) {
           const [origResult, modResult] = await Promise.all([
-            window.gitOps.getRefContent(worktreePath, compareBranch, filePath),
+            window.gitOps.getBranchBaseContent(worktreePath, compareBranch, filePath),
             window.gitOps.getFileContent(worktreePath, filePath)
           ])
           setOriginalUri(
@@ -91,12 +91,12 @@ export function ImageDiffView({
           )
         } else {
           const [origResult, modResult] = await Promise.all([
-            window.gitOps.getRefContentBase64(worktreePath, compareBranch, filePath),
+            window.gitOps.getBranchBaseContentBase64(worktreePath, compareBranch, filePath),
             window.gitOps.getFileContentBase64(worktreePath, filePath)
           ])
           setOriginalUri(
-            origResult.success && origResult.data
-              ? buildDataUri(origResult.data, origResult.mimeType)
+            origResult.success && origResult.content
+              ? buildDataUri(origResult.content, undefined)
               : null
           )
           setModifiedUri(

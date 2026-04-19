@@ -436,6 +436,9 @@ const systemOps = {
   detectAgentRuntimes: (): Promise<{ opencode: boolean; claude: boolean; codex: boolean }> =>
     ipcRenderer.invoke('system:detectAgentRuntimes'),
 
+  setKeepAwakeEnabled: (enabled: boolean): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('system:setKeepAwakeEnabled', enabled),
+
   // Run the first-launch onboarding doctor
   runOnboardingDoctor: (): Promise<OnboardingDoctorResult> =>
     ipcRenderer.invoke('system:runOnboardingDoctor'),
@@ -1106,7 +1109,21 @@ const gitOps = {
     success: boolean
     diff?: string
     error?: string
-  }> => ipcRenderer.invoke('git:branchFileDiff', worktreePath, branch, filePath)
+  }> => ipcRenderer.invoke('git:branchFileDiff', worktreePath, branch, filePath),
+
+  getBranchBaseContent: (
+    worktreePath: string,
+    branch: string,
+    filePath: string
+  ): Promise<{ success: boolean; content?: string | null; error?: string }> =>
+    ipcRenderer.invoke('git:branchBaseContent', worktreePath, branch, filePath),
+
+  getBranchBaseContentBase64: (
+    worktreePath: string,
+    branch: string,
+    filePath: string
+  ): Promise<{ success: boolean; content?: string | null; error?: string }> =>
+    ipcRenderer.invoke('git:branchBaseContentBase64', worktreePath, branch, filePath)
 }
 
 const agentOps = {

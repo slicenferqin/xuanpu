@@ -494,6 +494,7 @@ declare global {
       }>
       isLogMode: () => Promise<boolean>
       detectAgentRuntimes: () => Promise<{ opencode: boolean; claude: boolean; codex: boolean }>
+      setKeepAwakeEnabled: (enabled: boolean) => Promise<{ success: boolean }>
       runOnboardingDoctor: () => Promise<OnboardingDoctorResult>
       openCommandInTerminal: (
         command: string,
@@ -1202,6 +1203,24 @@ declare global {
       ) => Promise<{
         success: boolean
         diff?: string
+        error?: string
+      }>
+      getBranchBaseContent: (
+        worktreePath: string,
+        branch: string,
+        filePath: string
+      ) => Promise<{
+        success: boolean
+        content?: string | null
+        error?: string
+      }>
+      getBranchBaseContentBase64: (
+        worktreePath: string,
+        branch: string,
+        filePath: string
+      ) => Promise<{
+        success: boolean
+        content?: string | null
         error?: string
       }>
     }

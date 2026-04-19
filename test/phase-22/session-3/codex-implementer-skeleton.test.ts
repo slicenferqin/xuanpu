@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { EventEmitter } from 'node:events'
 
 // Mock logger
 vi.mock('../../../src/main/services/logger', () => ({
@@ -12,7 +13,7 @@ vi.mock('../../../src/main/services/logger', () => ({
 }))
 
 import { CodexImplementer } from '../../../src/main/services/codex-implementer'
-import { CODEX_CAPABILITIES } from '../../../src/main/services/agent-sdk-types'
+import { CODEX_CAPABILITIES } from '../../../src/main/services/agent-runtime-types'
 import { CODEX_DEFAULT_MODEL } from '../../../src/main/services/codex-models'
 
 describe('CodexImplementer skeleton', () => {
@@ -152,9 +153,7 @@ describe('CodexImplementer skeleton', () => {
 
   describe('implemented messaging methods', () => {
     it('prompt throws when session not found', async () => {
-      await expect(impl.prompt('/path', 'session-1', 'hello')).rejects.toThrow(
-        'session not found'
-      )
+      await expect(impl.prompt('/path', 'session-1', 'hello')).rejects.toThrow('session not found')
     })
 
     it('abort returns false for unknown session', async () => {
@@ -178,9 +177,7 @@ describe('CodexImplementer skeleton', () => {
     })
 
     it('renameSession does not throw without dbService', async () => {
-      await expect(
-        impl.renameSession('/path', 'session-1', 'new name')
-      ).resolves.not.toThrow()
+      await expect(impl.renameSession('/path', 'session-1', 'new name')).resolves.not.toThrow()
     })
   })
 
@@ -211,13 +208,91 @@ describe('CodexImplementer skeleton', () => {
     })
   })
 
+  describe('turn timeout handling', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('times out after the budget when there is no pending HITL request', async () => {
+      ;(impl as any).manager = new EventEmitter()
+
+      const promise = (impl as any).waitForTurnCompletion(
+        { threadId: 'thread-1' },
+        () => false,
+        1000
+      ) as Promise<void>
+
+      const outcome = promise.then(
+        () => 'resolved',
+        (error) => error
+      )
+
+      await vi.advanceTimersByTimeAsync(1000)
+
+      const error = await outcome
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).message).toBe('Turn timed out')
+    })
+
+    it('pauses timeout consumption while HITL is pending and resumes with the remaining budget', async () => {
+      const manager = new EventEmitter()
+      ;(impl as any).manager = manager
+
+      const promise = (impl as any).waitForTurnCompletion(
+        { threadId: 'thread-1' },
+        () => false,
+        1000
+      ) as Promise<void>
+      const outcome = promise.then(
+        () => 'resolved',
+        (error) => error
+      )
+
+      let settled = false
+      void outcome.finally(() => {
+        settled = true
+      })
+
+      await vi.advanceTimersByTimeAsync(400)
+      impl.getPendingQuestions().set('req-1', {
+        threadId: 'thread-1',
+        hiveSessionId: 'hive-1',
+        worktreePath: '/tmp/project'
+      })
+      manager.emit('event', {
+        threadId: 'thread-1',
+        kind: 'request',
+        method: 'question.asked'
+      })
+
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(settled).toBe(false)
+
+      impl.getPendingQuestions().clear()
+      manager.emit('event', {
+        threadId: 'thread-1',
+        method: 'item/tool/requestUserInput/answered'
+      })
+
+      await vi.advanceTimersByTimeAsync(599)
+      expect(settled).toBe(false)
+
+      await vi.advanceTimersByTimeAsync(1)
+      const error = await outcome
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).message).toBe('Turn timed out')
+    })
+  })
+
   // ── Unimplemented undo/redo methods throw ──────────────────────
 
   describe('undo/redo methods', () => {
     it('undo throws for unknown session', async () => {
-      await expect(impl.undo('/path', 'session-1', 'hive-1')).rejects.toThrow(
-        'session not found'
-      )
+      await expect(impl.undo('/path', 'session-1', 'hive-1')).rejects.toThrow('session not found')
     })
 
     it('redo throws unsupported', async () => {

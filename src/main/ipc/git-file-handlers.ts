@@ -852,6 +852,62 @@ export function registerGitFileHandlers(window: BrowserWindow): void {
     }
   )
 
+  ipcMain.handle(
+    'git:branchBaseContent',
+    async (
+      _event,
+      worktreePath: string,
+      branch: string,
+      filePath: string
+    ): Promise<{ success: boolean; content?: string | null; error?: string }> => {
+      try {
+        const gitService = createGitService(worktreePath)
+        const result = await gitService.getBranchBaseContent(branch, filePath)
+        return {
+          success: result.success,
+          content: result.content ?? null,
+          error: result.error
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        log.error(
+          'Failed to get branch base content',
+          error instanceof Error ? error : new Error(message),
+          { worktreePath, branch, filePath }
+        )
+        return { success: false, error: message }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'git:branchBaseContentBase64',
+    async (
+      _event,
+      worktreePath: string,
+      branch: string,
+      filePath: string
+    ): Promise<{ success: boolean; content?: string | null; error?: string }> => {
+      try {
+        const gitService = createGitService(worktreePath)
+        const result = await gitService.getBranchBaseContentBase64(branch, filePath)
+        return {
+          success: result.success,
+          content: result.data ?? null,
+          error: result.error
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        log.error(
+          'Failed to get branch base content as base64',
+          error instanceof Error ? error : new Error(message),
+          { worktreePath, branch, filePath }
+        )
+        return { success: false, error: message }
+      }
+    }
+  )
+
   // List open pull requests via gh CLI
   ipcMain.handle(
     'git:listPRs',

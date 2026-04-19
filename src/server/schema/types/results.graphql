@@ -87,6 +87,83 @@ type AgentForkResult {
   error: String
 }
 
+# Legacy OpenCode result names kept for backward-compatible GraphQL schema paths.
+type OpenCodeConnectResult {
+  success: Boolean!
+  sessionId: String
+  error: String
+}
+
+type OpenCodeReconnectResult {
+  success: Boolean!
+  sessionStatus: String
+  revertMessageID: String
+  error: String
+}
+
+type OpenCodeMessagesResult {
+  success: Boolean!
+  messages: JSON
+  error: String
+}
+
+type OpenCodeModelsResult {
+  success: Boolean!
+  providers: JSON
+  error: String
+}
+
+type OpenCodeModelInfoResult {
+  success: Boolean!
+  model: JSON
+  error: String
+}
+
+type OpenCodeSessionInfoResult {
+  success: Boolean!
+  revertMessageID: String
+  revertDiff: String
+  error: String
+}
+
+type OpenCodeCommandsResult {
+  success: Boolean!
+  commands: [OpenCodeCommand!]!
+  error: String
+}
+
+type OpenCodeCapabilitiesResult {
+  success: Boolean!
+  capabilities: OpenCodeCapabilities
+  error: String
+}
+
+type OpenCodePermissionListResult {
+  success: Boolean!
+  permissions: [PermissionRequest!]!
+  error: String
+}
+
+type OpenCodeUndoResult {
+  success: Boolean!
+  revertMessageID: String
+  restoredPrompt: String
+  revertDiff: String
+  error: String
+}
+
+type OpenCodeRedoResult {
+  success: Boolean!
+  revertMessageID: String
+  error: String
+}
+
+type OpenCodeForkResult {
+  success: Boolean!
+  sessionId: String
+  error: String
+}
+
 # Git Results
 type GitFileStatusesResult {
   success: Boolean!

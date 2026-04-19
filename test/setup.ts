@@ -112,6 +112,18 @@ if (typeof window !== 'undefined') {
         getAppPaths: vi.fn().mockResolvedValue({ userData: '/tmp', home: '/tmp', logs: '/tmp' }),
         isLogMode: vi.fn().mockResolvedValue(false),
         detectAgentSdks: vi.fn().mockResolvedValue({ opencode: true, claude: true, codex: false }),
+        detectAgentRuntimes: vi.fn().mockResolvedValue({
+          opencode: true,
+          claude: true,
+          codex: false
+        }),
+        setKeepAwakeEnabled: vi.fn().mockResolvedValue({ success: true }),
+        runOnboardingDoctor: vi.fn().mockResolvedValue({
+          platform: 'darwin',
+          environmentChecks: [],
+          agents: [],
+          recommendedAgent: 'terminal'
+        }),
         quitApp: vi.fn().mockResolvedValue(undefined),
         openInApp: vi.fn().mockResolvedValue({ success: true }),
         openInChrome: vi.fn().mockResolvedValue({ success: true }),

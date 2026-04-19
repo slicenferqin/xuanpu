@@ -94,6 +94,10 @@ export const messages: Record<AppLocale, MessageTree> = {
           description:
             'Remove the @ symbol from file references inserted via the file picker before sending'
         },
+        keepAwake: {
+          label: 'Keep awake during sessions',
+          description: 'Prevent the display from sleeping while a session is actively running.'
+        },
         branchNaming: {
           label: 'Branch Naming',
           description: 'Choose the naming theme for auto-generated worktree branches',
@@ -354,7 +358,8 @@ export const messages: Record<AppLocale, MessageTree> = {
       },
       archivedChats: {
         title: 'Archived Chats',
-        description: 'Browse archived sessions, open them read-only, or restore them to active worktrees.',
+        description:
+          'Browse archived sessions, open them read-only, or restore them to active worktrees.',
         search: {
           placeholder: 'Search session, project, or worktree...'
         },
@@ -370,7 +375,8 @@ export const messages: Record<AppLocale, MessageTree> = {
           updated: 'Updated {date}',
           missingWorktree: 'No active worktree',
           archivedWorktree: 'Parent worktree is archived',
-          restoreDisabled: 'This session can only be viewed because its worktree is archived or missing.'
+          restoreDisabled:
+            'This session can only be viewed because its worktree is archived or missing.'
         },
         empty: {
           title: 'No archived chats',
@@ -965,7 +971,8 @@ export const messages: Record<AppLocale, MessageTree> = {
         authUnknownDescription:
           'Xuanpu could not verify the current auth state for {agent}, but you can already select it if you want to proceed.',
         loginHintClaude: 'Launch Claude Code and follow the interactive sign-in flow.',
-        loginHintCodex: 'Run the login command and complete the ChatGPT or API-key authentication flow.',
+        loginHintCodex:
+          'Run the login command and complete the ChatGPT or API-key authentication flow.',
         loginHintOpencode:
           'Launch OpenCode, then finish provider setup from the interactive session.'
       },
@@ -2011,6 +2018,8 @@ export const messages: Record<AppLocale, MessageTree> = {
         attachExistingPR: 'Attach existing PR',
         sessionHistoryTitle: 'Session History (⌘K)',
         settingsTitle: 'Settings (⌘,)',
+        keepAwakeIdleTitle: 'Keep-awake is enabled',
+        keepAwakeActiveTitle: 'Keep-awake is actively preventing display sleep',
         showSidebar: 'Show sidebar',
         hideSidebar: 'Hide sidebar',
         merged: 'merged',
@@ -2231,6 +2240,10 @@ export const messages: Record<AppLocale, MessageTree> = {
         stripAtMentions: {
           label: '发送前去掉文件提及中的 @',
           description: '通过文件选择器插入文件引用后，在发送前移除前缀 @ 符号'
+        },
+        keepAwake: {
+          label: '会话期间保持唤醒',
+          description: '当会话正在运行时，阻止显示器进入睡眠。'
         },
         branchNaming: {
           label: '分支命名',
@@ -3079,7 +3092,8 @@ export const messages: Record<AppLocale, MessageTree> = {
         loginTitle: '登录指引',
         selectedTitle: '当前选择',
         whyTitle: '说明',
-        recommendedDescription: '玄圃推荐 {agent}，因为它是当前这台机器上最适合直接开箱即用的方案。',
+        recommendedDescription:
+          '玄圃推荐 {agent}，因为它是当前这台机器上最适合直接开箱即用的方案。',
         terminalDescription:
           '终端模式是一个安全兜底。之后你仍然可以在设置里切换到 Claude Code、Codex 或 OpenCode。',
         commandLabel: '建议命令',
@@ -4135,6 +4149,8 @@ export const messages: Record<AppLocale, MessageTree> = {
         attachExistingPR: '关联已有 PR',
         sessionHistoryTitle: '会话历史（⌘K）',
         settingsTitle: '设置（⌘,）',
+        keepAwakeIdleTitle: '保持唤醒已启用',
+        keepAwakeActiveTitle: '正在阻止显示器进入睡眠',
         showSidebar: '显示侧边栏',
         hideSidebar: '隐藏侧边栏',
         merged: '已合并',
