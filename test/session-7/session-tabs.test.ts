@@ -5,6 +5,10 @@ import { useSessionStore } from '../../src/renderer/src/stores/useSessionStore'
 import { useWorktreeStore } from '../../src/renderer/src/stores/useWorktreeStore'
 import { useProjectStore } from '../../src/renderer/src/stores/useProjectStore'
 import { useGitStore } from '../../src/renderer/src/stores/useGitStore'
+import {
+  resetSessionViewRegistryForTests,
+  setSessionViewState
+} from '../../src/renderer/src/lib/session-view-registry'
 
 // Mock session data
 const mockSession1 = {
@@ -88,6 +92,8 @@ const mockDbWorktree = {
 // Setup window.db mock
 beforeEach(() => {
   vi.clearAllMocks()
+  resetSessionViewRegistryForTests()
+  window.sessionStorage.clear()
 
   // Reset stores to initial state
   useSessionStore.setState({
@@ -135,6 +141,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  vi.useRealTimers()
 })
 
 describe('Session 7: Session Tabs', () => {
@@ -216,6 +223,47 @@ describe('Session 7: Session Tabs', () => {
       expect(sessions![0].id).toBe('session-2')
       // Should select next session after closing
       expect(state.activeSessionId).toBe('session-2')
+    })
+
+    test('closeSession removes the session view anchor from sessionStorage', async () => {
+      vi.useFakeTimers()
+
+      useSessionStore.setState({
+        sessionsByWorktree: new Map([['worktree-1', [mockSession1, mockSession2]]]),
+        tabOrderByWorktree: new Map([['worktree-1', ['session-1', 'session-2']]]),
+        activeSessionId: 'session-1',
+        activeWorktreeId: 'worktree-1'
+      })
+
+      setSessionViewState('session-1', {
+        scrollTop: 128,
+        stickyBottom: false,
+        manualScrollLocked: true,
+        lastSeenVersion: 3
+      })
+      setSessionViewState('session-2', {
+        scrollTop: 64,
+        stickyBottom: true,
+        manualScrollLocked: false,
+        lastSeenVersion: 1
+      })
+      vi.runAllTimers()
+
+      mockDbSession.update.mockResolvedValue({ ...mockSession1, status: 'completed' })
+
+      await act(async () => {
+        await useSessionStore.getState().closeSession('session-1')
+      })
+      vi.runAllTimers()
+
+      expect(JSON.parse(window.sessionStorage.getItem('xuanpu:session-view-registry') ?? '{}')).toEqual({
+        'session-2': {
+          scrollTop: 64,
+          stickyBottom: true,
+          manualScrollLocked: false,
+          lastSeenVersion: 1
+        }
+      })
     })
 
     test('closeSession resets PR creating state for that session only', async () => {

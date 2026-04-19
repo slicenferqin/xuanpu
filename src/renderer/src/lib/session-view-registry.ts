@@ -6,6 +6,7 @@ export interface SessionViewState {
 }
 
 const STORAGE_KEY = 'xuanpu:session-view-registry'
+const PERSIST_DEBOUNCE_MS = 250
 
 const DEFAULT_SESSION_VIEW_STATE: SessionViewState = {
   scrollTop: 0,
@@ -16,6 +17,8 @@ const DEFAULT_SESSION_VIEW_STATE: SessionViewState = {
 
 const _sessionViewRegistry = new Map<string, SessionViewState>()
 let _didLoadFromStorage = false
+let _persistTimeoutHandle: ReturnType<typeof setTimeout> | null = null
+let _persistIdleHandle: number | null = null
 
 function normalizeSessionViewState(
   state?: Partial<SessionViewState>,
@@ -57,17 +60,66 @@ function normalizeSessionViewState(
   }
 }
 
-function persistRegistry(): void {
-  if (typeof window === 'undefined' || typeof window.sessionStorage?.setItem !== 'function') {
+function cancelScheduledPersist(): void {
+  if (_persistTimeoutHandle !== null) {
+    clearTimeout(_persistTimeoutHandle)
+    _persistTimeoutHandle = null
+  }
+
+  if (
+    _persistIdleHandle !== null &&
+    typeof globalThis.cancelIdleCallback === 'function'
+  ) {
+    globalThis.cancelIdleCallback(_persistIdleHandle)
+    _persistIdleHandle = null
+  }
+}
+
+function flushPersistRegistry(): void {
+  _persistTimeoutHandle = null
+  _persistIdleHandle = null
+
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  const sessionStorage = window.sessionStorage
+  if (
+    typeof sessionStorage?.setItem !== 'function' ||
+    typeof sessionStorage?.removeItem !== 'function'
+  ) {
     return
   }
 
   try {
+    if (_sessionViewRegistry.size === 0) {
+      sessionStorage.removeItem(STORAGE_KEY)
+      return
+    }
+
     const payload = Object.fromEntries(_sessionViewRegistry)
-    window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
   } catch {
     // Non-fatal: the in-memory registry still preserves session anchors.
   }
+}
+
+function persistRegistry(): void {
+  cancelScheduledPersist()
+
+  if (typeof globalThis.requestIdleCallback === 'function') {
+    _persistIdleHandle = globalThis.requestIdleCallback(
+      () => {
+        flushPersistRegistry()
+      },
+      { timeout: PERSIST_DEBOUNCE_MS }
+    )
+    return
+  }
+
+  _persistTimeoutHandle = setTimeout(() => {
+    flushPersistRegistry()
+  }, PERSIST_DEBOUNCE_MS)
 }
 
 function ensureRegistryLoaded(): void {
@@ -133,7 +185,17 @@ export function updateSessionViewState(
   return setSessionViewState(sessionId, updater(current), maxSeenVersion)
 }
 
+export function removeSessionViewState(sessionId: string): void {
+  ensureRegistryLoaded()
+
+  if (!_sessionViewRegistry.has(sessionId)) return
+
+  _sessionViewRegistry.delete(sessionId)
+  persistRegistry()
+}
+
 export function resetSessionViewRegistryForTests(): void {
+  cancelScheduledPersist()
   _sessionViewRegistry.clear()
   _didLoadFromStorage = false
 
