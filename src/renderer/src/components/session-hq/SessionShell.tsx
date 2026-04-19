@@ -50,7 +50,7 @@ import {
   getStreamingBufferSnapshot,
   subscribeToStreamingBuffer,
   updateStreamingBuffer,
-  clearStreamingBuffer
+  clearStreamingBufferOverlay
 } from '@/stores/useSessionRuntimeStore'
 import {
   executeSendAction,
@@ -702,27 +702,32 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           if (statusType === 'idle') {
             void refreshUsageSummary()
             // Refresh timeline to pick up newly committed messages
-            refresh().then((msgs) => {
-              // Sync mission tasks from committed timeline (source of truth after idle)
-              if (msgs.length > 0) {
-                const extracted = extractMissionTasks(msgs)
-                if (extracted.length > 0) {
-                  // Don't overwrite if all tasks already completed in memory —
-                  // streaming TaskUpdate events are more authoritative than DB
-                  // snapshots for task status (DB only has original TodoWrite input)
-                  const currentAllComplete =
-                    missionTasksRef.current.length > 0 &&
-                    missionTasksRef.current.every((t) => t.status === 'completed')
-                  if (!currentAllComplete) {
-                    missionTasksRef.current = extracted
-                    setMissionTasks(extracted)
+            void refresh()
+              .then((msgs) => {
+                // Sync mission tasks from committed timeline (source of truth after idle)
+                if (msgs.length > 0) {
+                  const extracted = extractMissionTasks(msgs)
+                  if (extracted.length > 0) {
+                    // Don't overwrite if all tasks already completed in memory —
+                    // streaming TaskUpdate events are more authoritative than DB
+                    // snapshots for task status (DB only has original TodoWrite input)
+                    const currentAllComplete =
+                      missionTasksRef.current.length > 0 &&
+                      missionTasksRef.current.every((t) => t.status === 'completed')
+                    if (!currentAllComplete) {
+                      missionTasksRef.current = extracted
+                      setMissionTasks(extracted)
+                    }
                   }
                 }
-              }
-
-              optimisticRef.current = []
-              clearStreamingBuffer(sessionId)
-            })
+              })
+              .finally(() => {
+                optimisticRef.current = []
+                clearStreamingBufferOverlay(sessionId, {
+                  notify: 'immediate',
+                  preserveCompactionState: true
+                })
+              })
 
             // Auto-drain pending message queue
             if (worktreePath && droidSessionId) {

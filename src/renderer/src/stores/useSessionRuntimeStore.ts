@@ -98,6 +98,7 @@ const _streamingBuffers = new Map<string, StreamingBuffer>()
 type StreamingBufferCallback = () => void
 const _streamingBufferCallbacks = new Map<string, Set<StreamingBufferCallback>>()
 const _pendingStreamingBufferFlushes = new Set<string>()
+const _emptyStreamingBufferSnapshots = new Map<string, StreamingBuffer>()
 
 function createStreamingBuffer(overrides?: Partial<StreamingBuffer>): StreamingBuffer {
   return {
@@ -124,6 +125,28 @@ function cloneStreamingBuffer(buffer: StreamingBuffer): StreamingBuffer {
     ),
     optimisticMessages: buffer.optimisticMessages ? [...buffer.optimisticMessages] : undefined
   }
+}
+
+function getEmptyStreamingBufferSnapshot(sessionId: string): StreamingBuffer {
+  const existing = _emptyStreamingBufferSnapshots.get(sessionId)
+  if (existing) return existing
+
+  const next = createStreamingBuffer()
+  _emptyStreamingBufferSnapshots.set(sessionId, next)
+  return next
+}
+
+function resetStreamingBufferOverlayState(
+  current: StreamingBuffer,
+  options?: { preserveOptimisticMessages?: boolean; preserveCompactionState?: boolean }
+): StreamingBuffer {
+  return createStreamingBuffer({
+    activeRunEpoch: current.activeRunEpoch,
+    lastAppliedSequence: current.lastAppliedSequence,
+    mirrorVersion: current.mirrorVersion,
+    optimisticMessages: options?.preserveOptimisticMessages ? current.optimisticMessages : undefined,
+    compactionState: options?.preserveCompactionState ? current.compactionState : null
+  })
 }
 
 function notifyStreamingBufferSubscribers(sessionId: string): void {
@@ -178,12 +201,20 @@ export function getStreamingBuffer(sessionId: string): StreamingBuffer | undefin
 
 export function setStreamingBuffer(sessionId: string, buffer: StreamingBuffer): void {
   _streamingBuffers.set(sessionId, cloneStreamingBuffer(buffer))
+  _emptyStreamingBufferSnapshots.delete(sessionId)
 }
 
 export function clearStreamingBuffer(sessionId: string): void {
   _streamingBuffers.delete(sessionId)
   _pendingStreamingBufferFlushes.delete(sessionId)
   notifyStreamingBufferSubscribers(sessionId)
+}
+
+export function resetStreamingBuffersForTests(): void {
+  _streamingBuffers.clear()
+  _pendingStreamingBufferFlushes.clear()
+  _emptyStreamingBufferSnapshots.clear()
+  _streamingBufferCallbacks.clear()
 }
 
 export function subscribeToStreamingBuffer(sessionId: string, cb: StreamingBufferCallback): () => void {
@@ -204,7 +235,7 @@ export function subscribeToStreamingBuffer(sessionId: string, cb: StreamingBuffe
 }
 
 export function getStreamingBufferSnapshot(sessionId: string): StreamingBuffer {
-  return getStreamingBuffer(sessionId) ?? createStreamingBuffer()
+  return _streamingBuffers.get(sessionId) ?? getEmptyStreamingBufferSnapshot(sessionId)
 }
 
 export function updateStreamingBuffer(
@@ -213,8 +244,14 @@ export function updateStreamingBuffer(
   options?: { notify?: 'none' | 'frame' | 'immediate' }
 ): StreamingBuffer {
   const current = _streamingBuffers.get(sessionId) ?? createStreamingBuffer()
-  const next = cloneStreamingBuffer(updater(cloneStreamingBuffer(current)))
+  const next = updater(current)
+
+  if (next === current) {
+    return getStreamingBufferSnapshot(sessionId)
+  }
+
   _streamingBuffers.set(sessionId, next)
+  _emptyStreamingBufferSnapshots.delete(sessionId)
 
   const notifyMode = options?.notify ?? 'frame'
   if (notifyMode === 'immediate') {
@@ -226,6 +263,30 @@ export function updateStreamingBuffer(
   return getStreamingBufferSnapshot(sessionId)
 }
 
+export function clearStreamingBufferOverlay(
+  sessionId: string,
+  options?: {
+    notify?: 'none' | 'frame' | 'immediate'
+    preserveOptimisticMessages?: boolean
+    preserveCompactionState?: boolean
+  }
+): StreamingBuffer {
+  return updateStreamingBuffer(
+    sessionId,
+    (current) => {
+      if (!_streamingBuffers.has(sessionId)) {
+        return current
+      }
+
+      return resetStreamingBufferOverlayState(current, {
+        preserveOptimisticMessages: options?.preserveOptimisticMessages,
+        preserveCompactionState: options?.preserveCompactionState
+      })
+    },
+    { notify: options?.notify ?? 'immediate' }
+  )
+}
+
 export function syncStreamingBufferGuardState(
   sessionId: string,
   state: SessionEventGuardState,
@@ -235,12 +296,14 @@ export function syncStreamingBufferGuardState(
     sessionId,
     (current) =>
       options?.resetOverlay
-        ? createStreamingBuffer({
+        ? {
+            ...resetStreamingBufferOverlayState(current, {
+              preserveOptimisticMessages: true,
+              preserveCompactionState: true
+            }),
             activeRunEpoch: state.activeRunEpoch,
-            lastAppliedSequence: state.lastAppliedSequence,
-            mirrorVersion: current.mirrorVersion,
-            optimisticMessages: current.optimisticMessages
-          })
+            lastAppliedSequence: state.lastAppliedSequence
+          }
         : {
             ...current,
             activeRunEpoch: state.activeRunEpoch,
@@ -440,10 +503,8 @@ export function writeEventToStreamingBuffer(
 
         if (statusType === 'idle') {
           if (sessionId !== activeSessionId) {
-            return createStreamingBuffer({
-              activeRunEpoch: current.activeRunEpoch,
-              lastAppliedSequence: current.lastAppliedSequence,
-              mirrorVersion: current.mirrorVersion
+            return resetStreamingBufferOverlayState(current, {
+              preserveCompactionState: true
             })
           }
 
@@ -866,6 +927,8 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
     })
     _sessionEventCallbacks.delete(sessionId)
     _streamingBuffers.delete(sessionId)
+    _emptyStreamingBufferSnapshots.delete(sessionId)
+    _pendingStreamingBufferFlushes.delete(sessionId)
     _sessionEventGuards.delete(sessionId)
   }
 }))

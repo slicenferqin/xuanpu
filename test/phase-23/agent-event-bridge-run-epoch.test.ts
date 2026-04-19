@@ -170,6 +170,7 @@ import {
   clearStreamingBuffer,
   getSessionEventGuardState,
   getStreamingBuffer,
+  resetStreamingBuffersForTests,
   resetSessionEventGuardsForTests,
   setStreamingBuffer,
   useSessionRuntimeStore
@@ -249,6 +250,7 @@ describe('useAgentEventBridge runEpoch guard', () => {
     vi.clearAllMocks()
     activeSessionId = 'sess-1'
     streamCallback = null
+    resetStreamingBuffersForTests()
     resetSessionEventGuardsForTests()
 
     for (const sessionId of sessionIds) {
