@@ -71,7 +71,12 @@ const db = {
       ipcRenderer.invoke('db:worktree:getRecentlyActive', cutoffMs),
     update: (
       id: string,
-      data: { name?: string; status?: 'active' | 'archived'; last_accessed_at?: string }
+      data: {
+        name?: string
+        status?: 'active' | 'archived'
+        last_accessed_at?: string
+        last_agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | null
+      }
     ) => ipcRenderer.invoke('db:worktree:update', id, data),
     delete: (id: string) => ipcRenderer.invoke('db:worktree:delete', id),
     archive: (id: string) => ipcRenderer.invoke('db:worktree:archive', id),

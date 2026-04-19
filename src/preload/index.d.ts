@@ -60,6 +60,7 @@ interface Worktree {
   last_model_provider_id: string | null
   last_model_id: string | null
   last_model_variant: string | null
+  last_agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | null
   attachments: string // JSON array of Attachment objects
   pinned: number // 0 = not pinned, 1 = pinned
   context: string | null
@@ -82,6 +83,7 @@ interface Session {
   model_provider_id: string | null
   model_id: string | null
   model_variant: string | null
+  first_message_at: number | null
   created_at: string
   updated_at: string
   completed_at: string | null
@@ -271,6 +273,7 @@ declare global {
             status?: 'active' | 'archived'
             last_message_at?: number | null
             last_accessed_at?: string
+            last_agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | null
           }
         ) => Promise<Worktree | null>
         delete: (id: string) => Promise<boolean>

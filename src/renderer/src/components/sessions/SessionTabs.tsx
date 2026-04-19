@@ -43,6 +43,7 @@ import { toast } from '@/lib/toast'
 import { assignSessionHints } from '@/lib/hint-utils'
 import { HintBadge } from '@/components/ui/HintBadge'
 import { useI18n } from '@/i18n/useI18n'
+import { NewSessionDialog } from './NewSessionDialog'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -615,6 +616,7 @@ export function SessionTabs(): React.JSX.Element | null {
   const [showRightArrow, setShowRightArrow] = useState(false)
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null)
   const [dragOverTabId, setDragOverTabId] = useState<string | null>(null)
+  const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false)
 
   // Individual selectors — only re-render when the subscribed field changes
   const activeWorktreeId = useSessionStore((s) => s.activeWorktreeId)
@@ -849,22 +851,16 @@ export function SessionTabs(): React.JSX.Element | null {
     }
   }
 
-  // Handle creating a new session
-  const handleCreateSession = async () => {
+  // Handle creating a new session — opens the dialog so the user can pick
+  // name + provider + model. The right-click menu still bypasses the dialog
+  // for power users.
+  const handleCreateSession = () => {
     if (isConnectionMode && selectedConnectionId) {
-      const result = await createConnectionSession(selectedConnectionId)
-      if (!result.success) {
-        toast.error(result.error || t('sessionTabs.errors.createSession'))
-      }
+      setNewSessionDialogOpen(true)
       return
     }
-
     if (!selectedWorktreeId || !project) return
-
-    const result = await createSession(selectedWorktreeId, project.id)
-    if (!result.success) {
-      toast.error(result.error || t('sessionTabs.errors.createSession'))
-    }
+    setNewSessionDialogOpen(true)
   }
 
   // Handle creating a new session with a specific agent SDK (from context menu)
@@ -1126,6 +1122,21 @@ export function SessionTabs(): React.JSX.Element | null {
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
+
+      <NewSessionDialog
+        open={newSessionDialogOpen}
+        onOpenChange={setNewSessionDialogOpen}
+        worktreeId={isConnectionMode ? null : selectedWorktreeId}
+        projectId={isConnectionMode ? null : project?.id ?? null}
+        connectionId={isConnectionMode ? selectedConnectionId : null}
+        defaultIndex={
+          isConnectionMode && selectedConnectionId
+            ? (sessionsByConnection.get(selectedConnectionId)?.length ?? 0) + 1
+            : selectedWorktreeId
+              ? (sessionsByWorktree.get(selectedWorktreeId)?.length ?? 0) + 1
+              : 1
+        }
+      />
 
       {/* Left scroll arrow */}
       {showLeftArrow && (

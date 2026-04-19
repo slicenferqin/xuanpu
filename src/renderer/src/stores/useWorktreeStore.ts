@@ -130,6 +130,10 @@ interface WorktreeState {
   ) => Promise<{ success: boolean; worktree?: Worktree; error?: string }>
   updateWorktreeBranch: (worktreeId: string, newBranch: string) => void
   updateWorktreeModel: (worktreeId: string, model: SelectedModel) => void
+  updateWorktreeLastAgentSdk: (
+    worktreeId: string,
+    agentSdk: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+  ) => void
   reorderWorktrees: (projectId: string, fromIndex: number, toIndex: number) => void
   appendSessionTitle: (worktreeId: string, title: string) => void
 }
@@ -599,6 +603,25 @@ export const useWorktreeStore = create<WorktreeState>((set, get) => ({
                 last_model_variant: model.variant ?? null
               }
             : w
+        )
+        if (updated.some((w, i) => w !== worktrees[i])) {
+          newMap.set(projectId, updated)
+        }
+      }
+      return { worktreesByProject: newMap }
+    })
+  },
+
+  // Update a worktree's last-used agent SDK in the store
+  updateWorktreeLastAgentSdk: (
+    worktreeId: string,
+    agentSdk: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+  ) => {
+    set((state) => {
+      const newMap = new Map(state.worktreesByProject)
+      for (const [projectId, worktrees] of newMap.entries()) {
+        const updated = worktrees.map((w) =>
+          w.id === worktreeId ? { ...w, last_agent_sdk: agentSdk } : w
         )
         if (updated.some((w, i) => w !== worktrees[i])) {
           newMap.set(projectId, updated)

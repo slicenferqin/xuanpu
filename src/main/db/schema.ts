@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 13
+export const CURRENT_SCHEMA_VERSION = 14
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS worktrees (
   last_model_provider_id TEXT,
   last_model_id TEXT,
   last_model_variant TEXT,
+  last_agent_sdk TEXT DEFAULT NULL,
   attachments TEXT DEFAULT '[]',
   pinned INTEGER NOT NULL DEFAULT 0,
   context TEXT DEFAULT NULL,
@@ -57,6 +58,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   model_id TEXT,
   model_variant TEXT,
   color TEXT DEFAULT NULL,
+  first_message_at INTEGER DEFAULT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   completed_at TEXT
@@ -431,6 +433,22 @@ export const MIGRATIONS: Migration[] = [
     name: 'add_session_color',
     up: `-- NOTE: ALTER TABLE for color is handled idempotently by
          -- ensureSessionColumns() in database.ts to avoid "duplicate column" errors.`,
+    down: `-- SQLite cannot drop columns; this is a no-op for safety`
+  },
+  {
+    version: 14,
+    name: 'add_session_level_provider_lock',
+    // NOTE: ALTER TABLE for sessions.first_message_at and worktrees.last_agent_sdk
+    // is handled idempotently by ensureConnectionTables() in database.ts via
+    // safeAddColumn(). This migration also backfills first_message_at for any
+    // historical sessions that already have activity, locking them so the
+    // provider/model can no longer be changed mid-conversation.
+    up: `
+      UPDATE sessions
+         SET first_message_at = CAST((julianday(created_at) - 2440587.5) * 86400000 AS INTEGER)
+       WHERE first_message_at IS NULL
+         AND id IN (SELECT DISTINCT session_id FROM session_activities);
+    `,
     down: `-- SQLite cannot drop columns; this is a no-op for safety`
   }
 ]

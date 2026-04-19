@@ -1824,7 +1824,29 @@ export const messages: Record<AppLocale, MessageTree> = {
     },
     sessionStore: {
       errors: {
-        createConnectionSession: 'Failed to create connection session'
+        createConnectionSession: 'Failed to create connection session',
+        sessionNotFound: 'Session not found',
+        sessionLocked: 'Session is locked because the conversation has already started'
+      }
+    },
+    newSessionDialog: {
+      title: 'New session',
+      description: 'Pick a provider and model. You can change them until the first message is sent.',
+      fields: {
+        name: 'Name',
+        provider: 'Provider',
+        model: 'Model'
+      },
+      terminalNoModel: 'Terminal sessions do not use a model.',
+      actions: {
+        create: 'Create',
+        creating: 'Creating…',
+        cancel: 'Cancel'
+      },
+      lock: {
+        header: 'Locked',
+        description:
+          'Provider and model are locked once the first message has been sent. Start a new session to switch.'
       }
     },
     commandPalette: {
@@ -3974,7 +3996,28 @@ export const messages: Record<AppLocale, MessageTree> = {
     },
     sessionStore: {
       errors: {
-        createConnectionSession: '创建连接会话失败'
+        createConnectionSession: '创建连接会话失败',
+        sessionNotFound: '找不到会话',
+        sessionLocked: '会话已开始，无法再更改服务商或模型'
+      }
+    },
+    newSessionDialog: {
+      title: '新建会话',
+      description: '选择服务商和模型。发送第一条消息前都可修改。',
+      fields: {
+        name: '会话名',
+        provider: '服务商',
+        model: '模型'
+      },
+      terminalNoModel: '终端会话不使用模型。',
+      actions: {
+        create: '创建',
+        creating: '创建中…',
+        cancel: '取消'
+      },
+      lock: {
+        header: '已锁定',
+        description: '发送第一条消息后服务商和模型将被锁定。如需切换请新建会话。'
       }
     },
     commandPalette: {
