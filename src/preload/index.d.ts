@@ -1290,6 +1290,50 @@ declare global {
       setEnabled: (enabled: boolean) => Promise<void>
       isEnabled: () => Promise<boolean>
     }
+    skillOps: {
+      listHubs: () => Promise<{
+        success: boolean
+        hubs: import('../shared/types/skill').SkillHub[]
+        error?: string
+      }>
+      addHub: (args: {
+        repo: string
+        ref?: string
+        name?: string
+      }) => Promise<import('../shared/types/skill').AddHubResult>
+      removeHub: (hubId: string) => Promise<import('../shared/types/skill').RemoveHubResult>
+      refreshHub: (
+        hubId: import('../shared/types/skill').HubId
+      ) => Promise<import('../shared/types/skill').RefreshHubResult>
+      listSkills: (
+        hubId: import('../shared/types/skill').HubId
+      ) => Promise<{
+        success: boolean
+        skills: import('../shared/types/skill').Skill[]
+        error?: string
+      }>
+      listInstalled: (
+        scope: import('../shared/types/skill').SkillScope
+      ) => Promise<{
+        success: boolean
+        skills: import('../shared/types/skill').InstalledSkill[]
+        error?: string
+      }>
+      install: (
+        hubId: import('../shared/types/skill').HubId,
+        skillId: string,
+        scope: import('../shared/types/skill').SkillScope,
+        overwrite?: boolean
+      ) => Promise<import('../shared/types/skill').InstallSkillResult>
+      uninstall: (
+        skillId: string,
+        scope: import('../shared/types/skill').SkillScope
+      ) => Promise<import('../shared/types/skill').UninstallSkillResult>
+      readContent: (
+        absPath: string
+      ) => Promise<import('../shared/types/skill').ReadSkillContentResult>
+      openLocation: (absPath: string) => Promise<{ success: boolean; error?: string }>
+    }
   }
 
   interface GitDiffStatFile {

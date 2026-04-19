@@ -1469,6 +1469,53 @@ const scriptOps = {
     ipcRenderer.invoke('port:get', { cwd })
 }
 
+// Skill Hub operations API
+import type {
+  InstallSkillResult,
+  InstalledSkill,
+  ReadSkillContentResult,
+  Skill,
+  SkillHub,
+  SkillScope,
+  UninstallSkillResult,
+  HubId,
+  AddHubResult,
+  RefreshHubResult,
+  RemoveHubResult
+} from '../shared/types/skill'
+
+const skillOps = {
+  listHubs: (): Promise<{ success: boolean; hubs: SkillHub[]; error?: string }> =>
+    ipcRenderer.invoke('skill:listHubs'),
+  addHub: (args: { repo: string; ref?: string; name?: string }): Promise<AddHubResult> =>
+    ipcRenderer.invoke('skill:addHub', args),
+  removeHub: (hubId: string): Promise<RemoveHubResult> =>
+    ipcRenderer.invoke('skill:removeHub', { hubId }),
+  refreshHub: (hubId: HubId): Promise<RefreshHubResult> =>
+    ipcRenderer.invoke('skill:refreshHub', { hubId }),
+  listSkills: (
+    hubId: HubId
+  ): Promise<{ success: boolean; skills: Skill[]; error?: string }> =>
+    ipcRenderer.invoke('skill:listSkills', { hubId }),
+  listInstalled: (
+    scope: SkillScope
+  ): Promise<{ success: boolean; skills: InstalledSkill[]; error?: string }> =>
+    ipcRenderer.invoke('skill:listInstalled', { scope }),
+  install: (
+    hubId: HubId,
+    skillId: string,
+    scope: SkillScope,
+    overwrite = false
+  ): Promise<InstallSkillResult> =>
+    ipcRenderer.invoke('skill:install', { hubId, skillId, scope, overwrite }),
+  uninstall: (skillId: string, scope: SkillScope): Promise<UninstallSkillResult> =>
+    ipcRenderer.invoke('skill:uninstall', { skillId, scope }),
+  readContent: (absPath: string): Promise<ReadSkillContentResult> =>
+    ipcRenderer.invoke('skill:readContent', { absPath }),
+  openLocation: (absPath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('skill:openLocation', { absPath })
+}
+
 // File operations API
 const fileOps = {
   readFile: (filePath: string): Promise<{ success: boolean; content?: string; error?: string }> =>
@@ -1820,6 +1867,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('usageOps', usageOps)
     contextBridge.exposeInMainWorld('usageAnalyticsOps', usageAnalyticsOps)
     contextBridge.exposeInMainWorld('analyticsOps', analyticsOps)
+    contextBridge.exposeInMainWorld('skillOps', skillOps)
   } catch (error) {
     console.error(error)
   }
@@ -1858,4 +1906,6 @@ if (process.contextIsolated) {
   window.usageAnalyticsOps = usageAnalyticsOps
   // @ts-expect-error (define in dts)
   window.analyticsOps = analyticsOps
+  // @ts-expect-error (define in dts)
+  window.skillOps = skillOps
 }

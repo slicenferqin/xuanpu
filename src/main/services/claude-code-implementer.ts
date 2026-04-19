@@ -569,6 +569,27 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         modelDef?.defaultVariant ??
         'high') as Options['effort']
 
+      // When the session runs inside a worktree, also expose the parent
+      // project's root as an additional directory so that project-scope
+      // skills (`<projectPath>/.claude/skills/`), CLAUDE.md, and other
+      // `.claude/*` resources installed at the project level are picked up.
+      // The Agent SDK only walks `.claude/skills/` under cwd + each
+      // additionalDirectory, never sideways into sibling worktree paths.
+      const additionalDirs: string[] = []
+      if (this.dbService) {
+        try {
+          const wt = this.dbService.getWorktreeByPath(session.worktreePath)
+          if (wt) {
+            const proj = this.dbService.getProject(wt.project_id)
+            if (proj?.path && proj.path !== session.worktreePath) {
+              additionalDirs.push(proj.path)
+            }
+          }
+        } catch {
+          // Best-effort; missing parent project just means no extra dirs.
+        }
+      }
+
       // Build SDK query options
       let options: Options = {
         cwd: session.worktreePath,
@@ -580,6 +601,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         enableFileCheckpointing: true,
         settingSources: ['user', 'project', 'local'],
         extraArgs: { 'replay-user-messages': null },
+        ...(additionalDirs.length > 0 ? { additionalDirectories: additionalDirs } : {}),
         ...(this.thinkingSupported ? { thinking: { type: 'adaptive' } as const } : {}),
         effort: effortLevel,
         debugFile: join(getActiveAppHomeDir(app.getPath('home')), 'logs', 'claude-debug.log'),

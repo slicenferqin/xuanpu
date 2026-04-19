@@ -22,6 +22,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         privacy: 'Privacy',
         usage: 'Usage',
         archivedChats: 'Archived Chats',
+        skills: 'Skills',
         shortcuts: 'Shortcuts',
         updates: 'Updates'
       },
@@ -2168,6 +2169,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         privacy: '隐私',
         usage: '使用统计',
         archivedChats: '已归档聊天',
+        skills: 'Skill Hub',
         shortcuts: '快捷键',
         updates: '更新'
       },
