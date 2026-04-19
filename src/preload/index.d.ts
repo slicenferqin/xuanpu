@@ -1356,9 +1356,13 @@ declare global {
   interface CanonicalAgentEvent {
     type: string
     sessionId: string
+    eventId: string
+    sessionSequence: number
+    runEpoch: number
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     data: any
     childSessionId?: string
+    sourceChannel?: 'agent:stream'
     /** session.status event payload -- only present when type === 'session.status' */
     statusPayload?: {
       type: 'idle' | 'busy' | 'retry'

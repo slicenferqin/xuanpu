@@ -29,7 +29,11 @@ import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useContextStore } from '@/stores/useContextStore'
 import { useRecentStore } from '@/stores/useRecentStore'
 import { useUsageStore, resolveUsageProvider } from '@/stores'
-import { useSessionRuntimeStore, clearStreamingBuffer } from '@/stores/useSessionRuntimeStore'
+import {
+  useSessionRuntimeStore,
+  clearStreamingBuffer,
+  acceptSessionEvent
+} from '@/stores/useSessionRuntimeStore'
 import {
   extractTokens,
   extractCost,
@@ -254,6 +258,15 @@ export function useAgentEventBridge(): void {
       ? window.agentOps.onStream((event: CanonicalAgentEvent) => {
           const sessionId = event.sessionId
           const activeId = useSessionStore.getState().activeSessionId
+
+          const guard = acceptSessionEvent(event)
+          if (!guard.accepted) {
+            return
+          }
+
+          if (guard.advancedRun) {
+            clearStreamingBuffer(sessionId)
+          }
 
           // Always dispatch to per-session callbacks (SessionView streaming)
           runtime.dispatchToSession(sessionId, event)

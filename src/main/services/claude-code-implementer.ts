@@ -22,7 +22,7 @@ import { CommandFilterService, type CommandFilterSettings } from './command-filt
 import { createLspMcpServerConfig, LspService } from './lsp'
 import { APP_SETTINGS_DB_KEY } from '@shared/types/settings'
 import { getActiveAppHomeDir } from '@shared/app-identity'
-import { emitAgentEvent } from '@shared/lib/normalize-agent-event'
+import { beginSessionRun, emitAgentEvent } from '@shared/lib/normalize-agent-event'
 import { resolveRuntimeModelId } from '@shared/usage/models'
 import { calculateUsageCost, resolvePricingModelKey } from '@shared/usage/pricing'
 
@@ -424,6 +424,8 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
     if (!session) {
       throw new Error(`Prompt failed: session not found for ${worktreePath} / ${agentSessionId}`)
     }
+
+    beginSessionRun(session.hiveSessionId)
 
     // Clear revert boundary — a new prompt invalidates prior undo state
     session.revertMessageID = null

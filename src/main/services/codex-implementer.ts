@@ -17,7 +17,7 @@ import { asNumber, asObject, asString } from './codex-utils'
 import { generateCodexSessionTitle } from './codex-session-title'
 import type { DatabaseService } from '../db/database'
 import { autoRenameWorktreeBranch } from './git-service'
-import { emitAgentEvent } from '@shared/lib/normalize-agent-event'
+import { beginSessionRun, emitAgentEvent } from '@shared/lib/normalize-agent-event'
 
 const log = createLogger({ component: 'CodexImplementer' })
 
@@ -498,6 +498,8 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     if (!session) {
       throw new Error(`Prompt failed: session not found for ${worktreePath} / ${agentSessionId}`)
     }
+
+    beginSessionRun(session.hiveSessionId)
 
     // Extract text from message
     let text: string
