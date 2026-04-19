@@ -1322,9 +1322,13 @@ declare global {
       install: (
         hubId: import('../shared/types/skill').HubId,
         skillId: string,
-        scope: import('../shared/types/skill').SkillScope,
+        providers: import('../shared/types/skill').SkillProvider[],
+        scope: {
+          kind: import('../shared/types/skill').SkillScope['kind']
+          path?: string
+        },
         overwrite?: boolean
-      ) => Promise<import('../shared/types/skill').InstallSkillResult>
+      ) => Promise<import('../shared/types/skill').InstallSkillBatchResult>
       uninstall: (
         skillId: string,
         scope: import('../shared/types/skill').SkillScope
@@ -1333,6 +1337,10 @@ declare global {
         absPath: string
       ) => Promise<import('../shared/types/skill').ReadSkillContentResult>
       openLocation: (absPath: string) => Promise<{ success: boolean; error?: string }>
+      detectProviders: () => Promise<{
+        success: true
+        availability: import('../shared/types/skill').ProviderAvailability
+      }>
     }
   }
 

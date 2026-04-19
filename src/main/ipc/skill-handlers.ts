@@ -13,13 +13,16 @@ import {
   refreshHub,
   removeRemoteHub
 } from '../services/hub-service'
+import { detectAgentSdks } from '../services/system-info'
 import type {
   AddHubResult,
   HubId,
-  InstallSkillResult,
+  InstallSkillBatchResult,
+  ProviderAvailability,
   ReadSkillContentResult,
   RefreshHubResult,
   RemoveHubResult,
+  SkillProvider,
   SkillScope,
   UninstallSkillResult
 } from '@shared/types/skill'
@@ -108,11 +111,32 @@ export function registerSkillHandlers(): void {
       {
         hubId,
         skillId,
+        providers,
         scope,
         overwrite
-      }: { hubId: HubId; skillId: string; scope: SkillScope; overwrite?: boolean }
-    ): Promise<InstallSkillResult> => {
-      return installSkill({ hubId, skillId }, scope, { overwrite })
+      }: {
+        hubId: HubId
+        skillId: string
+        providers: SkillProvider[]
+        /**
+         * Scope shape WITHOUT `provider` — the handler fans the request out
+         * across each requested provider, attaching the right provider field
+         * when calling the service. Keeps the dialog payload compact.
+         */
+        scope: { kind: SkillScope['kind']; path?: string }
+        overwrite?: boolean
+      }
+    ): Promise<InstallSkillBatchResult> => {
+      const results: InstallSkillBatchResult['results'] = []
+      for (const provider of providers) {
+        const fullScope: SkillScope =
+          scope.kind === 'user'
+            ? { provider, kind: 'user' }
+            : { provider, kind: scope.kind, path: scope.path ?? '' }
+        const res = await installSkill({ hubId, skillId }, fullScope, { overwrite })
+        results.push({ provider, ...res })
+      }
+      return { results }
     }
   )
 
@@ -125,6 +149,21 @@ export function registerSkillHandlers(): void {
       return uninstallSkill(skillId, scope)
     }
   )
+
+  ipcMain.handle('skill:detectProviders', async (): Promise<{
+    success: true
+    availability: ProviderAvailability
+  }> => {
+    const raw = detectAgentSdks()
+    return {
+      success: true,
+      availability: {
+        'claude-code': raw.claude,
+        codex: raw.codex,
+        opencode: raw.opencode
+      }
+    }
+  })
 
   ipcMain.handle(
     'skill:readContent',

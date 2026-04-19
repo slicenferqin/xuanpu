@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   BookOpen,
   Check,
-  Download,
   FolderOpen,
   Loader2,
   Plus,
@@ -12,7 +11,12 @@ import {
   X,
   AlertCircle,
   Github,
-  Package
+  Package,
+  Search,
+  ChevronDown,
+  Info,
+  Layers,
+  ShoppingBag
 } from 'lucide-react'
 import { useSkillStore } from '@/stores/useSkillStore'
 import { useProjectStore } from '@/stores/useProjectStore'
@@ -20,14 +24,25 @@ import { useWorktreeStore } from '@/stores/useWorktreeStore'
 import { MarkdownRenderer } from '@/components/sessions/MarkdownRenderer'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { toast } from '@/lib/toast'
-import type { SkillScope, SkillHub } from '@shared/types/skill'
-import { scopeKey } from '@shared/types/skill'
+import { useI18n } from '@/i18n/useI18n'
+import {
+  ALL_PROVIDERS,
+  PROVIDER_LABELS,
+  SUPPORTED_SCOPES_BY_PROVIDER,
+  scopeKey
+} from '@shared/types/skill'
+import type { SkillScope, SkillHub, SkillProvider } from '@shared/types/skill'
+import { InstallSkillDialog } from './InstallSkillDialog'
 
 type ScopeKind = SkillScope['kind']
+type TabType = 'installed' | 'browse'
 
 export function SettingsSkills(): React.JSX.Element {
+  const { t } = useI18n()
   const {
     hubs,
     selectedHubId,
@@ -35,6 +50,7 @@ export function SettingsSkills(): React.JSX.Element {
     installedByScope,
     selectedSkillId,
     scope,
+    providerAvailability,
     loading,
     refreshing,
     error,
@@ -44,10 +60,10 @@ export function SettingsSkills(): React.JSX.Element {
     loadHubs,
     loadSkills,
     loadInstalled,
+    loadProviders,
     addHub,
     removeHub,
     refreshHub,
-    install,
     uninstall
   } = useSkillStore()
 
@@ -70,28 +86,46 @@ export function SettingsSkills(): React.JSX.Element {
     return null
   }, [selectedWorktreeId, worktreesByProject])
 
+  const [activeTab, setActiveTab] = useState<TabType>('installed')
   const [skillMarkdown, setSkillMarkdown] = useState<string>('')
   const [markdownLoading, setMarkdownLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const [addHubOpen, setAddHubOpen] = useState(false)
+  const [hubPopoverOpen, setHubPopoverOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
   const [newRepo, setNewRepo] = useState('')
   const [newRef, setNewRef] = useState('main')
   const [newName, setNewName] = useState('')
+  const [installDialogOpen, setInstallDialogOpen] = useState(false)
 
   const currentHub: SkillHub | null =
     hubs.find((h) => h.id === selectedHubId) ?? hubs[0] ?? null
+
   const skillsInCurrentHub = useMemo(
     () => (currentHub ? (skillsByHub[currentHub.id] ?? []) : []),
     [currentHub, skillsByHub]
   )
 
+  const installedList = useMemo(() => {
+    return installedByScope[scopeKey(scope)] ?? []
+  }, [installedByScope, scope])
+
+  const displayedSkills = useMemo(() => {
+    const base = activeTab === 'installed' ? installedList : skillsInCurrentHub
+    if (!searchQuery.trim()) return base
+    const q = searchQuery.toLowerCase()
+    return base.filter(
+      (s) =>
+        (s.frontmatter.name || s.id).toLowerCase().includes(q) ||
+        s.frontmatter.description?.toLowerCase().includes(q)
+    )
+  }, [activeTab, installedList, skillsInCurrentHub, searchQuery])
+
   useEffect(() => {
     loadHubs()
-  }, [loadHubs])
+    loadProviders()
+  }, [loadHubs, loadProviders])
 
-  // Load skills for the currently-selected hub. For remote hubs that have
-  // never been refreshed, kick off an automatic refresh so first-time users
-  // aren't staring at an empty list.
   useEffect(() => {
     if (!currentHub) return
     let cancelled = false
@@ -106,8 +140,7 @@ export function SettingsSkills(): React.JSX.Element {
     return (): void => {
       cancelled = true
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentHub?.id])
+  }, [currentHub, loadSkills, refreshHub])
 
   useEffect(() => {
     if (scope.kind === 'user' || scope.path) {
@@ -115,22 +148,43 @@ export function SettingsSkills(): React.JSX.Element {
     }
   }, [scope, loadInstalled])
 
+  /**
+   * Pre-load all *user-scope* installed lists for every provider so the
+   * skill cards can show "installed in CC/CX/OC" chips without per-card
+   * IPC chatter. Project/worktree scope chips fall back to the current
+   * `scope`'s installed list.
+   */
   useEffect(() => {
-    if (!selectedSkillId && skillsInCurrentHub.length > 0) {
-      selectSkill(skillsInCurrentHub[0].id)
+    for (const p of ALL_PROVIDERS) {
+      if (providerAvailability[p]) {
+        loadInstalled({ provider: p, kind: 'user' })
+      }
     }
-  }, [skillsInCurrentHub, selectedSkillId, selectSkill])
+  }, [providerAvailability, loadInstalled])
+
+  // Reset selection when switching tabs or scope
+  useEffect(() => {
+    if (displayedSkills.length > 0) {
+      if (!displayedSkills.some((s) => s.id === selectedSkillId)) {
+        selectSkill(displayedSkills[0].id)
+      }
+    } else {
+      selectSkill(null)
+    }
+  }, [activeTab, scope, displayedSkills, selectedSkillId, selectSkill])
 
   useEffect(() => {
-    const skill = skillsInCurrentHub.find((s) => s.id === selectedSkillId)
+    const allAvailable = [...skillsInCurrentHub, ...installedList]
+    const skill = allAvailable.find((s) => s.id === selectedSkillId)
     if (!skill) {
       setSkillMarkdown('')
       return
     }
     let cancelled = false
     setMarkdownLoading(true)
+    const path = 'installPath' in skill ? skill.installPath : skill.sourcePath
     window.skillOps
-      .readContent(`${skill.sourcePath}/SKILL.md`)
+      .readContent(`${path}/SKILL.md`)
       .then((res) => {
         if (cancelled) return
         setSkillMarkdown(res.success ? (res.content ?? '') : '')
@@ -145,67 +199,75 @@ export function SettingsSkills(): React.JSX.Element {
     return (): void => {
       cancelled = true
     }
-  }, [selectedSkillId, skillsInCurrentHub])
+  }, [selectedSkillId, skillsInCurrentHub, installedList])
 
-  const currentSkill = skillsInCurrentHub.find((s) => s.id === selectedSkillId)
-  const installedList = installedByScope[scopeKey(scope)] ?? []
-  const installedIds = new Set(installedList.map((s) => s.id))
+  const currentSkill = useMemo(() => {
+    const allAvailable = [...skillsInCurrentHub, ...installedList]
+    return allAvailable.find((s) => s.id === selectedSkillId)
+  }, [selectedSkillId, skillsInCurrentHub, installedList])
+
+  const installedIdsInCurrentScope = new Set(installedList.map((s) => s.id))
   const selectedInstalled = installedList.find((s) => s.id === selectedSkillId)
 
-  const scopeAvailable = scope.kind === 'user' || Boolean(scope.path)
+  /**
+   * For a given skill id, return the providers that have it installed at
+   * USER scope. Used by the per-card provider chips. (Project/worktree
+   * checks would require knowing every project — too noisy for chips.)
+   */
+  const installedProvidersOf = useMemo(
+    () =>
+      (skillId: string): SkillProvider[] =>
+        ALL_PROVIDERS.filter((p) =>
+          (installedByScope[scopeKey({ provider: p, kind: 'user' })] ?? []).some(
+            (s) => s.id === skillId
+          )
+        ),
+    [installedByScope]
+  )
 
-  const onScopeChange = (kind: ScopeKind): void => {
-    if (kind === 'user') {
-      setScope({ kind: 'user' })
-    } else if (kind === 'project') {
-      setScope({ kind: 'project', path: projectPath ?? '' })
+  const onProviderTab = (p: SkillProvider): void => {
+    // If switching providers and the current scope kind isn't supported by
+    // the new provider (OpenCode + project today), drop back to user scope.
+    const supports = SUPPORTED_SCOPES_BY_PROVIDER[p]
+    const nextKind: ScopeKind = supports.includes(scope.kind) ? scope.kind : 'user'
+    if (nextKind === 'user') {
+      setScope({ provider: p, kind: 'user' })
+    } else if (nextKind === 'project') {
+      setScope({ provider: p, kind: 'project', path: projectPath ?? '' })
     } else {
-      setScope({ kind: 'worktree', path: worktreePath ?? '' })
+      setScope({ provider: p, kind: 'worktree', path: worktreePath ?? '' })
     }
   }
 
-  const handleInstall = async (): Promise<void> => {
-    if (!currentSkill || !currentHub) return
-    if (!scopeAvailable) {
-      toast.error('请先在主界面选择一个项目 / Worktree')
-      return
-    }
-    setBusy(true)
-    try {
-      const res = await install(currentHub.id, currentSkill.id, scope, false)
-      if (res.success) {
-        toast.success(`已安装「${currentSkill.frontmatter.name}」`)
-      } else if (res.error === 'already_installed') {
-        const ok = window.confirm(
-          `「${currentSkill.frontmatter.name}」已安装。是否覆盖当前版本？`
-        )
-        if (ok) {
-          const retry = await install(currentHub.id, currentSkill.id, scope, true)
-          if (retry.success) {
-            toast.success(`已覆盖安装「${currentSkill.frontmatter.name}」`)
-          } else {
-            toast.error(retry.message ?? '安装失败')
-          }
-        }
-      } else {
-        toast.error(res.message ?? '安装失败')
-      }
-    } finally {
-      setBusy(false)
+  const onScopeChange = (kind: ScopeKind): void => {
+    if (kind === 'user') {
+      setScope({ provider: scope.provider, kind: 'user' })
+    } else if (kind === 'project') {
+      setScope({ provider: scope.provider, kind: 'project', path: projectPath ?? '' })
+    } else {
+      setScope({ provider: scope.provider, kind: 'worktree', path: worktreePath ?? '' })
     }
   }
 
   const handleUninstall = async (): Promise<void> => {
     if (!currentSkill) return
-    const ok = window.confirm(`确定卸载「${currentSkill.frontmatter.name}」吗？`)
+    const ok = window.confirm(
+      t('settings.skills.detail.uninstallConfirm', {
+        name: currentSkill.frontmatter.name || currentSkill.id
+      })
+    )
     if (!ok) return
     setBusy(true)
     try {
       const res = await uninstall(currentSkill.id, scope)
       if (res.success) {
-        toast.success(`已卸载「${currentSkill.frontmatter.name}」`)
+        toast.success(
+          t('settings.skills.detail.uninstallSuccess', {
+            name: currentSkill.frontmatter.name || currentSkill.id
+          })
+        )
       } else {
-        toast.error(res.message ?? '卸载失败')
+        toast.error(res.message ?? t('settings.skills.detail.error.uninstallFailed'))
       }
     } finally {
       setBusy(false)
@@ -215,19 +277,22 @@ export function SettingsSkills(): React.JSX.Element {
   const handleReveal = (): void => {
     if (!selectedInstalled) return
     window.skillOps.openLocation(`${selectedInstalled.installPath}/SKILL.md`)
+    toast.success(
+      t('settings.skills.detail.revealSuccess', {
+        name: selectedInstalled.frontmatter.name || selectedInstalled.id
+      })
+    )
   }
 
   const handleRefreshHub = async (): Promise<void> => {
     if (!currentHub) return
     const res = await refreshHub(currentHub.id)
     if (res.success) {
-      toast.success(
-        res.skillCount !== undefined
-          ? `已刷新 ${currentHub.name}（${res.skillCount} 个 skill）`
-          : `已刷新 ${currentHub.name}`
-      )
+      toast.success(t('settings.skills.hubs.refresh'))
     } else {
-      toast.error(res.message ?? '刷新失败')
+      toast.error(
+        res.message ?? t('settings.skills.hubs.refreshFailed', { defaultValue: 'Refresh failed' })
+      )
     }
   }
 
@@ -239,386 +304,545 @@ export function SettingsSkills(): React.JSX.Element {
       name: newName.trim() || undefined
     })
     if (res.success) {
-      toast.success(`已添加 Hub：${res.hub?.repo}`)
+      toast.success(`Hub added: ${res.hub?.repo}`)
       setAddHubOpen(false)
       setNewRepo('')
       setNewRef('main')
       setNewName('')
     } else {
-      toast.error(res.message ?? '添加失败')
+      toast.error(res.message ?? 'Failed to add hub')
     }
   }
 
   const handleRemoveHub = async (hub: SkillHub): Promise<void> => {
     if (hub.builtin || hub.kind === 'bundled') return
-    const ok = window.confirm(`删除 Hub「${hub.name}」吗？本地缓存也会一并清理。`)
+    const ok = window.confirm(t('settings.skills.hubs.removeConfirm', { name: hub.name }))
     if (!ok) return
     const res = await removeHub(hub.id)
     if (res.success) {
-      toast.success(`已删除 ${hub.name}`)
+      toast.success(`Removed ${hub.name}`)
     } else {
-      toast.error(res.message ?? '删除失败')
+      toast.error(res.message ?? 'Failed to remove hub')
     }
   }
 
   return (
-    <div className="flex h-full flex-col gap-4">
-      <div>
-        <h3 className="text-base font-medium mb-1 flex items-center gap-2">
-          <BookOpen className="h-4 w-4" />
-          Skill Hub
-        </h3>
-        <p className="text-sm text-muted-foreground">
-          浏览并安装 Claude Code skills，可切换不同 Hub（内置或 GitHub 远程仓库）。
-        </p>
+    <div className="flex h-full flex-col gap-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h3 className="text-base font-medium mb-1 flex items-center gap-2">
+            <BookOpen className="h-4 w-4" />
+            {t('settings.skills.title')}
+          </h3>
+          <p className="text-sm text-muted-foreground">{t('settings.skills.description')}</p>
+        </div>
+
+        <div className="flex items-center gap-1 bg-muted/30 p-1 rounded-xl border border-border/50">
+          <TabButton
+            active={activeTab === 'installed'}
+            onClick={() => setActiveTab('installed')}
+            icon={<Layers className="h-3.5 w-3.5" />}
+          >
+            {t('settings.skills.tabs.installed')}
+          </TabButton>
+          <TabButton
+            active={activeTab === 'browse'}
+            onClick={() => setActiveTab('browse')}
+            icon={<ShoppingBag className="h-3.5 w-3.5" />}
+          >
+            {t('settings.skills.tabs.browse')}
+          </TabButton>
+        </div>
       </div>
 
-      {/* Hub selector row */}
-      <div className="flex items-center gap-2 text-sm flex-wrap">
-        <span className="text-muted-foreground shrink-0">来源：</span>
-        <div className="inline-flex rounded-md border bg-muted/30 p-0.5 flex-wrap gap-0.5">
-          {hubs.map((hub) => (
-            <HubTab
-              key={hub.id}
-              hub={hub}
-              active={currentHub?.id === hub.id}
-              onClick={() => selectHub(hub.id)}
-              onRemove={() => handleRemoveHub(hub)}
-            />
-          ))}
-          <button
-            onClick={() => setAddHubOpen((v) => !v)}
-            className="px-2 py-1 text-xs rounded text-muted-foreground hover:text-foreground hover:bg-background"
-            title="添加自定义 GitHub Hub"
-          >
-            <Plus className="h-3.5 w-3.5 inline mr-0.5" />
-            添加
-          </button>
+      <div className="flex flex-1 flex-col gap-4 min-h-0">
+        {/* Provider tabs (CC/CX/OC) — picks which provider's installed list
+            and chip we look at. Install dialog handles cross-provider fan-out. */}
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-border/70 bg-muted/20 p-3 shrink-0">
+          <span className="text-xs font-semibold text-muted-foreground/80 px-1">
+            {t('settings.skills.install.providerLabel')}
+          </span>
+          <div className="flex gap-1.5">
+            {ALL_PROVIDERS.map((p) => (
+              <ProviderTab
+                key={p}
+                active={scope.provider === p}
+                label={PROVIDER_LABELS[p]}
+                detected={providerAvailability[p]}
+                onClick={() => onProviderTab(p)}
+              />
+            ))}
+          </div>
+
+          <div className="ml-auto flex items-center gap-3">
+            <span className="text-xs font-semibold text-muted-foreground/80 px-1">
+              {t('settings.skills.scope.title')}
+            </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Info className="h-3.5 w-3.5 text-muted-foreground/50 cursor-help" />
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs text-xs">
+                {t('settings.skills.scope.selectContextHint')}
+              </TooltipContent>
+            </Tooltip>
+            <div className="flex flex-wrap gap-2">
+              {(['user', 'project', 'worktree'] as ScopeKind[]).map((kind) => {
+                const supported = SUPPORTED_SCOPES_BY_PROVIDER[scope.provider].includes(kind)
+                const noPath =
+                  (kind === 'project' && !projectPath) ||
+                  (kind === 'worktree' && !worktreePath)
+                return (
+                  <ScopePill
+                    key={kind}
+                    active={scope.kind === kind}
+                    label={t(`settings.skills.scope.${kind}` as const)}
+                    sub={
+                      kind === 'user'
+                        ? t('settings.skills.scope.userHint')
+                        : kind === 'project'
+                          ? projectPath || t('settings.skills.scope.noProject')
+                          : worktreePath || t('settings.skills.scope.noWorktree')
+                    }
+                    disabled={!supported || noPath}
+                    disabledReason={
+                      !supported
+                        ? t('settings.skills.install.providerUnsupportedScope')
+                        : undefined
+                    }
+                    onClick={() => onScopeChange(kind)}
+                  />
+                )
+              })}
+            </div>
+          </div>
         </div>
-        {currentHub && currentHub.kind === 'remote' && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleRefreshHub}
-            disabled={refreshing}
-            className="h-7"
-            title={
-              currentHub.lastRefreshedAt
-                ? `上次刷新：${new Date(currentHub.lastRefreshedAt).toLocaleString()}`
-                : '从 GitHub 拉取最新内容'
-            }
-          >
-            {refreshing ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <RefreshCw className="h-3.5 w-3.5" />
-            )}
-            <span className="ml-1">刷新</span>
-          </Button>
+
+        {error && (activeTab === 'browse' || !displayedSkills.length) && (
+          <div className="flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm text-destructive shrink-0">
+            <AlertCircle className="h-4 w-4" />
+            {error}
+          </div>
         )}
-      </div>
 
-      {addHubOpen && (
-        <div className="rounded-md border bg-muted/30 p-3 space-y-2">
-          <div className="text-xs font-medium flex items-center gap-1">
-            <Github className="h-3.5 w-3.5" />
-            添加 GitHub Hub
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            <Input
-              value={newRepo}
-              onChange={(e) => setNewRepo(e.target.value)}
-              placeholder="owner/repo，例如 slicenferqin/xuanpu-skills-hub"
-              className="flex-1 min-w-[260px] h-8 text-xs"
-            />
-            <Input
-              value={newRef}
-              onChange={(e) => setNewRef(e.target.value)}
-              placeholder="分支/tag（默认 main）"
-              className="w-40 h-8 text-xs"
-            />
-            <Input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="显示名（可选）"
-              className="w-48 h-8 text-xs"
-            />
-            <Button size="sm" onClick={handleAddHub} disabled={!newRepo.trim()}>
-              添加
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setAddHubOpen(false)}>
-              取消
-            </Button>
-          </div>
-          <div className="text-[10px] text-muted-foreground">
-            仅支持公共仓库，需要包含 <code>skills/&lt;id&gt;/SKILL.md</code> 结构。
-          </div>
-        </div>
-      )}
-
-      {/* Scope selector */}
-      <div className="flex items-center gap-2 text-sm">
-        <span className="text-muted-foreground">安装到：</span>
-        <div className="inline-flex rounded-md border bg-muted/30 p-0.5">
-          <ScopeTab
-            active={scope.kind === 'user'}
-            label="用户级"
-            sub="~/.claude/skills"
-            onClick={() => onScopeChange('user')}
-          />
-          <ScopeTab
-            active={scope.kind === 'project'}
-            label="项目级"
-            sub={projectPath ?? '未选择项目'}
-            disabled={!projectPath}
-            onClick={() => onScopeChange('project')}
-          />
-          <ScopeTab
-            active={scope.kind === 'worktree'}
-            label="Worktree"
-            sub={worktreePath ?? '未选择 Worktree'}
-            disabled={!worktreePath}
-            onClick={() => onScopeChange('worktree')}
-          />
-        </div>
-      </div>
-
-      {error && (
-        <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          <AlertCircle className="h-4 w-4" />
-          {error}
-        </div>
-      )}
-
-      {/* Body: list + detail */}
-      <div className="flex flex-1 min-h-0 gap-4">
-        {/* Left: list */}
-        <aside className="w-56 shrink-0 overflow-y-auto border rounded-md">
-          <SectionLabel>
-            {currentHub?.name ?? '—'} 中的 skills（{skillsInCurrentHub.length}）
-          </SectionLabel>
-          {loading && skillsInCurrentHub.length === 0 ? (
-            <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              加载中…
+        <div className="flex flex-1 min-h-0 gap-6 overflow-hidden">
+          <aside className="w-72 shrink-0 flex flex-col gap-3 min-h-0">
+            <div className="relative shrink-0">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={t('settings.skills.search.placeholder')}
+                className="pl-9 h-9 text-sm rounded-xl bg-muted/20 border-border/70"
+              />
             </div>
-          ) : skillsInCurrentHub.length === 0 ? (
-            <div className="px-3 py-2 text-xs text-muted-foreground">
-              {currentHub?.kind === 'remote'
-                ? '暂无内容，点击上方「刷新」从 GitHub 拉取'
-                : '暂无 skill'}
-            </div>
-          ) : (
-            <ul>
-              {skillsInCurrentHub.map((s) => (
-                <li key={s.id}>
-                  <button
-                    onClick={() => selectSkill(s.id)}
-                    className={cn(
-                      'w-full text-left px-3 py-2 text-sm border-l-2 transition-colors',
-                      selectedSkillId === s.id
-                        ? 'border-primary bg-accent'
-                        : 'border-transparent hover:bg-accent/50'
-                    )}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate font-medium">
-                        {s.frontmatter.name || s.id}
-                      </span>
-                      {installedIds.has(s.id) && (
-                        <Check className="h-3 w-3 text-emerald-500 shrink-0" />
-                      )}
-                    </div>
-                    {s.frontmatter.description && (
-                      <div className="text-xs text-muted-foreground truncate mt-0.5">
-                        {s.frontmatter.description}
-                      </div>
-                    )}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
 
-          <SectionLabel>
-            当前 scope 已装（{installedList.length}）
-          </SectionLabel>
-          {installedList.length === 0 ? (
-            <div className="px-3 py-2 text-xs text-muted-foreground">暂无</div>
-          ) : (
-            <ul>
-              {installedList.map((s) => (
-                <li
-                  key={s.id}
-                  className="px-3 py-1.5 text-xs text-muted-foreground truncate"
-                  title={s.installPath}
-                >
-                  {s.frontmatter.name || s.id}
-                </li>
-              ))}
-            </ul>
-          )}
-        </aside>
-
-        {/* Right: detail */}
-        <section className="flex-1 flex flex-col min-w-0 border rounded-md">
-          {!currentSkill ? (
-            <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
-              从左侧选择一个 skill
-            </div>
-          ) : (
-            <>
-              <header className="border-b p-4 space-y-2">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h4 className="text-base font-semibold truncate">
-                      {currentSkill.frontmatter.name}
-                      {currentSkill.frontmatter.version && (
-                        <span className="ml-2 text-xs font-normal text-muted-foreground">
-                          v{currentSkill.frontmatter.version}
-                        </span>
-                      )}
-                    </h4>
-                    {currentSkill.frontmatter.description && (
-                      <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap">
-                        {currentSkill.frontmatter.description}
-                      </p>
-                    )}
-                    {currentSkill.frontmatter.tags &&
-                      currentSkill.frontmatter.tags.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 mt-2">
-                          {currentSkill.frontmatter.tags.map((tag) => (
-                            <span
-                              key={tag}
-                              className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] text-muted-foreground"
-                            >
-                              <Tag className="h-2.5 w-2.5" />
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {selectedInstalled && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleReveal}
-                        title="在 Finder 中打开"
+            {activeTab === 'browse' && (
+              <div className="flex flex-col gap-2 rounded-2xl border border-border/70 bg-muted/20 p-2 overflow-hidden shrink-0">
+                <div className="flex items-center justify-between px-2 py-1">
+                  <span className="text-[10px] uppercase font-semibold tracking-wider text-muted-foreground/70">
+                    {t('settings.skills.hubs.title')}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    {currentHub?.kind === 'remote' && (
+                      <button
+                        onClick={handleRefreshHub}
+                        disabled={refreshing}
+                        className="p-1 rounded-md hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                        title={t('settings.skills.hubs.pullHint')}
                       >
-                        <FolderOpen className="h-4 w-4" />
-                      </Button>
+                        <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
+                      </button>
                     )}
-                    {installedIds.has(currentSkill.id) ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={busy}
-                        onClick={handleUninstall}
-                      >
-                        <Trash2 className="h-4 w-4 mr-1" />
-                        卸载
-                      </Button>
-                    ) : (
-                      <Button
-                        size="sm"
-                        disabled={busy || !scopeAvailable}
-                        onClick={handleInstall}
-                      >
-                        {busy ? (
-                          <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                        ) : (
-                          <Download className="h-4 w-4 mr-1" />
-                        )}
-                        安装
-                      </Button>
-                    )}
+                    <button
+                      onClick={() => setAddHubOpen(true)}
+                      className="p-1 rounded-md hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors"
+                      title={t('settings.skills.hubs.add')}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
                   </div>
                 </div>
-              </header>
 
-              <div className="flex-1 overflow-y-auto p-4 text-sm">
-                {markdownLoading ? (
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    加载 SKILL.md…
+                <Popover open={hubPopoverOpen} onOpenChange={setHubPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <button className="flex items-center justify-between w-full px-3 py-2 text-sm font-medium rounded-xl bg-background border border-border/70 hover:bg-accent/30 transition-colors group">
+                      <div className="flex items-center gap-2 truncate">
+                        {currentHub?.kind === 'bundled' ? (
+                          <Package className="h-4 w-4" />
+                        ) : (
+                          <Github className="h-4 w-4" />
+                        )}
+                        <span className="truncate">{currentHub?.name || 'Select Hub'}</span>
+                      </div>
+                      <ChevronDown className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="p-1 w-[260px] rounded-xl shadow-lg border-border/70"
+                    align="start"
+                  >
+                    <div className="max-h-[300px] overflow-y-auto">
+                      {hubs.map((hub) => (
+                        <button
+                          key={hub.id}
+                          onClick={() => {
+                            selectHub(hub.id)
+                            setHubPopoverOpen(false)
+                          }}
+                          className={cn(
+                            'flex items-center justify-between w-full px-3 py-2 text-sm rounded-lg transition-colors text-left',
+                            selectedHubId === hub.id
+                              ? 'bg-primary text-primary-foreground'
+                              : 'hover:bg-accent/70'
+                          )}
+                        >
+                          <div className="flex items-center gap-2 truncate">
+                            {hub.kind === 'bundled' ? (
+                              <Package className="h-3.5 w-3.5" />
+                            ) : (
+                              <Github className="h-3.5 w-3.5" />
+                            )}
+                            <span className="truncate font-medium">{hub.name}</span>
+                          </div>
+                          {hub.kind === 'remote' && !hub.builtin && (
+                            <X
+                              className="h-3.5 w-3.5 opacity-60 hover:opacity-100 shrink-0"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleRemoveHub(hub)
+                              }}
+                            />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+
+                {addHubOpen && (
+                  <div className="mt-1 p-3 rounded-xl border border-border/70 bg-background/50 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold">
+                        {t('settings.skills.hubs.addTitle')}
+                      </span>
+                      <X
+                        className="h-3.5 w-3.5 cursor-pointer text-muted-foreground hover:text-foreground"
+                        onClick={() => setAddHubOpen(false)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Input
+                        value={newRepo}
+                        onChange={(e) => setNewRepo(e.target.value)}
+                        placeholder={t('settings.skills.hubs.repoPlaceholder')}
+                        className="h-8 text-xs rounded-lg"
+                      />
+                      <Input
+                        value={newRef}
+                        onChange={(e) => setNewRef(e.target.value)}
+                        placeholder={t('settings.skills.hubs.refPlaceholder')}
+                        className="h-8 text-xs rounded-lg"
+                      />
+                      <Input
+                        value={newName}
+                        onChange={(e) => setNewName(e.target.value)}
+                        placeholder={t('settings.skills.hubs.namePlaceholder')}
+                        className="h-8 text-xs rounded-lg"
+                      />
+                      <div className="flex gap-2 pt-1">
+                        <Button
+                          size="sm"
+                          className="flex-1 h-7 rounded-lg text-xs"
+                          onClick={handleAddHub}
+                          disabled={!newRepo.trim()}
+                        >
+                          {t('settings.skills.hubs.add')}
+                        </Button>
+                      </div>
+                    </div>
                   </div>
-                ) : (
-                  <MarkdownRenderer content={skillMarkdown} />
                 )}
               </div>
-            </>
-          )}
-        </section>
+            )}
+
+            <div className="flex-1 overflow-hidden flex flex-col rounded-2xl border border-border/70 bg-muted/10">
+              <div className="px-4 py-2 text-[10px] uppercase font-bold tracking-widest text-muted-foreground/60 border-b border-border/50">
+                {activeTab === 'installed'
+                  ? t('settings.skills.list.installedSkills', { count: displayedSkills.length })
+                  : t('settings.skills.list.hubSkills', { count: displayedSkills.length })}
+              </div>
+              <div className="flex-1 overflow-y-auto p-1.5 custom-scrollbar">
+                {loading && activeTab === 'browse' && skillsInCurrentHub.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-20 gap-2 text-muted-foreground/60">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span className="text-xs">{t('settings.skills.list.loading')}</span>
+                  </div>
+                ) : displayedSkills.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-48 px-4 text-center gap-3 text-muted-foreground/60">
+                    <div className="p-3 rounded-full bg-muted/30">
+                      {activeTab === 'installed' ? (
+                        <Layers className="h-8 w-8 opacity-20" />
+                      ) : (
+                        <ShoppingBag className="h-8 w-8 opacity-20" />
+                      )}
+                    </div>
+                    <span className="text-xs font-medium">
+                      {activeTab === 'installed'
+                        ? t('settings.skills.list.noneInstalled')
+                        : t('settings.skills.list.empty')}
+                    </span>
+                    {activeTab === 'browse' &&
+                      currentHub?.kind === 'remote' &&
+                      skillsInCurrentHub.length === 0 && (
+                        <p className="text-[10px] leading-relaxed opacity-70">
+                          {t('settings.skills.list.refreshToLoad')}
+                        </p>
+                      )}
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {displayedSkills.map((s) => {
+                      const presentIn = installedProvidersOf(s.id)
+                      return (
+                        <button
+                          key={s.id}
+                          onClick={() => selectSkill(s.id)}
+                          className={cn(
+                            'w-full text-left px-3 py-2.5 rounded-xl transition-all border',
+                            selectedSkillId === s.id
+                              ? 'bg-background border-primary/20 shadow-sm'
+                              : 'border-transparent hover:bg-background/50 hover:border-border/50'
+                          )}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span
+                              className={cn(
+                                'truncate text-sm transition-colors',
+                                selectedSkillId === s.id
+                                  ? 'font-semibold text-foreground'
+                                  : 'font-medium text-muted-foreground'
+                              )}
+                            >
+                              {s.frontmatter.name || s.id}
+                            </span>
+                            {/* Provider chips: which providers have this skill at user-scope */}
+                            {presentIn.length > 0 && (
+                              <div className="flex items-center gap-0.5 shrink-0">
+                                {presentIn.map((p) => (
+                                  <span
+                                    key={p}
+                                    title={`${PROVIDER_LABELS[p]} (user)`}
+                                    className="text-[9px] font-bold uppercase tracking-tight rounded px-1 py-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                                  >
+                                    {p === 'claude-code' ? 'CC' : p === 'codex' ? 'CX' : 'OC'}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          {s.frontmatter.description && (
+                            <div className="text-[11px] text-muted-foreground/80 truncate mt-1">
+                              {s.frontmatter.description}
+                            </div>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </aside>
+
+          <section className="flex-1 flex flex-col min-w-0 rounded-2xl border border-border/70 bg-background overflow-hidden shadow-sm">
+            {!currentSkill ? (
+              <div className="flex-1 flex flex-col items-center justify-center gap-4 text-muted-foreground">
+                <div className="p-6 rounded-3xl bg-muted/20">
+                  <BookOpen className="h-16 w-16 opacity-10" />
+                </div>
+                <span className="text-sm font-medium">
+                  {t('settings.skills.detail.selectHint')}
+                </span>
+              </div>
+            ) : (
+              <>
+                <header className="border-b border-border/50 bg-muted/5 p-6 pb-5 space-y-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex items-center gap-3">
+                        <h4 className="text-2xl font-bold tracking-tight truncate">
+                          {currentSkill.frontmatter.name || currentSkill.id}
+                        </h4>
+                        {currentSkill.frontmatter.version && (
+                          <span className="px-2 py-0.5 rounded-full bg-muted text-[10px] font-bold text-muted-foreground border">
+                            v{currentSkill.frontmatter.version}
+                          </span>
+                        )}
+                      </div>
+                      {currentSkill.frontmatter.description && (
+                        <p className="text-sm text-muted-foreground leading-relaxed max-w-2xl">
+                          {currentSkill.frontmatter.description}
+                        </p>
+                      )}
+                      <div className="flex flex-wrap gap-2 mt-4">
+                        {currentSkill.frontmatter.tags?.map((tag) => (
+                          <span
+                            key={tag}
+                            className="inline-flex items-center gap-1 rounded-lg bg-accent/50 px-2.5 py-1 text-[11px] font-medium text-accent-foreground border border-border/50"
+                          >
+                            <Tag className="h-3 w-3" />
+                            {tag}
+                          </span>
+                        ))}
+                        {installedIdsInCurrentScope.has(currentSkill.id) && (
+                          <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                            <Check className="h-3 w-3" />
+                            {PROVIDER_LABELS[scope.provider]} · {scope.kind}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0 pt-1">
+                      {selectedInstalled && (
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={handleReveal}
+                          className="rounded-xl h-9 w-9"
+                          title={t('settings.skills.detail.openInFinder')}
+                        >
+                          <FolderOpen className="h-4 w-4" />
+                        </Button>
+                      )}
+                      {installedIdsInCurrentScope.has(currentSkill.id) && (
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          disabled={busy}
+                          onClick={handleUninstall}
+                          className="rounded-xl px-4 h-9 font-semibold"
+                        >
+                          <Trash2 className="h-4 w-4 mr-1.5" />
+                          {t('settings.skills.detail.uninstall')}
+                        </Button>
+                      )}
+                      {/* Install button always opens the dialog — provider/scope
+                          chosen there, never grayed out by main-window state. */}
+                      <Button
+                        size="sm"
+                        disabled={busy || !currentHub}
+                        onClick={() => setInstallDialogOpen(true)}
+                        className="rounded-xl px-4 h-9 font-semibold shadow-md"
+                      >
+                        {t('settings.skills.install.openDialog')}
+                      </Button>
+                    </div>
+                  </div>
+                </header>
+
+                <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                  {markdownLoading ? (
+                    <div className="flex flex-col items-center justify-center h-40 gap-3 text-muted-foreground/60">
+                      <Loader2 className="h-6 w-6 animate-spin" />
+                      <span className="text-sm font-medium">
+                        {t('settings.skills.detail.loadingMarkdown')}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="prose prose-sm dark:prose-invert max-w-none prose-p:leading-relaxed prose-headings:tracking-tight">
+                      <MarkdownRenderer content={skillMarkdown} />
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </section>
+        </div>
       </div>
+
+      <InstallSkillDialog
+        skill={currentSkill ?? null}
+        hubId={currentHub?.id ?? null}
+        open={installDialogOpen}
+        onOpenChange={setInstallDialogOpen}
+      />
     </div>
   )
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }): React.JSX.Element {
-  return (
-    <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground bg-muted/30 border-b">
-      {children}
-    </div>
-  )
-}
-
-function HubTab({
-  hub,
+function TabButton({
   active,
   onClick,
-  onRemove
+  icon,
+  children
 }: {
-  hub: SkillHub
   active: boolean
   onClick: () => void
-  onRemove: () => void
+  icon: React.ReactNode
+  children: React.ReactNode
 }): React.JSX.Element {
-  const Icon = hub.kind === 'bundled' ? Package : Github
-  const canRemove = hub.kind === 'remote' && !hub.builtin
   return (
-    <div
+    <button
+      onClick={onClick}
       className={cn(
-        'group relative flex items-center rounded text-xs transition-colors',
-        active ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground'
+        'flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-medium transition-all',
+        active
+          ? 'bg-background text-foreground shadow-sm ring-1 ring-border/20'
+          : 'text-muted-foreground hover:text-foreground hover:bg-background/40'
       )}
     >
-      <button
-        onClick={onClick}
-        className="flex items-center gap-1 pl-2 pr-2 py-1"
-        title={hub.repo ? `${hub.repo}@${hub.ref}` : '内置 Hub'}
-      >
-        <Icon className="h-3 w-3" />
-        <span className={cn(active && 'font-medium')}>{hub.name}</span>
-      </button>
-      {canRemove && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            onRemove()
-          }}
-          className="opacity-0 group-hover:opacity-70 hover:opacity-100 pr-1.5 py-1 text-muted-foreground hover:text-destructive"
-          title="删除这个 Hub"
-        >
-          <X className="h-3 w-3" />
-        </button>
-      )}
-    </div>
+      {icon}
+      {children}
+    </button>
   )
 }
 
-function ScopeTab({
+function ProviderTab({
+  active,
+  label,
+  detected,
+  onClick
+}: {
+  active: boolean
+  label: string
+  detected: boolean
+  onClick: () => void
+}): React.JSX.Element {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border',
+        active
+          ? 'bg-background border-primary text-foreground shadow-sm ring-1 ring-primary/20'
+          : 'bg-background/40 border-border/70 text-muted-foreground hover:border-border hover:bg-background/60'
+      )}
+    >
+      <span
+        className={cn(
+          'h-1.5 w-1.5 rounded-full',
+          detected ? 'bg-emerald-500' : 'bg-muted-foreground/30'
+        )}
+      />
+      {label}
+    </button>
+  )
+}
+
+function ScopePill({
   active,
   label,
   sub,
   disabled,
+  disabledReason,
   onClick
 }: {
   active: boolean
   label: string
   sub: string
   disabled?: boolean
+  disabledReason?: string
   onClick: () => void
 }): React.JSX.Element {
   return (
@@ -626,16 +850,16 @@ function ScopeTab({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        'px-3 py-1 rounded text-xs transition-colors',
+        'flex flex-col items-start px-4 py-2 rounded-xl border transition-all text-left group relative',
         active
-          ? 'bg-background shadow-sm font-medium'
-          : 'text-muted-foreground hover:text-foreground',
-        disabled && 'opacity-40 cursor-not-allowed hover:text-muted-foreground'
+          ? 'bg-background border-primary text-foreground shadow-sm ring-1 ring-primary/20'
+          : 'bg-background/40 border-border/70 text-muted-foreground hover:border-border hover:bg-background/60',
+        disabled && 'opacity-40 cursor-not-allowed'
       )}
-      title={sub}
+      title={disabledReason || sub}
     >
-      <div>{label}</div>
-      <div className="text-[10px] opacity-60 max-w-[160px] truncate">{sub}</div>
+      <span className="text-xs font-bold leading-none">{label}</span>
+      <span className="text-[10px] font-medium opacity-60 max-w-[140px] truncate mt-1">{sub}</span>
     </button>
   )
 }

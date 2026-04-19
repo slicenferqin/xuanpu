@@ -107,7 +107,12 @@ export function SettingsModal(): React.JSX.Element {
           </nav>
 
           {/* Content area */}
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className={cn(
+            "flex-1 p-6 min-h-0 flex flex-col",
+            activeSection === 'usage' || activeSection === 'archivedChats' || activeSection === 'skills'
+              ? "overflow-hidden"
+              : "overflow-y-auto"
+          )}>
             {activeSection === 'appearance' && <SettingsAppearance />}
             {activeSection === 'general' && <SettingsGeneral />}
             {activeSection === 'models' && <SettingsModels />}

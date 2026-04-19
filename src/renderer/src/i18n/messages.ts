@@ -383,7 +383,95 @@ export const messages: Record<AppLocale, MessageTree> = {
           restoreFailed: 'Failed to restore session',
           readOnly: 'Opening archived session in read-only mode.'
         }
-      }
+        },
+      skills: {
+        title: 'Skill Management',
+        description: 'Manage installed skills and browse new ones from remote hubs.',
+        tabs: {
+          installed: 'Installed',
+          browse: 'Browse Hubs'
+        },
+        search: {
+          placeholder: 'Search skills...'
+        },
+        hubs: {
+          title: 'Sources',
+          builtin: 'Built-in',
+          remote: 'GitHub',
+          add: 'Add Hub',
+          refresh: 'Refresh Hub',
+          refreshing: 'Refreshing...',
+          lastRefreshed: 'Last refreshed: {date}',
+          pullHint: 'Pull latest content from GitHub',
+          removeTitle: 'Remove Hub',
+          removeConfirm: 'Remove Hub "{name}"? Local cache will also be cleared.',
+          addTitle: 'Add GitHub Hub',
+          repoPlaceholder: 'owner/repo (e.g., anthropic/skills-hub)',
+          refPlaceholder: 'branch/tag (default: main)',
+          namePlaceholder: 'Display name (optional)',
+          hint: 'Only public repositories are supported. Must follow skills/<id>/SKILL.md structure.'
+        },
+        scope: {
+          title: 'Current Scope',
+          user: 'User',
+          project: 'Project',
+          worktree: 'Worktree',
+          userHint: '~/.claude/skills',
+          projectHint: 'Project-level skills',
+          worktreeHint: 'Worktree-level skills',
+          noProject: 'No active project',
+          noWorktree: 'No active worktree',
+          selectContextHint: 'Scope depends on your selection in the main workbench.'
+        },
+        list: {
+          hubSkills: 'Marketplace ({count})',
+          installedSkills: 'Installed ({count})',
+          loading: 'Loading...',
+          empty: 'No skills found',
+          refreshToLoad: 'Click "Refresh" above to pull from GitHub',
+          noneInstalled: 'No skills installed in this scope'
+        },
+        detail: {
+          selectHint: 'Select a skill to view details',
+          loadingMarkdown: 'Loading SKILL.md...',
+          openInFinder: 'Reveal in Finder',
+          install: 'Install',
+          uninstall: 'Uninstall',
+          installing: 'Installing...',
+          uninstallConfirm: 'Are you sure you want to uninstall "{name}"?',
+          alreadyInstalled: '"{name}" is already installed. Overwrite current version?',
+          installSuccess: 'Installed "{name}"',
+          installOverwriteSuccess: 'Overwritten "{name}"',
+          uninstallSuccess: 'Uninstalled "{name}"',
+          revealSuccess: 'Revealed "{name}" location',
+          error: {
+            scopeRequired: 'Please select a project/worktree in the main window first',
+            installFailed: 'Installation failed',
+            uninstallFailed: 'Uninstallation failed'
+          }
+        },
+        install: {
+          dialogTitle: 'Install "{name}"',
+          dialogSubtitle: 'Pick which providers to install into and at what scope.',
+          providerLabel: 'Providers',
+          providerNotInstalled: 'CLI not detected',
+          providerUnsupportedScope: "Doesn't support this scope yet",
+          scopeLabel: 'Scope',
+          projectPickHint: 'Pick a project below',
+          worktreePickHint: 'Pick a project, then a worktree',
+          noProjects: 'No projects yet',
+          noWorktrees: 'No worktrees in this project',
+          overwriteIfExists: 'Overwrite if already installed',
+          submit: 'Install ({count})',
+          cancel: 'Cancel',
+          successToast: 'Installed into {names} ({count} target)',
+          openDialog: 'Install...'
+        },
+        installed: {
+          providerTab: '{name}',
+          empty: 'No skills installed for {provider} at this scope'
+        }
+      },
     },
     fileSearch: {
       ariaLabel: 'File search',
@@ -2515,7 +2603,95 @@ export const messages: Record<AppLocale, MessageTree> = {
           restoreFailed: '恢复会话失败',
           readOnly: '将以只读模式打开已归档会话。'
         }
-      }
+        },
+      skills: {
+        title: 'Skill 管理中心',
+        description: '管理已安装的 skills，并从远程 Hub 浏览安装新技能。',
+        tabs: {
+          installed: '已安装',
+          browse: '浏览 Hub'
+        },
+        search: {
+          placeholder: '搜索 skills...'
+        },
+        hubs: {
+          title: '来源',
+          builtin: '内置',
+          remote: 'GitHub',
+          add: '添加',
+          refresh: '刷新',
+          refreshing: '正在刷新...',
+          lastRefreshed: '上次刷新：{date}',
+          pullHint: '从 GitHub 拉取最新内容',
+          removeTitle: '删除这个 Hub',
+          removeConfirm: '确定删除 Hub「{name}」吗？本地缓存也会一并清理。',
+          addTitle: '添加 GitHub Hub',
+          repoPlaceholder: 'owner/repo，例如 anthropic/skills-hub',
+          refPlaceholder: '分支/tag（默认 main）',
+          namePlaceholder: '显示名（可选）',
+          hint: '仅支持公共仓库，需要包含 skills/<id>/SKILL.md 结构。'
+        },
+        scope: {
+          title: '当前安装范围',
+          user: '用户级',
+          project: '项目级',
+          worktree: 'Worktree',
+          userHint: '~/.claude/skills',
+          projectHint: '项目级 skills',
+          worktreeHint: 'Worktree 级 skills',
+          noProject: '未激活项目',
+          noWorktree: '未激活 Worktree',
+          selectContextHint: '安装范围取决于您在主界面选择的活跃项目或 Worktree。'
+        },
+        list: {
+          hubSkills: '市场 ({count})',
+          installedSkills: '已安装 ({count})',
+          loading: '加载中...',
+          empty: '未找到相关 skill',
+          refreshToLoad: '暂无内容，点击上方「刷新」从 GitHub 拉取',
+          noneInstalled: '当前范围内未安装任何 skill'
+        },
+        detail: {
+          selectHint: '选择一个 skill 以查看详情',
+          loadingMarkdown: '正在加载 SKILL.md...',
+          openInFinder: '在 Finder 中打开',
+          install: '安装',
+          uninstall: '卸载',
+          installing: '正在安装...',
+          uninstallConfirm: '确定卸载「{name}」吗？',
+          alreadyInstalled: '「{name}」已安装。是否覆盖当前版本？',
+          installSuccess: '已安装「{name}」',
+          installOverwriteSuccess: '已覆盖安装「{name}」',
+          uninstallSuccess: '已卸载「{name}」',
+          revealSuccess: '已打开「{name}」所在位置',
+          error: {
+            scopeRequired: '请先在主界面选择一个项目 / Worktree',
+            installFailed: '安装失败',
+            uninstallFailed: '卸载失败'
+          }
+        },
+        install: {
+          dialogTitle: '安装「{name}」',
+          dialogSubtitle: '选择要安装到哪些服务商，以及哪个级别。',
+          providerLabel: '服务商',
+          providerNotInstalled: 'CLI 未检测到',
+          providerUnsupportedScope: '暂不支持当前范围',
+          scopeLabel: '范围',
+          projectPickHint: '在下方选择项目',
+          worktreePickHint: '先选项目，再选 Worktree',
+          noProjects: '暂无项目',
+          noWorktrees: '此项目下暂无 Worktree',
+          overwriteIfExists: '已存在则覆盖',
+          submit: '安装（{count}）',
+          cancel: '取消',
+          successToast: '已安装到 {names}（共 {count} 处）',
+          openDialog: '安装…'
+        },
+        installed: {
+          providerTab: '{name}',
+          empty: '当前范围下 {provider} 未安装任何 skill'
+        }
+      },
     },
     fileSearch: {
       ariaLabel: '文件搜索',

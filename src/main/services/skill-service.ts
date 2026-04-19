@@ -19,23 +19,63 @@ import type {
   ReadSkillContentResult,
   Skill,
   SkillFrontmatter,
+  SkillProvider,
   SkillScope,
   UninstallSkillResult
 } from '@shared/types/skill'
+import { SUPPORTED_SCOPES_BY_PROVIDER } from '@shared/types/skill'
 
 const log = createLogger({ component: 'SkillService' })
 
 const SKILL_FILENAME = 'SKILL.md'
-const CLAUDE_SKILLS_SUBPATH = path.join('.claude', 'skills')
 
 // ─── path resolution ────────────────────────────────────────────────────────
 
+/**
+ * User-level skills directory for a given provider.
+ *
+ * | provider     | path                                    |
+ * | ------------ | --------------------------------------- |
+ * | claude-code  | ~/.claude/skills/                       |
+ * | codex        | ~/.codex/skills/                        |
+ * | opencode     | ~/.config/opencode/skills/              |
+ */
+function userSkillsDir(provider: SkillProvider): string {
+  switch (provider) {
+    case 'claude-code':
+      return path.join(homedir(), '.claude', 'skills')
+    case 'codex':
+      return path.join(homedir(), '.codex', 'skills')
+    case 'opencode':
+      return path.join(homedir(), '.config', 'opencode', 'skills')
+  }
+}
+
+/**
+ * Project/worktree sub-path (relative to the project root) for a given
+ * provider. Throws for providers that don't support project-level skills
+ * (today: OpenCode).
+ */
+function projectSkillsSubpath(provider: SkillProvider): string {
+  switch (provider) {
+    case 'claude-code':
+      return path.join('.claude', 'skills')
+    case 'codex':
+      return path.join('.codex', 'skills')
+    case 'opencode':
+      throw new Error('OpenCode does not support project-level skills yet')
+  }
+}
+
+/** Is this scope combination supported by the given provider? */
+function isScopeSupported(scope: SkillScope): boolean {
+  return SUPPORTED_SCOPES_BY_PROVIDER[scope.provider].includes(scope.kind)
+}
+
 /** Absolute path of the install directory for a given scope. */
 export function resolveScopeDir(scope: SkillScope): string {
-  if (scope.kind === 'user') {
-    return path.join(homedir(), '.claude', 'skills')
-  }
-  return path.join(scope.path, CLAUDE_SKILLS_SUBPATH)
+  if (scope.kind === 'user') return userSkillsDir(scope.provider)
+  return path.join(scope.path, projectSkillsSubpath(scope.provider))
 }
 
 // ─── frontmatter parser ─────────────────────────────────────────────────────
@@ -253,6 +293,7 @@ export async function listHubSkills(hubId: HubId): Promise<Skill[]> {
 }
 
 export async function listInstalledSkills(scope: SkillScope): Promise<InstalledSkill[]> {
+  if (!isScopeSupported(scope)) return []
   const dir = resolveScopeDir(scope)
   if (!(await exists(dir))) return []
 
@@ -267,6 +308,7 @@ export async function listInstalledSkills(scope: SkillScope): Promise<InstalledS
       id: info.id,
       frontmatter: info.frontmatter,
       installPath: skillDir,
+      provider: scope.provider,
       scopeKind: scope.kind,
       installedAt: info.installedAt
     })
@@ -282,6 +324,14 @@ export async function installSkill(
   scope: SkillScope,
   options: { overwrite?: boolean } = {}
 ): Promise<InstallSkillResult> {
+  if (!isScopeSupported(scope)) {
+    return {
+      success: false,
+      error: 'unsupported_scope',
+      message: `${scope.provider} does not support ${scope.kind}-level skills`
+    }
+  }
+
   const hub = await getHub(args.hubId)
   if (!hub) {
     return {
@@ -323,6 +373,7 @@ export async function installSkill(
     log.info('Installed skill', {
       hubId: args.hubId,
       skillId: args.skillId,
+      provider: scope.provider,
       scope: scope.kind,
       target
     })
@@ -331,6 +382,7 @@ export async function installSkill(
     const message = err instanceof Error ? err.message : String(err)
     log.error('Failed to install skill', {
       skillId: args.skillId,
+      provider: scope.provider,
       scope: scope.kind,
       error: message
     })
@@ -346,6 +398,13 @@ export async function uninstallSkill(
   skillId: string,
   scope: SkillScope
 ): Promise<UninstallSkillResult> {
+  if (!isScopeSupported(scope)) {
+    return {
+      success: false,
+      error: 'unsupported_scope',
+      message: `${scope.provider} does not support ${scope.kind}-level skills`
+    }
+  }
   if (scope.kind !== 'user' && !scope.path) {
     return { success: false, error: 'invalid_scope', message: 'Scope path is required' }
   }

@@ -1,5 +1,5 @@
 /**
- * Skill Hub — shared type definitions for Claude Code skills.
+ * Skill Hub — shared type definitions.
  *
  * A skill is a directory containing a `SKILL.md` file with YAML frontmatter
  * (name, description, version, …) plus any number of companion files. Xuanpu
@@ -8,9 +8,44 @@
  *   - `bundled` — packaged with the app under `resources/built-in-skills/`
  *   - `remote`  — a GitHub repository cloned to `~/.xuanpu/skills-cache/`
  *
- * Both kinds are presented uniformly in the UI; the `source` field on a Skill
- * tells you which hub it came from.
+ * The same SKILL.md format is recognised by Claude Code, OpenAI Codex (since
+ * 2025-12) and OpenCode (v1.0.190+); each provider scans its own directory
+ * convention. A SkillScope therefore couples both **which provider** and
+ * **which level** (user / project / worktree) the install targets.
  */
+
+/** Agent providers that recognise SKILL.md-formatted skills. */
+export type SkillProvider = 'claude-code' | 'codex' | 'opencode'
+
+export const ALL_PROVIDERS: SkillProvider[] = ['claude-code', 'codex', 'opencode']
+
+/** Pretty labels for UI display. */
+export const PROVIDER_LABELS: Record<SkillProvider, string> = {
+  'claude-code': 'Claude Code',
+  codex: 'Codex',
+  opencode: 'OpenCode'
+}
+
+/**
+ * Maps our SkillProvider id to the key used by `system-info.detectAgentSdks()`
+ * (which returns `{ claude, codex, opencode }`).
+ */
+export const PROVIDER_DETECTION_KEY: Record<SkillProvider, 'claude' | 'codex' | 'opencode'> = {
+  'claude-code': 'claude',
+  codex: 'codex',
+  opencode: 'opencode'
+}
+
+/**
+ * Which scope levels each provider supports today. OpenCode currently only
+ * exposes a user-level `~/.config/opencode/skills/` directory; project-level
+ * is left for a future iteration.
+ */
+export const SUPPORTED_SCOPES_BY_PROVIDER: Record<SkillProvider, Array<'user' | 'project' | 'worktree'>> = {
+  'claude-code': ['user', 'project', 'worktree'],
+  codex: ['user', 'project', 'worktree'],
+  opencode: ['user']
+}
 
 /** YAML frontmatter fields recognised by the skill parser. */
 export interface SkillFrontmatter {
@@ -61,18 +96,19 @@ export interface Skill {
 
 /** Where a skill should be installed / is installed. */
 export type SkillScope =
-  | { kind: 'user' }
-  | { kind: 'project'; path: string }
-  | { kind: 'worktree'; path: string }
+  | { provider: SkillProvider; kind: 'user' }
+  | { provider: SkillProvider; kind: 'project'; path: string }
+  | { provider: SkillProvider; kind: 'worktree'; path: string }
 
 /** Serialized form of SkillScope, used as a map key in stores. */
-export type SkillScopeKey = 'user' | `project:${string}` | `worktree:${string}`
+export type SkillScopeKey = string
 
-/** A skill found under a scope's `.claude/skills/` directory. */
+/** A skill found under a scope's provider-specific skills directory. */
 export interface InstalledSkill {
   id: string
   frontmatter: SkillFrontmatter
   installPath: string
+  provider: SkillProvider
   scopeKind: SkillScope['kind']
   installedAt: number
 }
@@ -84,14 +120,20 @@ export interface InstallSkillResult {
     | 'already_installed'
     | 'source_not_found'
     | 'invalid_scope'
+    | 'unsupported_scope'
     | 'permission_denied'
     | 'unknown_error'
   message?: string
 }
 
+/** Result of a multi-provider install — one entry per requested provider. */
+export interface InstallSkillBatchResult {
+  results: Array<InstallSkillResult & { provider: SkillProvider }>
+}
+
 export interface UninstallSkillResult {
   success: boolean
-  error?: 'not_installed' | 'invalid_scope' | 'permission_denied' | 'unknown_error'
+  error?: 'not_installed' | 'invalid_scope' | 'unsupported_scope' | 'permission_denied' | 'unknown_error'
   message?: string
 }
 
@@ -127,10 +169,13 @@ export interface RemoveHubResult {
   message?: string
 }
 
-/** Serialize a SkillScope into a stable key. */
+/** Per-provider availability — `true` means the CLI was found on $PATH. */
+export type ProviderAvailability = Record<SkillProvider, boolean>
+
+/** Serialize a SkillScope into a stable key — `provider:kind:path`. */
 export function scopeKey(scope: SkillScope): SkillScopeKey {
-  if (scope.kind === 'user') return 'user'
-  return `${scope.kind}:${scope.path}` as SkillScopeKey
+  const tail = 'path' in scope ? scope.path : ''
+  return `${scope.provider}:${scope.kind}:${tail}`
 }
 
 /** Default remote hub seeded on first launch. */

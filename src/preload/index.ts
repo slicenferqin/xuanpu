@@ -1471,11 +1471,13 @@ const scriptOps = {
 
 // Skill Hub operations API
 import type {
-  InstallSkillResult,
+  InstallSkillBatchResult,
   InstalledSkill,
+  ProviderAvailability,
   ReadSkillContentResult,
   Skill,
   SkillHub,
+  SkillProvider,
   SkillScope,
   UninstallSkillResult,
   HubId,
@@ -1501,19 +1503,29 @@ const skillOps = {
     scope: SkillScope
   ): Promise<{ success: boolean; skills: InstalledSkill[]; error?: string }> =>
     ipcRenderer.invoke('skill:listInstalled', { scope }),
+  /**
+   * Install a skill into one or more providers under the same scope shape.
+   * The handler attaches the right `provider` field per-iteration and returns
+   * a per-provider result array. The `scope` here intentionally omits the
+   * `provider` discriminator since the dialog picks providers and scope
+   * level/path independently.
+   */
   install: (
     hubId: HubId,
     skillId: string,
-    scope: SkillScope,
+    providers: SkillProvider[],
+    scope: { kind: SkillScope['kind']; path?: string },
     overwrite = false
-  ): Promise<InstallSkillResult> =>
-    ipcRenderer.invoke('skill:install', { hubId, skillId, scope, overwrite }),
+  ): Promise<InstallSkillBatchResult> =>
+    ipcRenderer.invoke('skill:install', { hubId, skillId, providers, scope, overwrite }),
   uninstall: (skillId: string, scope: SkillScope): Promise<UninstallSkillResult> =>
     ipcRenderer.invoke('skill:uninstall', { skillId, scope }),
   readContent: (absPath: string): Promise<ReadSkillContentResult> =>
     ipcRenderer.invoke('skill:readContent', { absPath }),
   openLocation: (absPath: string): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('skill:openLocation', { absPath })
+    ipcRenderer.invoke('skill:openLocation', { absPath }),
+  detectProviders: (): Promise<{ success: true; availability: ProviderAvailability }> =>
+    ipcRenderer.invoke('skill:detectProviders')
 }
 
 // File operations API

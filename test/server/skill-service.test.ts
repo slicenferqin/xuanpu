@@ -6,18 +6,29 @@ import path from 'path'
 // ─── electron/app mock ──────────────────────────────────────────────────────
 // The skill service resolves the bundled root from `app.getAppPath()`; we
 // point it at a scratch directory so we can drop fake skills in.
-const { appMock } = vi.hoisted(() => ({
+const { appMock, homedirMock } = vi.hoisted(() => ({
   appMock: {
     isPackaged: false,
     getAppPath: vi.fn(() => '/tmp'),
     getPath: vi.fn((_name: string) => '/tmp')
-  }
+  },
+  homedirMock: vi.fn(() => '/tmp')
 }))
 
 vi.mock('electron', () => ({
   app: appMock,
   shell: { showItemInFolder: vi.fn() }
 }))
+
+/**
+ * `os.homedir()` drives user-scope path resolution (~/.claude/skills,
+ * ~/.codex/skills, ~/.config/opencode/skills). Redirect it to the sandbox
+ * so tests never touch the real home directory.
+ */
+vi.mock('os', async () => {
+  const actual = await vi.importActual<typeof import('os')>('os')
+  return { ...actual, homedir: homedirMock }
+})
 
 vi.mock('../../src/main/services/logger', () => ({
   createLogger: () => ({
@@ -63,6 +74,7 @@ beforeEach(async () => {
   appMock.isPackaged = false
   appMock.getAppPath.mockReturnValue(sandbox)
   appMock.getPath.mockReturnValue(sandbox)
+  homedirMock.mockReturnValue(sandbox)
 
   // Lay out a fake bundled skill inside `resources/built-in-skills/`.
   const builtIn = path.join(sandbox, 'resources', 'built-in-skills', 'sample')
@@ -182,7 +194,7 @@ describe('install / uninstall roundtrip', () => {
 
     const res = await installSkill(
       { hubId: BUNDLED_HUB_ID, skillId: 'sample' },
-      { kind: 'project', path: project }
+      { provider: 'claude-code', kind: 'project', path: project }
     )
     expect(res.success).toBe(true)
     expect(res.installPath).toBe(path.join(project, '.claude', 'skills', 'sample'))
@@ -192,13 +204,26 @@ describe('install / uninstall roundtrip', () => {
     const ref = await fs.stat(path.join(res.installPath!, 'reference.txt'))
     expect(ref.isFile()).toBe(true)
 
-    const installed = await listInstalledSkills({ kind: 'project', path: project })
+    const installed = await listInstalledSkills({
+      provider: 'claude-code',
+      kind: 'project',
+      path: project
+    })
     expect(installed.map((s) => s.id)).toEqual(['sample'])
+    expect(installed[0].provider).toBe('claude-code')
 
-    const un = await uninstallSkill('sample', { kind: 'project', path: project })
+    const un = await uninstallSkill('sample', {
+      provider: 'claude-code',
+      kind: 'project',
+      path: project
+    })
     expect(un.success).toBe(true)
 
-    const after = await listInstalledSkills({ kind: 'project', path: project })
+    const after = await listInstalledSkills({
+      provider: 'claude-code',
+      kind: 'project',
+      path: project
+    })
     expect(after).toEqual([])
   })
 
@@ -208,18 +233,18 @@ describe('install / uninstall roundtrip', () => {
 
     await installSkill(
       { hubId: BUNDLED_HUB_ID, skillId: 'sample' },
-      { kind: 'project', path: project }
+      { provider: 'claude-code', kind: 'project', path: project }
     )
     const second = await installSkill(
       { hubId: BUNDLED_HUB_ID, skillId: 'sample' },
-      { kind: 'project', path: project }
+      { provider: 'claude-code', kind: 'project', path: project }
     )
     expect(second.success).toBe(false)
     expect(second.error).toBe('already_installed')
 
     const forced = await installSkill(
       { hubId: BUNDLED_HUB_ID, skillId: 'sample' },
-      { kind: 'project', path: project },
+      { provider: 'claude-code', kind: 'project', path: project },
       { overwrite: true }
     )
     expect(forced.success).toBe(true)
@@ -228,14 +253,18 @@ describe('install / uninstall roundtrip', () => {
   test('back-compat installBuiltInSkill still works', async () => {
     const project = path.join(sandbox, 'proj3')
     await fs.mkdir(project, { recursive: true })
-    const res = await installBuiltInSkill('sample', { kind: 'project', path: project })
+    const res = await installBuiltInSkill('sample', {
+      provider: 'claude-code',
+      kind: 'project',
+      path: project
+    })
     expect(res.success).toBe(true)
   })
 
   test('rejects unknown skill id', async () => {
     const res = await installSkill(
       { hubId: BUNDLED_HUB_ID, skillId: 'does-not-exist' },
-      { kind: 'user' }
+      { provider: 'claude-code', kind: 'user' }
     )
     expect(res.success).toBe(false)
     expect(res.error).toBe('source_not_found')
@@ -244,7 +273,7 @@ describe('install / uninstall roundtrip', () => {
   test('rejects unknown hub id', async () => {
     const res = await installSkill(
       { hubId: 'no-such-hub-id', skillId: 'sample' },
-      { kind: 'user' }
+      { provider: 'claude-code', kind: 'user' }
     )
     expect(res.success).toBe(false)
     expect(res.error).toBe('source_not_found')
@@ -253,7 +282,7 @@ describe('install / uninstall roundtrip', () => {
   test('rejects scoped install without a path', async () => {
     const res = await installSkill(
       { hubId: BUNDLED_HUB_ID, skillId: 'sample' },
-      { kind: 'project', path: '' }
+      { provider: 'claude-code', kind: 'project', path: '' }
     )
     expect(res.success).toBe(false)
     expect(res.error).toBe('invalid_scope')
@@ -261,23 +290,83 @@ describe('install / uninstall roundtrip', () => {
 
   test('uninstall reports not_installed when missing', async () => {
     const res = await uninstallSkill('sample', {
+      provider: 'claude-code',
       kind: 'project',
       path: path.join(sandbox, 'nowhere')
     })
     expect(res.success).toBe(false)
     expect(res.error).toBe('not_installed')
   })
+
+  test('codex provider lands skill under .codex/skills/', async () => {
+    const project = path.join(sandbox, 'codex-proj')
+    await fs.mkdir(project, { recursive: true })
+    const res = await installSkill(
+      { hubId: BUNDLED_HUB_ID, skillId: 'sample' },
+      { provider: 'codex', kind: 'project', path: project }
+    )
+    expect(res.success).toBe(true)
+    expect(res.installPath).toBe(path.join(project, '.codex', 'skills', 'sample'))
+    const installed = await listInstalledSkills({
+      provider: 'codex',
+      kind: 'project',
+      path: project
+    })
+    expect(installed.map((s) => s.id)).toEqual(['sample'])
+    expect(installed[0].provider).toBe('codex')
+  })
+
+  test('opencode rejects project-scope (unsupported_scope)', async () => {
+    const project = path.join(sandbox, 'oc-proj')
+    await fs.mkdir(project, { recursive: true })
+    const res = await installSkill(
+      { hubId: BUNDLED_HUB_ID, skillId: 'sample' },
+      { provider: 'opencode', kind: 'project', path: project }
+    )
+    expect(res.success).toBe(false)
+    expect(res.error).toBe('unsupported_scope')
+  })
+
+  test('opencode user-scope writes under ~/.config/opencode/skills/', async () => {
+    const res = await installSkill(
+      { hubId: BUNDLED_HUB_ID, skillId: 'sample' },
+      { provider: 'opencode', kind: 'user' }
+    )
+    expect(res.success).toBe(true)
+    expect(res.installPath).toBe(
+      path.join(sandbox, '.config', 'opencode', 'skills', 'sample')
+    )
+  })
 })
 
 describe('resolveScopeDir', () => {
-  test('user scope resolves to ~/.claude/skills', () => {
-    const dir = resolveScopeDir({ kind: 'user' })
+  test('claude-code user scope resolves to ~/.claude/skills', () => {
+    const dir = resolveScopeDir({ provider: 'claude-code', kind: 'user' })
     expect(dir.endsWith(path.join('.claude', 'skills'))).toBe(true)
   })
 
-  test('project scope joins path with .claude/skills', () => {
-    const dir = resolveScopeDir({ kind: 'project', path: '/some/proj' })
+  test('claude-code project scope joins path with .claude/skills', () => {
+    const dir = resolveScopeDir({
+      provider: 'claude-code',
+      kind: 'project',
+      path: '/some/proj'
+    })
     expect(dir).toBe(path.join('/some/proj', '.claude', 'skills'))
+  })
+
+  test('codex user scope resolves to ~/.codex/skills', () => {
+    const dir = resolveScopeDir({ provider: 'codex', kind: 'user' })
+    expect(dir.endsWith(path.join('.codex', 'skills'))).toBe(true)
+  })
+
+  test('codex project scope joins path with .codex/skills', () => {
+    const dir = resolveScopeDir({ provider: 'codex', kind: 'project', path: '/p' })
+    expect(dir).toBe(path.join('/p', '.codex', 'skills'))
+  })
+
+  test('opencode user scope resolves to ~/.config/opencode/skills', () => {
+    const dir = resolveScopeDir({ provider: 'opencode', kind: 'user' })
+    expect(dir.endsWith(path.join('.config', 'opencode', 'skills'))).toBe(true)
   })
 })
 
