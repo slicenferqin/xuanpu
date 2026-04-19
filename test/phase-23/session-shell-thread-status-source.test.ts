@@ -4,19 +4,27 @@ describe('SessionShell thread status flow (source verification)', () => {
   test('stores running and compaction state in the streaming buffer', async () => {
     const fs = await import('fs')
     const path = await import('path')
-    const source = fs.readFileSync(
+    const shellSource = fs.readFileSync(
       path.resolve(
         __dirname,
         '../../src/renderer/src/components/session-hq/SessionShell.tsx'
       ),
       'utf-8'
     )
+    const runtimeSource = fs.readFileSync(
+      path.resolve(
+        __dirname,
+        '../../src/renderer/src/stores/useSessionRuntimeStore.ts'
+      ),
+      'utf-8'
+    )
 
-    expect(source).toContain('runStartedAt')
-    expect(source).toContain('compactionState')
-    expect(source).toContain('setRunStartedAt((current) => current ?? Date.now())')
-    expect(source).toContain("phase: 'running'")
-    expect(source).toContain("phase: 'completed'")
+    expect(shellSource).toContain('runStartedAt')
+    expect(shellSource).toContain('compactionState')
+    expect(shellSource).toContain('const streamingMirror = useStreamingMirror(sessionId)')
+    expect(runtimeSource).toContain('updateStreamingBuffer(')
+    expect(runtimeSource).toContain("phase: 'running'")
+    expect(runtimeSource).toContain("phase: 'completed'")
   })
 
   test('passes ephemeral thread status rows into AgentTimeline', async () => {
@@ -33,6 +41,23 @@ describe('SessionShell thread status flow (source verification)', () => {
     expect(source).toContain('const ephemeralStatusRows = useMemo<ThreadStatusRowData[]>')
     expect(source).toContain('ephemeralStatusRows={ephemeralStatusRows}')
     expect(source).toContain('hasDurableCompactionMessage')
+  })
+
+  test('clears active overlays in finally while preserving compaction chips', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(
+      path.resolve(
+        __dirname,
+        '../../src/renderer/src/components/session-hq/SessionShell.tsx'
+      ),
+      'utf-8'
+    )
+
+    expect(source).toContain('void refresh()')
+    expect(source).toContain('.finally(() => {')
+    expect(source).toContain('clearStreamingBufferOverlay(sessionId, {')
+    expect(source).toContain('preserveCompactionState: true')
   })
 
   test('wires new UI user-message edit and fork flows into AgentTimeline', async () => {

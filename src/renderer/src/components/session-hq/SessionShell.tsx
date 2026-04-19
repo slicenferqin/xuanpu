@@ -16,7 +16,14 @@
  *   View layer     → component-local state (streaming, etc.)
  */
 
-import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import React, {
+  useEffect,
+  useState,
+  useCallback,
+  useRef,
+  useMemo,
+  useSyncExternalStore
+} from 'react'
 import { SessionHeader } from './SessionHeader'
 import { AgentTimeline } from './AgentTimeline'
 import type { ThreadStatusRowData } from './ThreadStatusRow'
@@ -40,8 +47,10 @@ import type { CanonicalAgentEvent } from '@shared/types/agent-protocol'
 import type { StreamingPart as SharedStreamingPart } from '@shared/lib/timeline-types'
 import {
   getStreamingBuffer,
-  setStreamingBuffer,
-  clearStreamingBuffer
+  getStreamingBufferSnapshot,
+  subscribeToStreamingBuffer,
+  updateStreamingBuffer,
+  clearStreamingBufferOverlay
 } from '@/stores/useSessionRuntimeStore'
 import {
   executeSendAction,
@@ -189,6 +198,14 @@ function useSessionRuntime(sessionId: string) {
   const pendingCount = useSessionRuntimeStore((s) => s.getPendingCount(sessionId))
 
   return { lifecycle, interruptQueue, pendingCount }
+}
+
+function useStreamingMirror(sessionId: string) {
+  return useSyncExternalStore(
+    useCallback((cb) => subscribeToStreamingBuffer(sessionId, cb), [sessionId]),
+    useCallback(() => getStreamingBufferSnapshot(sessionId), [sessionId]),
+    useCallback(() => getStreamingBufferSnapshot(sessionId), [sessionId])
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -339,19 +356,14 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   const currentProviderId = resolvedModel?.providerID ?? ''
   const skipForkFromMessageConfirm = useSettingsStore((s) => s.skipForkFromMessageConfirm)
 
-  // --- Live streaming state (view-layer) ---
-  // Restore from buffer on mount so switching away mid-stream and back
-  // doesn't lose the in-progress output. The buffer is cleared by the event
-  // bridge when the session goes idle, so its mere presence is a reliable
-  // signal that this session is still mid-turn.
-  const _initBuffer = getStreamingBuffer(sessionId)
-  const [streamingContent, setStreamingContent] = useState(_initBuffer?.streamingContent ?? '')
-  const [isStreaming, setIsStreaming] = useState(_initBuffer?.isStreaming ?? false)
-  const [runStartedAt, setRunStartedAt] = useState<number | null>(_initBuffer?.runStartedAt ?? null)
-  const [compactionState, setCompactionState] = useState<{
-    phase: 'running' | 'completed'
-    timestamp: number
-  } | null>(_initBuffer?.compactionState ?? null)
+  // --- Live streaming mirror (module-level runtime truth) ---
+  const streamingMirror = useStreamingMirror(sessionId)
+  const streamingContent = streamingMirror.streamingContent
+  const isStreaming = streamingMirror.isStreaming
+  const runStartedAt = streamingMirror.runStartedAt ?? null
+  const compactionState = streamingMirror.compactionState ?? null
+  const streamingParts = streamingMirror.parts
+  const childPartsMap = streamingMirror.childParts
   const [droidSessionId, setDroidSessionId] = useState<string | null>(
     sessionRecord?.opencode_session_id ?? null
   )
@@ -365,7 +377,16 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   const [pendingForkMessageId, setPendingForkMessageId] = useState<string | null>(null)
   const [forkConfirmDismissChecked, setForkConfirmDismissChecked] = useState(false)
 
-  const streamingContentRef = useRef(_initBuffer?.streamingContent ?? '')
+  const syncOptimisticMessagesToMirror = useCallback(() => {
+    updateStreamingBuffer(
+      sessionId,
+      (current) => ({
+        ...current,
+        optimisticMessages: optimisticRef.current.length > 0 ? [...optimisticRef.current] : undefined
+      }),
+      { notify: 'immediate' }
+    )
+  }, [sessionId, optimisticRef])
 
   useEffect(() => {
     if (!droidSessionId || !window.agentOps?.capabilities) {
@@ -392,36 +413,24 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     }
   }, [agentSdk, droidSessionId])
 
-  // --- Streaming parts for real-time tool rendering ---
-  const [streamingParts, setStreamingParts] = useState<SharedStreamingPart[]>(
-    _initBuffer?.parts ?? []
+  const resetLiveOverlay = useCallback(
+    (nextIsStreaming: boolean) => {
+      updateStreamingBuffer(
+        sessionId,
+        (current) => ({
+          ...current,
+          parts: [],
+          childParts: new Map<string, SharedStreamingPart[]>(),
+          streamingContent: '',
+          isStreaming: nextIsStreaming,
+          runStartedAt: undefined,
+          compactionState: null
+        }),
+        { notify: 'immediate' }
+      )
+    },
+    [sessionId]
   )
-  const streamingPartsRef = useRef<SharedStreamingPart[]>(_initBuffer?.parts ?? [])
-  const rafRef = useRef<number | null>(null)
-
-  // --- Child session parts (sub-agent tool calls, keyed by parent tool_use id) ---
-  const childPartsMapRef = useRef(
-    _initBuffer?.childParts
-      ? new Map(_initBuffer.childParts)
-      : new Map<string, SharedStreamingPart[]>()
-  )
-  const [childPartsMap, setChildPartsMap] = useState<Map<string, SharedStreamingPart[]>>(
-    _initBuffer?.childParts ? new Map(_initBuffer.childParts) : new Map()
-  )
-
-  // Sync streaming state to module-level buffer so it survives tab switches.
-  // Written synchronously on every streaming update; cleared when session goes idle.
-  const flushBuffer = useCallback(() => {
-    setStreamingBuffer(sessionId, {
-      parts: streamingPartsRef.current,
-      childParts: new Map(childPartsMapRef.current),
-      streamingContent: streamingContentRef.current,
-      isStreaming: true,
-      runStartedAt: runStartedAt ?? undefined,
-      compactionState,
-      optimisticMessages: optimisticRef.current.length > 0 ? optimisticRef.current : undefined
-    })
-  }, [sessionId, optimisticRef, runStartedAt, compactionState])
 
   // --- Mission Control task state ---
   const [missionTasks, setMissionTasks] = useState<MissionTask[]>([])
@@ -489,9 +498,16 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
   useEffect(() => {
     if (hasDurableCompactionMessage && compactionState?.phase === 'completed') {
-      setCompactionState(null)
+      updateStreamingBuffer(
+        sessionId,
+        (current) => ({
+          ...current,
+          compactionState: null
+        }),
+        { notify: 'immediate' }
+      )
     }
-  }, [hasDurableCompactionMessage, compactionState])
+  }, [hasDurableCompactionMessage, compactionState, sessionId])
 
   // Auto-hide MissionControl after all tasks complete
   useEffect(() => {
@@ -517,63 +533,6 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     }
   }, [allTasksComplete, isStreaming, missionVisible])
 
-  const immediateFlush = useCallback(() => {
-    setStreamingParts([...streamingPartsRef.current])
-    flushBuffer()
-  }, [flushBuffer])
-
-  const scheduleFlush = useCallback(() => {
-    if (rafRef.current) return
-    rafRef.current = requestAnimationFrame(() => {
-      rafRef.current = null
-      setStreamingParts([...streamingPartsRef.current])
-      flushBuffer()
-    })
-  }, [flushBuffer])
-
-  const upsertToolUse = useCallback(
-    (
-      toolId: string,
-      update: Partial<NonNullable<SharedStreamingPart['toolUse']>> & { name?: string }
-    ) => {
-      const parts = streamingPartsRef.current
-      const existingIndex = parts.findIndex(
-        (p) => p.type === 'tool_use' && p.toolUse?.id === toolId
-      )
-
-      if (existingIndex >= 0) {
-        const existing = parts[existingIndex]
-        streamingPartsRef.current = [
-          ...parts.slice(0, existingIndex),
-          {
-            ...existing,
-            toolUse: { ...existing.toolUse!, ...update }
-          },
-          ...parts.slice(existingIndex + 1)
-        ]
-      } else {
-        streamingPartsRef.current = [
-          ...parts,
-          {
-            type: 'tool_use',
-            toolUse: {
-              id: toolId,
-              name: update.name ?? 'unknown',
-              input: update.input,
-              status: update.status ?? 'running',
-              startTime: update.startTime ?? Date.now(),
-              endTime: update.endTime,
-              output: update.output,
-              error: update.error
-            }
-          }
-        ]
-      }
-      immediateFlush()
-    },
-    [immediateFlush]
-  )
-
   const transitionToolStatus = useCallback(
     (toolUseID: string, status: 'success' | 'error', error?: string) => {
       const mapper = (p: SharedStreamingPart): SharedStreamingPart =>
@@ -581,8 +540,14 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           ? { ...p, toolUse: { ...p.toolUse!, status, ...(error ? { error } : {}) } }
           : p
 
-      streamingPartsRef.current = streamingPartsRef.current.map(mapper)
-      setStreamingParts([...streamingPartsRef.current])
+      updateStreamingBuffer(
+        sessionId,
+        (current) => ({
+          ...current,
+          parts: current.parts.map(mapper)
+        }),
+        { notify: 'immediate' }
+      )
 
       // Persist the visual status in committed timeline messages too, since
       // the plan card may already have been materialized from durable history.
@@ -598,98 +563,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       })
       timelineMessagesRef.current = updatedMessages
       setMessages(updatedMessages)
-
-      flushBuffer()
     },
-    [flushBuffer, setMessages]
-  )
-
-  /** Route a child-session event into childPartsMap instead of main streaming parts. */
-  const routeChildEvent = useCallback(
-    (childId: string, partData: Record<string, unknown>) => {
-      const part = partData.part as Record<string, unknown> | undefined
-      if (!part) return
-
-      let sp: SharedStreamingPart | null = null
-
-      if (part.type === 'text') {
-        const text = (partData.delta as string) ?? (part.text as string) ?? ''
-        if (text) {
-          // Accumulate text into last text part for this child
-          const existing = childPartsMapRef.current.get(childId)
-          const last = existing?.[existing.length - 1]
-          if (last?.type === 'text') {
-            last.text = (last.text ?? '') + text
-            setChildPartsMap(new Map(childPartsMapRef.current))
-            flushBuffer()
-            return
-          }
-          sp = { type: 'text', text }
-        }
-      } else if (part.type === 'tool') {
-        const toolId = (part.callID as string) || (part.id as string) || `child-tool-${Date.now()}`
-        const toolName = (part.tool as string) || undefined
-        const state = (part.state as Record<string, unknown>) || {}
-        const statusMap: Record<string, 'pending' | 'running' | 'success' | 'error'> = {
-          pending: 'pending',
-          running: 'running',
-          completed: 'success',
-          error: 'error'
-        }
-        const stateTime = state.time as Record<string, number> | undefined
-
-        // Upsert: find existing tool part by id
-        const existing = childPartsMapRef.current.get(childId)
-        if (existing) {
-          const idx = existing.findIndex((p) => p.type === 'tool_use' && p.toolUse?.id === toolId)
-          if (idx >= 0) {
-            existing[idx] = {
-              ...existing[idx],
-              toolUse: {
-                ...existing[idx].toolUse!,
-                ...(toolName ? { name: toolName } : {}),
-                ...(state.input ? { input: state.input as Record<string, unknown> } : {}),
-                status: statusMap[state.status as string] || 'running',
-                startTime: stateTime?.start || existing[idx].toolUse!.startTime,
-                endTime: stateTime?.end,
-                output: state.status === 'completed' ? (state.output as string) : undefined,
-                error: state.status === 'error' ? (state.error as string) : undefined
-              }
-            }
-            setChildPartsMap(new Map(childPartsMapRef.current))
-            flushBuffer()
-            return
-          }
-        }
-
-        sp = {
-          type: 'tool_use',
-          toolUse: {
-            id: toolId,
-            name: toolName ?? 'unknown',
-            input: (state.input as Record<string, unknown>) ?? {},
-            status: statusMap[state.status as string] || 'running',
-            startTime: stateTime?.start || Date.now(),
-            endTime: stateTime?.end,
-            output: state.status === 'completed' ? (state.output as string) : undefined,
-            error: state.status === 'error' ? (state.error as string) : undefined
-          }
-        }
-      }
-      // Reasoning from child sessions: skip (not useful to surface)
-
-      if (sp) {
-        const arr = childPartsMapRef.current.get(childId)
-        if (arr) {
-          arr.push(sp)
-        } else {
-          childPartsMapRef.current.set(childId, [sp])
-        }
-        setChildPartsMap(new Map(childPartsMapRef.current))
-        flushBuffer()
-      }
-    },
-    [flushBuffer]
+    [sessionId, setMessages]
   )
 
   useEffect(() => {
@@ -787,62 +662,12 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         if (event.type === 'message.part.updated') {
           const partData = event.data
           if (!partData) return
-
-          // Route child-session events (sub-agent tool calls) to the side-channel map
-          const childId = event.childSessionId
-          if (childId) {
-            routeChildEvent(childId, partData as Record<string, unknown>)
-            return
-          }
+          if (event.childSessionId) return
 
           const part = partData.part as Record<string, unknown> | undefined
-
-          // --- Text deltas ---
-          if (part?.type === 'text') {
-            const delta = (partData.delta as string) ?? (part.text as string) ?? ''
-            if (delta) {
-              streamingContentRef.current += delta
-              setStreamingContent(streamingContentRef.current)
-
-              // Also accumulate into streaming parts for AgentTimeline
-              const parts = streamingPartsRef.current
-              const lastText = parts[parts.length - 1]
-              if (lastText?.type === 'text') {
-                streamingPartsRef.current = [
-                  ...parts.slice(0, -1),
-                  { ...lastText, text: (lastText.text ?? '') + delta }
-                ]
-              } else {
-                streamingPartsRef.current = [...parts, { type: 'text', text: delta }]
-              }
-              scheduleFlush()
-            }
-
-            // --- Tool events ---
-          } else if (part?.type === 'tool') {
-            const toolId = (part.callID as string) || (part.id as string) || `tool-${Date.now()}`
+          if (part?.type === 'tool') {
             const toolName = (part.tool as string) || undefined
             const state = (part.state as Record<string, unknown>) || {}
-
-            const statusMap: Record<string, 'pending' | 'running' | 'success' | 'error'> = {
-              pending: 'pending',
-              running: 'running',
-              completed: 'success',
-              error: 'error'
-            }
-
-            const stateTime = state.time as Record<string, number> | undefined
-
-            upsertToolUse(toolId, {
-              ...(toolName ? { name: toolName } : {}),
-              ...(state.input ? { input: state.input as Record<string, unknown> } : {}),
-              status: statusMap[state.status as string] || 'running',
-              startTime: stateTime?.start || Date.now(),
-              endTime: stateTime?.end,
-              output: state.status === 'completed' ? (state.output as string) : undefined,
-              error: state.status === 'error' ? (state.error as string) : undefined
-            })
-            setIsStreaming(true)
 
             // --- Mission Control: detect todo/task tools ---
             const lowerToolName = toolName?.toLowerCase() ?? ''
@@ -895,90 +720,41 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
                 setMissionTasks([...missionTasksRef.current])
               }
             }
-
-            // --- Reasoning deltas ---
-          } else if (part?.type === 'reasoning') {
-            const delta = (partData.delta as string) ?? (part.text as string) ?? ''
-            if (delta) {
-              const parts = streamingPartsRef.current
-              const last = parts[parts.length - 1]
-              if (last?.type === 'reasoning') {
-                streamingPartsRef.current = [
-                  ...parts.slice(0, -1),
-                  { ...last, reasoning: (last.reasoning ?? '') + delta }
-                ]
-              } else {
-                streamingPartsRef.current = [...parts, { type: 'reasoning', reasoning: delta }]
-              }
-              scheduleFlush()
-            }
-            setIsStreaming(true)
-
-            // --- Subtask events ---
-          } else if (part?.type === 'subtask') {
-            streamingPartsRef.current = [
-              ...streamingPartsRef.current,
-              {
-                type: 'subtask',
-                subtask: {
-                  id: (part.id as string) || `subtask-${Date.now()}`,
-                  sessionID: (part.sessionID as string) || '',
-                  prompt: (part.prompt as string) || '',
-                  description: (part.description as string) || '',
-                  agent: (part.agent as string) || 'unknown',
-                  parts: [],
-                  status: 'running'
-                }
-              }
-            ]
-            immediateFlush()
-            setIsStreaming(true)
           }
         }
 
         // Lifecycle events
         if (event.type === 'session.status') {
           const statusType = event.data?.status?.type
-          if (statusType === 'busy') {
-            setIsStreaming(true)
-            setRunStartedAt((current) => current ?? Date.now())
-          } else if (statusType === 'materializing') {
-            setIsStreaming(true)
-            setRunStartedAt((current) => current ?? Date.now())
-          } else if (statusType === 'retry') {
-            setRunStartedAt(null)
-          } else if (statusType === 'idle') {
-            setIsStreaming(false)
-            setRunStartedAt(null)
+          if (statusType === 'idle') {
             void refreshUsageSummary()
             // Refresh timeline to pick up newly committed messages
-            refresh().then((msgs) => {
-              // Sync mission tasks from committed timeline (source of truth after idle)
-              if (msgs.length > 0) {
-                const extracted = extractMissionTasks(msgs)
-                if (extracted.length > 0) {
-                  // Don't overwrite if all tasks already completed in memory —
-                  // streaming TaskUpdate events are more authoritative than DB
-                  // snapshots for task status (DB only has original TodoWrite input)
-                  const currentAllComplete =
-                    missionTasksRef.current.length > 0 &&
-                    missionTasksRef.current.every((t) => t.status === 'completed')
-                  if (!currentAllComplete) {
-                    missionTasksRef.current = extracted
-                    setMissionTasks(extracted)
+            void refresh()
+              .then((msgs) => {
+                // Sync mission tasks from committed timeline (source of truth after idle)
+                if (msgs.length > 0) {
+                  const extracted = extractMissionTasks(msgs)
+                  if (extracted.length > 0) {
+                    // Don't overwrite if all tasks already completed in memory —
+                    // streaming TaskUpdate events are more authoritative than DB
+                    // snapshots for task status (DB only has original TodoWrite input)
+                    const currentAllComplete =
+                      missionTasksRef.current.length > 0 &&
+                      missionTasksRef.current.every((t) => t.status === 'completed')
+                    if (!currentAllComplete) {
+                      missionTasksRef.current = extracted
+                      setMissionTasks(extracted)
+                    }
                   }
                 }
-              }
-            })
-            // Clear streaming state and buffer on idle
-            streamingContentRef.current = ''
-            setStreamingContent('')
-            streamingPartsRef.current = []
-            setStreamingParts([])
-            childPartsMapRef.current.clear()
-            setChildPartsMap(new Map())
-            optimisticRef.current = []
-            clearStreamingBuffer(sessionId)
+              })
+              .finally(() => {
+                optimisticRef.current = []
+                clearStreamingBufferOverlay(sessionId, {
+                  notify: 'immediate',
+                  preserveCompactionState: true
+                })
+              })
 
             // Auto-drain pending message queue
             if (worktreePath && droidSessionId) {
@@ -991,25 +767,6 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
               ).catch((err) => console.error('[SessionShell] drainNextPending failed:', err))
             }
           }
-        }
-
-        // Context compression events
-        if (event.type === 'session.compaction_started') {
-          setCompactionState({
-            phase: 'running',
-            timestamp: Date.now()
-          })
-        }
-
-        if (event.type === 'session.context_compacted') {
-          setCompactionState({
-            phase: 'completed',
-            timestamp: Date.now()
-          })
-        }
-
-        if (event.type === 'session.error') {
-          setRunStartedAt(null)
         }
 
         // Token / cost tracking (active session — global bridge skips the active one)
@@ -1083,10 +840,6 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     refresh,
     worktreePath,
     droidSessionId,
-    scheduleFlush,
-    upsertToolUse,
-    immediateFlush,
-    routeChildEvent,
     optimisticRef,
     currentProviderId,
     requestModel,
@@ -1110,15 +863,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       }
 
       if (action === 'send' || action === 'stop_and_send' || action === 'steer') {
-        streamingContentRef.current = ''
-        setStreamingContent('')
-        streamingPartsRef.current = []
-        setStreamingParts([])
-        childPartsMapRef.current.clear()
-        setChildPartsMap(new Map())
-        setIsStreaming(true)
-        // Clear stale buffer from previous turn
-        clearStreamingBuffer(sessionId)
+        resetLiveOverlay(true)
       }
 
       // Optimistic insert — show user message immediately in the timeline
@@ -1141,8 +886,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         // Sync ref immediately so MissionControl's streaming callback can find
         // the user message before the next useEffect tick
         timelineMessagesRef.current = [...timelineMessagesRef.current, optimisticMsg]
-        // Flush buffer immediately so the optimistic message survives tab switches
-        flushBuffer()
+        syncOptimisticMessagesToMirror()
       }
 
       try {
@@ -1162,7 +906,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         })
 
         if (!consumed && (action === 'send' || action === 'stop_and_send')) {
-          setIsStreaming(false)
+          resetLiveOverlay(false)
         }
 
         return consumed
@@ -1174,10 +918,10 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
             (msg) => msg.id !== optimisticMessageId
           )
           setMessages((prev) => prev.filter((msg) => msg.id !== optimisticMessageId))
-          flushBuffer()
+          syncOptimisticMessagesToMirror()
         }
         toast.error(err instanceof Error ? err.message : 'Failed to send message')
-        setIsStreaming(false)
+        resetLiveOverlay(false)
         return false
       }
     },
@@ -1186,10 +930,11 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       droidSessionId,
       sessionId,
       appendOptimistic,
-      flushBuffer,
       optimisticRef,
       requestModel,
-      setMessages
+      resetLiveOverlay,
+      setMessages,
+      syncOptimisticMessagesToMirror
     ]
   )
 
@@ -1230,17 +975,11 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       optimisticRef.current = optimisticRef.current.filter(
         (message) => trimmedMessages.some((candidate) => candidate.id === message.id)
       )
+      syncOptimisticMessagesToMirror()
       setEditingMessageId(null)
       setEditingContent('')
 
-      streamingContentRef.current = ''
-      setStreamingContent('')
-      streamingPartsRef.current = []
-      setStreamingParts([])
-      childPartsMapRef.current.clear()
-      setChildPartsMap(new Map())
-      setIsStreaming(true)
-      clearStreamingBuffer(sessionId)
+      resetLiveOverlay(true)
 
       const optimisticMsg: TimelineMessage = {
         id: `optimistic-${Date.now()}`,
@@ -1250,7 +989,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       }
       appendOptimistic(optimisticMsg)
       timelineMessagesRef.current = [...trimmedMessages, optimisticMsg]
-      flushBuffer()
+      syncOptimisticMessagesToMirror()
 
       try {
         const consumed = await executeSendAction('send', contentToSend, [], {
@@ -1262,12 +1001,12 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         })
 
         if (!consumed) {
-          setIsStreaming(false)
+          resetLiveOverlay(false)
         }
       } catch (error) {
         console.error('[SessionShell] edit resend failed:', error)
         toast.error(t('sessionView.toasts.messageError'))
-        setIsStreaming(false)
+        resetLiveOverlay(false)
       }
     },
     [
@@ -1276,10 +1015,10 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       droidSessionId,
       timelineMessages,
       setMessages,
-      sessionId,
       appendOptimistic,
-      flushBuffer,
       requestModel,
+      resetLiveOverlay,
+      syncOptimisticMessagesToMirror,
       t,
       optimisticRef
     ]
@@ -1417,13 +1156,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           ? 'Implement the plan.'
           : buildPlanImplementationPrompt(pendingBeforeAction.planContent)
 
-      streamingContentRef.current = ''
-      setStreamingContent('')
-      streamingPartsRef.current = []
-      setStreamingParts([])
-      childPartsMapRef.current.clear()
-      setChildPartsMap(new Map())
-      setIsStreaming(true)
+      resetLiveOverlay(true)
 
       if (isClaudeCode) {
         // Claude resumes within the same prompt cycle after approval; mark the
@@ -1440,6 +1173,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       }
       appendOptimistic(optimisticMsg)
       timelineMessagesRef.current = [...timelineMessagesRef.current, optimisticMsg]
+      syncOptimisticMessagesToMirror()
 
       await executeSendAction('send', implementPrompt, [], {
         worktreePath,
@@ -1453,7 +1187,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       toast.error(`Plan approve error: ${err instanceof Error ? err.message : String(err)}`)
       useSessionStore.getState().setPendingPlan(sessionId, pendingBeforeAction)
       useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'plan_ready')
-      setIsStreaming(false)
+      resetLiveOverlay(false)
     }
   }, [
     worktreePath,
@@ -1462,6 +1196,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     sessionRecord?.agent_sdk,
     sessionId,
     appendOptimistic,
+    resetLiveOverlay,
+    syncOptimisticMessagesToMirror,
     transitionToolStatus,
     requestModel
   ])

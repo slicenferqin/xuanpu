@@ -77,6 +77,9 @@ const _sessionEventCallbacks = new Map<string, Set<EventCallback>>()
 // ---------------------------------------------------------------------------
 
 export interface StreamingBuffer {
+  activeRunEpoch: number
+  lastAppliedSequence: number
+  mirrorVersion: number
   parts: StreamingPart[]
   /** Child session parts keyed by child session id */
   childParts: Map<string, StreamingPart[]>
@@ -92,17 +95,460 @@ export interface StreamingBuffer {
 }
 
 const _streamingBuffers = new Map<string, StreamingBuffer>()
+type StreamingBufferCallback = () => void
+const _streamingBufferCallbacks = new Map<string, Set<StreamingBufferCallback>>()
+const _pendingStreamingBufferFlushes = new Set<string>()
+const _emptyStreamingBufferSnapshots = new Map<string, StreamingBuffer>()
+
+function createStreamingBuffer(overrides?: Partial<StreamingBuffer>): StreamingBuffer {
+  return {
+    activeRunEpoch: 0,
+    lastAppliedSequence: -1,
+    mirrorVersion: 0,
+    parts: [],
+    childParts: new Map(),
+    streamingContent: '',
+    isStreaming: false,
+    runStartedAt: undefined,
+    compactionState: null,
+    optimisticMessages: undefined,
+    ...overrides
+  }
+}
+
+function cloneStreamingBuffer(buffer: StreamingBuffer): StreamingBuffer {
+  return {
+    ...buffer,
+    parts: [...buffer.parts],
+    childParts: new Map(
+      Array.from(buffer.childParts.entries(), ([childId, parts]) => [childId, [...parts]])
+    ),
+    optimisticMessages: buffer.optimisticMessages ? [...buffer.optimisticMessages] : undefined
+  }
+}
+
+function getEmptyStreamingBufferSnapshot(sessionId: string): StreamingBuffer {
+  const existing = _emptyStreamingBufferSnapshots.get(sessionId)
+  if (existing) return existing
+
+  const next = createStreamingBuffer()
+  _emptyStreamingBufferSnapshots.set(sessionId, next)
+  return next
+}
+
+function resetStreamingBufferOverlayState(
+  current: StreamingBuffer,
+  options?: { preserveOptimisticMessages?: boolean; preserveCompactionState?: boolean }
+): StreamingBuffer {
+  return createStreamingBuffer({
+    activeRunEpoch: current.activeRunEpoch,
+    lastAppliedSequence: current.lastAppliedSequence,
+    mirrorVersion: current.mirrorVersion,
+    optimisticMessages: options?.preserveOptimisticMessages ? current.optimisticMessages : undefined,
+    compactionState: options?.preserveCompactionState ? current.compactionState : null
+  })
+}
+
+function notifyStreamingBufferSubscribers(sessionId: string): void {
+  const callbacks = _streamingBufferCallbacks.get(sessionId)
+  if (!callbacks) return
+  for (const cb of callbacks) {
+    try {
+      cb()
+    } catch (error) {
+      console.error('[SessionRuntimeStore] streaming buffer callback error:', error)
+    }
+  }
+}
+
+function flushStreamingBufferVersion(sessionId: string): void {
+  const current = _streamingBuffers.get(sessionId)
+  if (!current) return
+  _streamingBuffers.set(sessionId, {
+    ...current,
+    mirrorVersion: current.mirrorVersion + 1
+  })
+  notifyStreamingBufferSubscribers(sessionId)
+}
+
+function scheduleStreamingBufferFlush(sessionId: string): void {
+  if (_pendingStreamingBufferFlushes.has(sessionId)) return
+  _pendingStreamingBufferFlushes.add(sessionId)
+  const schedule =
+    typeof requestAnimationFrame === 'function'
+      ? requestAnimationFrame
+      : (cb: FrameRequestCallback) => setTimeout(() => cb(Date.now()), 0)
+
+  schedule(() => {
+    _pendingStreamingBufferFlushes.delete(sessionId)
+    flushStreamingBufferVersion(sessionId)
+  })
+}
+
+function mapPartStatus(
+  value: unknown
+): 'pending' | 'running' | 'success' | 'error' {
+  if (value === 'pending' || value === 'running') return value
+  if (value === 'completed' || value === 'success') return 'success'
+  if (value === 'error') return 'error'
+  return 'running'
+}
 
 export function getStreamingBuffer(sessionId: string): StreamingBuffer | undefined {
-  return _streamingBuffers.get(sessionId)
+  const buffer = _streamingBuffers.get(sessionId)
+  return buffer ? cloneStreamingBuffer(buffer) : undefined
 }
 
 export function setStreamingBuffer(sessionId: string, buffer: StreamingBuffer): void {
-  _streamingBuffers.set(sessionId, buffer)
+  _streamingBuffers.set(sessionId, cloneStreamingBuffer(buffer))
+  _emptyStreamingBufferSnapshots.delete(sessionId)
 }
 
 export function clearStreamingBuffer(sessionId: string): void {
   _streamingBuffers.delete(sessionId)
+  _pendingStreamingBufferFlushes.delete(sessionId)
+  notifyStreamingBufferSubscribers(sessionId)
+}
+
+export function resetStreamingBuffersForTests(): void {
+  _streamingBuffers.clear()
+  _pendingStreamingBufferFlushes.clear()
+  _emptyStreamingBufferSnapshots.clear()
+  _streamingBufferCallbacks.clear()
+}
+
+export function subscribeToStreamingBuffer(sessionId: string, cb: StreamingBufferCallback): () => void {
+  let callbackSet = _streamingBufferCallbacks.get(sessionId)
+  if (!callbackSet) {
+    callbackSet = new Set()
+    _streamingBufferCallbacks.set(sessionId, callbackSet)
+  }
+  callbackSet.add(cb)
+  return () => {
+    const setForSession = _streamingBufferCallbacks.get(sessionId)
+    if (!setForSession) return
+    setForSession.delete(cb)
+    if (setForSession.size === 0) {
+      _streamingBufferCallbacks.delete(sessionId)
+    }
+  }
+}
+
+export function getStreamingBufferSnapshot(sessionId: string): StreamingBuffer {
+  return _streamingBuffers.get(sessionId) ?? getEmptyStreamingBufferSnapshot(sessionId)
+}
+
+export function updateStreamingBuffer(
+  sessionId: string,
+  updater: (current: StreamingBuffer) => StreamingBuffer,
+  options?: { notify?: 'none' | 'frame' | 'immediate' }
+): StreamingBuffer {
+  const current = _streamingBuffers.get(sessionId) ?? createStreamingBuffer()
+  const next = updater(current)
+
+  if (next === current) {
+    return getStreamingBufferSnapshot(sessionId)
+  }
+
+  _streamingBuffers.set(sessionId, next)
+  _emptyStreamingBufferSnapshots.delete(sessionId)
+
+  const notifyMode = options?.notify ?? 'frame'
+  if (notifyMode === 'immediate') {
+    flushStreamingBufferVersion(sessionId)
+  } else if (notifyMode === 'frame') {
+    scheduleStreamingBufferFlush(sessionId)
+  }
+
+  return getStreamingBufferSnapshot(sessionId)
+}
+
+export function clearStreamingBufferOverlay(
+  sessionId: string,
+  options?: {
+    notify?: 'none' | 'frame' | 'immediate'
+    preserveOptimisticMessages?: boolean
+    preserveCompactionState?: boolean
+  }
+): StreamingBuffer {
+  return updateStreamingBuffer(
+    sessionId,
+    (current) => {
+      if (!_streamingBuffers.has(sessionId)) {
+        return current
+      }
+
+      return resetStreamingBufferOverlayState(current, {
+        preserveOptimisticMessages: options?.preserveOptimisticMessages,
+        preserveCompactionState: options?.preserveCompactionState
+      })
+    },
+    { notify: options?.notify ?? 'immediate' }
+  )
+}
+
+export function syncStreamingBufferGuardState(
+  sessionId: string,
+  state: SessionEventGuardState,
+  options?: { resetOverlay?: boolean; notify?: 'none' | 'frame' | 'immediate' }
+): StreamingBuffer {
+  return updateStreamingBuffer(
+    sessionId,
+    (current) =>
+      options?.resetOverlay
+        ? {
+            ...resetStreamingBufferOverlayState(current, {
+              preserveOptimisticMessages: true,
+              preserveCompactionState: true
+            }),
+            activeRunEpoch: state.activeRunEpoch,
+            lastAppliedSequence: state.lastAppliedSequence
+          }
+        : {
+            ...current,
+            activeRunEpoch: state.activeRunEpoch,
+            lastAppliedSequence: state.lastAppliedSequence
+          },
+    { notify: options?.notify ?? 'none' }
+  )
+}
+
+export function writeEventToStreamingBuffer(
+  sessionId: string,
+  event: CanonicalAgentEvent,
+  options?: { activeSessionId?: string | null }
+): StreamingBuffer {
+  const activeSessionId = options?.activeSessionId ?? null
+
+  return updateStreamingBuffer(
+    sessionId,
+    (current) => {
+      if (event.type === 'message.part.updated') {
+        const partData = event.data as Record<string, unknown> | undefined
+        const part = partData?.part as Record<string, unknown> | undefined
+        if (!part) return current
+
+        if (event.childSessionId) {
+          const nextChildParts = new Map(current.childParts)
+          const existing = [...(nextChildParts.get(event.childSessionId) ?? [])]
+
+          if (part.type === 'text') {
+            const delta = (partData?.delta as string) ?? (part.text as string) ?? ''
+            if (!delta) return current
+            const last = existing[existing.length - 1]
+            if (last?.type === 'text') {
+              existing[existing.length - 1] = { ...last, text: (last.text ?? '') + delta }
+            } else {
+              existing.push({ type: 'text', text: delta })
+            }
+          } else if (part.type === 'tool') {
+            const toolId =
+              (part.callID as string) || (part.id as string) || `child-tool-${Date.now()}`
+            const toolName = (part.tool as string) || 'unknown'
+            const state = (part.state as Record<string, unknown>) || {}
+            const stateTime = state.time as Record<string, number> | undefined
+            const idx = existing.findIndex((p) => p.type === 'tool_use' && p.toolUse?.id === toolId)
+            const toolPart: StreamingPart = {
+              type: 'tool_use',
+              toolUse: {
+                id: toolId,
+                name: toolName,
+                input: (state.input as Record<string, unknown>) ?? {},
+                status: mapPartStatus(state.status),
+                startTime: stateTime?.start || existing[idx]?.toolUse?.startTime || Date.now(),
+                endTime: stateTime?.end,
+                output: state.status === 'completed' ? (state.output as string) : undefined,
+                error: state.status === 'error' ? (state.error as string) : undefined
+              }
+            }
+            if (idx >= 0) {
+              existing[idx] = toolPart
+            } else {
+              existing.push(toolPart)
+            }
+          } else {
+            return current
+          }
+
+          nextChildParts.set(event.childSessionId, existing)
+          return {
+            ...current,
+            childParts: nextChildParts,
+            isStreaming: true
+          }
+        }
+
+        if (part.type === 'text') {
+          const delta = (partData?.delta as string) ?? (part.text as string) ?? ''
+          if (!delta) return current
+
+          const nextParts = [...current.parts]
+          const last = nextParts[nextParts.length - 1]
+          if (last?.type === 'text') {
+            nextParts[nextParts.length - 1] = {
+              ...last,
+              text: (last.text ?? '') + delta
+            }
+          } else {
+            nextParts.push({ type: 'text', text: delta })
+          }
+
+          return {
+            ...current,
+            parts: nextParts,
+            streamingContent: current.streamingContent + delta,
+            isStreaming: true
+          }
+        }
+
+        if (part.type === 'tool') {
+          const toolId = (part.callID as string) || (part.id as string) || `tool-${Date.now()}`
+          const toolName = (part.tool as string) || 'unknown'
+          const state = (part.state as Record<string, unknown>) || {}
+          const stateTime = state.time as Record<string, number> | undefined
+          const nextParts = [...current.parts]
+          const idx = nextParts.findIndex((p) => p.type === 'tool_use' && p.toolUse?.id === toolId)
+          const toolPart: StreamingPart = {
+            type: 'tool_use',
+            toolUse: {
+              id: toolId,
+              name: toolName,
+              input: (state.input as Record<string, unknown>) ?? {},
+              status: mapPartStatus(state.status),
+              startTime: stateTime?.start || nextParts[idx]?.toolUse?.startTime || Date.now(),
+              endTime: stateTime?.end,
+              output: state.status === 'completed' ? (state.output as string) : undefined,
+              error: state.status === 'error' ? (state.error as string) : undefined
+            }
+          }
+
+          if (idx >= 0) {
+            nextParts[idx] = toolPart
+          } else {
+            nextParts.push(toolPart)
+          }
+
+          return {
+            ...current,
+            parts: nextParts,
+            isStreaming: true
+          }
+        }
+
+        if (part.type === 'reasoning') {
+          const delta = (partData?.delta as string) ?? (part.text as string) ?? ''
+          if (!delta) return current
+          const nextParts = [...current.parts]
+          const last = nextParts[nextParts.length - 1]
+          if (last?.type === 'reasoning') {
+            nextParts[nextParts.length - 1] = {
+              ...last,
+              reasoning: (last.reasoning ?? '') + delta
+            }
+          } else {
+            nextParts.push({ type: 'reasoning', reasoning: delta })
+          }
+          return {
+            ...current,
+            parts: nextParts,
+            isStreaming: true
+          }
+        }
+
+        if (part.type === 'subtask') {
+          return {
+            ...current,
+            parts: [
+              ...current.parts,
+              {
+                type: 'subtask',
+                subtask: {
+                  id: (part.id as string) || `subtask-${Date.now()}`,
+                  sessionID: (part.sessionID as string) || '',
+                  prompt: (part.prompt as string) || '',
+                  description: (part.description as string) || '',
+                  agent: (part.agent as string) || 'unknown',
+                  parts: [],
+                  status: 'running'
+                }
+              }
+            ],
+            isStreaming: true
+          }
+        }
+
+        return current
+      }
+
+      if (event.type === 'session.status') {
+        const statusType =
+          (event.statusPayload as { type?: string } | undefined)?.type ??
+          ((event.data as Record<string, unknown> | undefined)?.status as { type?: string } | undefined)
+            ?.type
+
+        if (statusType === 'busy' || statusType === 'materializing') {
+          return {
+            ...current,
+            isStreaming: true,
+            runStartedAt: current.runStartedAt ?? Date.now()
+          }
+        }
+
+        if (statusType === 'retry') {
+          return {
+            ...current,
+            runStartedAt: undefined
+          }
+        }
+
+        if (statusType === 'idle') {
+          if (sessionId !== activeSessionId) {
+            return resetStreamingBufferOverlayState(current, {
+              preserveCompactionState: true
+            })
+          }
+
+          return {
+            ...current,
+            isStreaming: false,
+            runStartedAt: undefined
+          }
+        }
+
+        return current
+      }
+
+      if (event.type === 'session.compaction_started') {
+        return {
+          ...current,
+          compactionState: {
+            phase: 'running',
+            timestamp: Date.now()
+          }
+        }
+      }
+
+      if (event.type === 'session.context_compacted') {
+        return {
+          ...current,
+          compactionState: {
+            phase: 'completed',
+            timestamp: Date.now()
+          }
+        }
+      }
+
+      if (event.type === 'session.error') {
+        return {
+          ...current,
+          runStartedAt: undefined
+        }
+      }
+
+      return current
+    },
+    { notify: 'frame' }
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -507,6 +953,8 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
     })
     _sessionEventCallbacks.delete(sessionId)
     _streamingBuffers.delete(sessionId)
+    _emptyStreamingBufferSnapshots.delete(sessionId)
+    _pendingStreamingBufferFlushes.delete(sessionId)
     _sessionEventGuards.delete(sessionId)
     if (hadPending) {
       syncQueuedState(sessionId, false)

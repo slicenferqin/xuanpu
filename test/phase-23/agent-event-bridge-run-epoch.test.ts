@@ -170,6 +170,7 @@ import {
   clearStreamingBuffer,
   getSessionEventGuardState,
   getStreamingBuffer,
+  resetStreamingBuffersForTests,
   resetSessionEventGuardsForTests,
   setStreamingBuffer,
   useSessionRuntimeStore
@@ -249,6 +250,7 @@ describe('useAgentEventBridge runEpoch guard', () => {
     vi.clearAllMocks()
     activeSessionId = 'sess-1'
     streamCallback = null
+    resetStreamingBuffersForTests()
     resetSessionEventGuardsForTests()
 
     for (const sessionId of sessionIds) {
@@ -272,6 +274,9 @@ describe('useAgentEventBridge runEpoch guard', () => {
     )
 
     setStreamingBuffer('sess-1', {
+      activeRunEpoch: 0,
+      lastAppliedSequence: -1,
+      mirrorVersion: 0,
       parts: [{ type: 'text', text: 'old overlay' }],
       childParts: new Map(),
       streamingContent: 'old overlay',
@@ -299,7 +304,12 @@ describe('useAgentEventBridge runEpoch guard', () => {
     expect(received.get('sess-4')).toEqual(['s4-r1-1'])
     expect(received.get('sess-5')).toEqual(['s5-r3-9'])
 
-    expect(getStreamingBuffer('sess-1')).toBeUndefined()
+    expect(getStreamingBuffer('sess-1')).toMatchObject({
+      activeRunEpoch: 2,
+      lastAppliedSequence: 3,
+      streamingContent: 's1-r2-3',
+      isStreaming: true
+    })
 
     for (const unsubscribe of unsubscribers) {
       unsubscribe()
