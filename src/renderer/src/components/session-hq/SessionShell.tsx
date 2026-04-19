@@ -32,6 +32,7 @@ import { InterruptDock } from './InterruptDock'
 import { ComposerBar } from './ComposerBar'
 import { ForkFromMessageConfirmDialog } from './ForkFromMessageConfirmDialog'
 import { PlanReadyImplementFab } from '../sessions/PlanReadyImplementFab'
+import { ScrollToBottomFab } from '../sessions/ScrollToBottomFab'
 import { useSessionRuntimeStore } from '@/stores/useSessionRuntimeStore'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useWorktreeStore } from '@/stores'
@@ -73,6 +74,7 @@ import {
   restoreMessageModePrefix
 } from '@/lib/message-actions'
 import { useI18n } from '@/i18n/useI18n'
+import { useSessionSmartScroll } from '@/hooks/useSessionSmartScroll'
 import { toast } from 'sonner'
 
 // ---------------------------------------------------------------------------
@@ -362,10 +364,13 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   const runStartedAt = streamingMirror.runStartedAt ?? null
   const compactionState = streamingMirror.compactionState ?? null
   const streamingParts = streamingMirror.parts
+  const mirrorVersion = streamingMirror.mirrorVersion
   const childPartsMap = streamingMirror.childParts
   const [droidSessionId, setDroidSessionId] = useState<string | null>(
     sessionRecord?.opencode_session_id ?? null
   )
+  const timelineBottomAreaRef = useRef<HTMLDivElement>(null)
+  const composerBarRef = useRef<HTMLDivElement>(null)
 
   // Incremented when session.commands_available fires — triggers ComposerBar re-fetch
   const [commandsVersion, setCommandsVersion] = useState(0)
@@ -468,6 +473,21 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
     return rows
   }, [compactionState, hasDurableCompactionMessage, lifecycle, runStartedAt, sessionId])
+
+  const smartScroll = useSessionSmartScroll({
+    sessionId,
+    ready: !loading,
+    contentVersion: timelineMessages.length + ephemeralStatusRows.length,
+    mirrorVersion,
+    isStreaming,
+    bottomAreaRef: timelineBottomAreaRef,
+    composerRef: composerBarRef
+  })
+
+  const scrollFabBottomOffset = useMemo(
+    () => Math.max(smartScroll.scrollFabBottomOffset, pendingPlan ? 152 : 16),
+    [pendingPlan, smartScroll.scrollFabBottomOffset]
+  )
 
   useEffect(() => {
     if (hasDurableCompactionMessage && compactionState?.phase === 'completed') {
@@ -1229,13 +1249,28 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           onForkUserMessage={handleForkUserMessage}
           onCopyUserMessage={() => {}}
           forkingMessageId={forkingMessageId}
+          scrollContainerRef={smartScroll.scrollContainerRef}
+          onScroll={smartScroll.handleScroll}
+          onWheel={smartScroll.handleScrollWheel}
+          onPointerDown={smartScroll.handleScrollPointerDown}
+          onPointerUp={smartScroll.handleScrollPointerUp}
+          onPointerCancel={smartScroll.handleScrollPointerCancel}
         />
 
-        <InterruptDock
-          sessionId={sessionId}
-          interrupt={currentInterrupt}
-          worktreePath={worktreePath}
+        <ScrollToBottomFab
+          onClick={smartScroll.handleScrollToBottomClick}
+          visible={smartScroll.showScrollFab}
+          count={smartScroll.scrollFabCount}
+          style={{ bottom: `${scrollFabBottomOffset}px` }}
         />
+
+        <div ref={timelineBottomAreaRef}>
+          <InterruptDock
+            sessionId={sessionId}
+            interrupt={currentInterrupt}
+            worktreePath={worktreePath}
+          />
+        </div>
 
         <PlanReadyImplementFab
           onImplement={handlePlanImplement}
@@ -1245,6 +1280,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         />
 
         <ComposerBar
+          containerRef={composerBarRef}
           sessionId={sessionId}
           lifecycle={lifecycle}
           pendingCount={pendingCount}
