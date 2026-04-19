@@ -60,6 +60,7 @@ export interface ComposerBarProps {
   worktreePath?: string | null
   /** Bumped when session.commands_available fires — triggers re-fetch of SDK commands */
   commandsVersion?: number
+  containerRef?: React.RefObject<HTMLDivElement | null>
 }
 
 // ---------------------------------------------------------------------------
@@ -94,7 +95,8 @@ export function ComposerBar({
   onToggleMode,
   pendingPlan,
   worktreePath,
-  commandsVersion = 0
+  commandsVersion = 0,
+  containerRef
 }: ComposerBarProps): React.JSX.Element {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [content, setContent] = useState('')
@@ -293,6 +295,7 @@ export function ComposerBar({
 
   return (
     <div
+      ref={containerRef}
       className={cn(
         'absolute bottom-16 z-20',
         'w-[85%] ml-[5%]',

@@ -4,6 +4,7 @@ import type { SelectedModel } from './useSettingsStore'
 import { useSettingsStore } from './useSettingsStore'
 import { useGitStore } from './useGitStore'
 import { useWorktreeStore } from './useWorktreeStore'
+import { removeSessionViewState } from '@/lib/session-view-registry'
 import { translate } from '@/i18n/useI18n'
 import { DEFAULT_LOCALE } from '@/i18n/messages'
 
@@ -605,6 +606,8 @@ export const useSessionStore = create<SessionState>()(
               break
             }
           }
+
+          removeSessionViewState(sessionId)
 
           return { success: true }
         } catch (error) {
@@ -1330,7 +1333,10 @@ export const useSessionStore = create<SessionState>()(
         if (index === -1) return
         const toClose = tabOrder.slice(index + 1)
         for (const sessionId of toClose) {
-          await get().closeSession(sessionId)
+          const result = await get().closeSession(sessionId)
+          if (result.success) {
+            removeSessionViewState(sessionId)
+          }
         }
       },
 

@@ -82,4 +82,23 @@ describe('SessionShell thread status flow (source verification)', () => {
     expect(source).toContain('onForkUserMessage={handleForkUserMessage}')
     expect(source).toContain('forkingMessageId={forkingMessageId}')
   })
+
+  test('routes HQ smart scroll through the shared session view registry hook', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(
+      path.resolve(
+        __dirname,
+        '../../src/renderer/src/components/session-hq/SessionShell.tsx'
+      ),
+      'utf-8'
+    )
+
+    expect(source).toContain("import { ScrollToBottomFab } from '../sessions/ScrollToBottomFab'")
+    expect(source).toContain("import { useSessionSmartScroll } from '@/hooks/useSessionSmartScroll'")
+    expect(source).toContain('const smartScroll = useSessionSmartScroll({')
+    expect(source).toContain('count={smartScroll.scrollFabCount}')
+    expect(source).toContain('scrollContainerRef={smartScroll.scrollContainerRef}')
+    expect(source).toContain('containerRef={composerBarRef}')
+  })
 })

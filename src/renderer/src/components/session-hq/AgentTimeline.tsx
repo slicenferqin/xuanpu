@@ -10,7 +10,7 @@
  *   streamingContent (live)    → inline streaming text at bottom
  */
 
-import React, { useRef, useEffect, useMemo } from 'react'
+import React, { useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import { formatMessageTime } from '@/lib/format-time'
 import type { TimelineMessage, StreamingPart, ToolUseInfo } from '@shared/lib/timeline-types'
@@ -587,6 +587,12 @@ export interface AgentTimelineProps {
   onSaveUserMessageEdit?: (messageId: string) => void | Promise<void>
   onCancelUserMessageEdit?: () => void
   forkingMessageId?: string | null
+  scrollContainerRef?: React.RefObject<HTMLDivElement | null>
+  onScroll?: () => void
+  onWheel?: () => void
+  onPointerDown?: () => void
+  onPointerUp?: () => void
+  onPointerCancel?: () => void
 }
 
 export function AgentTimeline({
@@ -610,30 +616,14 @@ export function AgentTimeline({
   onEditingContentChange,
   onSaveUserMessageEdit,
   onCancelUserMessageEdit,
-  forkingMessageId
+  forkingMessageId,
+  scrollContainerRef,
+  onScroll,
+  onWheel,
+  onPointerDown,
+  onPointerUp,
+  onPointerCancel
 }: AgentTimelineProps): React.JSX.Element {
-  const scrollRef = useRef<HTMLDivElement>(null)
-
-  // Auto-scroll to bottom when new content arrives
-  const prevMessageCountRef = useRef(0)
-  useEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
-    const messageCount = timelineMessages.length
-    const hasNewMessages = messageCount > prevMessageCountRef.current
-    prevMessageCountRef.current = messageCount
-
-    if (hasNewMessages || isStreaming) {
-      // Only auto-scroll if user is near the bottom
-      const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150
-      if (isNearBottom || hasNewMessages) {
-        requestAnimationFrame(() => {
-          el.scrollTop = el.scrollHeight
-        })
-      }
-    }
-  }, [timelineMessages.length, streamingContent, streamingParts, isStreaming])
-
   // Flatten messages into timeline nodes
   const nodes = useMemo(() => {
     return timelineMessages.flatMap((msg) => messageToNodes(msg))
@@ -766,8 +756,14 @@ export function AgentTimeline({
 
   return (
     <div
-      ref={scrollRef}
+      ref={scrollContainerRef}
       className="flex-1 overflow-y-auto"
+      onScroll={onScroll}
+      onWheel={onWheel}
+      onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      data-testid="hq-agent-timeline-scroll"
     >
       <div className="w-[85%] ml-[5%] py-6 pb-[14.5rem]">
         {/* Timeline nodes */}
