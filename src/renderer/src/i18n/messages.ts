@@ -237,6 +237,11 @@ export const messages: Record<AppLocale, MessageTree> = {
           label: 'Send anonymous usage analytics',
           description: 'Help improve Xuanpu by sharing anonymous feature usage data'
         },
+        fieldEvents: {
+          label: 'Record field events locally',
+          description:
+            'Capture worktree switches, terminal commands, and your prompts to a local SQLite log. Used to build context for AI sessions. Stays on your device — never uploaded.'
+        },
         collect: {
           title: 'What we collect:',
           description: 'Feature usage counts, app version, platform (macOS/Windows/Linux).'
@@ -2369,6 +2374,11 @@ export const messages: Record<AppLocale, MessageTree> = {
         analytics: {
           label: '发送匿名使用分析数据',
           description: '通过共享匿名功能使用数据帮助改进玄圃'
+        },
+        fieldEvents: {
+          label: '在本地记录现场事件',
+          description:
+            '把 worktree 切换、终端命令、你发给 AI 的消息记录到本地 SQLite 日志，用于构建 AI 会话上下文。数据只保存在本机，永不上传。'
         },
         collect: {
           title: '我们会收集：',
