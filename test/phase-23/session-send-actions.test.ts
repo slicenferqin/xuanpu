@@ -28,6 +28,7 @@ function makeInput(overrides: Partial<ComposerInput> = {}): ComposerInput {
     lifecycle: 'idle',
     hasInterrupt: false,
     hasPendingMessages: false,
+    hasDraftContent: false,
     isConnected: true,
     ...overrides
   }
@@ -137,7 +138,7 @@ describe('determineComposerActions', () => {
   })
 
   describe('busy lifecycle', () => {
-    it('returns stop_and_send with queue and steer alternatives', () => {
+    it('returns stop_and_send with queue and steer alternatives when no draft exists', () => {
       const result = determineComposerActions(makeInput({ lifecycle: 'busy' }))
       expect(result.primary).toBe('stop_and_send')
       expect(result.inputEnabled).toBe(true)
@@ -145,15 +146,34 @@ describe('determineComposerActions', () => {
       expect(result.primaryLabel).toBe('Stop')
       expect(result.alternatives).toEqual(['queue', 'steer'])
     })
+
+    it('returns queue with steer and stop alternatives when draft content exists', () => {
+      const result = determineComposerActions(
+        makeInput({ lifecycle: 'busy', hasDraftContent: true })
+      )
+      expect(result.primary).toBe('queue')
+      expect(result.inputEnabled).toBe(true)
+      expect(result.iconHint).toBe('queue')
+      expect(result.primaryLabel).toBe('Queue')
+      expect(result.alternatives).toEqual(['steer', 'stop_and_send'])
+    })
   })
 
   describe('materializing lifecycle', () => {
-    it('returns stop_and_send (same as busy)', () => {
+    it('returns stop_and_send (same as busy) when input is empty', () => {
       const result = determineComposerActions(
         makeInput({ lifecycle: 'materializing' })
       )
       expect(result.primary).toBe('stop_and_send')
       expect(result.alternatives).toEqual(['queue', 'steer'])
+    })
+
+    it('returns queue when materializing with draft content', () => {
+      const result = determineComposerActions(
+        makeInput({ lifecycle: 'materializing', hasDraftContent: true })
+      )
+      expect(result.primary).toBe('queue')
+      expect(result.alternatives).toEqual(['steer', 'stop_and_send'])
     })
   })
 
@@ -296,7 +316,20 @@ describe('drainNextPending', () => {
     const result = await drainNextPending('sess-1', 'agent-sess-1', dequeue, prompt, '/path')
     expect(result).toBe(true)
     expect(dequeue).toHaveBeenCalledWith('sess-1')
-    expect(prompt).toHaveBeenCalledWith('/path', 'agent-sess-1', 'queued message')
+    expect(prompt).toHaveBeenCalledWith('/path', 'agent-sess-1', pending)
+  })
+
+  it('requeues the message at the front when drain fails', async () => {
+    const pending = createPendingMessage('queued message')
+    const dequeue = vi.fn().mockReturnValue(pending)
+    const prompt = vi.fn().mockRejectedValue(new Error('send failed'))
+    const requeueFront = vi.fn()
+
+    await expect(
+      drainNextPending('sess-1', 'agent-sess-1', dequeue, prompt, '/path', requeueFront)
+    ).rejects.toThrow('send failed')
+
+    expect(requeueFront).toHaveBeenCalledWith('sess-1', pending)
   })
 })
 
@@ -348,6 +381,18 @@ describe('useSessionRuntimeStore pending messages', () => {
     store.queueMessage('sess-1', createPendingMessage('b'))
     store.clearPendingMessages('sess-1')
     expect(useSessionRuntimeStore.getState().getPendingCount('sess-1')).toBe(0)
+  })
+
+  it('requeueMessageFront prepends a failed pending message', () => {
+    const store = useSessionRuntimeStore.getState()
+    store.queueMessage('sess-1', createPendingMessage('second'))
+    const failed = createPendingMessage('first-again')
+    store.requeueMessageFront('sess-1', failed)
+
+    expect(useSessionRuntimeStore.getState().getPendingMessages('sess-1').map((m) => m.content)).toEqual([
+      'first-again',
+      'second'
+    ])
   })
 
   it('clearPendingMessages is no-op for unknown session', () => {
@@ -412,11 +457,11 @@ describe('end-to-end: state machine → execute', () => {
   })
 
   it('busy session: choose queue alternative → message is queued', async () => {
-    const actions = determineComposerActions(makeInput({ lifecycle: 'busy' }))
-    expect(actions.alternatives).toContain('queue')
+    const actions = determineComposerActions(makeInput({ lifecycle: 'busy', hasDraftContent: true }))
+    expect(actions.primary).toBe('queue')
 
     const ctx = makeSendContext()
-    const consumed = await executeSendAction('queue', 'for later', [], ctx)
+    const consumed = await executeSendAction(actions.primary!, 'for later', [], ctx)
     expect(consumed).toBe(true)
     expect(ctx.queueMessage).toHaveBeenCalledTimes(1)
     expect(ctx.prompt).not.toHaveBeenCalled()

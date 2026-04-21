@@ -7,17 +7,24 @@
  */
 
 import React, { useRef, useCallback, useState, useEffect, useMemo } from 'react'
-import { ArrowUp, Square, CornerDownLeft } from 'lucide-react'
+import { ArrowUp, Square, CornerDownLeft, ListPlus, Workflow, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AttachmentButton } from '../sessions/AttachmentButton'
 import { AttachmentPreview, type Attachment } from '../sessions/AttachmentPreview'
 import { SlashCommandPopover } from '../sessions/SlashCommandPopover'
 import { BUILT_IN_SLASH_COMMANDS } from '../sessions/SessionView'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import type { SessionLifecycle, InterruptItem } from '@/stores/useSessionRuntimeStore'
 import { isComposingKeyboardEvent } from '@/lib/message-composer-shortcuts'
 import {
   determineComposerActions,
+  getActionLabel,
   type ComposerAction,
   type ComposerActionSet
 } from '@/lib/session-send-actions'
@@ -58,7 +65,24 @@ function SendIcon({ hint }: { hint: ComposerActionSet['iconHint'] }): React.JSX.
   switch (hint) {
     case 'stop':
       return <Square className="h-3.5 w-3.5" />
+    case 'queue':
+      return <ListPlus className="h-4 w-4" />
     case 'reply':
+      return <CornerDownLeft className="h-4 w-4" />
+    default:
+      return <ArrowUp className="h-4 w-4" />
+  }
+}
+
+function ActionMenuIcon({ action }: { action: ComposerAction }): React.JSX.Element {
+  switch (action) {
+    case 'queue':
+      return <ListPlus className="h-4 w-4" />
+    case 'steer':
+      return <Workflow className="h-4 w-4" />
+    case 'stop_and_send':
+      return <Square className="h-3.5 w-3.5" />
+    case 'reply_interrupt':
       return <CornerDownLeft className="h-4 w-4" />
     default:
       return <ArrowUp className="h-4 w-4" />
@@ -132,15 +156,16 @@ export function ComposerBar({
     }).catch(() => {})
     return () => { mounted = false }
   }, [worktreePath, commandsVersion])
+  const canSend = content.trim().length > 0 || attachments.length > 0
   // Derive available actions from the state machine
   const actionSet = determineComposerActions({
     lifecycle,
     hasInterrupt: firstInterrupt != null,
     hasPendingMessages: pendingCount > 0,
+    hasDraftContent: canSend,
     isConnected
   })
 
-  const canSend = content.trim().length > 0 || attachments.length > 0
   const isDisabled = !actionSet.inputEnabled
 
   // Auto-resize textarea
@@ -178,6 +203,21 @@ export function ComposerBar({
     onAction(actionSet.primary, content.trim(), attachments)
     clearInput()
   }, [actionSet.primary, canSend, content, attachments, onAction, clearInput])
+
+  const handleAlternativeAction = useCallback(
+    (action: ComposerAction) => {
+      if (action === 'stop_and_send' && !canSend) {
+        onAction('stop_and_send', '', [])
+        return
+      }
+
+      if (!canSend && action !== 'reply_interrupt') return
+
+      onAction(action, content.trim(), attachments)
+      clearInput()
+    },
+    [attachments, canSend, clearInput, content, onAction]
+  )
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -245,6 +285,16 @@ export function ComposerBar({
     textareaRef.current?.focus()
   }, [])
 
+  const placeholder = pendingPlan
+    ? 'Provide feedback on the plan...'
+    : firstInterrupt
+      ? 'Type your reply...'
+      : actionSet.primary === 'queue'
+        ? 'Type a follow-up to queue after the current run...'
+        : actionSet.iconHint === 'stop'
+          ? 'Type to stop and send...'
+          : 'Type a message...'
+
   // Determine if button should be enabled
   const buttonEnabled =
     actionSet.primary != null &&
@@ -295,15 +345,7 @@ export function ComposerBar({
           onChange={(e) => handleContentChange(e.target.value)}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={
-            pendingPlan
-              ? 'Provide feedback on the plan...'
-              : firstInterrupt
-                ? 'Type your reply...'
-                : actionSet.iconHint === 'stop'
-                  ? 'Type to stop and send...'
-                  : 'Type a message...'
-          }
+          placeholder={placeholder}
           disabled={isDisabled}
           className={cn(
             'w-full resize-none bg-transparent border-0 outline-none',
@@ -348,6 +390,42 @@ export function ComposerBar({
 
         <div className="flex-1" />
 
+        {actionSet.alternatives.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 rounded-full border border-border/70 px-2.5"
+                disabled={!canSend && actionSet.iconHint !== 'stop'}
+                aria-label="More send actions"
+                data-testid="composer-action-menu-trigger"
+              >
+                <ChevronDown className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              side="top"
+              className="w-52"
+              data-testid="composer-action-menu"
+            >
+              {actionSet.alternatives.map((action) => (
+                <DropdownMenuItem
+                  key={action}
+                  onSelect={() => handleAlternativeAction(action)}
+                  disabled={!canSend && action !== 'stop_and_send'}
+                  data-testid={`composer-action-${action}`}
+                >
+                  <ActionMenuIcon action={action} />
+                  <span>{getActionLabel(action)}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+
         {/* Send / Stop icon button */}
         <button
           onClick={handleSubmit}
@@ -362,6 +440,7 @@ export function ComposerBar({
           )}
           aria-label={actionSet.primaryLabel}
           title={actionSet.primaryLabel}
+          data-testid="composer-primary-action"
         >
           <SendIcon hint={actionSet.iconHint} />
         </button>
