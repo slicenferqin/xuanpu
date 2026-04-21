@@ -1809,7 +1809,14 @@ const fieldOps = {
   reportFileFocus: (input: import('../shared/types/field-event').FileFocusInput) =>
     ipcRenderer.send('field:reportFileFocus', input),
   reportFileSelection: (input: import('../shared/types/field-event').FileSelectionInput) =>
-    ipcRenderer.send('field:reportFileSelection', input)
+    ipcRenderer.send('field:reportFileSelection', input),
+  /** Phase 22A debug: fetch the last Field Context injected for a session. */
+  getLastInjection: (sessionId: string) =>
+    ipcRenderer.invoke('field:getLastInjection', sessionId) as Promise<{
+      preview: string
+      timestamp: number
+      approxTokens: number
+    } | null>
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

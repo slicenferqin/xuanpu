@@ -17,6 +17,7 @@ import { ipcMain } from 'electron'
 import { getDatabase } from '../db'
 import { createLogger } from '../services/logger'
 import { emitFieldEvent } from '../field/emit'
+import { getLastInjection } from '../field/last-injection-cache'
 import type { WorktreeSwitchTrigger } from '../../shared/types'
 
 const log = createLogger({ component: 'FieldHandlers' })
@@ -151,6 +152,15 @@ export function registerFieldHandlers(): void {
       relatedEventId: null,
       payload: { path, fromLine, toLine, length }
     })
+  })
+
+  // -------------------------------------------------------------------------
+  // Debug: retrieve the last Field Context that was injected for a session.
+  // Phase 22A §6.
+  // -------------------------------------------------------------------------
+  ipcMain.handle('field:getLastInjection', (_event, sessionId: unknown) => {
+    if (typeof sessionId !== 'string' || sessionId.length === 0) return null
+    return getLastInjection(sessionId)
   })
 }
 

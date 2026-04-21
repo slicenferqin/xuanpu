@@ -292,6 +292,44 @@ describe('FieldEventSink — Phase 21 M3', () => {
     })
   })
 
+  describe('flushNow', () => {
+    it('drains queued events synchronously, sink still usable afterward', async () => {
+      const sink = getFieldEventSink()
+      enqueue(sink, makeEvent({ id: 'a' }))
+      enqueue(sink, makeEvent({ id: 'b' }))
+      await sink.flushNow()
+
+      expect(rowCount()).toBe(2)
+      expect(sink.isShutdownComplete()).toBe(false)
+
+      // Still accepts new events after flushNow
+      enqueue(sink, makeEvent({ id: 'c' }))
+      await sink.flushNow()
+      expect(rowCount()).toBe(3)
+    })
+
+    it('is a no-op after shutdown', async () => {
+      const sink = getFieldEventSink()
+      enqueue(sink, makeEvent({ id: 'a' }))
+      await sink.shutdown()
+      expect(rowCount()).toBe(1)
+      await sink.flushNow() // should not throw, should not write new rows
+      expect(rowCount()).toBe(1)
+    })
+
+    it('waits for an in-flight flush to complete before returning', async () => {
+      const sink = getFieldEventSink()
+      // Enqueue enough to trigger batch-threshold flush (async via setTimeout(0))
+      for (let i = 0; i < 100; i++) {
+        enqueue(sink, makeEvent({ id: `e-${i}` }))
+      }
+      // At this point the 100-event flush is either pending (timer) or running.
+      // flushNow must observe it and wait.
+      await sink.flushNow()
+      expect(rowCount()).toBe(100)
+    })
+  })
+
   describe('shutdown', () => {
     it('isShutdownComplete flips to true after shutdown', async () => {
       const sink = getFieldEventSink()

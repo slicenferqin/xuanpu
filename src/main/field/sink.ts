@@ -123,6 +123,35 @@ class FieldEventSink {
   }
 
   /**
+   * Drain all currently queued events, waiting for any in-flight flush first.
+   * Unlike shutdown(), this does NOT mark the sink as shut down — more events
+   * can be enqueued after this resolves.
+   *
+   * Use case: callers that need to read-after-write (e.g. the Phase 22A
+   * context builder that queries field_events right after terminal output
+   * was emitted — without this, the latest output might still be in the
+   * in-memory queue, not in the DB).
+   */
+  async flushNow(): Promise<void> {
+    if (this.shutdownComplete) return // nothing to do
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer)
+      this.flushTimer = null
+    }
+    while (this.currentFlushPromise || this.queue.length > 0 || this.retryBatch) {
+      if (this.currentFlushPromise) {
+        try {
+          await this.currentFlushPromise
+        } catch {
+          /* flush() never rejects; this is defensive */
+        }
+      } else {
+        await this.flush()
+      }
+    }
+  }
+
+  /**
    * Drain everything and stop accepting. Called from app `before-quit`.
    * Returns when all queued + retry events are persisted (or quarantined).
    */

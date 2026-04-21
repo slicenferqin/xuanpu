@@ -1299,6 +1299,14 @@ declare global {
       reportFileSelection: (
         input: import('../shared/types/field-event').FileSelectionInput
       ) => void
+      /** Phase 22A debug: fetch the last Field Context injected for a session. */
+      getLastInjection: (
+        sessionId: string
+      ) => Promise<{
+        preview: string
+        timestamp: number
+        approxTokens: number
+      } | null>
     }
   }
 

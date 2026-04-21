@@ -12,10 +12,12 @@ vi.mock('../../../src/main/services/logger', () => ({
 // Capture the IPC handler callback for direct invocation.
 type IpcCallback = (event: unknown, ...args: unknown[]) => void
 const handlers = new Map<string, IpcCallback>()
+const invokeHandlers = new Map<string, IpcCallback>()
 
 vi.mock('electron', () => ({
   ipcMain: {
-    on: (channel: string, cb: IpcCallback) => handlers.set(channel, cb)
+    on: (channel: string, cb: IpcCallback) => handlers.set(channel, cb),
+    handle: (channel: string, cb: IpcCallback) => invokeHandlers.set(channel, cb)
   },
   app: undefined
 }))
@@ -266,5 +268,40 @@ describe('field-handlers — Phase 21 M5', () => {
       length: 5
     })
     expect(emitSpy).not.toHaveBeenCalled()
+  })
+
+  // ---------------------------------------------------------------------------
+  // Debug IPC: field:getLastInjection (Phase 22A M5)
+  // ---------------------------------------------------------------------------
+
+  it('field:getLastInjection: handler is registered on ipcMain.handle', () => {
+    expect(invokeHandlers.has('field:getLastInjection')).toBe(true)
+  })
+
+  it('field:getLastInjection: returns null for missing sessionId', async () => {
+    const cb = invokeHandlers.get('field:getLastInjection')!
+    expect(await cb({}, '')).toBeNull()
+    expect(await cb({}, 123)).toBeNull()
+    expect(await cb({}, null)).toBeNull()
+  })
+
+  it('field:getLastInjection: returns cached entry for known session id', async () => {
+    const { cacheLastInjection, __resetForTest } = await import(
+      '../../../src/main/field/last-injection-cache'
+    )
+    __resetForTest()
+    cacheLastInjection(['sess-xyz'], 'cached preview', 42)
+    const cb = invokeHandlers.get('field:getLastInjection')!
+    const result = (await cb({}, 'sess-xyz')) as {
+      preview: string
+      approxTokens: number
+    } | null
+    expect(result?.preview).toBe('cached preview')
+    expect(result?.approxTokens).toBe(42)
+  })
+
+  it('field:getLastInjection: returns null for unknown session id', async () => {
+    const cb = invokeHandlers.get('field:getLastInjection')!
+    expect(await cb({}, 'missing-id')).toBeNull()
   })
 })

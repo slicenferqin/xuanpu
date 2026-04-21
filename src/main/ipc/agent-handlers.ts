@@ -7,6 +7,10 @@ import type { AgentRuntimeManager } from '../services/agent-runtime-manager'
 import type { AgentRuntimeAdapter, PromptOptions } from '../services/agent-runtime-types'
 import { ClaudeCodeImplementer } from '../services/claude-code-implementer'
 import { emitFieldEvent } from '../field/emit'
+import { isFieldCollectionEnabled } from '../field/privacy'
+import { buildFieldContextSnapshot } from '../field/context-builder'
+import { formatFieldContext } from '../field/context-formatter'
+import { cacheLastInjection } from '../field/last-injection-cache'
 import {
   createAgentHandler,
   resolveRuntimeId,
@@ -41,12 +45,38 @@ import {
 
 const log = createLogger({ component: 'AgentHandlers' })
 
-// Track worktree paths that have already received context injection for their
-// current session. We key by worktreePath (not runtimeSessionId) because
-// Claude Code sessions start with a `pending::` ID that materializes to a real
-// SDK ID after the first prompt — using the session ID would cause re-injection
-// when the ID changes.
-const injectedWorktrees = new Set<string>()
+// Phase 22A: injectedWorktrees was a first-prompt-only gate for the legacy
+// [Worktree Context] prefix. It's superseded by buildFieldContextSnapshot +
+// formatFieldContext, which inject a fresh Field Context on every non-slash
+// prompt. The worktree.context note is now one subsection of the Field Context.
+// See docs/prd/phase-22a-working-memory.md §4.
+
+type MessagePart =
+  | { type: string; text?: string; mime?: string; url?: string; filename?: string }
+type MessageOrParts = string | Array<MessagePart>
+
+/** Extract the first text part's content (for slash detection + session.message). */
+function getFirstText(m: unknown): string | undefined {
+  if (typeof m === 'string') return m
+  if (!Array.isArray(m)) return undefined
+  const text = m.find((p) => (p as MessagePart).type === 'text') as MessagePart | undefined
+  return text?.text
+}
+
+/** Prepend a prefix to the first text part (or the whole string) of a message. */
+function prependToMessage<T extends MessageOrParts>(m: T, prefix: string): T {
+  if (typeof m === 'string') return (prefix + m) as T
+  if (!Array.isArray(m)) return m
+  const idx = m.findIndex((p) => (p as MessagePart).type === 'text')
+  if (idx < 0) {
+    return [{ type: 'text', text: prefix }, ...m] as unknown as T
+  }
+  const part = m[idx] as MessagePart
+  if (part.type !== 'text') return m
+  const copy = [...m] as MessagePart[]
+  copy[idx] = { ...part, text: prefix + (part.text ?? '') }
+  return copy as unknown as T
+}
 
 export function registerAgentHandlers(
   mainWindow: BrowserWindow,
@@ -73,8 +103,6 @@ export function registerAgentHandlers(
       schema: connectSchema,
       handler: async ([worktreePath, hiveSessionId], c) => {
         log.info('IPC: agent:connect', { worktreePath, hiveSessionId })
-        // New session on this worktree — allow context injection for the first prompt
-        injectedWorktrees.delete(worktreePath)
 
         const runtimeId = c.dbService.getSession(hiveSessionId)?.agent_sdk ?? 'opencode'
         log.info('IPC: agent:connect runtime resolution', { hiveSessionId, runtimeId })
@@ -178,50 +206,75 @@ export function registerAgentHandlers(
           }
         }
 
-        // Inject worktree context on first prompt of each session.
-        // Tracked by worktreePath (not runtimeSessionId) because Claude Code
-        // sessions start with a pending:: ID that materializes after the first prompt.
-        if (!injectedWorktrees.has(worktreePath)) {
-          const firstTextPart = Array.isArray(messageOrParts)
-            ? messageOrParts.find((p) => p.type === 'text')?.text?.trim()
-            : typeof messageOrParts === 'string'
-              ? messageOrParts.trim()
-              : undefined
-          if (firstTextPart?.startsWith('/using-superpowers')) {
-            injectedWorktrees.add(worktreePath)
-          } else {
-            try {
-              const worktree = c.dbService.getWorktreeByPath(worktreePath)
-              if (worktree?.context) {
-                log.info('Injecting worktree context into first prompt', {
-                  worktreePath,
-                  runtimeSessionId,
-                  contextLength: worktree.context.length
+        // Phase 22A: inject Field Context (working memory snapshot) as a prefix
+        // to the user message. This replaces the Phase 21 first-prompt-only
+        // [Worktree Context] injection. See docs/prd/phase-22a-working-memory.md.
+        //
+        // Key invariants:
+        //   1. `originalMessage` is what gets captured as session.message and
+        //      used anywhere the user-authored content matters (UI, titles).
+        //   2. `messageOrParts` is what we actually send to the runtime —
+        //      injected only if the prompt is NOT a slash command and we have
+        //      either field context or a worktree note to add.
+        //   3. Slash commands (/using-superpowers, /compact, /init, ...) are
+        //      SDK internals. Prefixing them breaks SDK command detection.
+        const originalMessage = messageOrParts
+
+        const firstTextRaw = getFirstText(messageOrParts)?.trimStart()
+        const isSlashCommand = firstTextRaw?.startsWith('/') ?? false
+
+        if (!isSlashCommand) {
+          try {
+            const worktreeFromDb = c.dbService.getWorktreeByPath(worktreePath)
+            if (worktreeFromDb) {
+              let prefix: string | null = null
+              let injectionTokens = 0
+
+              if (isFieldCollectionEnabled()) {
+                const snapshot = await buildFieldContextSnapshot({
+                  worktreeId: worktreeFromDb.id
                 })
-                const contextPrefix = `[Worktree Context]\n${worktree.context}\n\n[User Message]\n`
-                if (typeof messageOrParts === 'string') {
-                  messageOrParts = contextPrefix + messageOrParts
-                } else if (Array.isArray(messageOrParts)) {
-                  const textPartIndex = messageOrParts.findIndex((p) => p.type === 'text')
-                  if (textPartIndex >= 0) {
-                    const textPart = messageOrParts[textPartIndex]
-                    if (textPart.type === 'text' && textPart.text) {
-                      messageOrParts = [...messageOrParts]
-                      messageOrParts[textPartIndex] = {
-                        ...textPart,
-                        text: contextPrefix + textPart.text
-                      }
-                    }
-                  }
+                if (snapshot) {
+                  const formatted = formatFieldContext(snapshot)
+                  prefix = `${formatted.markdown}\n\n[User Message]\n`
+                  injectionTokens = formatted.approxTokens
+                  // Cache under both the runtime session id (what the SDK
+                  // knows) and the Hive session id (what the renderer UI
+                  // knows), so debug lookups from either side resolve.
+                  const hiveSession = c.dbService.getSessionByOpenCodeSessionId(runtimeSessionId)
+                  const hiveSessionId = hiveSession?.id ?? null
+                  cacheLastInjection(
+                    [runtimeSessionId, hiveSessionId],
+                    formatted.markdown,
+                    formatted.approxTokens
+                  )
+                  log.info('Field injection', {
+                    worktreePath,
+                    runtimeSessionId,
+                    hiveSessionId,
+                    tokens: formatted.approxTokens,
+                    chars: formatted.markdown.length,
+                    truncated: formatted.wasTruncated
+                  })
+                  log.debug('Field injection body', { body: formatted.markdown })
                 }
+              } else if (worktreeFromDb.context) {
+                // Privacy gate is off but user has authored a worktree note —
+                // honor it (the note is user-authored, not event-derived data).
+                prefix = `[Worktree Context]\n${worktreeFromDb.context}\n\n[User Message]\n`
               }
-              injectedWorktrees.add(worktreePath)
-            } catch (err) {
-              log.warn('Failed to inject worktree context', {
-                worktreePath,
-                error: err instanceof Error ? err.message : String(err)
-              })
+
+              if (prefix) {
+                messageOrParts = prependToMessage(messageOrParts, prefix)
+              }
+              void injectionTokens // suppress unused warning when prefix is null
             }
+          } catch (err) {
+            log.warn('Field injection failed; sending prompt without it', {
+              worktreePath,
+              runtimeSessionId,
+              error: err instanceof Error ? err.message : String(err)
+            })
           }
         }
 
@@ -240,16 +293,13 @@ export function registerAgentHandlers(
         await impl.prompt(worktreePath, runtimeSessionId, messageOrParts, model, options)
         telemetryService.track('prompt_sent', { runtime_id: runtimeId })
 
-        // Phase 21: emit session.message after successful prompt dispatch.
+        // Phase 21 + 22A: emit session.message with ORIGINAL text (no Field Context
+        // prefix) so dump scripts, memory layers, and any future introspection see
+        // what the user actually typed — not the injected envelope.
         try {
-          const text =
-            typeof messageOrParts === 'string'
-              ? messageOrParts
-              : Array.isArray(messageOrParts)
-                ? messageOrParts.find((p) => p.type === 'text')?.text ?? ''
-                : ''
-          const attachmentCount = Array.isArray(messageOrParts)
-            ? messageOrParts.filter((p) => p.type === 'file').length
+          const text = getFirstText(originalMessage) ?? ''
+          const attachmentCount = Array.isArray(originalMessage)
+            ? originalMessage.filter((p) => p.type === 'file').length
             : 0
           const worktree = c.dbService.getWorktreeByPath(worktreePath)
           emitFieldEvent({
@@ -285,7 +335,6 @@ export function registerAgentHandlers(
       schema: disconnectSchema,
       handler: async ([worktreePath, runtimeSessionId], c) => {
         log.info('IPC: agent:disconnect', { worktreePath, runtimeSessionId })
-        injectedWorktrees.delete(worktreePath)
         const runtimeId = resolveRuntimeId(c, runtimeSessionId)
         if (runtimeId === 'terminal') return {}
         const impl = c.runtimeManager.getImplementer(runtimeId)
@@ -748,7 +797,6 @@ export function registerAgentHandlers(
 
 export async function cleanupAgentHandlers(runtimeManager?: AgentRuntimeManager): Promise<void> {
   log.info('Cleaning up agent runtime services')
-  injectedWorktrees.clear()
   if (runtimeManager) {
     await runtimeManager.cleanupAll()
   } else {
