@@ -1151,6 +1151,15 @@ export class DatabaseService {
     // Update session updated_at
     db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(now, data.session_id)
 
+    // Lock provider/model selection once a real user/assistant message lands.
+    // Mirror of the same UPDATE inside upsertSessionActivity for SDK paths
+    // (Codex) that bypass session_messages entirely.
+    if (data.role === 'user' || data.role === 'assistant') {
+      db.prepare(
+        'UPDATE sessions SET first_message_at = ? WHERE id = ? AND first_message_at IS NULL'
+      ).run(Date.now(), data.session_id)
+    }
+
     return message
   }
 

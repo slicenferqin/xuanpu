@@ -348,17 +348,28 @@ export function writeEventToStreamingBuffer(
             const state = (part.state as Record<string, unknown>) || {}
             const stateTime = state.time as Record<string, number> | undefined
             const idx = existing.findIndex((p) => p.type === 'tool_use' && p.toolUse?.id === toolId)
+            // Merge with the previous part instead of overwriting it. Some
+            // updates only carry status/output/time and would otherwise wipe
+            // already-streamed input (e.g. the bash command shown on the card).
+            const previous = idx >= 0 ? existing[idx]?.toolUse : undefined
+            const nextStatus = mapPartStatus(state.status)
             const toolPart: StreamingPart = {
               type: 'tool_use',
               toolUse: {
                 id: toolId,
-                name: toolName,
-                input: (state.input as Record<string, unknown>) ?? {},
-                status: mapPartStatus(state.status),
-                startTime: stateTime?.start || existing[idx]?.toolUse?.startTime || Date.now(),
-                endTime: stateTime?.end,
-                output: state.status === 'completed' ? (state.output as string) : undefined,
-                error: state.status === 'error' ? (state.error as string) : undefined
+                name: toolName !== 'unknown' ? toolName : previous?.name ?? toolName,
+                input: (state.input as Record<string, unknown>) ?? previous?.input ?? {},
+                status: nextStatus,
+                startTime: stateTime?.start || previous?.startTime || Date.now(),
+                endTime: stateTime?.end ?? previous?.endTime,
+                output:
+                  nextStatus === 'success' || nextStatus === 'error'
+                    ? (state.output as string) ?? previous?.output
+                    : previous?.output,
+                error:
+                  nextStatus === 'error'
+                    ? (state.error as string) ?? previous?.error
+                    : previous?.error
               }
             }
             if (idx >= 0) {
@@ -408,17 +419,29 @@ export function writeEventToStreamingBuffer(
           const stateTime = state.time as Record<string, number> | undefined
           const nextParts = [...current.parts]
           const idx = nextParts.findIndex((p) => p.type === 'tool_use' && p.toolUse?.id === toolId)
+          // Merge with the previous part rather than rebuild from this update
+          // alone — partial updates (e.g. status -> success without input,
+          // tool_progress with status only) would otherwise wipe already-
+          // streamed fields like the command/input.
+          const previous = idx >= 0 ? nextParts[idx]?.toolUse : undefined
+          const nextStatus = mapPartStatus(state.status)
           const toolPart: StreamingPart = {
             type: 'tool_use',
             toolUse: {
               id: toolId,
-              name: toolName,
-              input: (state.input as Record<string, unknown>) ?? {},
-              status: mapPartStatus(state.status),
-              startTime: stateTime?.start || nextParts[idx]?.toolUse?.startTime || Date.now(),
-              endTime: stateTime?.end,
-              output: state.status === 'completed' ? (state.output as string) : undefined,
-              error: state.status === 'error' ? (state.error as string) : undefined
+              name: toolName !== 'unknown' ? toolName : previous?.name ?? toolName,
+              input: (state.input as Record<string, unknown>) ?? previous?.input ?? {},
+              status: nextStatus,
+              startTime: stateTime?.start || previous?.startTime || Date.now(),
+              endTime: stateTime?.end ?? previous?.endTime,
+              output:
+                nextStatus === 'success' || nextStatus === 'error'
+                  ? (state.output as string) ?? previous?.output
+                  : previous?.output,
+              error:
+                nextStatus === 'error'
+                  ? (state.error as string) ?? previous?.error
+                  : previous?.error
             }
           }
 

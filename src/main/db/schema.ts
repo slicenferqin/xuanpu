@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 15
+export const CURRENT_SCHEMA_VERSION = 16
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -468,5 +468,32 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
     down: `DROP TABLE IF EXISTS remote_skill_hubs;`
+  },
+  {
+    version: 16,
+    name: 'backfill_first_message_at_from_messages',
+    // v14 only backfilled from session_activities (Codex path). Sessions whose
+    // SDK was Claude Code or OpenCode never wrote activities, so their
+    // first_message_at stayed NULL and the provider/model selectors never
+    // locked. Backfill from session_messages too.
+    up: `
+      UPDATE sessions
+         SET first_message_at = COALESCE(
+           (
+             SELECT CAST((julianday(MIN(sm.created_at)) - 2440587.5) * 86400000 AS INTEGER)
+               FROM session_messages sm
+              WHERE sm.session_id = sessions.id
+                AND sm.role IN ('user', 'assistant')
+           ),
+           first_message_at
+         )
+       WHERE first_message_at IS NULL
+         AND EXISTS (
+           SELECT 1 FROM session_messages sm
+            WHERE sm.session_id = sessions.id
+              AND sm.role IN ('user', 'assistant')
+         );
+    `,
+    down: `-- backfill is one-way; nothing to undo`
   }
 ]

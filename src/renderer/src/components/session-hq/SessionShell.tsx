@@ -67,7 +67,7 @@ import {
   extractModelUsage
 } from '@/lib/token-utils'
 import { applySessionContextUsage } from '@/lib/context-usage'
-import { lastSendMode } from '@/lib/message-send-times'
+import { lastSendMode, messageSendTimes } from '@/lib/message-send-times'
 import {
   getMessageDisplayContent,
   getUserMessageForkCutoff,
@@ -156,7 +156,17 @@ function useTimeline(sessionId: string) {
       )
       const stillPending = optimisticRef.current.filter((om) => !dbContents.has(om.content.trim()))
       optimisticRef.current = stillPending
-      const merged = stillPending.length > 0 ? [...restored, ...stillPending] : restored
+      // Merge by timestamp so optimistic user messages appear before any
+      // assistant response that already landed in the DB, not tacked onto the end.
+      const merged =
+        stillPending.length > 0
+          ? [...restored, ...stillPending].sort((a, b) => {
+              const ta = Date.parse(a.timestamp)
+              const tb = Date.parse(b.timestamp)
+              if (Number.isNaN(ta) || Number.isNaN(tb)) return 0
+              return ta - tb
+            })
+          : restored
       setMessages(merged)
       return merged
     } catch (err) {
@@ -292,6 +302,16 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   // --- Plan mode ---
   const mode = useSessionStore((s) => s.modeBySession?.get(sessionId) ?? 'build')
   const pendingPlan = useSessionStore((s) => s.pendingPlans?.get(sessionId) ?? null)
+  // Claude Code's ExitPlanMode tool_use.input.plan is usually empty — the SDK
+  // writes the plan to disk and we read it during canUseTool, then ship it via
+  // plan.ready. Expose it by tool_use id so PlanCard can render the real text.
+  const planContentByToolUseId = useMemo(() => {
+    const map = new Map<string, string>()
+    if (pendingPlan?.toolUseID && pendingPlan.planContent) {
+      map.set(pendingPlan.toolUseID, pendingPlan.planContent)
+    }
+    return map
+  }, [pendingPlan?.toolUseID, pendingPlan?.planContent])
   const toggleMode = useCallback(() => {
     useSessionStore.getState().toggleSessionMode(sessionId)
   }, [sessionId])
@@ -748,6 +768,26 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           const statusType = event.data?.status?.type
           if (statusType === 'idle') {
             void refreshUsageSummary()
+            // Mark the tab badge / sidebar as completed. useAgentEventBridge
+            // intentionally skips active sessions on idle (its comment says
+            // "lifecycle is handled by SessionView (until Phase 3)") — but the
+            // session-hq UI never picked that up, so without this the tab
+            // spinner stays spinning forever after the run finishes.
+            const pendingPlan = useSessionStore.getState().getPendingPlan(sessionId)
+            const currentBadge = useWorktreeStatusStore.getState().sessionStatuses[sessionId]
+            const skipBadge =
+              !!pendingPlan ||
+              currentBadge?.status === 'plan_ready' ||
+              currentBadge?.status === 'command_approval' ||
+              currentBadge?.status === 'answering' ||
+              currentBadge?.status === 'permission'
+            if (!skipBadge) {
+              const sendTime = messageSendTimes.get(sessionId)
+              const durationMs = sendTime ? Date.now() - sendTime : 0
+              useWorktreeStatusStore
+                .getState()
+                .setSessionStatus(sessionId, 'completed', { durationMs })
+            }
             // Refresh timeline to pick up newly committed messages
             void refresh()
               .then((msgs) => {
@@ -884,6 +924,10 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
       if (action === 'send' || action === 'stop_and_send' || action === 'steer') {
         resetLiveOverlay(true)
+        // Lock provider/model selectors immediately. Main process also stamps
+        // first_message_at via createSessionMessage / upsertSessionActivity,
+        // but the UI shouldn't wait for the round-trip.
+        useSessionStore.getState().markSessionFirstMessage(sessionId)
       }
 
       // Optimistic insert — show user message immediately in the timeline
@@ -1176,14 +1220,19 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           ? 'Implement the plan.'
           : buildPlanImplementationPrompt(pendingBeforeAction.planContent)
 
-      resetLiveOverlay(true)
-
       if (isClaudeCode) {
-        // Claude resumes within the same prompt cycle after approval; mark the
-        // session busy explicitly because no new busy edge is guaranteed.
+        // Claude resumes within the SAME prompt cycle after approval (no new
+        // turn is started). The plan-phase thinking / tool_use cards have been
+        // pushed to session.messages in main but NOT persisted to DB yet —
+        // `persistMessagesToDB` only runs in the outer prompt `finally`. If we
+        // cleared the streaming overlay here, those cards would disappear from
+        // the UI until the full prompt loop finishes and a refresh pulls them
+        // back. Keep the overlay so the user sees continuous progress.
         useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'working')
         return
       }
+
+      resetLiveOverlay(true)
 
       const optimisticMsg: TimelineMessage = {
         id: `optimistic-${Date.now()}`,
@@ -1278,12 +1327,14 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           streamingContent={streamingContent}
           streamingParts={streamingParts}
           isStreaming={isStreaming}
+          activeRunStartedAt={runStartedAt}
           lifecycle={lifecycle}
           ephemeralStatusRows={ephemeralStatusRows}
           suppressTodoCards={missionVisible}
           sessionId={sessionId}
           worktreePath={worktreePath}
           childPartsMap={childPartsMap}
+          planContentByToolUseId={planContentByToolUseId}
           canEditUserMessage={canEditUserMessage}
           editingMessageId={editingMessageId}
           editingContent={editingContent}

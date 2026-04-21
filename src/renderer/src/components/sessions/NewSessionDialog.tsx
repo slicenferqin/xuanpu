@@ -114,8 +114,41 @@ export function NewSessionDialog({
         modelID: resolved.modelID,
         variant: resolved.variant ?? undefined
       })
-    } else {
-      setModel(null)
+      return
+    }
+    // No default stored for this SDK — fetch the first available model so the
+    // selector doesn't fall back to the hard-coded anthropic/claude-opus fallback.
+    let cancelled = false
+    setModel(null)
+    window.agentOps
+      ?.listModels({ runtimeId: agentSdk })
+      .then((result) => {
+        if (cancelled || !result?.success) return
+        const providers = Array.isArray(result.providers)
+          ? result.providers
+          : (result.providers as { providers?: unknown[] } | null)?.providers ?? []
+        for (const provider of providers as Array<Record<string, unknown>>) {
+          const providerID = (provider?.id as string) ?? null
+          const models = provider?.models as Record<string, Record<string, unknown>> | undefined
+          if (!providerID || !models) continue
+          const firstKey = Object.keys(models)[0]
+          if (!firstKey) continue
+          const modelID = (models[firstKey]?.id as string) ?? firstKey
+          const variants = models[firstKey]?.variants as Record<string, unknown> | undefined
+          const firstVariant = variants ? Object.keys(variants)[0] : undefined
+          setModel({
+            providerID,
+            modelID,
+            variant: firstVariant
+          })
+          return
+        }
+      })
+      .catch(() => {
+        // Non-fatal — ModelSelector will show its built-in loading/empty state.
+      })
+    return () => {
+      cancelled = true
     }
   }, [agentSdk, open])
 

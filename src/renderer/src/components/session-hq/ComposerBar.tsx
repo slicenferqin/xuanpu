@@ -198,9 +198,19 @@ export function ComposerBar({
 
       if (!hasContent && action !== 'reply_interrupt') return
 
-      const consumed = await onAction(action, content.trim(), attachments)
-      if (consumed) {
-        clearInput()
+      // Snapshot the payload and clear the input synchronously. The send IPC
+      // round-trip can take hundreds of ms to a few seconds (SDK start, app
+      // server boot, etc.), and waiting until it resolves leaves the user
+      // staring at their own text below the optimistic bubble.
+      const snapshotContent = content.trim()
+      const snapshotAttachments = attachments
+      clearInput()
+
+      const consumed = await onAction(action, snapshotContent, snapshotAttachments)
+      if (!consumed) {
+        // Send failed — restore the text so the user can retry. Attachments
+        // aren't restored (files have been consumed by the optimistic path).
+        setContent(snapshotContent)
       }
     },
     [attachments, clearInput, content, onAction]

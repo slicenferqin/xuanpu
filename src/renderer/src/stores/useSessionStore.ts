@@ -126,6 +126,12 @@ interface SessionState {
     options?: { skipGlobalUpdate?: boolean }
   ) => Promise<void>
   setOpenCodeSessionId: (sessionId: string, opencodeSessionId: string | null) => void
+  /**
+   * Optimistically stamp `first_message_at` on a session so the UI locks the
+   * provider/model selectors immediately (the canonical write happens in main
+   * via createSessionMessage / upsertSessionActivity).
+   */
+  markSessionFirstMessage: (sessionId: string) => void
   setPendingMessage: (sessionId: string, message: string) => void
   dequeuePendingMessage: (sessionId: string) => string | null
   requeuePendingMessage: (sessionId: string, message: string) => void
@@ -854,7 +860,12 @@ export const useSessionStore = create<SessionState>()(
         if (!target) {
           return { success: false, error: t('sessionStore.errors.sessionNotFound') }
         }
-        if (target.first_message_at != null) {
+        // Lock applies to provider (agent_sdk) only — switching SDKs mid-session
+        // would break the underlying runtime. Model changes within the same SDK
+        // are allowed; only context-window behaviour shifts.
+        const isProviderChange =
+          update.agentSdk !== undefined && update.agentSdk !== target.agent_sdk
+        if (isProviderChange && target.first_message_at != null) {
           return { success: false, error: t('sessionStore.errors.sessionLocked') }
         }
 
@@ -1232,6 +1243,39 @@ export const useSessionStore = create<SessionState>()(
           }
 
           return {}
+        })
+      },
+
+      markSessionFirstMessage: (sessionId: string) => {
+        const stamp = Date.now()
+        set((state) => {
+          const stampSession = (s: Session): Session =>
+            s.id === sessionId && s.first_message_at == null
+              ? { ...s, first_message_at: stamp }
+              : s
+
+          let touched = false
+          const newWorktreeMap = new Map(state.sessionsByWorktree)
+          for (const [worktreeId, sessions] of newWorktreeMap.entries()) {
+            const updated = sessions.map(stampSession)
+            if (updated.some((s, i) => s !== sessions[i])) {
+              newWorktreeMap.set(worktreeId, updated)
+              touched = true
+            }
+          }
+          const newConnectionMap = new Map(state.sessionsByConnection)
+          for (const [connectionId, sessions] of newConnectionMap.entries()) {
+            const updated = sessions.map(stampSession)
+            if (updated.some((s, i) => s !== sessions[i])) {
+              newConnectionMap.set(connectionId, updated)
+              touched = true
+            }
+          }
+          if (!touched) return {}
+          return {
+            sessionsByWorktree: newWorktreeMap,
+            sessionsByConnection: newConnectionMap
+          }
         })
       },
 

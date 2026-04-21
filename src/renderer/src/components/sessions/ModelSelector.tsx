@@ -207,22 +207,29 @@ export function ModelSelector({
 
   function isActiveModel(model: ModelInfo): boolean {
     if (!selectedModel) {
-      return model.providerID === 'anthropic' && model.id === 'claude-opus-4-5-20251101'
+      // Fall back to the first model of the first provider for the active SDK.
+      const first = providers[0]?.models[0]
+      if (!first) return false
+      return model.providerID === first.providerID && model.id === first.id
     }
     return selectedModel.providerID === model.providerID && selectedModel.modelID === model.id
   }
 
   // Find the currently selected model info
   const currentModel = useMemo((): ModelInfo | null => {
-    const modelID = selectedModel?.modelID || 'claude-opus-4-5-20251101'
-    const providerID = selectedModel?.providerID || 'anthropic'
-    for (const provider of providers) {
-      if (provider.providerID === providerID) {
-        const found = provider.models.find((m) => m.id === modelID)
-        if (found) return found
+    if (selectedModel?.modelID && selectedModel?.providerID) {
+      for (const provider of providers) {
+        if (provider.providerID === selectedModel.providerID) {
+          const found = provider.models.find((m) => m.id === selectedModel.modelID)
+          if (found) return found
+        }
       }
+      return null
     }
-    return null
+    // No selection yet — show the first available model of the active SDK so
+    // the trigger label matches the dropdown contents (avoid leaking a
+    // hard-coded anthropic/claude default into a Codex/OpenCode session).
+    return providers[0]?.models[0] ?? null
   }, [selectedModel, providers])
 
   const providerPrefix = useMemo(() => {
@@ -281,10 +288,12 @@ export function ModelSelector({
   // Determine display name for the pill
   const displayName = currentModel
     ? getDisplayName(currentModel)
-    : getDisplayName({
-        id: selectedModel?.modelID || 'claude-opus-4-5-20251101',
-        providerID: 'anthropic'
-      })
+    : selectedModel?.modelID
+      ? getDisplayName({
+          id: selectedModel.modelID,
+          providerID: selectedModel.providerID
+        })
+      : t('modelSelector.loading')
 
   const filteredProviders = useMemo(() => {
     if (!filter.trim()) return providers

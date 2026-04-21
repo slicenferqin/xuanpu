@@ -426,7 +426,6 @@ export function SessionHeader({
           sessionId={sessionId}
           compact
           showProviderPrefix={false}
-          disabled={locked}
         />
       )}
 

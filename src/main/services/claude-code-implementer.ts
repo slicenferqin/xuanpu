@@ -96,6 +96,48 @@ export interface PendingPlanApprovalState {
   resolve: (response: { approved: boolean; feedback?: string }) => void
 }
 
+/**
+ * Partial assistant message being accumulated from SDK stream_event deltas.
+ *
+ * The Claude Agent SDK only emits a complete `assistant` SDK message AFTER a
+ * full content turn finishes — on abort (user-triggered stop, network drop,
+ * timeout) the complete message never arrives and `session.messages` is left
+ * without the in-flight content. We rebuild a best-effort copy here so that
+ * abort() can flush it to the DB and the renderer's timeline keeps the
+ * partial turn after the run ends.
+ *
+ * Lifecycle:
+ *   stream_event `message_start` → initialize fresh draft
+ *   stream_event `content_block_*` → append text / reasoning / tool_use parts
+ *   SDK `assistant` message received → draft cleared (authoritative)
+ *   abort() with non-null draft → materialise into session.messages
+ */
+interface InFlightToolDraft {
+  id: string
+  name: string
+  blockIdx: number
+  inputJson: string
+  input?: unknown
+  status: 'pending' | 'running' | 'success' | 'error'
+  startTime: number
+  endTime?: number
+}
+
+interface InFlightAssistantDraft {
+  // Timestamp of the first delta — used as message.timestamp.
+  timestamp: string
+  // Running per-content-block accumulators keyed by block index so the order
+  // matches what the SDK streams. Mixed types: text / thinking / tool.
+  blocks: Map<number, InFlightDraftBlock>
+  // Monotonic order of block insertion for final part serialisation.
+  blockOrder: number[]
+}
+
+type InFlightDraftBlock =
+  | { type: 'text'; text: string; timestamp: string }
+  | { type: 'reasoning'; text: string; timestamp: string }
+  | { type: 'tool_use'; tool: InFlightToolDraft }
+
 export interface ClaudeSessionState {
   claudeSessionId: string
   hiveSessionId: string
@@ -130,6 +172,11 @@ export interface ClaudeSessionState {
   titleDeferred: boolean
   /** Accumulated stderr output from the Claude Code process for the current prompt */
   stderrBuffer: string[]
+  /**
+   * In-flight assistant message being reconstructed from stream_event deltas.
+   * Null outside of an assistant turn. See InFlightAssistantDraft docs.
+   */
+  inFlightDraft: InFlightAssistantDraft | null
 }
 
 export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeAdapter {
@@ -221,7 +268,8 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       pendingFork: false,
       pendingResumeSessionAt: null,
       titleDeferred: false,
-      stderrBuffer: []
+      stderrBuffer: [],
+      inFlightDraft: null
     }
     this.sessions.set(key, state)
 
@@ -279,7 +327,8 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       pendingFork: false,
       pendingResumeSessionAt: null,
       titleDeferred: false,
-      stderrBuffer: []
+      stderrBuffer: [],
+      inFlightDraft: null
     }
     this.sessions.set(key, state)
 
@@ -700,6 +749,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
 
         // stream_event messages fire per-token — log at debug to avoid spam
         if (msgType === 'stream_event') {
+          this.updateInFlightDraft(session, sdkMessage)
           this.emitSdkMessage(session.hiveSessionId, sdkMessage, messageIndex, session.toolNames)
           continue // No materialization/accumulation needed for partials
         }
@@ -1060,7 +1110,16 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
               }
 
               if (optimisticIndex >= 0) {
-                session.messages[optimisticIndex] = translated
+                const previous = session.messages[optimisticIndex] as Record<string, unknown>
+                const previousTimestamp = asString(previous.timestamp)
+                // Preserve the optimistic user message's original timestamp.
+                // The SDK echoes the user message back AFTER the assistant has
+                // already streamed, so using the echo's timestamp would push
+                // the user bubble below the assistant reply once the timeline
+                // is reloaded from the DB (rows are sorted by created_at ASC).
+                session.messages[optimisticIndex] = previousTimestamp
+                  ? { ...translated, timestamp: previousTimestamp }
+                  : translated
               } else {
                 session.messages.push(translated)
               }
@@ -1102,6 +1161,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         }
 
         // Emit normalized event
+        this.updateInFlightDraft(session, sdkMessage)
         this.emitSdkMessage(session.hiveSessionId, sdkMessage, messageIndex, session.toolNames)
         if (compactBoundaryDetected) {
           await this.emitClaudeContextUsageSnapshot(session)
@@ -1180,6 +1240,13 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
     } finally {
       // Always persist messages — whether the loop completed normally,
       // was aborted, or threw an error. This prevents message loss.
+      // If the loop exited without the SDK emitting the authoritative
+      // `assistant` message (network drop, uncaught error, manual break),
+      // flush whatever we accumulated from stream_events.
+      const abortedFlag = session.abortController?.signal.aborted === true
+      if (session.inFlightDraft) {
+        this.flushInFlightDraft(session, abortedFlag)
+      }
       this.persistMessagesToDB(session)
       session.lastQuery = session.query
       session.query = null
@@ -1197,8 +1264,6 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       return false
     }
 
-    const wasStreaming = !!session.query
-
     if (session.abortController) {
       session.abortController.abort()
     }
@@ -1211,14 +1276,76 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       }
     }
 
-    // If a prompt was active, let prompt().finally handle persist + idle emit
-    // to avoid racing with it. Only emit idle here if nothing was streaming.
-    if (!wasStreaming) {
-      session.query = null
-      this.emitStatus(session.hiveSessionId, 'idle')
+    // The SDK's `for await (const ... of query)` iterator does not reliably
+    // return after `interrupt()` — the next `await` can hang indefinitely
+    // waiting for an SSE chunk that never arrives. That means `prompt().finally`
+    // may never run, and without explicit finalisation here the UI stays stuck:
+    // the Stop button remains red, in-flight tool_use cards keep showing
+    // "Running...", and any partial assistant content accumulated from
+    // stream_events is lost (the SDK never emits its authoritative `assistant`
+    // message for the aborted turn). Drive the UI back to idle ourselves and
+    // flush the in-flight draft so the partial turn stays in the transcript.
+    try {
+      this.flushInFlightDraft(session, true)
+      this.markRunningToolsAborted(session)
+      this.persistMessagesToDB(session)
+    } catch (err) {
+      log.warn('Abort: failed to finalize session state', {
+        worktreePath,
+        agentSessionId,
+        error: err instanceof Error ? err.message : String(err)
+      })
     }
-    // If wasStreaming, prompt().finally will: persist → set query=null → emit idle
+
+    session.query = null
+    this.emitStatus(session.hiveSessionId, 'idle')
     return true
+  }
+
+  /**
+   * Walk session.messages and transition every in-flight tool_use to an
+   * aborted terminal state, emitting message.part.updated so the renderer's
+   * streaming mirror flips the card out of "Running..." immediately.
+   */
+  private markRunningToolsAborted(session: ClaudeSessionState): void {
+    const hiveSessionId = session.hiveSessionId
+    const now = Date.now()
+
+    for (const message of session.messages) {
+      const record = message as Record<string, unknown>
+      if (record.role !== 'assistant') continue
+      const parts = record.parts as Array<Record<string, unknown>> | undefined
+      if (!Array.isArray(parts)) continue
+
+      for (const part of parts) {
+        if (part.type !== 'tool_use') continue
+        const toolUse = part.toolUse as Record<string, unknown> | undefined
+        if (!toolUse) continue
+        const status = toolUse.status as string | undefined
+        if (status !== 'running' && status !== 'pending') continue
+
+        toolUse.status = 'error'
+        toolUse.error = (toolUse.error as string | undefined) ?? 'Aborted by user'
+        toolUse.endTime = (toolUse.endTime as number | undefined) ?? now
+
+        emitAgentEvent(this.mainWindow, {
+          type: 'message.part.updated',
+          sessionId: hiveSessionId,
+          data: {
+            part: {
+              type: 'tool',
+              callID: (toolUse.id as string) ?? '',
+              tool: (toolUse.name as string) ?? '',
+              state: {
+                status: 'error',
+                error: toolUse.error,
+                time: { end: now }
+              }
+            }
+          }
+        })
+      }
+    }
   }
 
   /** Persist in-memory messages to the session_messages table so that
@@ -3017,6 +3144,209 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         error
       })
     }
+  }
+
+  /**
+   * Accumulate partial assistant content from SDK stream_events into
+   * `session.inFlightDraft`. Also detects SDK message boundaries to start /
+   * clear the draft. See InFlightAssistantDraft for the rationale.
+   */
+  private updateInFlightDraft(session: ClaudeSessionState, msg: Record<string, unknown>): void {
+    const msgType = msg.type as string
+
+    if (msgType === 'stream_event') {
+      const rawEvent = msg.event as Record<string, unknown> | undefined
+      if (!rawEvent) return
+
+      // Sub-agent / child-session events are not folded into the parent
+      // assistant draft — the renderer tracks them in childParts instead, and
+      // they shouldn't leak into the parent transcript on abort.
+      if (msg.parent_tool_use_id) return
+
+      const eventType = rawEvent.type as string
+
+      if (eventType === 'message_start') {
+        session.inFlightDraft = {
+          timestamp: new Date().toISOString(),
+          blocks: new Map(),
+          blockOrder: []
+        }
+        return
+      }
+
+      if (!session.inFlightDraft) {
+        // If the first delta arrives before message_start (shouldn't happen
+        // but be defensive), initialise lazily.
+        session.inFlightDraft = {
+          timestamp: new Date().toISOString(),
+          blocks: new Map(),
+          blockOrder: []
+        }
+      }
+
+      const draft = session.inFlightDraft
+      const blockIdx = rawEvent.index as number | undefined
+
+      if (eventType === 'content_block_start') {
+        const contentBlock = rawEvent.content_block as Record<string, unknown> | undefined
+        if (!contentBlock || blockIdx === undefined) return
+        const blockType = contentBlock.type as string
+
+        if (blockType === 'tool_use') {
+          const tool: InFlightToolDraft = {
+            id: (contentBlock.id as string) ?? `tool-${Date.now()}`,
+            name: (contentBlock.name as string) ?? 'unknown',
+            blockIdx,
+            inputJson: '',
+            status: 'running',
+            startTime: Date.now()
+          }
+          draft.blocks.set(blockIdx, { type: 'tool_use', tool })
+          draft.blockOrder.push(blockIdx)
+        } else if (blockType === 'thinking') {
+          draft.blocks.set(blockIdx, {
+            type: 'reasoning',
+            text: '',
+            timestamp: draft.timestamp
+          })
+          draft.blockOrder.push(blockIdx)
+        } else if (blockType === 'text') {
+          draft.blocks.set(blockIdx, {
+            type: 'text',
+            text: '',
+            timestamp: draft.timestamp
+          })
+          draft.blockOrder.push(blockIdx)
+        }
+        return
+      }
+
+      if (eventType === 'content_block_delta') {
+        if (blockIdx === undefined) return
+        const delta = rawEvent.delta as Record<string, unknown> | undefined
+        if (!delta) return
+        const deltaType = delta.type as string
+        const existing = draft.blocks.get(blockIdx)
+
+        if (deltaType === 'text_delta') {
+          const text = (delta.text as string) ?? ''
+          if (existing?.type === 'text') {
+            existing.text += text
+          } else {
+            draft.blocks.set(blockIdx, { type: 'text', text, timestamp: draft.timestamp })
+            draft.blockOrder.push(blockIdx)
+          }
+        } else if (deltaType === 'thinking_delta') {
+          const text = (delta.thinking as string) ?? ''
+          if (existing?.type === 'reasoning') {
+            existing.text += text
+          } else {
+            draft.blocks.set(blockIdx, { type: 'reasoning', text, timestamp: draft.timestamp })
+            draft.blockOrder.push(blockIdx)
+          }
+        } else if (deltaType === 'input_json_delta') {
+          const partial = (delta.partial_json as string) ?? ''
+          if (existing?.type === 'tool_use' && partial) {
+            existing.tool.inputJson += partial
+          }
+        }
+        return
+      }
+
+      if (eventType === 'content_block_stop') {
+        if (blockIdx === undefined) return
+        const block = draft.blocks.get(blockIdx)
+        if (block?.type === 'tool_use' && block.tool.inputJson && block.tool.input === undefined) {
+          try {
+            block.tool.input = JSON.parse(block.tool.inputJson)
+          } catch {
+            block.tool.input = block.tool.inputJson
+          }
+        }
+        return
+      }
+
+      // message_delta / message_stop / others — nothing to do here; the
+      // authoritative `assistant` SDK message (if it arrives) will clear the
+      // draft below.
+      return
+    }
+
+    // Authoritative assistant message → draft superseded.
+    if (msgType === 'assistant' && !msg.parent_tool_use_id) {
+      session.inFlightDraft = null
+    }
+  }
+
+  /**
+   * If an assistant turn was in-flight when the prompt loop terminated (abort,
+   * error, network drop), materialise the draft into session.messages so it
+   * persists to the DB and shows up in the rendered timeline.
+   */
+  private flushInFlightDraft(session: ClaudeSessionState, aborted: boolean): void {
+    const draft = session.inFlightDraft
+    if (!draft) return
+    session.inFlightDraft = null
+
+    // Convert blocks in arrival order into the renderer's part shape.
+    const parts: Record<string, unknown>[] = []
+    const seen = new Set<number>()
+    for (const idx of draft.blockOrder) {
+      if (seen.has(idx)) continue
+      seen.add(idx)
+      const block = draft.blocks.get(idx)
+      if (!block) continue
+
+      if (block.type === 'text') {
+        if (!block.text) continue
+        parts.push({ type: 'text', text: block.text, timestamp: block.timestamp })
+      } else if (block.type === 'reasoning') {
+        if (!block.text) continue
+        parts.push({ type: 'reasoning', text: block.text, timestamp: block.timestamp })
+      } else if (block.type === 'tool_use') {
+        const tool = block.tool
+        // Mark tools that never saw a tool_result as terminal on abort.
+        const finalStatus: InFlightToolDraft['status'] =
+          aborted && (tool.status === 'pending' || tool.status === 'running')
+            ? 'error'
+            : tool.status
+        parts.push({
+          type: 'tool_use',
+          toolUse: {
+            id: tool.id,
+            name: tool.name,
+            input: tool.input ?? {},
+            status: finalStatus,
+            startTime: tool.startTime,
+            endTime: tool.endTime ?? (aborted ? Date.now() : undefined),
+            error: finalStatus === 'error' ? 'Aborted by user' : undefined
+          }
+        })
+      }
+    }
+
+    if (parts.length === 0) return
+
+    const textContent = parts
+      .filter((p) => p.type === 'text' || p.type === 'reasoning')
+      .map((p) => (p as Record<string, unknown>).text as string)
+      .join('')
+
+    session.messages.push({
+      id: `draft-${randomUUID()}`,
+      role: 'assistant',
+      timestamp: draft.timestamp,
+      content: textContent,
+      parts,
+      aborted: aborted || undefined
+    })
+
+    log.info('Flushed in-flight draft to session.messages', {
+      hiveSessionId: session.hiveSessionId,
+      aborted,
+      partCount: parts.length,
+      textLength: textContent.length
+    })
   }
 
   private emitSdkMessage(

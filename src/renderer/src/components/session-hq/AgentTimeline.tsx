@@ -34,6 +34,8 @@ import {
   TodoCard
 } from './cards'
 import { ThreadStatusRow, type ThreadStatusRowData } from './ThreadStatusRow'
+import { SystemNotificationBar } from '../sessions/SystemNotificationBar'
+import { extractTaskNotifications, stripTaskNotifications } from '@/lib/content-sanitizer'
 import { getMessageDisplayContent } from '@/lib/message-actions'
 
 import {
@@ -58,6 +60,7 @@ import {
 type CardType =
   | 'user-message'
   | 'system'
+  | 'task-notification'
   | 'thinking'
   | 'bash'
   | 'file-read'
@@ -90,8 +93,34 @@ interface TimelineNode {
  * Text parts are collapsed into a single text node at the end.
  */
 function messageToNodes(message: TimelineMessage): TimelineNode[] {
-  // User messages → single node
+  // User messages → single node, except SDK-injected <task-notification> blocks
+  // (background bash completion etc.) which should render as a thin status bar
+  // rather than a chat bubble.
   if (message.role === 'user') {
+    const raw = message.content ?? ''
+    const notifications = extractTaskNotifications(raw)
+    if (notifications.length > 0) {
+      const remaining = stripTaskNotifications(raw)
+      const nodes: TimelineNode[] = []
+      if (remaining.length > 0) {
+        nodes.push({
+          key: `${message.id}-user`,
+          cardType: 'user-message',
+          message,
+          textContent: remaining,
+          attachments: message.attachments
+        })
+      }
+      nodes.push({
+        key: `${message.id}-task-notification`,
+        cardType: 'task-notification',
+        message,
+        textContent: raw,
+        isLastInMessage: true
+      })
+      return nodes
+    }
+
     return [{
       key: `${message.id}-user`,
       cardType: 'user-message',
@@ -249,6 +278,7 @@ interface IconConfig {
 const ICON_MAP: Record<CardType, IconConfig> = {
   'user-message': { icon: User, colorClass: 'text-blue-600 dark:text-blue-400', bgClass: 'bg-blue-500/15' },
   'system': { icon: MessageSquare, colorClass: 'text-muted-foreground', bgClass: 'bg-muted' },
+  'task-notification': { icon: MessageSquare, colorClass: 'text-muted-foreground', bgClass: 'bg-muted' },
   'thinking': { icon: Brain, colorClass: 'text-muted-foreground', bgClass: 'bg-muted' },
   'bash': { icon: Terminal, colorClass: 'text-celadon', bgClass: 'bg-celadon/15' },
   'file-read': { icon: FileText, colorClass: 'text-celadon', bgClass: 'bg-celadon/15' },
@@ -291,6 +321,7 @@ function TimelineNodeView({
   sessionId,
   worktreePath,
   childPartsMap,
+  planContentByToolUseId,
   canEditUserMessage,
   editingMessageId,
   editingContent,
@@ -306,6 +337,7 @@ function TimelineNodeView({
   sessionId?: string
   worktreePath?: string | null
   childPartsMap?: Map<string, StreamingPart[]>
+  planContentByToolUseId?: Map<string, string>
   canEditUserMessage?: (message: TimelineMessage) => boolean
   editingMessageId?: string | null
   editingContent?: string
@@ -460,6 +492,9 @@ function TimelineNodeView({
         />
       )
 
+    case 'task-notification':
+      return <SystemNotificationBar content={node.textContent ?? ''} />
+
     case 'thinking':
       return <ThinkingCard content={node.textContent ?? ''} />
 
@@ -496,17 +531,23 @@ function TimelineNodeView({
       return <SubAgentCard subtask={subtaskData} childParts={childParts} />
     }
 
-    case 'plan':
+    case 'plan': {
+      const toolUseId = node.toolUse?.id
+      const overrideContent = toolUseId ? planContentByToolUseId?.get(toolUseId) : undefined
+      const inputPlan = node.toolUse?.input?.plan as string | undefined
+      const output = node.toolUse?.output as string | undefined
+      const content =
+        (overrideContent && overrideContent.length > 0 ? overrideContent : undefined)
+        ?? (inputPlan && inputPlan.length > 0 ? inputPlan : undefined)
+        ?? output
+        ?? ''
       return (
         <PlanCard
-          content={
-            (node.toolUse?.input?.plan as string)
-            ?? (node.toolUse?.output as string)
-            ?? ''
-          }
+          content={content}
           isPending={node.toolUse?.status === 'pending' || node.toolUse?.status === 'running'}
         />
       )
+    }
 
     case 'ask-user':
       return (
@@ -565,6 +606,15 @@ export interface AgentTimelineProps {
   streamingContent: string
   streamingParts?: StreamingPart[]
   isStreaming: boolean
+  /**
+   * Timestamp (ISO string or epoch ms) of when the current streaming run
+   * started. Assistant messages with timestamp >= this value are suppressed
+   * from the durable timeline so they don't double-render alongside the live
+   * streaming overlay (the SDK persists partial progress to DB throughout the
+   * turn — without this filter the user sees their own message twice after
+   * switching tabs and back during streaming).
+   */
+  activeRunStartedAt?: number | string | null
   lifecycle: SessionLifecycle
   ephemeralStatusRows?: ThreadStatusRowData[]
   /** Suppress inline TodoCard rendering when MissionControl handles tasks */
@@ -577,6 +627,12 @@ export interface AgentTimelineProps {
   worktreePath?: string | null
   /** Child-session parts keyed by parent tool_use id (sub-agent tool calls) */
   childPartsMap?: Map<string, StreamingPart[]>
+  /**
+   * Plan content resolved out-of-band (e.g. Claude Code reads the plan from
+   * disk in `canUseTool(ExitPlanMode)` and ships it via plan.ready — the SDK's
+   * own tool_use.input.plan is empty). Keyed by tool_use id.
+   */
+  planContentByToolUseId?: Map<string, string>
   onCopyUserMessage?: (message: TimelineMessage) => void
   onEditUserMessage?: (message: TimelineMessage) => void
   onForkUserMessage?: (message: TimelineMessage) => void | Promise<void>
@@ -600,6 +656,7 @@ export function AgentTimeline({
   streamingContent,
   streamingParts = [],
   isStreaming,
+  activeRunStartedAt,
   lifecycle: _lifecycle,
   ephemeralStatusRows = [],
   suppressTodoCards,
@@ -607,6 +664,7 @@ export function AgentTimeline({
   sessionId,
   worktreePath,
   childPartsMap,
+  planContentByToolUseId,
   onCopyUserMessage,
   onEditUserMessage,
   onForkUserMessage,
@@ -626,13 +684,44 @@ export function AgentTimeline({
 }: AgentTimelineProps): React.JSX.Element {
   // Flatten messages into timeline nodes
   const nodes = useMemo(() => {
-    return timelineMessages.flatMap((msg) => messageToNodes(msg))
+    // Compute a numeric cutoff for the active run. Assistant messages whose
+    // timestamp is at or after this cutoff are part of the in-flight turn and
+    // are owned by the live streaming overlay below — BUT only for plain
+    // text/reasoning content. Structured parts (tool_use, plan, ask-user,
+    // subtask, file) come from DB activities that the streaming overlay
+    // doesn't replicate, so they must remain visible even while streaming.
+    const runCutoffMs =
+      isStreaming && activeRunStartedAt != null
+        ? typeof activeRunStartedAt === 'number'
+          ? activeRunStartedAt
+          : Date.parse(activeRunStartedAt)
+        : null
+
+    const hasStructuredPart = (msg: TimelineMessage): boolean => {
+      if (!msg.parts || msg.parts.length === 0) return false
+      return msg.parts.some(
+        (part) => part.type !== 'text' && part.type !== 'reasoning'
+      )
+    }
+
+    const filteredMessages =
+      runCutoffMs != null && Number.isFinite(runCutoffMs)
+        ? timelineMessages.filter((msg) => {
+            if (msg.role !== 'assistant') return true
+            if (hasStructuredPart(msg)) return true
+            const ts = Date.parse(msg.timestamp)
+            if (!Number.isFinite(ts)) return true
+            return ts < runCutoffMs
+          })
+        : timelineMessages
+
+    return filteredMessages.flatMap((msg) => messageToNodes(msg))
       .filter((node) => {
         // Suppress inline TodoCards when MissionControl handles tasks
         if (suppressTodoCards && node.cardType === 'todo') return false
         return true
       })
-  }, [timelineMessages, suppressTodoCards])
+  }, [timelineMessages, suppressTodoCards, isStreaming, activeRunStartedAt])
 
   // Dedupe by tool_use id: if a tool_use with the same id is already committed
   // in timelineMessages, skip the streaming copy — otherwise a switch-away-and-back
@@ -789,6 +878,7 @@ export function AgentTimeline({
                   sessionId={sessionId}
                   worktreePath={worktreePath}
                   childPartsMap={childPartsMap}
+                  planContentByToolUseId={planContentByToolUseId}
                   canEditUserMessage={canEditUserMessage}
                   editingMessageId={editingMessageId}
                   editingContent={editingContent}
@@ -817,6 +907,7 @@ export function AgentTimeline({
                   sessionId={sessionId}
                   worktreePath={worktreePath}
                   childPartsMap={childPartsMap}
+                  planContentByToolUseId={planContentByToolUseId}
                   canEditUserMessage={canEditUserMessage}
                   editingMessageId={editingMessageId}
                   editingContent={editingContent}
@@ -861,6 +952,7 @@ export function AgentTimeline({
                 sessionId={sessionId}
                 worktreePath={worktreePath}
                 childPartsMap={childPartsMap}
+                planContentByToolUseId={planContentByToolUseId}
                 canEditUserMessage={canEditUserMessage}
                 editingMessageId={editingMessageId}
                 editingContent={editingContent}
@@ -942,6 +1034,7 @@ export function AgentTimeline({
                 sessionId={sessionId}
                 worktreePath={worktreePath}
                 childPartsMap={childPartsMap}
+                planContentByToolUseId={planContentByToolUseId}
                 canEditUserMessage={canEditUserMessage}
                 editingMessageId={editingMessageId}
                 editingContent={editingContent}
