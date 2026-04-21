@@ -892,9 +892,10 @@ export function AgentTimeline({
           // The ComposerBar is `absolute bottom-16` (64px from viewport bottom).
           // Its TOP edge sits `composerHeight + 64` above the bottom. Reserve
           // that much plus 24px breathing room so the last transcript node is
-          // never hidden behind it. Falls back to 232px before the first
-          // measurement comes in.
-          paddingBottom: `${Math.max(bottomFloatingHeight + 88, 232)}px`
+          // never hidden behind it. Fallback is generous (360px) because the
+          // initial ResizeObserver tick can arrive AFTER the first paint — a
+          // small 232px fallback leaves the last node covered for one frame.
+          paddingBottom: `${Math.max(bottomFloatingHeight + 88, 360)}px`
         }}
       >
         {/* Inline compaction marker inserted by timestamp. */}

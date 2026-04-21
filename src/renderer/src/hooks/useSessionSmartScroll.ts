@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   getSessionViewState,
   updateSessionViewState,
@@ -311,6 +311,16 @@ export function useSessionSmartScroll({
     }
     scrollToBottom()
   }, [contentVersion, mirrorVersion, ready, scrollToBottom])
+
+  // Use useLayoutEffect for the initial sync measurement so the first paint
+  // already has the correct padding-bottom — otherwise the first frame leaves
+  // the last transcript node hidden behind the ComposerBar.
+  useLayoutEffect(() => {
+    const dockElement = bottomAreaRef?.current
+    const composerElement = composerRef?.current
+    setDockHeight(dockElement?.getBoundingClientRect().height ?? 0)
+    setComposerHeight(composerElement?.getBoundingClientRect().height ?? 0)
+  }, [bottomAreaRef, composerRef])
 
   useEffect(() => {
     const dockElement = bottomAreaRef?.current

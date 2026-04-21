@@ -109,7 +109,10 @@ export function SettingsModal(): React.JSX.Element {
           {/* Content area */}
           <div className={cn(
             "flex-1 p-6 min-h-0 flex flex-col",
-            activeSection === 'usage' || activeSection === 'archivedChats' || activeSection === 'skills'
+            // Only Skills needs an `overflow-hidden` outer (its inner two-column
+            // layout has its own scroll containers). archivedChats / usage
+            // render plain vertical lists and rely on the outer scroller.
+            activeSection === 'skills'
               ? "overflow-hidden"
               : "overflow-y-auto"
           )}>
