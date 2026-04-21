@@ -2,6 +2,10 @@ import { ipcMain } from 'electron'
 import { getDatabase } from '../db'
 import { createLogger } from '../services/logger'
 import { telemetryService } from '../services/telemetry-service'
+import {
+  setFieldCollectionEnabledCache,
+  FIELD_COLLECTION_SETTING_KEY
+} from '../field/privacy'
 import type {
   ProjectCreate,
   ProjectUpdate,
@@ -25,11 +29,20 @@ export function registerDatabaseHandlers(): void {
 
   ipcMain.handle('db:setting:set', (_event, key: string, value: string) => {
     getDatabase().setSetting(key, value)
+    // Phase 21: keep the privacy cache synchronized with the DB write, in the
+    // same call path, so no event slips through with a stale cached value.
+    if (key === FIELD_COLLECTION_SETTING_KEY) {
+      setFieldCollectionEnabledCache(value !== 'false')
+    }
     return true
   })
 
   ipcMain.handle('db:setting:delete', (_event, key: string) => {
     getDatabase().deleteSetting(key)
+    // Phase 21: deleting the setting reverts to the default (enabled).
+    if (key === FIELD_COLLECTION_SETTING_KEY) {
+      setFieldCollectionEnabledCache(true)
+    }
     return true
   })
 

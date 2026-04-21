@@ -435,8 +435,17 @@ export const useWorktreeStore = create<WorktreeState>((set, get) => ({
 
   // Select a worktree (with connection deconfliction)
   selectWorktree: (id: string | null) => {
+    const prevId = get().selectedWorktreeId
     set({ selectedWorktreeId: id })
     if (id) {
+      // Phase 21: source-side dedup — only report when the selection actually changed
+      if (prevId !== id) {
+        window.fieldOps?.reportWorktreeSwitch({
+          fromWorktreeId: prevId,
+          toWorktreeId: id,
+          trigger: 'user-click'
+        })
+      }
       // Touch worktree to update last_accessed_at
       get().touchWorktree(id)
       // Deconflict: clear any selected connection synchronously (same tick)
@@ -458,8 +467,18 @@ export const useWorktreeStore = create<WorktreeState>((set, get) => ({
   // Select a worktree without triggering connection deconfliction
   // Used by connection store to avoid circular deconfliction
   selectWorktreeOnly: (id: string | null) => {
+    const prevId = get().selectedWorktreeId
     set({ selectedWorktreeId: id })
     if (id) {
+      // Phase 21: source-side dedup. Use 'unknown' trigger since this path is
+      // invoked by the connection store, not a direct user action.
+      if (prevId !== id) {
+        window.fieldOps?.reportWorktreeSwitch({
+          fromWorktreeId: prevId,
+          toWorktreeId: id,
+          trigger: 'unknown'
+        })
+      }
       get().touchWorktree(id)
     }
   },

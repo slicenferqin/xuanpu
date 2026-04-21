@@ -1290,6 +1290,11 @@ declare global {
       setEnabled: (enabled: boolean) => Promise<void>
       isEnabled: () => Promise<boolean>
     }
+    fieldOps: {
+      reportWorktreeSwitch: (
+        input: import('../shared/types/field-event').WorktreeSwitchInput
+      ) => void
+    }
   }
 
   interface GitDiffStatFile {

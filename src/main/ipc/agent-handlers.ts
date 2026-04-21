@@ -6,6 +6,7 @@ import type { DatabaseService } from '../db/database'
 import type { AgentRuntimeManager } from '../services/agent-runtime-manager'
 import type { AgentRuntimeAdapter, PromptOptions } from '../services/agent-runtime-types'
 import { ClaudeCodeImplementer } from '../services/claude-code-implementer'
+import { emitFieldEvent } from '../field/emit'
 import {
   createAgentHandler,
   resolveRuntimeId,
@@ -238,6 +239,39 @@ export function registerAgentHandlers(
         const impl = c.runtimeManager.getImplementer(runtimeId)
         await impl.prompt(worktreePath, runtimeSessionId, messageOrParts, model, options)
         telemetryService.track('prompt_sent', { runtime_id: runtimeId })
+
+        // Phase 21: emit session.message after successful prompt dispatch.
+        try {
+          const text =
+            typeof messageOrParts === 'string'
+              ? messageOrParts
+              : Array.isArray(messageOrParts)
+                ? messageOrParts.find((p) => p.type === 'text')?.text ?? ''
+                : ''
+          const attachmentCount = Array.isArray(messageOrParts)
+            ? messageOrParts.filter((p) => p.type === 'file').length
+            : 0
+          const worktree = c.dbService.getWorktreeByPath(worktreePath)
+          emitFieldEvent({
+            type: 'session.message',
+            worktreeId: worktree?.id ?? null,
+            projectId: worktree?.project_id ?? null,
+            sessionId: null,
+            relatedEventId: null,
+            payload: {
+              agentSdk: runtimeId as 'opencode' | 'claude-code' | 'codex',
+              agentSessionId: runtimeSessionId,
+              text: text.slice(0, 1024),
+              attachmentCount,
+              ...(model ? { modelOverride: model } : {})
+            }
+          })
+        } catch (err) {
+          log.warn('field: session.message emit failed', {
+            error: err instanceof Error ? err.message : String(err)
+          })
+        }
+
         return {}
       }
     })

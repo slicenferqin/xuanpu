@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 13
+export const CURRENT_SCHEMA_VERSION = 14
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -177,6 +177,25 @@ CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at);
 CREATE INDEX IF NOT EXISTS idx_projects_accessed ON projects(last_accessed_at);
 CREATE INDEX IF NOT EXISTS idx_project_spaces_space ON project_spaces(space_id);
 CREATE INDEX IF NOT EXISTS idx_project_spaces_project ON project_spaces(project_id);
+
+-- Phase 21: Field Event Stream
+CREATE TABLE IF NOT EXISTS field_events (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT NOT NULL UNIQUE,
+  timestamp INTEGER NOT NULL,
+  worktree_id TEXT,
+  project_id TEXT,
+  session_id TEXT,
+  type TEXT NOT NULL,
+  related_event_id TEXT,
+  payload_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_field_events_worktree_ts ON field_events(worktree_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_field_events_project_ts ON field_events(project_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_field_events_type_ts ON field_events(type, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_field_events_ts ON field_events(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_field_events_session_ts ON field_events(session_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_field_events_related ON field_events(related_event_id) WHERE related_event_id IS NOT NULL;
 `
 
 export interface Migration {
@@ -432,5 +451,51 @@ export const MIGRATIONS: Migration[] = [
     up: `-- NOTE: ALTER TABLE for color is handled idempotently by
          -- ensureSessionColumns() in database.ts to avoid "duplicate column" errors.`,
     down: `-- SQLite cannot drop columns; this is a no-op for safety`
+  },
+  {
+    version: 14,
+    name: 'add_field_events',
+    up: `
+      -- Phase 21: Field Event Stream
+      -- Append-only structured log of user actions observed by the main process.
+      -- See docs/prd/phase-21-field-events.md
+      --
+      -- No FKs to worktrees/sessions/projects: events are historical and survive
+      -- subject deletion. project_id is denormalized for cheap grouping.
+      -- seq AUTOINCREMENT gives stable total order even within the same millisecond.
+      CREATE TABLE IF NOT EXISTS field_events (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        timestamp INTEGER NOT NULL,
+        worktree_id TEXT,
+        project_id TEXT,
+        session_id TEXT,
+        type TEXT NOT NULL,
+        related_event_id TEXT,
+        payload_json TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_field_events_worktree_ts
+        ON field_events(worktree_id, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_events_project_ts
+        ON field_events(project_id, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_events_type_ts
+        ON field_events(type, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_events_ts
+        ON field_events(timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_events_session_ts
+        ON field_events(session_id, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_events_related
+        ON field_events(related_event_id) WHERE related_event_id IS NOT NULL;
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_field_events_related;
+      DROP INDEX IF EXISTS idx_field_events_session_ts;
+      DROP INDEX IF EXISTS idx_field_events_ts;
+      DROP INDEX IF EXISTS idx_field_events_type_ts;
+      DROP INDEX IF EXISTS idx_field_events_project_ts;
+      DROP INDEX IF EXISTS idx_field_events_worktree_ts;
+      DROP TABLE IF EXISTS field_events;
+    `
   }
 ]

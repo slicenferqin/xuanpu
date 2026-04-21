@@ -1798,6 +1798,14 @@ const analyticsOps = {
   isEnabled: () => ipcRenderer.invoke('telemetry:isEnabled') as Promise<boolean>
 }
 
+// Phase 21: Field Event Stream — narrow renderer-side reporter.
+// Only `worktree.switch` is reportable from the renderer; all other event
+// types are emitted from the main process. See docs/prd/phase-21-field-events.md §5.
+const fieldOps = {
+  reportWorktreeSwitch: (input: import('../shared/types/field-event').WorktreeSwitchInput) =>
+    ipcRenderer.send('field:reportWorktreeSwitch', input)
+}
+
 // Use `contextBridge` APIs to expose Electron APIs to
 // renderer only if context isolation is enabled, otherwise
 // just add to the DOM global.
@@ -1820,6 +1828,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('usageOps', usageOps)
     contextBridge.exposeInMainWorld('usageAnalyticsOps', usageAnalyticsOps)
     contextBridge.exposeInMainWorld('analyticsOps', analyticsOps)
+    contextBridge.exposeInMainWorld('fieldOps', fieldOps)
   } catch (error) {
     console.error(error)
   }
@@ -1858,4 +1867,6 @@ if (process.contextIsolated) {
   window.usageAnalyticsOps = usageAnalyticsOps
   // @ts-expect-error (define in dts)
   window.analyticsOps = analyticsOps
+  // @ts-expect-error (define in dts)
+  window.fieldOps = fieldOps
 }

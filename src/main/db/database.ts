@@ -138,6 +138,7 @@ export class DatabaseService {
     // skew between worktree builds.
     this.ensureConnectionTables()
     this.ensureUsageAnalyticsTables()
+    this.ensureFieldEventsTable()
   }
 
   /**
@@ -278,6 +279,49 @@ export class DatabaseService {
       CREATE INDEX IF NOT EXISTS idx_usage_sync_state_status
         ON usage_sync_state(status, last_synced_at);
     `)
+  }
+
+  /**
+   * Idempotently ensure the field_events table and its indexes exist.
+   * Phase 21 — see docs/prd/phase-21-field-events.md
+   */
+  private ensureFieldEventsTable(): void {
+    const db = this.getDb()
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS field_events (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        timestamp INTEGER NOT NULL,
+        worktree_id TEXT,
+        project_id TEXT,
+        session_id TEXT,
+        type TEXT NOT NULL,
+        related_event_id TEXT,
+        payload_json TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_field_events_worktree_ts
+        ON field_events(worktree_id, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_events_project_ts
+        ON field_events(project_id, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_events_type_ts
+        ON field_events(type, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_events_ts
+        ON field_events(timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_events_session_ts
+        ON field_events(session_id, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_events_related
+        ON field_events(related_event_id) WHERE related_event_id IS NOT NULL;
+    `)
+  }
+
+  /**
+   * Expose the underlying better-sqlite3 handle for modules that need to
+   * prepare their own statements (e.g. FieldEventSink batch inserts).
+   * Use sparingly — most callers should go through DatabaseService methods.
+   */
+  getDbHandle(): Database.Database {
+    return this.getDb()
   }
 
   // Settings operations

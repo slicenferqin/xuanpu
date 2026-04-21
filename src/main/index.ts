@@ -6,6 +6,7 @@ import { promisify } from 'util'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs'
 import { electronApp, is } from '@electron-toolkit/utils'
 import { getDatabase, closeDatabase } from './db'
+import { getFieldEventSink } from './field/sink'
 import {
   registerDatabaseHandlers,
   registerProjectHandlers,
@@ -26,7 +27,8 @@ import {
   registerUpdaterHandlers,
   registerConnectionHandlers,
   registerUsageHandlers,
-  registerTimelineHandlers
+  registerTimelineHandlers,
+  registerFieldHandlers
 } from './ipc'
 import { buildMenu, updateMenuState } from './menu'
 import type { MenuState } from './menu'
@@ -610,6 +612,11 @@ app.whenReady().then(async () => {
   log.info('Initializing database')
   getDatabase()
 
+  // Phase 21: eager-init the field event sink so the before-quit shutdown hook
+  // is registered before any quit signal can fire. See PRD §3.4.
+  log.info('Initializing field event sink')
+  getFieldEventSink()
+
   // Initialize telemetry (must come after DB init since it reads/writes settings)
   telemetryService.init()
 
@@ -623,6 +630,7 @@ app.whenReady().then(async () => {
   registerFileHandlers()
   registerConnectionHandlers()
   registerUsageHandlers()
+  registerFieldHandlers()
 
   // Telemetry IPC
   ipcMain.handle(
@@ -721,6 +729,16 @@ app.on('window-all-closed', () => {
 
 // Cleanup when app is about to quit
 app.on('will-quit', async () => {
+  // Phase 21: ensure the field event sink has flushed before we close the DB.
+  // The sink's own `before-quit` hook normally handles this, but we call
+  // shutdown() defensively here too — it's idempotent.
+  try {
+    await getFieldEventSink().shutdown()
+  } catch (err) {
+    log.warn('field event sink shutdown failed', {
+      error: err instanceof Error ? err.message : String(err)
+    })
+  }
   // Cleanup updater timers
   updaterService.cleanup()
   // Cleanup terminal PTYs
