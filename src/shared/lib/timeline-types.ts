@@ -73,6 +73,20 @@ export interface TimelineMessage {
   parts?: StreamingPart[]
   /** File attachments for user messages (images, PDFs, etc.) */
   attachments?: MessagePart[]
+  /**
+   * Raw token usage from the model API (assistant messages only). Preserved
+   * so the renderer can hydrate the context-window capsule for sessions
+   * opened without a live snapshot (otherwise it would show 0%).
+   */
+  usage?: {
+    input?: number
+    output?: number
+    cacheRead?: number
+    cacheWrite?: number
+    reasoning?: number
+  }
+  /** Model identity captured at send time (for context-window limit lookup). */
+  modelRef?: { providerID: string; modelID: string }
 }
 
 // ---------------------------------------------------------------------------

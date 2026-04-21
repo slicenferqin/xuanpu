@@ -356,6 +356,47 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     refreshUsageSummary().catch(() => {})
   }, [refreshUsageSummary])
 
+  // Hydrate context-window tokens from the last persisted assistant message
+  // when the timeline first loads / session switches. Runtime events will
+  // overwrite this with the exact current snapshot once a new turn fires —
+  // but without this hydration, opening an old session shows 0% context until
+  // the next message is sent.
+  useEffect(() => {
+    if (timelineMessages.length === 0) return
+    // Find the most recent assistant message with any real usage numbers.
+    let usageMsg: TimelineMessage | undefined
+    for (let i = timelineMessages.length - 1; i >= 0; i--) {
+      const msg = timelineMessages[i]
+      if (msg.role !== 'assistant' || !msg.usage) continue
+      const u = msg.usage
+      if ((u.input ?? 0) + (u.cacheRead ?? 0) + (u.cacheWrite ?? 0) + (u.output ?? 0) > 0) {
+        usageMsg = msg
+        break
+      }
+    }
+    if (!usageMsg?.usage) return
+    const store = useContextStore.getState()
+    // Don't clobber an already-set runtime snapshot with a stale DB value.
+    const existing = store.tokensBySession[sessionId]
+    const existingTotal =
+      (existing?.input ?? 0) +
+      (existing?.output ?? 0) +
+      (existing?.cacheRead ?? 0) +
+      (existing?.cacheWrite ?? 0)
+    if (existingTotal > 0) return
+    store.setSessionTokens(
+      sessionId,
+      {
+        input: usageMsg.usage.input ?? 0,
+        output: usageMsg.usage.output ?? 0,
+        reasoning: usageMsg.usage.reasoning ?? 0,
+        cacheRead: usageMsg.usage.cacheRead ?? 0,
+        cacheWrite: usageMsg.usage.cacheWrite ?? 0
+      },
+      usageMsg.modelRef
+    )
+  }, [sessionId, timelineMessages])
+
   // --- Model resolution ---
   const resolvedModel = useSettingsStore((s) => (agentSdk ? resolveModelForSdk(agentSdk, s) : null))
   const requestModel = useMemo(() => {

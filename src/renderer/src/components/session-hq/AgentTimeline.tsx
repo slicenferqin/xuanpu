@@ -889,10 +889,12 @@ export function AgentTimeline({
       <div
         className="w-[85%] ml-[5%] py-6"
         style={{
-          // Reserve enough room below the last node for the floating composer
-          // (measured at runtime) plus a small breathing margin. Falls back to
-          // the prior static value when the height isn't measured yet.
-          paddingBottom: `${Math.max(bottomFloatingHeight + 64, 232)}px`
+          // The ComposerBar is `absolute bottom-16` (64px from viewport bottom).
+          // Its TOP edge sits `composerHeight + 64` above the bottom. Reserve
+          // that much plus 24px breathing room so the last transcript node is
+          // never hidden behind it. Falls back to 232px before the first
+          // measurement comes in.
+          paddingBottom: `${Math.max(bottomFloatingHeight + 88, 232)}px`
         }}
       >
         {/* Inline compaction marker inserted by timestamp. */}
