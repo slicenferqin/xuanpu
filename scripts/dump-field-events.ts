@@ -159,10 +159,45 @@ function formatRow(row: Row): string {
       const from = p?.fromWorktreeId ? `\`${p.fromWorktreeId.slice(0, 8)}\`` : 'none'
       return `- ${time} [worktree.switch] from ${from} (${p?.trigger ?? 'unknown'})`
     }
+    case 'file.open': {
+      const p = payload as { path?: string; name?: string }
+      return `- ${time} [file.open] ${p?.name ?? ''} \`${truncate(p?.path ?? '', 120)}\``
+    }
+    case 'file.focus': {
+      const p = payload as { path?: string; name?: string; fromPath?: string | null }
+      return `- ${time} [file.focus] ${p?.name ?? ''} \`${truncate(p?.path ?? '', 120)}\``
+    }
+    case 'file.selection': {
+      const p = payload as {
+        path?: string
+        fromLine?: number
+        toLine?: number
+        length?: number
+      }
+      const name = (p?.path ?? '').split('/').pop() ?? ''
+      const range =
+        p?.fromLine === p?.toLine ? `L${p?.fromLine}` : `L${p?.fromLine}-${p?.toLine}`
+      return `- ${time} [file.selection] ${name} ${range} (${p?.length ?? 0} chars)`
+    }
     case 'terminal.command': {
       const p = payload as { command?: string; shell?: string; cwd?: string }
       const shell = p?.shell ? ` (${p.shell})` : ''
       return `- ${time} [terminal.command]${shell} \`${truncate(p?.command ?? '', 200)}\``
+    }
+    case 'terminal.output': {
+      const p = payload as {
+        commandEventId?: string | null
+        head?: string
+        tail?: string
+        truncated?: boolean
+        totalBytes?: number
+        exitCode?: number | null
+        reason?: string
+      }
+      const corr = p?.commandEventId ? ` → cmd:${p.commandEventId.slice(0, 8)}` : ''
+      const exit = p?.exitCode != null ? ` exit=${p.exitCode}` : ''
+      const first = (p?.head ?? '').split('\n').find((l) => l.trim().length > 0) ?? ''
+      return `- ${time} [terminal.output]${corr} ${p?.totalBytes ?? 0}B${exit} (${p?.reason ?? ''})\n    > ${truncate(first, 200)}`
     }
     case 'session.message': {
       const p = payload as {

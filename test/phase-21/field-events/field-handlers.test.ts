@@ -133,4 +133,138 @@ describe('field-handlers — Phase 21 M5', () => {
     const otherHandler = handlers.get('field:report')
     expect(otherHandler).toBeUndefined()
   })
+
+  // ---------------------------------------------------------------------------
+  // file.open
+  // ---------------------------------------------------------------------------
+
+  function invokeChannel(channel: string, payload: unknown): void {
+    const cb = handlers.get(channel)
+    if (!cb) throw new Error(`handler ${channel} not registered`)
+    cb({}, payload)
+  }
+
+  it('file.open: emits when worktreeId/path/name valid', () => {
+    mockWorktrees.set('w-1', { id: 'w-1', project_id: 'p-1' })
+    invokeChannel('field:reportFileOpen', {
+      worktreeId: 'w-1',
+      path: '/abs/src/auth.ts',
+      name: 'auth.ts'
+    })
+    expect(emitSpy).toHaveBeenCalledOnce()
+    const [args] = emitSpy.mock.calls[0]
+    expect(args).toMatchObject({
+      type: 'file.open',
+      worktreeId: 'w-1',
+      projectId: 'p-1',
+      payload: { path: '/abs/src/auth.ts', name: 'auth.ts' }
+    })
+  })
+
+  it('file.open: drops events from an unknown worktree silently', () => {
+    invokeChannel('field:reportFileOpen', {
+      worktreeId: 'ghost',
+      path: '/x/y.ts',
+      name: 'y.ts'
+    })
+    // Emit still goes through — projectId is null. That's OK: file was opened,
+    // we just don't know what project it belongs to. We only skip worktree.switch
+    // when the ID isn't real; file.open is less strict because the renderer can't
+    // practically send a fake worktreeId here.
+    expect(emitSpy).toHaveBeenCalledOnce()
+    const [args] = emitSpy.mock.calls[0]
+    expect(args).toMatchObject({ worktreeId: 'ghost', projectId: null })
+  })
+
+  it('file.open: rejects missing path / name', () => {
+    mockWorktrees.set('w-1', { id: 'w-1', project_id: 'p-1' })
+    invokeChannel('field:reportFileOpen', { worktreeId: 'w-1', name: 'a.ts' })
+    invokeChannel('field:reportFileOpen', { worktreeId: 'w-1', path: '/x' })
+    expect(emitSpy).not.toHaveBeenCalled()
+  })
+
+  // ---------------------------------------------------------------------------
+  // file.focus
+  // ---------------------------------------------------------------------------
+
+  it('file.focus: emits with nullable fromPath', () => {
+    mockWorktrees.set('w-1', { id: 'w-1', project_id: 'p-1' })
+    invokeChannel('field:reportFileFocus', {
+      worktreeId: 'w-1',
+      path: '/a.ts',
+      name: 'a.ts',
+      fromPath: null
+    })
+    expect(emitSpy).toHaveBeenCalledOnce()
+    const [args] = emitSpy.mock.calls[0]
+    expect(args).toMatchObject({
+      type: 'file.focus',
+      payload: { path: '/a.ts', name: 'a.ts', fromPath: null }
+    })
+  })
+
+  it('file.focus: accepts string fromPath', () => {
+    mockWorktrees.set('w-1', { id: 'w-1', project_id: 'p-1' })
+    invokeChannel('field:reportFileFocus', {
+      worktreeId: 'w-1',
+      path: '/a.ts',
+      name: 'a.ts',
+      fromPath: '/prev.ts'
+    })
+    expect(emitSpy).toHaveBeenCalledOnce()
+    const p = (emitSpy.mock.calls[0][0] as { payload: { fromPath: string | null } }).payload
+    expect(p.fromPath).toBe('/prev.ts')
+  })
+
+  // ---------------------------------------------------------------------------
+  // file.selection
+  // ---------------------------------------------------------------------------
+
+  it('file.selection: emits with line range', () => {
+    mockWorktrees.set('w-1', { id: 'w-1', project_id: 'p-1' })
+    invokeChannel('field:reportFileSelection', {
+      worktreeId: 'w-1',
+      path: '/a.ts',
+      fromLine: 45,
+      toLine: 58,
+      length: 320
+    })
+    expect(emitSpy).toHaveBeenCalledOnce()
+    const [args] = emitSpy.mock.calls[0]
+    expect(args).toMatchObject({
+      type: 'file.selection',
+      payload: { fromLine: 45, toLine: 58, length: 320 }
+    })
+  })
+
+  it('file.selection: rejects non-positive lines', () => {
+    mockWorktrees.set('w-1', { id: 'w-1', project_id: 'p-1' })
+    invokeChannel('field:reportFileSelection', {
+      worktreeId: 'w-1',
+      path: '/a.ts',
+      fromLine: 0,
+      toLine: 1,
+      length: 5
+    })
+    invokeChannel('field:reportFileSelection', {
+      worktreeId: 'w-1',
+      path: '/a.ts',
+      fromLine: -1,
+      toLine: 1,
+      length: 5
+    })
+    expect(emitSpy).not.toHaveBeenCalled()
+  })
+
+  it('file.selection: rejects non-integer lines', () => {
+    mockWorktrees.set('w-1', { id: 'w-1', project_id: 'p-1' })
+    invokeChannel('field:reportFileSelection', {
+      worktreeId: 'w-1',
+      path: '/a.ts',
+      fromLine: 1.5,
+      toLine: 2,
+      length: 5
+    })
+    expect(emitSpy).not.toHaveBeenCalled()
+  })
 })

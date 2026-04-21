@@ -9,6 +9,11 @@ import {
   feedTerminalInput,
   clearTerminalBuffer
 } from '../field/terminal-line-buffer'
+import {
+  recordCommandEventId,
+  clearTerminalOutputWindow,
+  subscribeTerminalOutputBus
+} from '../field/terminal-output-window'
 import { getFieldEventSink } from '../field/sink'
 import { getDatabase } from '../db'
 
@@ -29,6 +34,11 @@ const flushScheduled = new Set<string>()
 export function registerTerminalHandlers(mainWindow: BrowserWindow): void {
   // Set main window reference on the Ghostty service
   ghosttyService.setMainWindow(mainWindow)
+
+  // Phase 21: begin accumulating terminal.output windows from the existing
+  // EventBus `terminal:data` / `terminal:exit` fan-out. Idempotent — safe to
+  // call on re-registration.
+  subscribeTerminalOutputBus()
 
   // -----------------------------------------------------------------------
   // node-pty (xterm.js backend) handlers
@@ -128,7 +138,7 @@ export function registerTerminalHandlers(mainWindow: BrowserWindow): void {
       if (lines.length > 0) {
         const projectId = getDatabase().getWorktree(worktreeId)?.project_id ?? null
         for (const command of lines) {
-          emitFieldEvent({
+          const eventId = emitFieldEvent({
             type: 'terminal.command',
             worktreeId,
             projectId,
@@ -136,6 +146,12 @@ export function registerTerminalHandlers(mainWindow: BrowserWindow): void {
             relatedEventId: null,
             payload: { command }
           })
+          if (eventId) {
+            // Correlate subsequent terminal.output events to this command.
+            // This also closes any in-progress output window so output doesn't
+            // leak across commands.
+            recordCommandEventId(worktreeId, eventId)
+          }
         }
       }
     } catch (err) {
@@ -165,6 +181,7 @@ export function registerTerminalHandlers(mainWindow: BrowserWindow): void {
     dataBuffers.delete(worktreeId)
     flushScheduled.delete(worktreeId)
     clearTerminalBuffer(worktreeId)
+    clearTerminalOutputWindow(worktreeId)
     ptyService.destroy(worktreeId)
   })
 

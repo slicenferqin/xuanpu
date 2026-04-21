@@ -1803,7 +1803,13 @@ const analyticsOps = {
 // types are emitted from the main process. See docs/prd/phase-21-field-events.md §5.
 const fieldOps = {
   reportWorktreeSwitch: (input: import('../shared/types/field-event').WorktreeSwitchInput) =>
-    ipcRenderer.send('field:reportWorktreeSwitch', input)
+    ipcRenderer.send('field:reportWorktreeSwitch', input),
+  reportFileOpen: (input: import('../shared/types/field-event').FileOpenInput) =>
+    ipcRenderer.send('field:reportFileOpen', input),
+  reportFileFocus: (input: import('../shared/types/field-event').FileFocusInput) =>
+    ipcRenderer.send('field:reportFileFocus', input),
+  reportFileSelection: (input: import('../shared/types/field-event').FileSelectionInput) =>
+    ipcRenderer.send('field:reportFileSelection', input)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

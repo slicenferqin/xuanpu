@@ -1294,6 +1294,11 @@ declare global {
       reportWorktreeSwitch: (
         input: import('../shared/types/field-event').WorktreeSwitchInput
       ) => void
+      reportFileOpen: (input: import('../shared/types/field-event').FileOpenInput) => void
+      reportFileFocus: (input: import('../shared/types/field-event').FileFocusInput) => void
+      reportFileSelection: (
+        input: import('../shared/types/field-event').FileSelectionInput
+      ) => void
     }
   }
 

@@ -32,7 +32,11 @@ const log = createLogger({ component: 'FieldEvent' })
  */
 const SENSITIVE_TYPES: ReadonlySet<FieldEventType> = new Set<FieldEventType>([
   'worktree.switch',
+  'file.open',
+  'file.focus',
+  'file.selection',
   'terminal.command',
+  'terminal.output',
   'session.message'
 ])
 
@@ -42,11 +46,19 @@ const SENSITIVE_TYPES: ReadonlySet<FieldEventType> = new Set<FieldEventType>([
  */
 export type EmitInput = Omit<FieldEvent, 'id' | 'timestamp'>
 
-export function emitFieldEvent(input: EmitInput): void {
+/**
+ * Emit a field event.
+ *
+ * Returns the generated event id on success, or `null` when the event was
+ * dropped (privacy off, serialization failure). Callers that want to
+ * correlate follow-up events (e.g. terminal.command -> terminal.output) can
+ * use the returned id.
+ */
+export function emitFieldEvent(input: EmitInput): string | null {
   // 1. Privacy gate at emit site (per PRD §6.2)
   if (SENSITIVE_TYPES.has(input.type) && !isFieldCollectionEnabled()) {
     getFieldEventSink().incrementCounter('dropped_privacy')
-    return
+    return null
   }
 
   // 2. Generate envelope + 3. serialize payload at enqueue time
@@ -64,7 +76,7 @@ export function emitFieldEvent(input: EmitInput): void {
     log.debug('emitFieldEvent: serialization failed', {
       error: err instanceof Error ? err.message : String(err)
     })
-    return
+    return null
   }
 
   // 4. Primary persistence path — direct enqueue. Sink does NOT subscribe to
@@ -87,4 +99,6 @@ export function emitFieldEvent(input: EmitInput): void {
       error: err instanceof Error ? err.message : String(err)
     })
   }
+
+  return event.id
 }

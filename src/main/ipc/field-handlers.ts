@@ -1,13 +1,17 @@
 /**
  * Field Event Stream — IPC handlers (Phase 21 §5).
  *
- * Single narrow channel: `field:reportWorktreeSwitch`.
+ * Narrow channels, one per renderer-owned event type. We deliberately do NOT
+ * expose a generic `field:report(event)` shape — that would let the renderer
+ * forge main-owned event types (terminal.command, terminal.output,
+ * session.message). Future renderer-owned events get their own dedicated
+ * channels with specific payload types.
  *
- * Per oracle review: we deliberately do NOT expose a generic
- * `field:report(event)` shape — that would let the renderer forge
- * main-owned event types (terminal.command, session.message). Future
- * renderer-owned events (e.g. file.open in Phase 22) get their own
- * dedicated channels with specific payload types.
+ * Channels:
+ *   - field:reportWorktreeSwitch
+ *   - field:reportFileOpen
+ *   - field:reportFileFocus
+ *   - field:reportFileSelection
  */
 import { ipcMain } from 'electron'
 import { getDatabase } from '../db'
@@ -18,6 +22,9 @@ import type { WorktreeSwitchTrigger } from '../../shared/types'
 const log = createLogger({ component: 'FieldHandlers' })
 
 const MAX_ID_LEN = 64
+const MAX_PATH_LEN = 4096
+const MAX_NAME_LEN = 256
+const MAX_LINE = 10_000_000
 const VALID_TRIGGERS: ReadonlySet<string> = new Set<WorktreeSwitchTrigger>([
   'user-click',
   'keyboard',
@@ -32,21 +39,30 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return proto === Object.prototype || proto === null
 }
 
-function isShortString(value: unknown, maxLen = MAX_ID_LEN): value is string {
+function isShortString(value: unknown, maxLen: number): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= maxLen
+}
+
+function isNonNegInt(value: unknown, max: number): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= max
+}
+
+function resolveProjectId(worktreeId: string): string | null {
+  return getDatabase().getWorktree(worktreeId)?.project_id ?? null
 }
 
 export function registerFieldHandlers(): void {
   log.info('Registering field handlers')
 
-  // Fire-and-forget: ipcMain.on (no round-trip), payload validated, worktreeId
-  // verified to exist in the DB.
+  // -------------------------------------------------------------------------
+  // worktree.switch (source-side dedup in useWorktreeStore)
+  // -------------------------------------------------------------------------
   ipcMain.on('field:reportWorktreeSwitch', (_event, input: unknown) => {
     if (!isPlainObject(input)) return
 
     const { fromWorktreeId, toWorktreeId, trigger } = input
 
-    if (!isShortString(toWorktreeId)) return
+    if (!isShortString(toWorktreeId, MAX_ID_LEN)) return
     if (
       fromWorktreeId !== null &&
       (typeof fromWorktreeId !== 'string' || fromWorktreeId.length > MAX_ID_LEN)
@@ -56,11 +72,7 @@ export function registerFieldHandlers(): void {
     if (typeof trigger !== 'string' || !VALID_TRIGGERS.has(trigger)) return
 
     const worktree = getDatabase().getWorktree(toWorktreeId)
-    if (!worktree) {
-      // Renderer reported a worktree that doesn't exist in the DB. Silently drop.
-      // (Could be a race during creation/deletion; not worth surfacing.)
-      return
-    }
+    if (!worktree) return
 
     emitFieldEvent({
       type: 'worktree.switch',
@@ -75,4 +87,70 @@ export function registerFieldHandlers(): void {
       }
     })
   })
+
+  // -------------------------------------------------------------------------
+  // file.open
+  // -------------------------------------------------------------------------
+  ipcMain.on('field:reportFileOpen', (_event, input: unknown) => {
+    if (!isPlainObject(input)) return
+    const { worktreeId, path, name } = input
+    if (!isShortString(worktreeId, MAX_ID_LEN)) return
+    if (!isShortString(path, MAX_PATH_LEN)) return
+    if (!isShortString(name, MAX_NAME_LEN)) return
+
+    emitFieldEvent({
+      type: 'file.open',
+      worktreeId,
+      projectId: resolveProjectId(worktreeId),
+      sessionId: null,
+      relatedEventId: null,
+      payload: { path, name }
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // file.focus
+  // -------------------------------------------------------------------------
+  ipcMain.on('field:reportFileFocus', (_event, input: unknown) => {
+    if (!isPlainObject(input)) return
+    const { worktreeId, path, name, fromPath } = input
+    if (!isShortString(worktreeId, MAX_ID_LEN)) return
+    if (!isShortString(path, MAX_PATH_LEN)) return
+    if (!isShortString(name, MAX_NAME_LEN)) return
+    if (fromPath !== null && (typeof fromPath !== 'string' || fromPath.length > MAX_PATH_LEN)) {
+      return
+    }
+
+    emitFieldEvent({
+      type: 'file.focus',
+      worktreeId,
+      projectId: resolveProjectId(worktreeId),
+      sessionId: null,
+      relatedEventId: null,
+      payload: { path, name, fromPath: (fromPath as string | null) ?? null }
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // file.selection
+  // -------------------------------------------------------------------------
+  ipcMain.on('field:reportFileSelection', (_event, input: unknown) => {
+    if (!isPlainObject(input)) return
+    const { worktreeId, path, fromLine, toLine, length } = input
+    if (!isShortString(worktreeId, MAX_ID_LEN)) return
+    if (!isShortString(path, MAX_PATH_LEN)) return
+    if (!isNonNegInt(fromLine, MAX_LINE) || fromLine < 1) return
+    if (!isNonNegInt(toLine, MAX_LINE) || toLine < 1) return
+    if (!isNonNegInt(length, MAX_LINE)) return
+
+    emitFieldEvent({
+      type: 'file.selection',
+      worktreeId,
+      projectId: resolveProjectId(worktreeId),
+      sessionId: null,
+      relatedEventId: null,
+      payload: { path, fromLine, toLine, length }
+    })
+  })
 }
+

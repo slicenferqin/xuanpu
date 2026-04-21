@@ -10,7 +10,11 @@
 
 export type FieldEventType =
   | 'worktree.switch'
+  | 'file.open'
+  | 'file.focus'
+  | 'file.selection'
   | 'terminal.command'
+  | 'terminal.output'
   | 'session.message'
 
 /**
@@ -57,6 +61,51 @@ export interface TerminalCommandPayload {
   cwd?: string
 }
 
+export interface TerminalOutputPayload {
+  /**
+   * If the window can be correlated to a prior terminal.command event for the
+   * same worktree, its id is stored here. Best-effort only — no correlation
+   * guarantees are made.
+   */
+  commandEventId: string | null
+  /** Head of the window (first N lines). */
+  head: string
+  /** Tail of the window (last M lines). Empty if the whole output fit in head. */
+  tail: string
+  /** True if middle was elided between head and tail. */
+  truncated: boolean
+  /** Total bytes observed during this window (pre-truncation). */
+  totalBytes: number
+  /** Exit code if the process exited during the window; else null. */
+  exitCode: number | null
+  /** Why the window closed: 'size' | 'time' | 'next-command' | 'exit' | 'destroy'. */
+  reason: 'size' | 'time' | 'next-command' | 'exit' | 'destroy'
+}
+
+export interface FileOpenPayload {
+  /** Absolute path (matches what the FileViewerStore stores). */
+  path: string
+  /** Just the basename, precomputed so dumps don't have to split. */
+  name: string
+}
+
+export interface FileFocusPayload {
+  path: string
+  name: string
+  /** Previous active file path at the moment of focus change, if any. */
+  fromPath: string | null
+}
+
+export interface FileSelectionPayload {
+  path: string
+  /** 1-indexed. Line of the anchor (where selection started). */
+  fromLine: number
+  /** 1-indexed. Line of the head (where caret is now). Equal to fromLine for caret-only movements; those are dropped upstream. */
+  toLine: number
+  /** Character count of the selected text. Useful for filtering caret-only moves if they slip through. */
+  length: number
+}
+
 export type SessionMessageAgentSdk = 'opencode' | 'claude-code' | 'codex'
 
 export interface SessionMessagePayload {
@@ -74,7 +123,11 @@ export interface SessionMessagePayload {
 
 export type FieldEvent =
   | (FieldEventEnvelope & { type: 'worktree.switch'; payload: WorktreeSwitchPayload })
+  | (FieldEventEnvelope & { type: 'file.open'; payload: FileOpenPayload })
+  | (FieldEventEnvelope & { type: 'file.focus'; payload: FileFocusPayload })
+  | (FieldEventEnvelope & { type: 'file.selection'; payload: FileSelectionPayload })
   | (FieldEventEnvelope & { type: 'terminal.command'; payload: TerminalCommandPayload })
+  | (FieldEventEnvelope & { type: 'terminal.output'; payload: TerminalOutputPayload })
   | (FieldEventEnvelope & { type: 'session.message'; payload: SessionMessagePayload })
 
 /**
@@ -85,4 +138,28 @@ export interface WorktreeSwitchInput {
   fromWorktreeId: string | null
   toWorktreeId: string
   trigger: WorktreeSwitchTrigger
+}
+
+/** Renderer-side input for `field:reportFileOpen`. */
+export interface FileOpenInput {
+  worktreeId: string
+  path: string
+  name: string
+}
+
+/** Renderer-side input for `field:reportFileFocus`. */
+export interface FileFocusInput {
+  worktreeId: string
+  path: string
+  name: string
+  fromPath: string | null
+}
+
+/** Renderer-side input for `field:reportFileSelection`. */
+export interface FileSelectionInput {
+  worktreeId: string
+  path: string
+  fromLine: number
+  toLine: number
+  length: number
 }
