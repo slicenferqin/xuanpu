@@ -29,7 +29,12 @@ import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useContextStore } from '@/stores/useContextStore'
 import { useRecentStore } from '@/stores/useRecentStore'
 import { useUsageStore, resolveUsageProvider } from '@/stores'
-import { useSessionRuntimeStore, clearStreamingBuffer } from '@/stores/useSessionRuntimeStore'
+import {
+  useSessionRuntimeStore,
+  acceptSessionEvent,
+  syncStreamingBufferGuardState,
+  writeEventToStreamingBuffer
+} from '@/stores/useSessionRuntimeStore'
 import {
   extractTokens,
   extractCost,
@@ -254,6 +259,17 @@ export function useAgentEventBridge(): void {
       ? window.agentOps.onStream((event: CanonicalAgentEvent) => {
           const sessionId = event.sessionId
           const activeId = useSessionStore.getState().activeSessionId
+
+          const guard = acceptSessionEvent(event)
+          if (!guard.accepted) {
+            return
+          }
+
+          syncStreamingBufferGuardState(sessionId, guard.state, {
+            resetOverlay: guard.advancedRun,
+            notify: 'none'
+          })
+          writeEventToStreamingBuffer(sessionId, event, { activeSessionId: activeId })
 
           // Always dispatch to per-session callbacks (SessionView streaming)
           runtime.dispatchToSession(sessionId, event)
@@ -626,11 +642,6 @@ export function useAgentEventBridge(): void {
 
           runtime.setLifecycle(sessionId, 'idle')
           runtime.setRetryInfo(sessionId, null)
-          // Clear streaming buffer — DB is now source of truth for this turn.
-          // Must happen here (not only in SessionShell) because the user may
-          // have switched tabs mid-stream; SessionShell is unmounted and won't
-          // receive the idle event directly.
-          clearStreamingBuffer(sessionId)
 
           // Usage tracking on idle
           if (useSettingsStore.getState().showUsageIndicator) {

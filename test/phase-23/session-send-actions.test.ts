@@ -12,9 +12,7 @@ import {
   createPendingMessage,
   getActionLabel,
   _resetPendingIdCounter,
-  type ComposerInput,
-  type ComposerAction,
-  type ComposerActionSet
+  type ComposerInput
 } from '../../src/renderer/src/lib/session-send-actions'
 
 import { useSessionRuntimeStore } from '../../src/renderer/src/stores/useSessionRuntimeStore'
@@ -28,6 +26,7 @@ function makeInput(overrides: Partial<ComposerInput> = {}): ComposerInput {
     lifecycle: 'idle',
     hasInterrupt: false,
     hasPendingMessages: false,
+    hasDraftContent: false,
     isConnected: true,
     ...overrides
   }
@@ -38,6 +37,7 @@ function makeSendContext(overrides: Partial<Parameters<typeof executeSendAction>
     worktreePath: '/test/path',
     sessionId: 'sess-1',
     prompt: vi.fn().mockResolvedValue({ success: true }),
+    steer: vi.fn().mockResolvedValue({ success: true }),
     abort: vi.fn().mockResolvedValue({ success: true }),
     queueMessage: vi.fn(),
     ...overrides
@@ -137,23 +137,54 @@ describe('determineComposerActions', () => {
   })
 
   describe('busy lifecycle', () => {
-    it('returns stop_and_send with queue and steer alternatives', () => {
-      const result = determineComposerActions(makeInput({ lifecycle: 'busy' }))
+    it('returns stop_and_send with queue and steer alternatives when no draft exists', () => {
+      const result = determineComposerActions(makeInput({ lifecycle: 'busy', supportsSteer: true }))
       expect(result.primary).toBe('stop_and_send')
       expect(result.inputEnabled).toBe(true)
       expect(result.iconHint).toBe('stop')
       expect(result.primaryLabel).toBe('Stop')
       expect(result.alternatives).toEqual(['queue', 'steer'])
     })
+
+    it('omits steer when runtime does not support it', () => {
+      const result = determineComposerActions(makeInput({ lifecycle: 'busy', supportsSteer: false }))
+      expect(result.alternatives).toEqual(['queue'])
+    })
+
+    it('returns queue with steer and stop alternatives when draft content exists', () => {
+      const result = determineComposerActions(
+        makeInput({ lifecycle: 'busy', hasDraftContent: true, supportsSteer: true })
+      )
+      expect(result.primary).toBe('queue')
+      expect(result.inputEnabled).toBe(true)
+      expect(result.iconHint).toBe('queue')
+      expect(result.primaryLabel).toBe('Queue')
+      expect(result.alternatives).toEqual(['steer', 'stop_and_send'])
+    })
+
+    it('omits steer from draft alternatives when runtime does not support it', () => {
+      const result = determineComposerActions(
+        makeInput({ lifecycle: 'busy', hasDraftContent: true, supportsSteer: false })
+      )
+      expect(result.alternatives).toEqual(['stop_and_send'])
+    })
   })
 
   describe('materializing lifecycle', () => {
-    it('returns stop_and_send (same as busy)', () => {
+    it('returns stop_and_send (same as busy) when input is empty', () => {
       const result = determineComposerActions(
-        makeInput({ lifecycle: 'materializing' })
+        makeInput({ lifecycle: 'materializing', supportsSteer: true })
       )
       expect(result.primary).toBe('stop_and_send')
       expect(result.alternatives).toEqual(['queue', 'steer'])
+    })
+
+    it('returns queue when materializing with draft content', () => {
+      const result = determineComposerActions(
+        makeInput({ lifecycle: 'materializing', hasDraftContent: true, supportsSteer: true })
+      )
+      expect(result.primary).toBe('queue')
+      expect(result.alternatives).toEqual(['steer', 'stop_and_send'])
     })
   })
 
@@ -241,11 +272,23 @@ describe('executeSendAction', () => {
     expect(ctx.prompt).not.toHaveBeenCalled()
   })
 
-  it('steer: calls prompt (sends while busy)', async () => {
+  it('steer: calls steer IPC (sends while busy)', async () => {
     const ctx = makeSendContext()
     const result = await executeSendAction('steer', 'change direction', [], ctx)
     expect(result).toBe(true)
-    expect(ctx.prompt).toHaveBeenCalledWith('/test/path', 'sess-1', 'change direction')
+    expect(ctx.steer).toHaveBeenCalledWith('/test/path', 'sess-1', 'change direction')
+  })
+
+  it('steer: rejects attachments', async () => {
+    const ctx = makeSendContext()
+    await expect(
+      executeSendAction(
+        'steer',
+        'change direction',
+        [{ kind: 'data', id: 'a1', name: 'image.png', mime: 'image/png' }],
+        ctx
+      )
+    ).rejects.toThrow('Steer only supports text messages')
   })
 
   it('stop_and_send: calls abort then prompt', async () => {
@@ -296,7 +339,20 @@ describe('drainNextPending', () => {
     const result = await drainNextPending('sess-1', 'agent-sess-1', dequeue, prompt, '/path')
     expect(result).toBe(true)
     expect(dequeue).toHaveBeenCalledWith('sess-1')
-    expect(prompt).toHaveBeenCalledWith('/path', 'agent-sess-1', 'queued message')
+    expect(prompt).toHaveBeenCalledWith('/path', 'agent-sess-1', pending)
+  })
+
+  it('requeues the message at the front when drain fails', async () => {
+    const pending = createPendingMessage('queued message')
+    const dequeue = vi.fn().mockReturnValue(pending)
+    const prompt = vi.fn().mockRejectedValue(new Error('send failed'))
+    const requeueFront = vi.fn()
+
+    await expect(
+      drainNextPending('sess-1', 'agent-sess-1', dequeue, prompt, '/path', requeueFront)
+    ).rejects.toThrow('send failed')
+
+    expect(requeueFront).toHaveBeenCalledWith('sess-1', pending)
   })
 })
 
@@ -305,6 +361,13 @@ describe('drainNextPending', () => {
 // ===========================================================================
 
 describe('useSessionRuntimeStore pending messages', () => {
+  it('syncs queued-state true when queueing a message', () => {
+    const syncSpy = vi.spyOn(window.systemOps, 'setSessionQueuedState')
+    const store = useSessionRuntimeStore.getState()
+    store.queueMessage('sess-1', createPendingMessage('test'))
+    expect(syncSpy).toHaveBeenCalledWith('sess-1', true)
+  })
+
   it('queues and retrieves pending messages', () => {
     const store = useSessionRuntimeStore.getState()
     const msg = createPendingMessage('test')
@@ -336,18 +399,34 @@ describe('useSessionRuntimeStore pending messages', () => {
   })
 
   it('dequeueMessage cleans up Map entry when queue is emptied', () => {
+    const syncSpy = vi.spyOn(window.systemOps, 'setSessionQueuedState')
     const store = useSessionRuntimeStore.getState()
     store.queueMessage('sess-1', createPendingMessage('only'))
     store.dequeueMessage('sess-1')
     expect(useSessionRuntimeStore.getState().pendingMessages.has('sess-1')).toBe(false)
+    expect(syncSpy).toHaveBeenLastCalledWith('sess-1', false)
   })
 
   it('clearPendingMessages removes all pending for session', () => {
+    const syncSpy = vi.spyOn(window.systemOps, 'setSessionQueuedState')
     const store = useSessionRuntimeStore.getState()
     store.queueMessage('sess-1', createPendingMessage('a'))
     store.queueMessage('sess-1', createPendingMessage('b'))
     store.clearPendingMessages('sess-1')
     expect(useSessionRuntimeStore.getState().getPendingCount('sess-1')).toBe(0)
+    expect(syncSpy).toHaveBeenLastCalledWith('sess-1', false)
+  })
+
+  it('requeueMessageFront prepends a failed pending message', () => {
+    const store = useSessionRuntimeStore.getState()
+    store.queueMessage('sess-1', createPendingMessage('second'))
+    const failed = createPendingMessage('first-again')
+    store.requeueMessageFront('sess-1', failed)
+
+    expect(useSessionRuntimeStore.getState().getPendingMessages('sess-1').map((m) => m.content)).toEqual([
+      'first-again',
+      'second'
+    ])
   })
 
   it('clearPendingMessages is no-op for unknown session', () => {
@@ -366,12 +445,14 @@ describe('useSessionRuntimeStore pending messages', () => {
   })
 
   it('clearSession also clears pending messages', () => {
+    const syncSpy = vi.spyOn(window.systemOps, 'setSessionQueuedState')
     const store = useSessionRuntimeStore.getState()
     store.queueMessage('sess-1', createPendingMessage('test'))
     store.setLifecycle('sess-1', 'busy')
     store.clearSession('sess-1')
     expect(useSessionRuntimeStore.getState().getPendingCount('sess-1')).toBe(0)
     expect(useSessionRuntimeStore.getState().pendingMessages.has('sess-1')).toBe(false)
+    expect(syncSpy).toHaveBeenLastCalledWith('sess-1', false)
   })
 
   it('maintains separate queues per session', () => {
@@ -412,11 +493,11 @@ describe('end-to-end: state machine → execute', () => {
   })
 
   it('busy session: choose queue alternative → message is queued', async () => {
-    const actions = determineComposerActions(makeInput({ lifecycle: 'busy' }))
-    expect(actions.alternatives).toContain('queue')
+    const actions = determineComposerActions(makeInput({ lifecycle: 'busy', hasDraftContent: true }))
+    expect(actions.primary).toBe('queue')
 
     const ctx = makeSendContext()
-    const consumed = await executeSendAction('queue', 'for later', [], ctx)
+    const consumed = await executeSendAction(actions.primary!, 'for later', [], ctx)
     expect(consumed).toBe(true)
     expect(ctx.queueMessage).toHaveBeenCalledTimes(1)
     expect(ctx.prompt).not.toHaveBeenCalled()

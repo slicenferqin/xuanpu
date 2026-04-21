@@ -148,6 +148,7 @@ export interface OpenCodeMessage {
   role: 'user' | 'assistant' | 'system'
   content: string
   timestamp: string
+  steered?: boolean
   /** Interleaved parts for assistant messages with tool calls */
   parts?: StreamingPart[]
   /** File attachments for user messages (images, PDFs, etc.) */

@@ -1,6 +1,10 @@
 import { describe, test, expect, beforeEach, vi } from 'vitest'
 import { useFileViewerStore } from '../../../src/renderer/src/stores/useFileViewerStore'
 import { useSessionStore } from '../../../src/renderer/src/stores/useSessionStore'
+import {
+  resetSessionViewRegistryForTests,
+  setSessionViewState
+} from '../../../src/renderer/src/lib/session-view-registry'
 
 /**
  * Session 7: Tab Context Menus — Store Actions
@@ -31,6 +35,9 @@ describe('Session 7: Tab Context Store Actions', () => {
     const worktreeId = 'wt-1'
 
     beforeEach(() => {
+      vi.useRealTimers()
+      resetSessionViewRegistryForTests()
+      window.sessionStorage.clear()
       // Reset store with 3 sessions in tab order
       useSessionStore.setState({
         sessionsByWorktree: new Map([
@@ -172,6 +179,42 @@ describe('Session 7: Tab Context Store Actions', () => {
       // Only s3 should be closed, s1 and s2 remain
       expect(tabOrder).toEqual(['s1', 's2'])
       expect(sessions.map((s) => s.id)).toEqual(['s1', 's2'])
+    })
+
+    test('closeSessionsToRight clears removed sessions from the persisted view registry', async () => {
+      vi.useFakeTimers()
+
+      setSessionViewState('s1', {
+        scrollTop: 10,
+        stickyBottom: true,
+        manualScrollLocked: false,
+        lastSeenVersion: 1
+      })
+      setSessionViewState('s2', {
+        scrollTop: 20,
+        stickyBottom: false,
+        manualScrollLocked: true,
+        lastSeenVersion: 2
+      })
+      setSessionViewState('s3', {
+        scrollTop: 30,
+        stickyBottom: false,
+        manualScrollLocked: true,
+        lastSeenVersion: 3
+      })
+      vi.runAllTimers()
+
+      await useSessionStore.getState().closeSessionsToRight(worktreeId, 's1')
+      vi.runAllTimers()
+
+      expect(JSON.parse(window.sessionStorage.getItem('xuanpu:session-view-registry') ?? '{}')).toEqual({
+        s1: {
+          scrollTop: 10,
+          stickyBottom: true,
+          manualScrollLocked: false,
+          lastSeenVersion: 1
+        }
+      })
     })
 
     test('closeSessionsToRight with last tab is a no-op', async () => {

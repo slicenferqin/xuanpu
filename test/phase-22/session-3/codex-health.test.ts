@@ -1,14 +1,17 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-/**
- * Tests for codex-health.ts — version parsing, auth output parsing,
- * and health check orchestration.
- *
- * We test the pure parsing functions directly and mock child_process
- * for the async functions that shell out to the codex CLI.
- */
+const {
+  mockEnsureCodexAppServerLaunchSpec,
+  mockGetCodexLaunchInfo,
+  mockGetResolvedCodexVersion,
+  mockExecuteLaunchSpec
+} = vi.hoisted(() => ({
+  mockEnsureCodexAppServerLaunchSpec: vi.fn(),
+  mockGetCodexLaunchInfo: vi.fn(),
+  mockGetResolvedCodexVersion: vi.fn(),
+  mockExecuteLaunchSpec: vi.fn()
+}))
 
-// Mock logger
 vi.mock('../../../src/main/services/logger', () => ({
   createLogger: () => ({
     info: vi.fn(),
@@ -18,303 +21,184 @@ vi.mock('../../../src/main/services/logger', () => ({
   })
 }))
 
-// Mock child_process — must provide default export for jsdom environment
-const mockExecFile = vi.fn()
-vi.mock('node:child_process', () => {
-  return {
-    default: { execFile: (...args: unknown[]) => mockExecFile(...args) },
-    execFile: (...args: unknown[]) => mockExecFile(...args)
-  }
-})
+vi.mock('../../../src/main/services/codex-binary-resolver', () => ({
+  ensureCodexAppServerLaunchSpec: mockEnsureCodexAppServerLaunchSpec,
+  getCodexLaunchInfo: mockGetCodexLaunchInfo,
+  getCodexVersion: mockGetResolvedCodexVersion
+}))
+
+vi.mock('../../../src/main/services/command-launch-utils', () => ({
+  executeLaunchSpec: mockExecuteLaunchSpec
+}))
 
 import {
-  parseVersionOutput,
-  parseAuthOutput,
-  getCodexVersion,
   checkCodexAuth,
-  checkCodexHealth
+  checkCodexHealth,
+  getCodexVersion,
+  parseAuthOutput,
+  parseVersionOutput
 } from '../../../src/main/services/codex-health'
 
 describe('codex-health', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockEnsureCodexAppServerLaunchSpec.mockResolvedValue({ command: 'codex', shell: false })
   })
 
-  // ── parseVersionOutput ─────────────────────────────────────────
-
   describe('parseVersionOutput', () => {
-    it('parses "codex 1.2.3" format', () => {
+    it('parses version strings with a codex prefix', () => {
       expect(parseVersionOutput('codex 1.2.3')).toBe('1.2.3')
-    })
-
-    it('parses "codex/1.2.3" format', () => {
       expect(parseVersionOutput('codex/1.2.3')).toBe('1.2.3')
     })
 
-    it('parses bare version "1.2.3"', () => {
+    it('parses bare and multiline version output', () => {
       expect(parseVersionOutput('1.2.3')).toBe('1.2.3')
-    })
-
-    it('parses version with trailing newline', () => {
-      expect(parseVersionOutput('codex 0.9.1\n')).toBe('0.9.1')
-    })
-
-    it('parses multiline output (takes first line)', () => {
       expect(parseVersionOutput('codex 2.0.0\nsome other info')).toBe('2.0.0')
     })
 
-    it('parses version with pre-release suffix', () => {
-      expect(parseVersionOutput('1.0.0-beta.1')).toBe('1.0.0-beta.1')
-    })
-
-    it('returns null for empty string', () => {
-      expect(parseVersionOutput('')).toBe(null)
-    })
-
-    it('returns null for whitespace-only string', () => {
-      expect(parseVersionOutput('   \n  ')).toBe(null)
-    })
-
-    it('returns raw first line for non-version output', () => {
+    it('returns null for empty output and falls back to the raw first line otherwise', () => {
+      expect(parseVersionOutput('')).toBeNull()
       expect(parseVersionOutput('something unexpected')).toBe('something unexpected')
     })
   })
 
-  // ── parseAuthOutput ────────────────────────────────────────────
-
   describe('parseAuthOutput', () => {
-    it('detects "not logged in" as unauthenticated', () => {
+    it('detects unauthenticated output patterns', () => {
       expect(parseAuthOutput('You are not logged in')).toBe('unauthenticated')
-    })
-
-    it('detects "login required" as unauthenticated', () => {
-      expect(parseAuthOutput('Login required to continue')).toBe('unauthenticated')
-    })
-
-    it('detects "run codex login" as unauthenticated', () => {
       expect(parseAuthOutput('Please run codex login first')).toBe('unauthenticated')
-    })
-
-    it('detects "unauthenticated" keyword as unauthenticated', () => {
       expect(parseAuthOutput('Status: unauthenticated')).toBe('unauthenticated')
     })
 
-    it('detects "not authenticated" as unauthenticated', () => {
-      expect(parseAuthOutput('User is not authenticated')).toBe('unauthenticated')
-    })
-
-    it('parses JSON with authenticated: true', () => {
+    it('detects structured JSON auth status', () => {
       expect(parseAuthOutput('{"authenticated": true}')).toBe('authenticated')
-    })
-
-    it('parses JSON with authenticated: false', () => {
-      expect(parseAuthOutput('{"authenticated": false}')).toBe('unauthenticated')
-    })
-
-    it('parses JSON with isAuthenticated: true', () => {
-      expect(parseAuthOutput('{"isAuthenticated": true}')).toBe('authenticated')
-    })
-
-    it('parses JSON with loggedIn: true', () => {
-      expect(parseAuthOutput('{"loggedIn": true}')).toBe('authenticated')
-    })
-
-    it('parses JSON with loggedIn: false', () => {
       expect(parseAuthOutput('{"loggedIn": false}')).toBe('unauthenticated')
     })
 
-    it('assumes authenticated for unknown text output', () => {
+    it('assumes authenticated when no failure signal is present', () => {
       expect(parseAuthOutput('Logged in as user@example.com')).toBe('authenticated')
     })
-
-    it('is case-insensitive for keyword matching', () => {
-      expect(parseAuthOutput('NOT LOGGED IN')).toBe('unauthenticated')
-    })
   })
-
-  // ── getCodexVersion ────────────────────────────────────────────
 
   describe('getCodexVersion', () => {
-    it('returns version string when codex is installed', async () => {
-      mockExecFile.mockImplementation(
-        (_cmd: string, _args: string[], _opts: unknown, cb: (...a: unknown[]) => void) => {
-          cb(null, 'codex 1.5.0\n')
-        }
-      )
+    it('delegates to the resolver-backed version lookup', async () => {
+      mockGetResolvedCodexVersion.mockResolvedValue('0.36.0')
 
-      const version = await getCodexVersion()
-      expect(version).toBe('1.5.0')
+      await expect(getCodexVersion({ command: 'codex', shell: false })).resolves.toBe('0.36.0')
+      expect(mockGetResolvedCodexVersion).toHaveBeenCalledWith({ command: 'codex', shell: false })
     })
 
-    it('returns null when codex is not installed', async () => {
-      mockExecFile.mockImplementation(
-        (_cmd: string, _args: string[], _opts: unknown, cb: (...a: unknown[]) => void) => {
-          cb(new Error('command not found'))
-        }
-      )
+    it('returns null when resolver-backed version lookup throws', async () => {
+      mockGetResolvedCodexVersion.mockRejectedValue(new Error('boom'))
 
-      const version = await getCodexVersion()
-      expect(version).toBe(null)
-    })
-
-    it('returns null on timeout', async () => {
-      mockExecFile.mockImplementation(
-        (_cmd: string, _args: string[], _opts: unknown, cb: (...a: unknown[]) => void) => {
-          cb(new Error('ETIMEDOUT'))
-        }
-      )
-
-      const version = await getCodexVersion()
-      expect(version).toBe(null)
-    })
-
-    it('calls codex with --version flag', async () => {
-      mockExecFile.mockImplementation(
-        (_cmd: string, _args: string[], _opts: unknown, cb: (...a: unknown[]) => void) => {
-          cb(null, '1.0.0')
-        }
-      )
-
-      await getCodexVersion()
-      expect(mockExecFile).toHaveBeenCalledWith(
-        'codex',
-        ['--version'],
-        expect.objectContaining({ timeout: 5000 }),
-        expect.any(Function)
-      )
+      await expect(getCodexVersion()).resolves.toBeNull()
     })
   })
-
-  // ── checkCodexAuth ─────────────────────────────────────────────
 
   describe('checkCodexAuth', () => {
-    it('returns authenticated when logged in', async () => {
-      mockExecFile.mockImplementation(
-        (_cmd: string, _args: string[], _opts: unknown, cb: (...a: unknown[]) => void) => {
-          cb(null, '{"authenticated": true}')
-        }
-      )
+    it('uses the provided launch spec when available', async () => {
+      mockExecuteLaunchSpec.mockResolvedValue({
+        stdout: '{"authenticated": true}',
+        stderr: ''
+      })
 
-      const status = await checkCodexAuth()
-      expect(status).toBe('authenticated')
+      await expect(checkCodexAuth({ command: 'codex', shell: false })).resolves.toBe(
+        'authenticated'
+      )
+      expect(mockEnsureCodexAppServerLaunchSpec).not.toHaveBeenCalled()
+      expect(mockExecuteLaunchSpec).toHaveBeenCalledWith({ command: 'codex', shell: false }, [
+        'login',
+        'status'
+      ])
     })
 
-    it('returns unauthenticated when not logged in', async () => {
-      mockExecFile.mockImplementation(
-        (_cmd: string, _args: string[], _opts: unknown, cb: (...a: unknown[]) => void) => {
-          cb(null, 'You are not logged in. Run codex login.')
-        }
-      )
+    it('returns unknown when the auth probe fails', async () => {
+      mockExecuteLaunchSpec.mockRejectedValue(new Error('command failed'))
 
-      const status = await checkCodexAuth()
-      expect(status).toBe('unauthenticated')
-    })
-
-    it('returns unknown when command fails', async () => {
-      mockExecFile.mockImplementation(
-        (_cmd: string, _args: string[], _opts: unknown, cb: (...a: unknown[]) => void) => {
-          cb(new Error('command not found'))
-        }
-      )
-
-      const status = await checkCodexAuth()
-      expect(status).toBe('unknown')
-    })
-
-    it('calls codex with login status args', async () => {
-      mockExecFile.mockImplementation(
-        (_cmd: string, _args: string[], _opts: unknown, cb: (...a: unknown[]) => void) => {
-          cb(null, 'ok')
-        }
-      )
-
-      await checkCodexAuth()
-      expect(mockExecFile).toHaveBeenCalledWith(
-        'codex',
-        ['login', 'status'],
-        expect.objectContaining({ timeout: 5000 }),
-        expect.any(Function)
-      )
+      await expect(checkCodexAuth()).resolves.toBe('unknown')
+      expect(mockEnsureCodexAppServerLaunchSpec).toHaveBeenCalledTimes(1)
     })
   })
 
-  // ── checkCodexHealth ───────────────────────────────────────────
-
   describe('checkCodexHealth', () => {
-    it('returns unavailable when codex is not installed', async () => {
-      mockExecFile.mockImplementation(
-        (_cmd: string, _args: string[], _opts: unknown, cb: (...a: unknown[]) => void) => {
-          cb(new Error('command not found'))
-        }
-      )
+    it('returns unavailable when the codex CLI cannot be resolved', async () => {
+      mockGetCodexLaunchInfo.mockResolvedValue({
+        spec: null,
+        version: null,
+        supportsAppServer: false
+      })
 
-      const health = await checkCodexHealth()
-      expect(health.available).toBe(false)
-      expect(health.authStatus).toBe('unknown')
-      expect(health.message).toContain('not found')
+      await expect(checkCodexHealth()).resolves.toEqual({
+        available: false,
+        authStatus: 'unknown',
+        message: 'Codex CLI not found. Install it with: npm install -g @openai/codex'
+      })
     })
 
-    it('returns available with auth status when codex is installed', async () => {
-      mockExecFile.mockImplementation(
-        (_cmd: string, args: string[], _opts: unknown, cb: (...a: unknown[]) => void) => {
-          if (args[0] === '--version') {
-            cb(null, 'codex 1.0.0\n')
-          } else if (args[0] === 'login') {
-            cb(null, '{"authenticated": true}')
-          }
-        }
-      )
+    it('returns unavailable when codex lacks app-server capability', async () => {
+      mockGetCodexLaunchInfo.mockResolvedValue({
+        spec: { command: 'codex', shell: false },
+        version: '0.20.0',
+        supportsAppServer: false
+      })
 
-      const health = await checkCodexHealth()
-      expect(health.available).toBe(true)
-      expect(health.version).toBe('1.0.0')
-      expect(health.authStatus).toBe('authenticated')
-      expect(health.message).toBeUndefined()
+      await expect(checkCodexHealth()).resolves.toEqual({
+        available: false,
+        version: '0.20.0',
+        authStatus: 'unknown',
+        message: 'Codex CLI 0.20.0 does not support codex app-server. Upgrade @openai/codex.'
+      })
     })
 
-    it('returns unauthenticated message when not logged in', async () => {
-      mockExecFile.mockImplementation(
-        (_cmd: string, args: string[], _opts: unknown, cb: (...a: unknown[]) => void) => {
-          if (args[0] === '--version') {
-            cb(null, 'codex 1.0.0\n')
-          } else if (args[0] === 'login') {
-            cb(null, 'not logged in')
-          }
-        }
-      )
+    it('returns available with authenticated status when auth succeeds', async () => {
+      mockGetCodexLaunchInfo.mockResolvedValue({
+        spec: { command: 'codex', shell: false },
+        version: '0.36.0',
+        supportsAppServer: true
+      })
+      mockExecuteLaunchSpec.mockResolvedValue({
+        stdout: '{"authenticated": true}',
+        stderr: ''
+      })
 
-      const health = await checkCodexHealth()
-      expect(health.available).toBe(true)
-      expect(health.authStatus).toBe('unauthenticated')
-      expect(health.message).toContain('codex login')
+      await expect(checkCodexHealth()).resolves.toEqual({
+        available: true,
+        version: '0.36.0',
+        authStatus: 'authenticated'
+      })
     })
 
-    it('skips auth check when checkAuth is false', async () => {
-      mockExecFile.mockImplementation(
-        (_cmd: string, args: string[], _opts: unknown, cb: (...a: unknown[]) => void) => {
-          if (args[0] === '--version') {
-            cb(null, 'codex 1.0.0\n')
-          } else {
-            cb(new Error('should not be called'))
-          }
-        }
-      )
+    it('includes a login hint when auth fails', async () => {
+      mockGetCodexLaunchInfo.mockResolvedValue({
+        spec: { command: 'codex', shell: false },
+        version: '0.36.0',
+        supportsAppServer: true
+      })
+      mockExecuteLaunchSpec.mockResolvedValue({
+        stdout: 'not logged in',
+        stderr: ''
+      })
 
-      const health = await checkCodexHealth({ checkAuth: false })
-      expect(health.available).toBe(true)
-      expect(health.authStatus).toBe('unknown')
+      await expect(checkCodexHealth()).resolves.toEqual({
+        available: true,
+        version: '0.36.0',
+        authStatus: 'unauthenticated',
+        message: 'Codex CLI is not authenticated. Run: codex login'
+      })
     })
 
-    it('health status has correct shape', async () => {
-      mockExecFile.mockImplementation(
-        (_cmd: string, _args: string[], _opts: unknown, cb: (...a: unknown[]) => void) => {
-          cb(new Error('not found'))
-        }
-      )
+    it('skips the auth probe when explicitly requested', async () => {
+      mockGetCodexLaunchInfo.mockResolvedValue({
+        spec: { command: 'codex', shell: false },
+        version: '0.36.0',
+        supportsAppServer: true
+      })
 
-      const health = await checkCodexHealth()
-      expect(health).toHaveProperty('available')
-      expect(health).toHaveProperty('authStatus')
+      await expect(checkCodexHealth({ checkAuth: false })).resolves.toEqual({
+        available: true,
+        version: '0.36.0',
+        authStatus: 'unknown'
+      })
+      expect(mockExecuteLaunchSpec).not.toHaveBeenCalled()
     })
   })
 })

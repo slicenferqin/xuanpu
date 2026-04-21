@@ -144,6 +144,7 @@ export function AskUserCard({
   if (!isPending) {
     return (
       <ActionCard
+        key="answered"
         accentClass="border-amber-500 bg-amber-500/5"
         headerClass="border-b-amber-500/20 text-amber-700 dark:text-amber-400"
         headerLeft={<span className="font-semibold">Question for you</span>}
@@ -214,6 +215,7 @@ export function AskUserCard({
 
   return (
     <ActionCard
+      key="pending"
       accentClass="border-amber-500 bg-amber-500/5"
       headerClass="border-b-amber-500/20 text-amber-700 dark:text-amber-400"
       headerLeft={<span className="font-semibold">Question for you</span>}

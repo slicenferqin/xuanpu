@@ -60,6 +60,7 @@ interface Worktree {
   last_model_provider_id: string | null
   last_model_id: string | null
   last_model_variant: string | null
+  last_agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | null
   attachments: string // JSON array of Attachment objects
   pinned: number // 0 = not pinned, 1 = pinned
   context: string | null
@@ -82,6 +83,7 @@ interface Session {
   model_provider_id: string | null
   model_id: string | null
   model_variant: string | null
+  first_message_at: number | null
   created_at: string
   updated_at: string
   completed_at: string | null
@@ -271,6 +273,7 @@ declare global {
             status?: 'active' | 'archived'
             last_message_at?: number | null
             last_accessed_at?: string
+            last_agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | null
           }
         ) => Promise<Worktree | null>
         delete: (id: string) => Promise<boolean>
@@ -494,7 +497,11 @@ declare global {
       }>
       isLogMode: () => Promise<boolean>
       detectAgentRuntimes: () => Promise<{ opencode: boolean; claude: boolean; codex: boolean }>
+      setKeepAwakeEnabled: (enabled: boolean) => Promise<{ success: boolean }>
+      setSessionQueuedState: (sessionId: string, queued: boolean) => Promise<{ success: boolean }>
       runOnboardingDoctor: () => Promise<OnboardingDoctorResult>
+      checkFullDiskAccess: () => Promise<{ supported: boolean; granted: boolean }>
+      openFullDiskAccessSettings: () => Promise<{ success: boolean; error?: string }>
       openCommandInTerminal: (
         command: string,
         options?: { cwd?: string }
@@ -684,6 +691,13 @@ declare global {
       ) => Promise<
         import('../shared/types/agent-ipc').AgentIpcResult<{ commands: AgentCommand[] }>
       >
+      steer: (
+        worktreePath: string,
+        sessionId: string,
+        messageOrParts: string | MessagePart[],
+        model?: { providerID: string; modelID: string; variant?: string },
+        options?: { codexFastMode?: boolean }
+      ) => Promise<import('../shared/types/agent-ipc').AgentIpcResult>
       // Rename a session's title via the agent PATCH API
       renameSession: (
         sessionId: string,
@@ -696,6 +710,7 @@ declare global {
           capabilities?: {
             supportsUndo: boolean
             supportsRedo: boolean
+            supportsSteer: boolean
             supportsCommands: boolean
             supportsPermissionRequests: boolean
             supportsQuestionPrompts: boolean
@@ -1204,6 +1219,24 @@ declare global {
         diff?: string
         error?: string
       }>
+      getBranchBaseContent: (
+        worktreePath: string,
+        branch: string,
+        filePath: string
+      ) => Promise<{
+        success: boolean
+        content?: string | null
+        error?: string
+      }>
+      getBranchBaseContentBase64: (
+        worktreePath: string,
+        branch: string,
+        filePath: string
+      ) => Promise<{
+        success: boolean
+        content?: string | null
+        error?: string
+      }>
     }
     updaterOps: {
       checkForUpdate: (options?: { manual?: boolean }) => Promise<void>
@@ -1290,6 +1323,58 @@ declare global {
       setEnabled: (enabled: boolean) => Promise<void>
       isEnabled: () => Promise<boolean>
     }
+    skillOps: {
+      listHubs: () => Promise<{
+        success: boolean
+        hubs: import('../shared/types/skill').SkillHub[]
+        error?: string
+      }>
+      addHub: (args: {
+        repo: string
+        ref?: string
+        name?: string
+      }) => Promise<import('../shared/types/skill').AddHubResult>
+      removeHub: (hubId: string) => Promise<import('../shared/types/skill').RemoveHubResult>
+      refreshHub: (
+        hubId: import('../shared/types/skill').HubId
+      ) => Promise<import('../shared/types/skill').RefreshHubResult>
+      listSkills: (
+        hubId: import('../shared/types/skill').HubId
+      ) => Promise<{
+        success: boolean
+        skills: import('../shared/types/skill').Skill[]
+        error?: string
+      }>
+      listInstalled: (
+        scope: import('../shared/types/skill').SkillScope
+      ) => Promise<{
+        success: boolean
+        skills: import('../shared/types/skill').InstalledSkill[]
+        error?: string
+      }>
+      install: (
+        hubId: import('../shared/types/skill').HubId,
+        skillId: string,
+        providers: import('../shared/types/skill').SkillProvider[],
+        scope: {
+          kind: import('../shared/types/skill').SkillScope['kind']
+          path?: string
+        },
+        overwrite?: boolean
+      ) => Promise<import('../shared/types/skill').InstallSkillBatchResult>
+      uninstall: (
+        skillId: string,
+        scope: import('../shared/types/skill').SkillScope
+      ) => Promise<import('../shared/types/skill').UninstallSkillResult>
+      readContent: (
+        absPath: string
+      ) => Promise<import('../shared/types/skill').ReadSkillContentResult>
+      openLocation: (absPath: string) => Promise<{ success: boolean; error?: string }>
+      detectProviders: () => Promise<{
+        success: true
+        availability: import('../shared/types/skill').ProviderAvailability
+      }>
+    }
   }
 
   interface GitDiffStatFile {
@@ -1356,9 +1441,13 @@ declare global {
   interface CanonicalAgentEvent {
     type: string
     sessionId: string
+    eventId: string
+    sessionSequence: number
+    runEpoch: number
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     data: any
     childSessionId?: string
+    sourceChannel?: 'agent:stream'
     /** session.status event payload -- only present when type === 'session.status' */
     statusPayload?: {
       type: 'idle' | 'busy' | 'retry'

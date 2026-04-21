@@ -1,14 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 
-// Mutable store state for settings
 let mockSettingsState: {
   initialSetupComplete: boolean
   isLoading: boolean
   updateSetting: ReturnType<typeof vi.fn>
 }
 
-// Mock useSettingsStore
+let wizardProps: {
+  result: OnboardingDoctorResult | null
+  loading: boolean
+  error: string | null
+  onRefresh: () => void
+  onComplete: (sdk: 'claude-code' | 'codex' | 'opencode' | 'terminal') => void
+} | null = null
+
 vi.mock('@/stores/useSettingsStore', () => ({
   useSettingsStore: Object.assign(
     (selector?: (s: unknown) => unknown) => {
@@ -20,47 +26,77 @@ vi.mock('@/stores/useSettingsStore', () => ({
   )
 }))
 
-// Mock AgentNotFoundDialog
-vi.mock('@/components/setup/AgentNotFoundDialog', () => ({
-  AgentNotFoundDialog: () => <div data-testid="agent-not-found-dialog">No Agent Found</div>
+vi.mock('@/components/setup/AgentSetupWizard', () => ({
+  AgentSetupWizard: (props: {
+    result: OnboardingDoctorResult | null
+    loading: boolean
+    error: string | null
+    onRefresh: () => void
+    onComplete: (sdk: 'claude-code' | 'codex' | 'opencode' | 'terminal') => void
+  }) => {
+    wizardProps = props
+
+    return (
+      <div data-testid="agent-setup-wizard">
+        <div data-testid="doctor-loading">{String(props.loading)}</div>
+        <div data-testid="doctor-error">{props.error ?? ''}</div>
+        <div data-testid="recommended-agent">{props.result?.recommendedAgent ?? ''}</div>
+        <button data-testid="wizard-refresh" onClick={() => props.onRefresh()}>
+          refresh
+        </button>
+        <button data-testid="wizard-complete-codex" onClick={() => props.onComplete('codex')}>
+          complete codex
+        </button>
+      </div>
+    )
+  }
 }))
 
-// Mock AgentPickerDialog — respects availableSdks to only show installed providers
-vi.mock('@/components/setup/AgentPickerDialog', () => ({
-  AgentPickerDialog: ({
-    onSelect,
-    availableSdks
-  }: {
-    onSelect: (sdk: string) => void
-    availableSdks: { opencode: boolean; claude: boolean; codex: boolean }
-  }) => (
-    <div data-testid="agent-picker-dialog">
-      {availableSdks.opencode && (
-        <button data-testid="pick-opencode" onClick={() => onSelect('opencode')}>
-          OpenCode
-        </button>
-      )}
-      {availableSdks.claude && (
-        <button data-testid="pick-claude-code" onClick={() => onSelect('claude-code')}>
-          Claude Code
-        </button>
-      )}
-      {availableSdks.codex && (
-        <button data-testid="pick-codex" onClick={() => onSelect('codex')}>
-          Codex
-        </button>
-      )}
-    </div>
-  )
-}))
-
-// Mock window APIs
-const mockDetectAgentSdks = vi.fn()
+const mockRunOnboardingDoctor = vi.fn()
 const mockTrack = vi.fn()
 
-describe('AgentSetupGuard with Codex support', () => {
+const doctorResult: OnboardingDoctorResult = {
+  platform: 'darwin',
+  environmentChecks: [
+    { id: 'git', status: 'ready', reason: 'installed', version: '2.44.0' },
+    { id: 'node', status: 'ready', reason: 'installed', version: 'v20.12.0' }
+  ],
+  agents: [
+    {
+      id: 'claude-code',
+      status: 'ready',
+      reason: 'ready',
+      installed: true,
+      selectable: true,
+      version: '1.2.3',
+      authStatus: 'authenticated'
+    },
+    {
+      id: 'codex',
+      status: 'ready',
+      reason: 'ready',
+      installed: true,
+      selectable: true,
+      version: '0.36.0',
+      authStatus: 'authenticated'
+    },
+    {
+      id: 'opencode',
+      status: 'warning',
+      reason: 'login_required',
+      installed: true,
+      selectable: false,
+      version: '0.9.0',
+      authStatus: 'unknown'
+    }
+  ],
+  recommendedAgent: 'codex'
+}
+
+describe('AgentSetupGuard', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    wizardProps = null
 
     mockSettingsState = {
       initialSetupComplete: false,
@@ -72,7 +108,7 @@ describe('AgentSetupGuard with Codex support', () => {
       writable: true,
       configurable: true,
       value: {
-        detectAgentSdks: mockDetectAgentSdks,
+        runOnboardingDoctor: mockRunOnboardingDoctor,
         quitApp: vi.fn()
       }
     })
@@ -86,110 +122,71 @@ describe('AgentSetupGuard with Codex support', () => {
     })
   })
 
-  it('auto-selects codex when it is the only installed provider', async () => {
-    mockDetectAgentSdks.mockResolvedValue({ opencode: false, claude: false, codex: true })
+  it('requests onboarding doctor results and passes them to the wizard', async () => {
+    mockRunOnboardingDoctor.mockResolvedValue(doctorResult)
 
-    const { AgentSetupGuard } = await import(
-      '@/components/setup/AgentSetupGuard'
-    )
+    const { AgentSetupGuard } = await import('@/components/setup/AgentSetupGuard')
     render(<AgentSetupGuard />)
 
     await waitFor(() => {
-      expect(mockSettingsState.updateSetting).toHaveBeenCalledWith('defaultAgentSdk', 'codex')
-      expect(mockSettingsState.updateSetting).toHaveBeenCalledWith('initialSetupComplete', true)
+      expect(screen.getByTestId('recommended-agent')).toHaveTextContent('codex')
     })
 
+    expect(mockRunOnboardingDoctor).toHaveBeenCalledTimes(1)
+    expect(wizardProps?.loading).toBe(false)
+    expect(wizardProps?.result).toEqual(doctorResult)
+  })
+
+  it('completes setup through the wizard callback and records analytics', async () => {
+    mockRunOnboardingDoctor.mockResolvedValue(doctorResult)
+
+    const { AgentSetupGuard } = await import('@/components/setup/AgentSetupGuard')
+    render(<AgentSetupGuard />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('recommended-agent')).toHaveTextContent('codex')
+    })
+
+    fireEvent.click(screen.getByTestId('wizard-complete-codex'))
+
+    expect(mockSettingsState.updateSetting).toHaveBeenCalledWith('defaultAgentSdk', 'codex')
+    expect(mockSettingsState.updateSetting).toHaveBeenCalledWith('initialSetupComplete', true)
     expect(mockTrack).toHaveBeenCalledWith('onboarding_completed', {
       sdk: 'codex',
-      auto_selected: true
+      auto_selected: false,
+      wizard: true,
+      ready_agents: 2
     })
   })
 
-  it('shows picker with only installed providers (no claude when uninstalled)', async () => {
-    mockDetectAgentSdks.mockResolvedValue({ opencode: true, claude: false, codex: true })
+  it('surfaces onboarding doctor errors and refreshes on demand', async () => {
+    mockRunOnboardingDoctor
+      .mockRejectedValueOnce(new Error('doctor failed'))
+      .mockResolvedValueOnce(doctorResult)
 
-    const { AgentSetupGuard } = await import(
-      '@/components/setup/AgentSetupGuard'
-    )
+    const { AgentSetupGuard } = await import('@/components/setup/AgentSetupGuard')
     render(<AgentSetupGuard />)
 
     await waitFor(() => {
-      expect(screen.getByTestId('agent-picker-dialog')).toBeInTheDocument()
+      expect(screen.getByTestId('doctor-error')).toHaveTextContent('doctor failed')
     })
 
-    // Only opencode and codex buttons should be present
-    expect(screen.getByTestId('pick-opencode')).toBeInTheDocument()
-    expect(screen.getByTestId('pick-codex')).toBeInTheDocument()
-    // Claude should NOT be shown since it's not installed
-    expect(screen.queryByTestId('pick-claude-code')).not.toBeInTheDocument()
-  })
-
-  it('shows picker dialog when all three are installed', async () => {
-    mockDetectAgentSdks.mockResolvedValue({ opencode: true, claude: true, codex: true })
-
-    const { AgentSetupGuard } = await import(
-      '@/components/setup/AgentSetupGuard'
-    )
-    render(<AgentSetupGuard />)
+    fireEvent.click(screen.getByTestId('wizard-refresh'))
 
     await waitFor(() => {
-      expect(screen.getByTestId('agent-picker-dialog')).toBeInTheDocument()
+      expect(screen.getByTestId('recommended-agent')).toHaveTextContent('codex')
     })
 
-    // Verify Codex button is available in the picker
-    expect(screen.getByTestId('pick-codex')).toBeInTheDocument()
-  })
-
-  it('shows none-found dialog when no agents are installed', async () => {
-    mockDetectAgentSdks.mockResolvedValue({ opencode: false, claude: false, codex: false })
-
-    const { AgentSetupGuard } = await import(
-      '@/components/setup/AgentSetupGuard'
-    )
-    render(<AgentSetupGuard />)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('agent-not-found-dialog')).toBeInTheDocument()
-    })
-  })
-
-  it('auto-selects opencode when only opencode is installed (codex false)', async () => {
-    mockDetectAgentSdks.mockResolvedValue({ opencode: true, claude: false, codex: false })
-
-    const { AgentSetupGuard } = await import(
-      '@/components/setup/AgentSetupGuard'
-    )
-    render(<AgentSetupGuard />)
-
-    await waitFor(() => {
-      expect(mockSettingsState.updateSetting).toHaveBeenCalledWith('defaultAgentSdk', 'opencode')
-      expect(mockSettingsState.updateSetting).toHaveBeenCalledWith('initialSetupComplete', true)
-    })
-  })
-
-  it('auto-selects claude-code when only claude is installed (codex false)', async () => {
-    mockDetectAgentSdks.mockResolvedValue({ opencode: false, claude: true, codex: false })
-
-    const { AgentSetupGuard } = await import(
-      '@/components/setup/AgentSetupGuard'
-    )
-    render(<AgentSetupGuard />)
-
-    await waitFor(() => {
-      expect(mockSettingsState.updateSetting).toHaveBeenCalledWith('defaultAgentSdk', 'claude-code')
-      expect(mockSettingsState.updateSetting).toHaveBeenCalledWith('initialSetupComplete', true)
-    })
+    expect(mockRunOnboardingDoctor).toHaveBeenCalledTimes(2)
   })
 
   it('renders nothing when setup is already complete', async () => {
     mockSettingsState.initialSetupComplete = true
 
-    const { AgentSetupGuard } = await import(
-      '@/components/setup/AgentSetupGuard'
-    )
+    const { AgentSetupGuard } = await import('@/components/setup/AgentSetupGuard')
     const { container } = render(<AgentSetupGuard />)
 
     expect(container.innerHTML).toBe('')
-    expect(mockDetectAgentSdks).not.toHaveBeenCalled()
+    expect(mockRunOnboardingDoctor).not.toHaveBeenCalled()
   })
 })

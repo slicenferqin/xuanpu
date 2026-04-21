@@ -106,6 +106,15 @@ describe('Session 5: ScrollToBottomFab', () => {
       expect(button.className).toContain('rounded-full')
       expect(button.className).toContain('shadow-md')
     })
+
+    test('renders unread count as a pill when count is provided', () => {
+      const onClick = vi.fn()
+      render(<ScrollToBottomFab onClick={onClick} visible={true} count={12} />)
+
+      const button = screen.getByTestId('scroll-to-bottom-fab')
+      expect(button.className).toContain('min-w-[3.25rem]')
+      expect(screen.getByTestId('scroll-to-bottom-fab-count')).toHaveTextContent('12')
+    })
   })
 
   describe('FAB integration in SessionView', () => {
@@ -212,7 +221,7 @@ describe('Session 5: ScrollToBottomFab', () => {
       expect(source).toContain('export function ScrollToBottomFab')
 
       // Accessibility
-      expect(source).toContain('aria-label="Scroll to bottom"')
+      expect(source).toContain("aria-label={t('scrollToBottomFab.ariaLabel')}")
       expect(source).toContain('data-testid="scroll-to-bottom-fab"')
 
       // Conditional classes
@@ -221,6 +230,7 @@ describe('Session 5: ScrollToBottomFab', () => {
       expect(source).toContain('pointer-events-none')
       expect(source).toContain('translate-y-0')
       expect(source).toContain('translate-y-2')
+      expect(source).toContain('scroll-to-bottom-fab-count')
     })
   })
 })

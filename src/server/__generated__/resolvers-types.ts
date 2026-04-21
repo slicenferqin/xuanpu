@@ -1650,7 +1650,7 @@ export type WorktreeCreateResult = {
 
 export type WorktreeStatus = 'active' | 'archived'
 
-export type WithIndex<TObject> = TObject & Record<string, any>
+export type WithIndex<TObject> = TObject & Record<string, unknown>
 export type ResolversObject<TObject> = WithIndex<TObject>
 
 export type ResolverTypeWrapper<T> = Promise<T> | T
@@ -1700,8 +1700,8 @@ export interface SubscriptionSubscriberObject<
 }
 
 export interface SubscriptionResolverObject<TResult, TParent, TContext, TArgs> {
-  subscribe: SubscriptionSubscribeFn<any, TParent, TContext, TArgs>
-  resolve: SubscriptionResolveFn<TResult, any, TContext, TArgs>
+  subscribe: SubscriptionSubscribeFn<unknown, TParent, TContext, TArgs>
+  resolve: SubscriptionResolveFn<TResult, unknown, TContext, TArgs>
 }
 
 export type SubscriptionObject<TResult, TKey extends string, TParent, TContext, TArgs> =
@@ -1715,7 +1715,7 @@ export type SubscriptionResolver<
   TContext = Record<PropertyKey, never>,
   TArgs = Record<PropertyKey, never>
 > =
-  | ((...args: any[]) => SubscriptionObject<TResult, TKey, TParent, TContext, TArgs>)
+  | ((...args: unknown[]) => SubscriptionObject<TResult, TKey, TParent, TContext, TArgs>)
   | SubscriptionObject<TResult, TKey, TParent, TContext, TArgs>
 
 export type TypeResolveFn<
@@ -2372,7 +2372,7 @@ export type GitStatusChangedEventResolvers<
   worktreePath?: Resolver<ResolversTypes['String'], ParentType, ContextType>
 }>
 
-export interface JsonScalarConfig extends GraphQLScalarTypeConfig<ResolversTypes['JSON'], any> {
+export interface JsonScalarConfig extends GraphQLScalarTypeConfig<ResolversTypes['JSON'], unknown> {
   name: 'JSON'
 }
 

@@ -1,11 +1,13 @@
-import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
+import { type ChildProcess, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import readline from 'node:readline'
 
 import { createLogger } from './logger'
-import { asObject, asString } from './codex-utils'
+import { asObject, asString, toDebugSnapshot } from './codex-utils'
 import { CODEX_DEFAULT_MODEL } from './codex-models'
+import { type CodexLaunchSpec } from './codex-binary-resolver'
+import { spawnLaunchSpec } from './command-launch-utils'
 
 const log = createLogger({ component: 'CodexAppServerManager' })
 
@@ -97,6 +99,7 @@ export interface CodexStartSessionOptions {
   resumeCursor?: string
   codexBinaryPath?: string
   codexHomePath?: string
+  codexLaunchSpec?: CodexLaunchSpec
 }
 
 // ── Turn input ────────────────────────────────────────────────────
@@ -346,15 +349,19 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         updatedAt: now
       }
 
-      const codexBinaryPath = options.codexBinaryPath ?? 'codex'
-      const child = spawn(codexBinaryPath, ['app-server'], {
+      const launchSpec =
+        options.codexLaunchSpec ??
+        (options.codexBinaryPath
+          ? { command: options.codexBinaryPath, shell: process.platform === 'win32' }
+          : { command: 'codex', shell: process.platform === 'win32' })
+      const child = spawnLaunchSpec(launchSpec, ['app-server'], {
         cwd: resolvedCwd,
         env: {
           ...process.env,
           ...(options.codexHomePath ? { CODEX_HOME: options.codexHomePath } : {})
         },
         stdio: ['pipe', 'pipe', 'pipe'],
-        shell: process.platform === 'win32'
+        windowsHide: true
       })
       const output = readline.createInterface({ input: child.stdout! })
 
@@ -617,6 +624,39 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       threadId: context.session.threadId,
       ...(resumeCursor ? { resumeCursor } : {})
     }
+  }
+
+  async steerTurn(threadId: string, input: CodexTurnInput, turnId?: string): Promise<void> {
+    const context = this.sessions.get(threadId)
+    if (!context) {
+      throw new Error(`steerTurn: no session found for threadId=${threadId}`)
+    }
+
+    if (!context.session.threadId) {
+      throw new Error('steerTurn: session has no threadId')
+    }
+
+    const targetTurnId = turnId ?? context.session.activeTurnId
+    if (!targetTurnId) {
+      throw new Error('steerTurn: no active turn to steer')
+    }
+
+    const turnInput =
+      input.input && input.input.length > 0
+        ? input.input
+        : input.text
+          ? [{ type: 'text', text: input.text }]
+          : []
+
+    if (turnInput.length === 0) {
+      throw new Error('steerTurn: input is empty')
+    }
+
+    await this.sendRequest(context, 'turn/steer', {
+      threadId: context.session.threadId,
+      turnId: targetTurnId,
+      input: turnInput
+    })
   }
 
   // ── HITL / control-plane API ──────────────────────────────────
@@ -918,7 +958,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         paramsKeys: notification.params
           ? Object.keys(notification.params as Record<string, unknown>)
           : [],
-        paramsSnapshot: JSON.stringify(notification.params).slice(0, 500)
+        paramsSnapshot: toDebugSnapshot(notification.params, 500)
       })
     }
 

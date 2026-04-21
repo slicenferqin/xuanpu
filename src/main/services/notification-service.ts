@@ -11,9 +11,12 @@ interface SessionNotificationData {
   sessionId: string
 }
 
+type PendingUserFeedbackKind = 'question' | 'approval'
+
 class NotificationService {
   private mainWindow: BrowserWindow | null = null
   private unreadCount = 0
+  private queuedSessionIds = new Set<string>()
 
   setMainWindow(window: BrowserWindow): void {
     this.mainWindow = window
@@ -25,19 +28,55 @@ class NotificationService {
   }
 
   showSessionComplete(data: SessionNotificationData): void {
+    if (this.queuedSessionIds.has(data.sessionId)) {
+      log.info('Skipping completion notification because session still has queued follow-up', {
+        sessionId: data.sessionId
+      })
+      return
+    }
+
+    this.showNotification({
+      data,
+      body: `"${data.sessionName}" completed`
+    })
+  }
+
+  showPendingUserFeedback(data: SessionNotificationData, kind: PendingUserFeedbackKind): void {
+    this.showNotification({
+      data,
+      body:
+        kind === 'question'
+          ? `"${data.sessionName}" needs your answer`
+          : `"${data.sessionName}" needs your permission`
+    })
+  }
+
+  setSessionQueuedState(sessionId: string, queued: boolean): void {
+    if (!sessionId) return
+
+    if (queued) {
+      this.queuedSessionIds.add(sessionId)
+      return
+    }
+
+    this.queuedSessionIds.delete(sessionId)
+  }
+
+  private showNotification({ data, body }: { data: SessionNotificationData; body: string }): void {
     if (!Notification.isSupported()) {
       log.warn('Notifications not supported on this platform')
       return
     }
 
-    log.info('Showing session complete notification', {
+    log.info('Showing session notification', {
       projectName: data.projectName,
-      sessionName: data.sessionName
+      sessionName: data.sessionName,
+      body
     })
 
     const notification = new Notification({
       title: data.projectName,
-      body: `"${data.sessionName}" completed`,
+      body,
       silent: false
     })
 
@@ -55,7 +94,6 @@ class NotificationService {
 
     notification.show()
 
-    // Increment dock badge
     this.unreadCount++
     app.dock?.setBadge(String(this.unreadCount))
   }

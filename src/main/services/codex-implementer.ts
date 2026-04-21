@@ -13,11 +13,13 @@ import { createLogger } from './logger'
 import { CodexAppServerManager, type CodexManagerEvent } from './codex-app-server-manager'
 import { mapCodexManagerEventToActivity } from './codex-activity-mapper'
 import { mapCodexEventToStreamEvents, contentStreamKindFromMethod } from './codex-event-mapper'
-import { asNumber, asObject, asString } from './codex-utils'
+import { ensureCodexAppServerLaunchSpec } from './codex-binary-resolver'
+import { asNumber, asObject, asString, toDebugSnapshot } from './codex-utils'
 import { generateCodexSessionTitle } from './codex-session-title'
 import type { DatabaseService } from '../db/database'
 import { autoRenameWorktreeBranch } from './git-service'
-import { emitAgentEvent } from '@shared/lib/normalize-agent-event'
+import { beginSessionRun, emitAgentEvent } from '@shared/lib/normalize-agent-event'
+import { notificationService } from './notification-service'
 
 const log = createLogger({ component: 'CodexImplementer' })
 
@@ -138,6 +140,46 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     this.dbService = db
   }
 
+  private async resolveLaunchSpec() {
+    return ensureCodexAppServerLaunchSpec()
+  }
+
+  private maybeNotifyPendingUserFeedback(
+    hiveSessionId: string,
+    kind: 'question' | 'approval'
+  ): void {
+    try {
+      if (!this.mainWindow || this.mainWindow.isDestroyed() || this.mainWindow.isFocused()) {
+        return
+      }
+
+      if (!this.dbService) return
+
+      const session = this.dbService.getSession(hiveSessionId)
+      if (!session) return
+
+      const project = this.dbService.getProject(session.project_id)
+      if (!project) return
+
+      notificationService.showPendingUserFeedback(
+        {
+          projectName: project.name,
+          sessionName: session.name || 'Untitled',
+          projectId: session.project_id,
+          worktreeId: session.worktree_id || '',
+          sessionId: hiveSessionId
+        },
+        kind
+      )
+    } catch (error) {
+      log.warn('Failed to show pending user feedback notification', {
+        hiveSessionId,
+        kind,
+        error
+      })
+    }
+  }
+
   // ── Manager event listener (handles approval/question routing) ──
 
   private managerListenerAttached = false
@@ -158,7 +200,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         method: event.method,
         threadId: event.threadId,
         payloadKeys: event.payload ? Object.keys(event.payload as Record<string, unknown>) : [],
-        payloadSnapshot: JSON.stringify(event.payload).slice(0, 500)
+        payloadSnapshot: toDebugSnapshot(event.payload, 500)
       })
     }
 
@@ -267,6 +309,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
           event.itemId
         )
       })
+      this.maybeNotifyPendingUserFeedback(targetSession.hiveSessionId, 'approval')
       return
     }
 
@@ -291,6 +334,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
           questions
         }
       })
+      this.maybeNotifyPendingUserFeedback(targetSession.hiveSessionId, 'question')
     }
   }
 
@@ -298,7 +342,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     const payload = asObject(event.payload)
     log.info('DEBUG handleProviderTitleUpdate: raw payload', {
       payloadKeys: payload ? Object.keys(payload) : [],
-      fullPayload: JSON.stringify(event.payload).slice(0, 1000)
+      fullPayload: toDebugSnapshot(event.payload, 1000)
     })
     const title = asString(payload?.threadName)
     if (!title) {
@@ -332,7 +376,8 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
 
     const providerSession = await this.manager.startSession({
       cwd: worktreePath,
-      model: resolvedModel
+      model: resolvedModel,
+      codexLaunchSpec: await this.resolveLaunchSpec()
     })
 
     const threadId = providerSession.threadId
@@ -401,7 +446,8 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       const providerSession = await this.manager.startSession({
         cwd: worktreePath,
         model: resolvedModel,
-        resumeThreadId: agentSessionId
+        resumeThreadId: agentSessionId,
+        codexLaunchSpec: await this.resolveLaunchSpec()
       })
 
       const threadId = providerSession.threadId
@@ -498,6 +544,8 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     if (!session) {
       throw new Error(`Prompt failed: session not found for ${worktreePath} / ${agentSessionId}`)
     }
+
+    beginSessionRun(session.hiveSessionId)
 
     // Extract text from message
     let text: string
@@ -793,6 +841,59 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     } finally {
       this.manager.removeListener('event', handleEvent)
     }
+  }
+
+  async steer(
+    worktreePath: string,
+    agentSessionId: string,
+    message:
+      | string
+      | Array<
+          | { type: 'text'; text: string }
+          | { type: 'file'; mime: string; url: string; filename?: string }
+        >,
+    _modelOverride?: { providerID: string; modelID: string; variant?: string },
+    _options?: PromptOptions
+  ): Promise<void> {
+    const key = this.getSessionKey(worktreePath, agentSessionId)
+    const session = this.sessions.get(key)
+    if (!session) {
+      throw new Error(`Steer failed: session not found for ${worktreePath} / ${agentSessionId}`)
+    }
+
+    const hasAttachments = Array.isArray(message) && message.some((part) => part.type !== 'text')
+    if (hasAttachments) {
+      throw new Error('Steer only supports text messages')
+    }
+
+    const text =
+      typeof message === 'string'
+        ? message
+        : message
+            .filter((part) => part.type === 'text')
+            .map((part) => part.text)
+            .join('\n')
+
+    if (!text.trim()) {
+      throw new Error('Steer message cannot be empty')
+    }
+
+    const managerSession = this.manager.getSession(session.threadId)
+    const activeTurnId = managerSession?.activeTurnId
+    if (!activeTurnId) {
+      throw new Error('Steer is unavailable because there is no active Codex turn')
+    }
+
+    await this.manager.steerTurn(session.threadId, { text }, activeTurnId)
+
+    const syntheticTimestamp = new Date().toISOString()
+    session.messages.push({
+      role: 'user',
+      steered: true,
+      parts: [{ type: 'text', text, timestamp: syntheticTimestamp }],
+      timestamp: syntheticTimestamp
+    })
+    this.persistCanonicalMessages(session)
   }
 
   async abort(worktreePath: string, agentSessionId: string): Promise<boolean> {
@@ -1696,10 +1797,43 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     if (isComplete()) return Promise.resolve()
 
     return new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        cleanup()
-        reject(new Error('Turn timed out'))
-      }, timeoutMs)
+      let remainingMs = timeoutMs
+      let timerStartedAt = Date.now()
+      let timer: ReturnType<typeof setTimeout> | null = null
+
+      const hasPendingHitlForThread = (): boolean => {
+        for (const entry of this.pendingQuestions.values()) {
+          if (entry.threadId === session.threadId) return true
+        }
+        for (const entry of this.pendingApprovalSessions.values()) {
+          if (entry.threadId === session.threadId) return true
+        }
+        return false
+      }
+
+      const clearTimer = () => {
+        if (timer) {
+          clearTimeout(timer)
+          timer = null
+        }
+      }
+
+      const startTimer = () => {
+        clearTimer()
+        timerStartedAt = Date.now()
+        timer = setTimeout(() => {
+          cleanup()
+          reject(new Error('Turn timed out'))
+        }, remainingMs)
+      }
+
+      const pauseTimer = () => {
+        if (!timer) return
+        clearTimeout(timer)
+        timer = null
+        const elapsed = Date.now() - timerStartedAt
+        remainingMs = Math.max(0, remainingMs - elapsed)
+      }
 
       const checkEvent = (event: CodexManagerEvent) => {
         if (event.threadId !== session.threadId) return
@@ -1739,14 +1873,33 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
           cleanup()
           reject(new Error(reason))
         }
+
+        if (event.kind === 'request') {
+          pauseTimer()
+          return
+        }
+
+        const hitlStateChanged =
+          event.method === 'item/tool/requestUserInput/answered' ||
+          event.method === 'approval/responded' ||
+          event.method === 'userInput/rejected' ||
+          event.method === 'session/closed' ||
+          event.method === 'session/exited'
+
+        if (hitlStateChanged && !hasPendingHitlForThread() && remainingMs > 0) {
+          startTimer()
+        }
       }
 
       const cleanup = () => {
-        clearTimeout(timer)
+        clearTimer()
         this.manager.removeListener('event', checkEvent)
       }
 
       this.manager.on('event', checkEvent)
+      if (!hasPendingHitlForThread()) {
+        startTimer()
+      }
 
       // Check again in case it completed between the start and listener setup
       if (isComplete()) {
@@ -1835,7 +1988,8 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       const providerSession = await this.manager.startSession({
         cwd: worktreePath,
         model: resolveCodexModelSlug(persistedSession.model_id ?? this.selectedModel),
-        resumeThreadId: agentSessionId
+        resumeThreadId: agentSessionId,
+        codexLaunchSpec: await this.resolveLaunchSpec()
       })
 
       const threadId = providerSession.threadId

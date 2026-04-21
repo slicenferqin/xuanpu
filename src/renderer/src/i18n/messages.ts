@@ -22,6 +22,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         privacy: 'Privacy',
         usage: 'Usage',
         archivedChats: 'Archived Chats',
+        skills: 'Skills',
         shortcuts: 'Shortcuts',
         updates: 'Updates'
       },
@@ -93,6 +94,10 @@ export const messages: Record<AppLocale, MessageTree> = {
           label: 'Strip @ from file mentions',
           description:
             'Remove the @ symbol from file references inserted via the file picker before sending'
+        },
+        keepAwake: {
+          label: 'Keep awake during sessions',
+          description: 'Prevent the display from sleeping while a session is actively running.'
         },
         branchNaming: {
           label: 'Branch Naming',
@@ -237,6 +242,24 @@ export const messages: Record<AppLocale, MessageTree> = {
           label: 'Send anonymous usage analytics',
           description: 'Help improve Xuanpu by sharing anonymous feature usage data'
         },
+        fda: {
+          title: 'Full Disk Access',
+          description: 'Helps Xuanpu and agent runtimes read files in protected macOS locations.',
+          statusGranted: 'Full Disk Access is granted.',
+          statusNotGranted: 'Full Disk Access is not granted.',
+          grantedBadge: 'Granted',
+          notGrantedBadge: 'Not granted',
+          checking: 'Checking...',
+          checkAgain: 'Check Again',
+          openSettings: 'Open System Settings',
+          showOnboardingAgain: 'Show onboarding again',
+          skipForNow: 'Skip for now',
+          guardTitle: 'Grant Full Disk Access',
+          guardDescription:
+            'Some coding tasks need access to files protected by macOS. You can enable Full Disk Access now or dismiss this reminder.',
+          checkFailed: 'Failed to check Full Disk Access status',
+          openFailed: 'Failed to open Full Disk Access settings'
+        },
         collect: {
           title: 'What we collect:',
           description: 'Feature usage counts, app version, platform (macOS/Windows/Linux).'
@@ -354,7 +377,8 @@ export const messages: Record<AppLocale, MessageTree> = {
       },
       archivedChats: {
         title: 'Archived Chats',
-        description: 'Browse archived sessions, open them read-only, or restore them to active worktrees.',
+        description:
+          'Browse archived sessions, open them read-only, or restore them to active worktrees.',
         search: {
           placeholder: 'Search session, project, or worktree...'
         },
@@ -370,7 +394,8 @@ export const messages: Record<AppLocale, MessageTree> = {
           updated: 'Updated {date}',
           missingWorktree: 'No active worktree',
           archivedWorktree: 'Parent worktree is archived',
-          restoreDisabled: 'This session can only be viewed because its worktree is archived or missing.'
+          restoreDisabled:
+            'This session can only be viewed because its worktree is archived or missing.'
         },
         empty: {
           title: 'No archived chats',
@@ -382,7 +407,95 @@ export const messages: Record<AppLocale, MessageTree> = {
           restoreFailed: 'Failed to restore session',
           readOnly: 'Opening archived session in read-only mode.'
         }
-      }
+        },
+      skills: {
+        title: 'Skill Management',
+        description: 'Manage installed skills and browse new ones from remote hubs.',
+        tabs: {
+          installed: 'Installed',
+          browse: 'Browse Hubs'
+        },
+        search: {
+          placeholder: 'Search skills...'
+        },
+        hubs: {
+          title: 'Sources',
+          builtin: 'Built-in',
+          remote: 'GitHub',
+          add: 'Add Hub',
+          refresh: 'Refresh Hub',
+          refreshing: 'Refreshing...',
+          lastRefreshed: 'Last refreshed: {date}',
+          pullHint: 'Pull latest content from GitHub',
+          removeTitle: 'Remove Hub',
+          removeConfirm: 'Remove Hub "{name}"? Local cache will also be cleared.',
+          addTitle: 'Add GitHub Hub',
+          repoPlaceholder: 'owner/repo (e.g., anthropic/skills-hub)',
+          refPlaceholder: 'branch/tag (default: main)',
+          namePlaceholder: 'Display name (optional)',
+          hint: 'Only public repositories are supported. Must follow skills/<id>/SKILL.md structure.'
+        },
+        scope: {
+          title: 'Current Scope',
+          user: 'User',
+          project: 'Project',
+          worktree: 'Worktree',
+          userHint: '~/.claude/skills',
+          projectHint: 'Project-level skills',
+          worktreeHint: 'Worktree-level skills',
+          noProject: 'No active project',
+          noWorktree: 'No active worktree',
+          selectContextHint: 'Scope depends on your selection in the main workbench.'
+        },
+        list: {
+          hubSkills: 'Marketplace ({count})',
+          installedSkills: 'Installed ({count})',
+          loading: 'Loading...',
+          empty: 'No skills found',
+          refreshToLoad: 'Click "Refresh" above to pull from GitHub',
+          noneInstalled: 'No skills installed in this scope'
+        },
+        detail: {
+          selectHint: 'Select a skill to view details',
+          loadingMarkdown: 'Loading SKILL.md...',
+          openInFinder: 'Reveal in Finder',
+          install: 'Install',
+          uninstall: 'Uninstall',
+          installing: 'Installing...',
+          uninstallConfirm: 'Are you sure you want to uninstall "{name}"?',
+          alreadyInstalled: '"{name}" is already installed. Overwrite current version?',
+          installSuccess: 'Installed "{name}"',
+          installOverwriteSuccess: 'Overwritten "{name}"',
+          uninstallSuccess: 'Uninstalled "{name}"',
+          revealSuccess: 'Revealed "{name}" location',
+          error: {
+            scopeRequired: 'Please select a project/worktree in the main window first',
+            installFailed: 'Installation failed',
+            uninstallFailed: 'Uninstallation failed'
+          }
+        },
+        install: {
+          dialogTitle: 'Install "{name}"',
+          dialogSubtitle: 'Pick which providers to install into and at what scope.',
+          providerLabel: 'Providers',
+          providerNotInstalled: 'CLI not detected',
+          providerUnsupportedScope: "Doesn't support this scope yet",
+          scopeLabel: 'Scope',
+          projectPickHint: 'Pick a project below',
+          worktreePickHint: 'Pick a project, then a worktree',
+          noProjects: 'No projects yet',
+          noWorktrees: 'No worktrees in this project',
+          overwriteIfExists: 'Overwrite if already installed',
+          submit: 'Install ({count})',
+          cancel: 'Cancel',
+          successToast: 'Installed into {names} ({count} target)',
+          openDialog: 'Install...'
+        },
+        installed: {
+          providerTab: '{name}',
+          empty: 'No skills installed for {provider} at this scope'
+        }
+      },
     },
     fileSearch: {
       ariaLabel: 'File search',
@@ -965,7 +1078,8 @@ export const messages: Record<AppLocale, MessageTree> = {
         authUnknownDescription:
           'Xuanpu could not verify the current auth state for {agent}, but you can already select it if you want to proceed.',
         loginHintClaude: 'Launch Claude Code and follow the interactive sign-in flow.',
-        loginHintCodex: 'Run the login command and complete the ChatGPT or API-key authentication flow.',
+        loginHintCodex:
+          'Run the login command and complete the ChatGPT or API-key authentication flow.',
         loginHintOpencode:
           'Launch OpenCode, then finish provider setup from the interactive session.'
       },
@@ -1799,7 +1913,29 @@ export const messages: Record<AppLocale, MessageTree> = {
     },
     sessionStore: {
       errors: {
-        createConnectionSession: 'Failed to create connection session'
+        createConnectionSession: 'Failed to create connection session',
+        sessionNotFound: 'Session not found',
+        sessionLocked: 'Session is locked because the conversation has already started'
+      }
+    },
+    newSessionDialog: {
+      title: 'New session',
+      description: 'Pick a provider and model. You can change them until the first message is sent.',
+      fields: {
+        name: 'Name',
+        provider: 'Provider',
+        model: 'Model'
+      },
+      terminalNoModel: 'Terminal sessions do not use a model.',
+      actions: {
+        create: 'Create',
+        creating: 'Creating…',
+        cancel: 'Cancel'
+      },
+      lock: {
+        header: 'Locked',
+        description:
+          'Provider and model are locked once the first message has been sent. Start a new session to switch.'
       }
     },
     commandPalette: {
@@ -2011,6 +2147,8 @@ export const messages: Record<AppLocale, MessageTree> = {
         attachExistingPR: 'Attach existing PR',
         sessionHistoryTitle: 'Session History (⌘K)',
         settingsTitle: 'Settings (⌘,)',
+        keepAwakeIdleTitle: 'Keep-awake is enabled',
+        keepAwakeActiveTitle: 'Keep-awake is actively preventing display sleep',
         showSidebar: 'Show sidebar',
         hideSidebar: 'Hide sidebar',
         merged: 'merged',
@@ -2168,6 +2306,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         privacy: '隐私',
         usage: '使用统计',
         archivedChats: '已归档聊天',
+        skills: 'Skill Hub',
         shortcuts: '快捷键',
         updates: '更新'
       },
@@ -2231,6 +2370,10 @@ export const messages: Record<AppLocale, MessageTree> = {
         stripAtMentions: {
           label: '发送前去掉文件提及中的 @',
           description: '通过文件选择器插入文件引用后，在发送前移除前缀 @ 符号'
+        },
+        keepAwake: {
+          label: '会话期间保持唤醒',
+          description: '当会话正在运行时，阻止显示器进入睡眠。'
         },
         branchNaming: {
           label: '分支命名',
@@ -2369,6 +2512,24 @@ export const messages: Record<AppLocale, MessageTree> = {
         analytics: {
           label: '发送匿名使用分析数据',
           description: '通过共享匿名功能使用数据帮助改进玄圃'
+        },
+        fda: {
+          title: '完全磁盘访问权限',
+          description: '帮助玄圃和 Agent 运行时读取 macOS 受保护目录中的文件。',
+          statusGranted: '已授予完全磁盘访问权限。',
+          statusNotGranted: '尚未授予完全磁盘访问权限。',
+          grantedBadge: '已授予',
+          notGrantedBadge: '未授予',
+          checking: '检查中...',
+          checkAgain: '重新检查',
+          openSettings: '打开系统设置',
+          showOnboardingAgain: '再次显示引导',
+          skipForNow: '暂时跳过',
+          guardTitle: '授予完全磁盘访问权限',
+          guardDescription:
+            '部分编码任务需要访问 macOS 保护的文件。你可以现在开启完全磁盘访问权限，或先关闭这条提醒。',
+          checkFailed: '检查完全磁盘访问权限状态失败',
+          openFailed: '打开完全磁盘访问权限设置失败'
         },
         collect: {
           title: '我们会收集：',
@@ -2513,7 +2674,95 @@ export const messages: Record<AppLocale, MessageTree> = {
           restoreFailed: '恢复会话失败',
           readOnly: '将以只读模式打开已归档会话。'
         }
-      }
+        },
+      skills: {
+        title: 'Skill 管理中心',
+        description: '管理已安装的 skills，并从远程 Hub 浏览安装新技能。',
+        tabs: {
+          installed: '已安装',
+          browse: '浏览 Hub'
+        },
+        search: {
+          placeholder: '搜索 skills...'
+        },
+        hubs: {
+          title: '来源',
+          builtin: '内置',
+          remote: 'GitHub',
+          add: '添加',
+          refresh: '刷新',
+          refreshing: '正在刷新...',
+          lastRefreshed: '上次刷新：{date}',
+          pullHint: '从 GitHub 拉取最新内容',
+          removeTitle: '删除这个 Hub',
+          removeConfirm: '确定删除 Hub「{name}」吗？本地缓存也会一并清理。',
+          addTitle: '添加 GitHub Hub',
+          repoPlaceholder: 'owner/repo，例如 anthropic/skills-hub',
+          refPlaceholder: '分支/tag（默认 main）',
+          namePlaceholder: '显示名（可选）',
+          hint: '仅支持公共仓库，需要包含 skills/<id>/SKILL.md 结构。'
+        },
+        scope: {
+          title: '当前安装范围',
+          user: '用户级',
+          project: '项目级',
+          worktree: 'Worktree',
+          userHint: '~/.claude/skills',
+          projectHint: '项目级 skills',
+          worktreeHint: 'Worktree 级 skills',
+          noProject: '未激活项目',
+          noWorktree: '未激活 Worktree',
+          selectContextHint: '安装范围取决于您在主界面选择的活跃项目或 Worktree。'
+        },
+        list: {
+          hubSkills: '市场 ({count})',
+          installedSkills: '已安装 ({count})',
+          loading: '加载中...',
+          empty: '未找到相关 skill',
+          refreshToLoad: '暂无内容，点击上方「刷新」从 GitHub 拉取',
+          noneInstalled: '当前范围内未安装任何 skill'
+        },
+        detail: {
+          selectHint: '选择一个 skill 以查看详情',
+          loadingMarkdown: '正在加载 SKILL.md...',
+          openInFinder: '在 Finder 中打开',
+          install: '安装',
+          uninstall: '卸载',
+          installing: '正在安装...',
+          uninstallConfirm: '确定卸载「{name}」吗？',
+          alreadyInstalled: '「{name}」已安装。是否覆盖当前版本？',
+          installSuccess: '已安装「{name}」',
+          installOverwriteSuccess: '已覆盖安装「{name}」',
+          uninstallSuccess: '已卸载「{name}」',
+          revealSuccess: '已打开「{name}」所在位置',
+          error: {
+            scopeRequired: '请先在主界面选择一个项目 / Worktree',
+            installFailed: '安装失败',
+            uninstallFailed: '卸载失败'
+          }
+        },
+        install: {
+          dialogTitle: '安装「{name}」',
+          dialogSubtitle: '选择要安装到哪些服务商，以及哪个级别。',
+          providerLabel: '服务商',
+          providerNotInstalled: 'CLI 未检测到',
+          providerUnsupportedScope: '暂不支持当前范围',
+          scopeLabel: '范围',
+          projectPickHint: '在下方选择项目',
+          worktreePickHint: '先选项目，再选 Worktree',
+          noProjects: '暂无项目',
+          noWorktrees: '此项目下暂无 Worktree',
+          overwriteIfExists: '已存在则覆盖',
+          submit: '安装（{count}）',
+          cancel: '取消',
+          successToast: '已安装到 {names}（共 {count} 处）',
+          openDialog: '安装…'
+        },
+        installed: {
+          providerTab: '{name}',
+          empty: '当前范围下 {provider} 未安装任何 skill'
+        }
+      },
     },
     fileSearch: {
       ariaLabel: '文件搜索',
@@ -3079,7 +3328,8 @@ export const messages: Record<AppLocale, MessageTree> = {
         loginTitle: '登录指引',
         selectedTitle: '当前选择',
         whyTitle: '说明',
-        recommendedDescription: '玄圃推荐 {agent}，因为它是当前这台机器上最适合直接开箱即用的方案。',
+        recommendedDescription:
+          '玄圃推荐 {agent}，因为它是当前这台机器上最适合直接开箱即用的方案。',
         terminalDescription:
           '终端模式是一个安全兜底。之后你仍然可以在设置里切换到 Claude Code、Codex 或 OpenCode。',
         commandLabel: '建议命令',
@@ -3924,7 +4174,28 @@ export const messages: Record<AppLocale, MessageTree> = {
     },
     sessionStore: {
       errors: {
-        createConnectionSession: '创建连接会话失败'
+        createConnectionSession: '创建连接会话失败',
+        sessionNotFound: '找不到会话',
+        sessionLocked: '会话已开始，无法再更改服务商或模型'
+      }
+    },
+    newSessionDialog: {
+      title: '新建会话',
+      description: '选择服务商和模型。发送第一条消息前都可修改。',
+      fields: {
+        name: '会话名',
+        provider: '服务商',
+        model: '模型'
+      },
+      terminalNoModel: '终端会话不使用模型。',
+      actions: {
+        create: '创建',
+        creating: '创建中…',
+        cancel: '取消'
+      },
+      lock: {
+        header: '已锁定',
+        description: '发送第一条消息后服务商和模型将被锁定。如需切换请新建会话。'
       }
     },
     commandPalette: {
@@ -4135,6 +4406,8 @@ export const messages: Record<AppLocale, MessageTree> = {
         attachExistingPR: '关联已有 PR',
         sessionHistoryTitle: '会话历史（⌘K）',
         settingsTitle: '设置（⌘,）',
+        keepAwakeIdleTitle: '保持唤醒已启用',
+        keepAwakeActiveTitle: '正在阻止显示器进入睡眠',
         showSidebar: '显示侧边栏',
         hideSidebar: '隐藏侧边栏',
         merged: '已合并',

@@ -307,3 +307,73 @@ describe('CodexAppServerManager — collaborationMode in sendTurn', () => {
     expect(params.collaborationMode.settings.reasoning_effort).toBe('low')
   })
 })
+
+describe('CodexAppServerManager.steerTurn', () => {
+  let manager: CodexAppServerManager
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    manager = new CodexAppServerManager()
+  })
+
+  afterEach(() => {
+    manager.stopAll()
+    manager.removeAllListeners()
+  })
+
+  function seedSession(context: CodexSessionContext): void {
+    const sessionsMap = (manager as any).sessions as Map<string, CodexSessionContext>
+    sessionsMap.set(context.session.threadId!, context)
+  }
+
+  function getWrittenMessages(stdin: { write: ReturnType<typeof vi.fn> }): any[] {
+    return stdin.write.mock.calls.map((call: any[]) => JSON.parse((call[0] as string).trim()))
+  }
+
+  it('sends turn/steer with the active turn id by default', async () => {
+    const { context, stdin } = createTestContext({ activeTurnId: 'turn-active-1' })
+    seedSession(context)
+
+    const steerPromise = manager.steerTurn('thread-123', {
+      text: 'course correct'
+    })
+
+    const messages = getWrittenMessages(stdin)
+    const steerMsg = messages.find((message: any) => message.method === 'turn/steer')
+    expect(steerMsg).toBeDefined()
+    expect(steerMsg.params).toEqual({
+      threadId: 'thread-123',
+      turnId: 'turn-active-1',
+      input: [{ type: 'text', text: 'course correct' }]
+    })
+
+    manager.handleStdoutLine(
+      context,
+      JSON.stringify({ id: steerMsg.id, result: { ok: true } })
+    )
+
+    await steerPromise
+  })
+
+  it('uses explicit turnId override when provided', async () => {
+    const { context, stdin } = createTestContext({ activeTurnId: 'turn-active-1' })
+    seedSession(context)
+
+    const steerPromise = manager.steerTurn(
+      'thread-123',
+      { text: 'course correct' },
+      'turn-override-9'
+    )
+
+    const messages = getWrittenMessages(stdin)
+    const steerMsg = messages.find((message: any) => message.method === 'turn/steer')
+    expect(steerMsg?.params.turnId).toBe('turn-override-9')
+
+    manager.handleStdoutLine(
+      context,
+      JSON.stringify({ id: steerMsg.id, result: { ok: true } })
+    )
+
+    await steerPromise
+  })
+})

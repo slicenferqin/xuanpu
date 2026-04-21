@@ -79,7 +79,7 @@ export default function MonacoDiffView({
       if (compareBranch) {
         // Branch diff: original = branch ref, modified = working tree
         const [origResult, modResult] = await Promise.all([
-          window.gitOps.getRefContent(worktreePath, compareBranch, filePath),
+          window.gitOps.getBranchBaseContent(worktreePath, compareBranch, filePath),
           window.gitOps.getFileContent(worktreePath, filePath)
         ])
 

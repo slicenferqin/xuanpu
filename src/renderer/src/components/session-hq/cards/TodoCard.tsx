@@ -124,7 +124,13 @@ export function TodoCard(props: TodoCardProps): React.JSX.Element {
   // --- Tool use mode ---
   const { toolUse } = props
   const items = parseItems(toolUse)
-  const toolLabel = toolUse.name === 'TodoWrite' ? 'Task List' : toolUse.name
+  const lowerToolName = toolUse.name.toLowerCase()
+  const toolLabel =
+    toolUse.name === 'TodoWrite'
+      ? 'Task List'
+      : lowerToolName === 'update_plan'
+        ? 'Plan Update'
+        : toolUse.name
 
   return (
     <ActionCard

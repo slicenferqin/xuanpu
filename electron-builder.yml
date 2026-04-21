@@ -7,6 +7,14 @@ files:
   - out/**/*
   - resources/**/*
 
+# Cross-platform extra resources — copied, not packed into ASAR, so the skill
+# service can enumerate them at runtime with plain fs APIs.
+extraResources:
+  - from: resources/built-in-skills
+    to: built-in-skills
+    filter:
+      - '**/*'
+
 # Native .node binaries cannot be loaded from inside an ASAR archive.
 # This extracts them to app.asar.unpacked/ at build time.
 asarUnpack:

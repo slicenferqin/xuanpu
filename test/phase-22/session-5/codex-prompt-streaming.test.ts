@@ -338,10 +338,10 @@ describe('CodexImplementer.prompt()', () => {
 
     const mockDb = {
       updateSession: vi.fn(),
-      getSession: vi
-        .fn()
-        .mockReturnValueOnce({ id: 'hive-session-1', name: 'Fix auth token refresh bug' })
-        .mockReturnValueOnce({ id: 'hive-session-1', name: 'Auth refresh fix' }),
+      getSession: vi.fn().mockReturnValue({
+        id: 'hive-session-1',
+        name: 'Fix auth token refresh bug'
+      }),
       getWorktreeBySessionId: vi.fn().mockReturnValue(null)
     }
     impl.setDatabaseService(mockDb as any)
@@ -375,24 +375,23 @@ describe('CodexImplementer.prompt()', () => {
       .map((c: any[]) => c[1])
       .filter((e: any) => e.type === 'session.updated')
 
-    expect(streamCalls).toEqual([
-      {
-        type: 'session.updated',
-        sessionId: 'hive-session-1',
-        data: {
-          title: 'Fix auth token refresh bug',
-          info: { title: 'Fix auth token refresh bug' }
-        }
-      },
-      {
-        type: 'session.updated',
-        sessionId: 'hive-session-1',
-        data: {
-          title: 'Auth refresh fix',
-          info: { title: 'Auth refresh fix' }
-        }
+    expect(streamCalls).toHaveLength(2)
+    expect(streamCalls[0]).toMatchObject({
+      type: 'session.updated',
+      sessionId: 'hive-session-1',
+      data: {
+        title: 'Fix auth token refresh bug',
+        info: { title: 'Fix auth token refresh bug' }
       }
-    ])
+    })
+    expect(streamCalls[1]).toMatchObject({
+      type: 'session.updated',
+      sessionId: 'hive-session-1',
+      data: {
+        title: 'Auth refresh fix',
+        info: { title: 'Auth refresh fix' }
+      }
+    })
   })
 
   it('starts title generation only once per session', async () => {

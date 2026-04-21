@@ -1,154 +1,107 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-/**
- * Tests for the codex detection logic in detectAgentSdks().
- *
- * Since the actual system-info.ts module depends on Electron (`app` from 'electron'),
- * we test the detection logic by exercising the same pattern used in the source:
- * shell-out to `which`/`where`, parse the path, and verify with existsSync.
- *
- * This validates:
- *   1. The return type includes `codex: boolean`
- *   2. The detection logic correctly identifies installed/missing codex binary
- *   3. Error handling works for all three binaries
- */
+const { mockCanLaunchOpenCode, mockGetCodexLaunchInfo, mockResolveClaudeBinaryPath } = vi.hoisted(
+  () => ({
+    mockCanLaunchOpenCode: vi.fn(),
+    mockGetCodexLaunchInfo: vi.fn(),
+    mockResolveClaudeBinaryPath: vi.fn()
+  })
+)
 
-describe('system-info: detectAgentSdks codex detection logic', () => {
-  // Replicate the detection logic from system-info.ts without Electron deps
-  let mockExecFileSync: ReturnType<typeof vi.fn>
-  let mockExistsSync: ReturnType<typeof vi.fn>
+vi.mock('../../../src/main/services/opencode-binary-resolver', () => ({
+  canLaunchOpenCode: mockCanLaunchOpenCode
+}))
 
-  function detectAgentSdks(): { opencode: boolean; claude: boolean; codex: boolean } {
-    const whichCmd = process.platform === 'win32' ? 'where' : 'which'
-    const check = (binary: string): boolean => {
-      try {
-        const result = (mockExecFileSync(whichCmd, [binary], {
-          encoding: 'utf-8',
-          timeout: 5000,
-          env: process.env
-        }) as string).trim()
-        const resolved = result.split('\n')[0].trim()
-        return !!resolved && mockExistsSync(resolved)
-      } catch {
-        return false
-      }
-    }
-    return { opencode: check('opencode'), claude: check('claude'), codex: check('codex') }
+vi.mock('../../../src/main/services/codex-binary-resolver', () => ({
+  getCodexLaunchInfo: mockGetCodexLaunchInfo
+}))
+
+vi.mock('../../../src/main/services/claude-binary-resolver', () => ({
+  resolveClaudeBinaryPath: mockResolveClaudeBinaryPath
+}))
+
+vi.mock('electron', () => ({
+  app: {
+    getPath: vi.fn(() => '/tmp'),
+    getVersion: vi.fn(() => '1.0.0')
   }
+}))
 
+vi.mock('../../../src/main/services/logger', () => ({
+  createLogger: () => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn()
+  }),
+  getLogDir: vi.fn(() => '/tmp/logs')
+}))
+
+import { detectAgentSdks } from '../../../src/main/services/system-info'
+
+describe('system-info: detectAgentSdks', () => {
   beforeEach(() => {
-    mockExecFileSync = vi.fn()
-    mockExistsSync = vi.fn()
+    vi.clearAllMocks()
   })
 
-  it('returns codex: true when codex binary is found', () => {
-    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
-      const binary = args[0]
-      if (binary === 'codex') return '/usr/local/bin/codex\n'
-      throw new Error('not found')
+  it('returns false for every runtime when no launch capability is available', async () => {
+    mockCanLaunchOpenCode.mockResolvedValue(false)
+    mockGetCodexLaunchInfo.mockResolvedValue({
+      spec: null,
+      version: null,
+      supportsAppServer: false
     })
-    mockExistsSync.mockImplementation((p: string) => {
-      return p === '/usr/local/bin/codex'
-    })
+    mockResolveClaudeBinaryPath.mockReturnValue(null)
 
-    const result = detectAgentSdks()
-    expect(result.codex).toBe(true)
-    expect(result.opencode).toBe(false)
-    expect(result.claude).toBe(false)
+    await expect(detectAgentSdks()).resolves.toEqual({
+      opencode: false,
+      claude: false,
+      codex: false
+    })
   })
 
-  it('returns codex: false when codex binary is not found', () => {
-    mockExecFileSync.mockImplementation(() => {
-      throw new Error('not found')
+  it('requires codex app-server capability before reporting codex as available', async () => {
+    mockCanLaunchOpenCode.mockResolvedValue(true)
+    mockResolveClaudeBinaryPath.mockReturnValue('/usr/local/bin/claude')
+
+    mockGetCodexLaunchInfo.mockResolvedValueOnce({
+      spec: { command: '/usr/local/bin/codex', shell: false },
+      version: '0.36.0',
+      supportsAppServer: false
     })
 
-    const result = detectAgentSdks()
-    expect(result.codex).toBe(false)
-    expect(result.opencode).toBe(false)
-    expect(result.claude).toBe(false)
+    await expect(detectAgentSdks()).resolves.toEqual({
+      opencode: true,
+      claude: true,
+      codex: false
+    })
+
+    mockGetCodexLaunchInfo.mockResolvedValueOnce({
+      spec: { command: '/usr/local/bin/codex', shell: false },
+      version: '0.36.0',
+      supportsAppServer: true
+    })
+
+    await expect(detectAgentSdks()).resolves.toEqual({
+      opencode: true,
+      claude: true,
+      codex: true
+    })
   })
 
-  it('returns all three as true when all binaries are found', () => {
-    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
-      const binary = args[0]
-      const paths: Record<string, string> = {
-        opencode: '/usr/local/bin/opencode',
-        claude: '/usr/local/bin/claude',
-        codex: '/usr/local/bin/codex'
-      }
-      if (paths[binary]) return paths[binary] + '\n'
-      throw new Error('not found')
+  it('keeps the existing boolean return shape for renderer and headless callers', async () => {
+    mockCanLaunchOpenCode.mockResolvedValue(true)
+    mockGetCodexLaunchInfo.mockResolvedValue({
+      spec: { command: '/usr/local/bin/codex', shell: false },
+      version: '0.36.0',
+      supportsAppServer: true
     })
-    mockExistsSync.mockReturnValue(true)
+    mockResolveClaudeBinaryPath.mockReturnValue('/usr/local/bin/claude')
 
-    const result = detectAgentSdks()
-    expect(result.opencode).toBe(true)
-    expect(result.claude).toBe(true)
-    expect(result.codex).toBe(true)
-  })
+    const result = await detectAgentSdks()
 
-  it('handles errors gracefully for codex detection', () => {
-    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
-      const binary = args[0]
-      if (binary === 'opencode') return '/usr/local/bin/opencode\n'
-      if (binary === 'codex') throw new Error('command timed out')
-      throw new Error('not found')
-    })
-    mockExistsSync.mockReturnValue(true)
-
-    const result = detectAgentSdks()
-    expect(result.opencode).toBe(true)
-    expect(result.claude).toBe(false)
-    expect(result.codex).toBe(false)
-  })
-
-  it('returns codex: false when binary path does not exist on disk', () => {
-    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
-      const binary = args[0]
-      if (binary === 'codex') return '/usr/local/bin/codex\n'
-      throw new Error('not found')
-    })
-    mockExistsSync.mockReturnValue(false)
-
-    const result = detectAgentSdks()
-    expect(result.codex).toBe(false)
-  })
-
-  it('return type includes all three properties', () => {
-    mockExecFileSync.mockImplementation(() => {
-      throw new Error('not found')
-    })
-
-    const result = detectAgentSdks()
-    expect(result).toHaveProperty('opencode')
-    expect(result).toHaveProperty('claude')
-    expect(result).toHaveProperty('codex')
-  })
-
-  it('uses which command on non-Windows platforms', () => {
-    mockExecFileSync.mockImplementation(() => {
-      throw new Error('not found')
-    })
-
-    detectAgentSdks()
-
-    // All three calls should use 'which' (or 'where' on Windows)
-    const expectedCmd = process.platform === 'win32' ? 'where' : 'which'
-    expect(mockExecFileSync).toHaveBeenCalledTimes(3)
-    expect(mockExecFileSync).toHaveBeenCalledWith(
-      expectedCmd,
-      ['opencode'],
-      expect.objectContaining({ encoding: 'utf-8' })
-    )
-    expect(mockExecFileSync).toHaveBeenCalledWith(
-      expectedCmd,
-      ['claude'],
-      expect.objectContaining({ encoding: 'utf-8' })
-    )
-    expect(mockExecFileSync).toHaveBeenCalledWith(
-      expectedCmd,
-      ['codex'],
-      expect.objectContaining({ encoding: 'utf-8' })
-    )
+    expect(result).toHaveProperty('opencode', true)
+    expect(result).toHaveProperty('claude', true)
+    expect(result).toHaveProperty('codex', true)
   })
 })

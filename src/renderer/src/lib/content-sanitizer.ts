@@ -34,15 +34,34 @@ export function simplifyTaskNotification(raw: string): {
   label: string
   status: 'completed' | 'failed' | 'unknown'
 } {
-  // Try to extract the parenthesised task name
-  const nameMatch = raw.match(/\(([^)]+)\)/)
-  const label = nameMatch ? nameMatch[1].trim() : raw.replace(/\.$/, '').trim()
+  // Newer SDK format embeds an XML-ish payload with a <summary> field whose
+  // body looks like:  Background command "Rebuild and restart" completed (exit code 0)
+  // Prefer the quoted command name from <summary> over the legacy
+  // parenthesised "(name)" format used by old background-agent notifications.
+  const summaryMatch = raw.match(/<summary>\s*([\s\S]*?)\s*<\/summary>/i)
+  const summaryBody = summaryMatch?.[1]?.trim() ?? ''
 
-  const lower = raw.toLowerCase()
-  const status: 'completed' | 'failed' | 'unknown' = lower.includes('completed')
-    ? 'completed'
-    : lower.includes('fail')
-      ? 'failed'
+  let label = ''
+  if (summaryBody) {
+    const quoted = summaryBody.match(/["“]([^"”]+)["”]/)
+    if (quoted) {
+      label = quoted[1].trim()
+    } else {
+      label = summaryBody.replace(/\s*\(exit code [^)]*\)\s*$/i, '').replace(/\.$/, '').trim()
+    }
+  }
+
+  if (!label) {
+    // Legacy format: "Background agent xxx (Task name) completed successfully."
+    const nameMatch = raw.match(/\(([^)]+)\)/)
+    label = nameMatch ? nameMatch[1].trim() : raw.replace(/\.$/, '').trim()
+  }
+
+  const lower = (summaryBody || raw).toLowerCase()
+  const status: 'completed' | 'failed' | 'unknown' = lower.includes('failed') || lower.includes('fail')
+    ? 'failed'
+    : lower.includes('completed') || lower.includes('success')
+      ? 'completed'
       : 'unknown'
 
   return { label, status }

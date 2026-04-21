@@ -12,6 +12,7 @@ export interface Session {
   model_id: string | null
   model_variant: string | null
   color: string | null
+  first_message_at: number | null
   created_at: string
   updated_at: string
   completed_at: string | null

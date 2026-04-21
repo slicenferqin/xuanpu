@@ -4,8 +4,9 @@
  * This module runs in TWO contexts:
  *
  * 1. **Main process** — `emitAgentEvent()` is called by implementers instead of
- *    the raw `sendToRenderer()`. It stamps `eventId`, `sessionSequence`, and
- *    sends the envelope over the canonical `agent:stream` IPC channel.
+ *    the raw `sendToRenderer()`. It stamps `eventId`, `sessionSequence`,
+ *    `runEpoch`, and sends the envelope over the canonical `agent:stream`
+ *    IPC channel.
  *
  * 2. **Preload bridge** — `normalizeAgentEvent()` re-normalizes events coming
  *    from `agent:stream`, ensuring the renderer always sees a uniform
@@ -18,7 +19,6 @@ import type { BrowserWindow } from 'electron'
 import type {
   CanonicalAgentEvent,
   RawAgentEvent,
-  EventEnvelope,
   AgentStatusPayload
 } from '../types/agent-protocol'
 
@@ -26,6 +26,7 @@ import type {
 // Session-scoped sequence counters (main process only)
 // ---------------------------------------------------------------------------
 const sessionSequences = new Map<string, number>()
+const sessionRunEpochs = new Map<string, number>()
 
 function nextSequence(sessionId: string): number {
   const current = sessionSequences.get(sessionId) ?? 0
@@ -37,6 +38,22 @@ function nextSequence(sessionId: string): number {
 /** Reset the sequence counter for a session (e.g. on disconnect). */
 export function resetSessionSequence(sessionId: string): void {
   sessionSequences.delete(sessionId)
+}
+
+function currentRunEpoch(sessionId: string): number {
+  return sessionRunEpochs.get(sessionId) ?? 0
+}
+
+/** Advance the active run epoch for a hive session and return the new value. */
+export function beginSessionRun(sessionId: string): number {
+  const next = currentRunEpoch(sessionId) + 1
+  sessionRunEpochs.set(sessionId, next)
+  return next
+}
+
+/** Read the current run epoch for a hive session. Defaults to 0 before any prompt. */
+export function getCurrentRunEpoch(sessionId: string): number {
+  return currentRunEpoch(sessionId)
 }
 
 // ---------------------------------------------------------------------------
@@ -64,7 +81,7 @@ function generateEventId(): string {
 
 /**
  * Send an agent event to the renderer via the canonical `agent:stream` channel,
- * stamping `eventId` and `sessionSequence` on the envelope.
+ * stamping `eventId`, `sessionSequence`, and `runEpoch` on the envelope.
  *
  * Usage (in implementers):
  * ```ts
@@ -85,7 +102,8 @@ export function emitAgentEvent(
   const envelope: CanonicalAgentEvent = {
     ...event,
     eventId: event.eventId ?? generateEventId(),
-    sessionSequence: event.sessionSequence ?? nextSequence(event.sessionId)
+    sessionSequence: event.sessionSequence ?? nextSequence(event.sessionId),
+    runEpoch: event.runEpoch ?? currentRunEpoch(event.sessionId)
   } as CanonicalAgentEvent
 
   mainWindow.webContents.send('agent:stream', envelope)
@@ -110,8 +128,8 @@ export function emitAgentEvent(
 /**
  * Normalize a raw agent event into the canonical shape:
  *
- * 1. Ensure `eventId` and `sessionSequence` exist (generate if missing for
- *    legacy events that bypassed `emitAgentEvent`).
+ * 1. Ensure `eventId`, `sessionSequence`, and `runEpoch` exist (generate if
+ *    missing for legacy events that bypassed `emitAgentEvent`).
  * 2. For `session.status` events, ensure `statusPayload` is always at the
  *    top level (some implementers only put it in `data.status`).
  * 3. Tag the `sourceChannel` so the renderer can distinguish origin.
@@ -138,6 +156,9 @@ export function normalizeAgentEvent(
   }
   if (event.sessionSequence == null) {
     event.sessionSequence = 0
+  }
+  if (event.runEpoch == null) {
+    event.runEpoch = 0
   }
   event.sourceChannel = sourceChannel
 

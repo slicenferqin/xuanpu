@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { isMac } from '@/lib/platform'
 import {
   PanelRightClose,
@@ -12,7 +12,8 @@ import {
   Archive,
   ChevronDown,
   FileSearch,
-  X
+  X,
+  Coffee
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -78,6 +79,10 @@ export function Header(): React.JSX.Element {
   const setActiveSession = useSessionStore((s) => s.setActiveSession)
   const vimMode = useVimModeStore((s) => s.mode)
   const vimModeEnabled = useSettingsStore((s) => s.vimModeEnabled)
+  const keepAwakeEnabled = useSettingsStore((s) => s.keepAwakeEnabled)
+  const sessionStatuses = useWorktreeStatusStore((s) => s.sessionStatuses)
+  const getWorktreeStatus = useWorktreeStatusStore((s) => s.getWorktreeStatus)
+  const getConnectionStatus = useWorktreeStatusStore((s) => s.getConnectionStatus)
   const showVimHints = vimModeEnabled && vimMode === 'normal'
   const [conflictFixFlow, setConflictFixFlow] = useState<ConflictFixFlow | null>(null)
   const { t, supportsFirstCharHint } = useI18n()
@@ -98,6 +103,35 @@ export function Header(): React.JSX.Element {
   // Connection mode detection
   const selectedConnectionId = useConnectionStore((s) => s.selectedConnectionId)
   const isConnectionMode = !!selectedConnectionId && !selectedWorktreeId
+  const isKeepAwakeActive = useMemo(() => {
+    if (!Object.values(sessionStatuses).some(Boolean)) {
+      return false
+    }
+
+    for (const worktrees of worktreesByProject.values()) {
+      for (const worktree of worktrees) {
+        const status = getWorktreeStatus(worktree.id)
+        if (status === 'planning' || status === 'working') {
+          return true
+        }
+      }
+    }
+
+    if (selectedConnectionId) {
+      const status = getConnectionStatus(selectedConnectionId)
+      if (status === 'planning' || status === 'working') {
+        return true
+      }
+    }
+
+    return false
+  }, [
+    worktreesByProject,
+    selectedConnectionId,
+    sessionStatuses,
+    getConnectionStatus,
+    getWorktreeStatus
+  ])
 
   const hasConflicts = useGitStore(
     (state) =>
@@ -492,12 +526,7 @@ export function Header(): React.JSX.Element {
       {isMac() && <div className="w-[72px] flex-shrink-0" />}
       <div className="flex items-center gap-3 flex-1 min-w-0">
         <div className="flex items-center gap-3 min-w-0 rounded-xl border border-border/60 bg-muted/35 px-3 py-1.5">
-          <img
-            src={appLogo}
-            alt="玄圃"
-            className="h-5 w-5 shrink-0 rounded-md"
-            draggable={false}
-          />
+          <img src={appLogo} alt="玄圃" className="h-5 w-5 shrink-0 rounded-md" draggable={false} />
           <span className="text-sm font-semibold">玄圃</span>
         </div>
         {vimModeEnabled && (
@@ -890,6 +919,22 @@ export function Header(): React.JSX.Element {
         >
           <Settings className="h-4 w-4" />
         </Button>
+        {keepAwakeEnabled && (
+          <div
+            className={cn(
+              'inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground',
+              isKeepAwakeActive && 'text-amber-500'
+            )}
+            title={t(
+              isKeepAwakeActive
+                ? 'header.controls.keepAwakeActiveTitle'
+                : 'header.controls.keepAwakeIdleTitle'
+            )}
+            data-testid="keep-awake-indicator"
+          >
+            <Coffee className="h-4 w-4" />
+          </div>
+        )}
         <Button
           onClick={toggleRightSidebar}
           variant="ghost"

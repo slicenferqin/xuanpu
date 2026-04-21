@@ -1,5 +1,5 @@
 import type { BrowserWindow } from 'electron'
-import { spawn, type ChildProcess } from 'node:child_process'
+import type { ChildProcess } from 'node:child_process'
 import { createLogger } from './logger'
 import { notificationService } from './notification-service'
 import { getDatabase } from '../db'
@@ -7,7 +7,12 @@ import { autoRenameWorktreeBranch } from './git-service'
 import { getEventBus } from '../../server/event-bus'
 import type { AgentSdkImplementer } from './agent-runtime-types'
 import type { AgentRuntimeAdapter } from './agent-runtime-types'
-import { emitAgentEvent } from '@shared/lib/normalize-agent-event'
+import { beginSessionRun, emitAgentEvent } from '@shared/lib/normalize-agent-event'
+import {
+  resolveOpenCodeLaunchSpec,
+  type OpenCodeLaunchSpec
+} from './opencode-binary-resolver'
+import { spawnLaunchSpec } from './command-launch-utils'
 
 const log = createLogger({ component: 'OpenCodeService' })
 
@@ -112,73 +117,97 @@ async function loadOpenCodeSDK(): Promise<{ createOpencode: any; createOpencodeC
  * Parses the listening URL from stdout.
  */
 function spawnOpenCodeServer(
-  options: { hostname?: string; timeout?: number; signal?: AbortSignal } = {}
+  options: {
+    hostname?: string
+    timeout?: number
+    signal?: AbortSignal
+    launchSpec?: OpenCodeLaunchSpec
+  } = {}
 ): Promise<{ url: string; close(): void }> {
   const hostname = options.hostname ?? '127.0.0.1'
   const timeout = options.timeout ?? 10000
 
-  const args = ['serve', `--hostname=${hostname}`]
-  const proc: ChildProcess = spawn('opencode', args, {
-    signal: options.signal,
-    env: { ...process.env }
-  })
+  return (async () => {
+    const launchSpec = options.launchSpec ?? (await resolveOpenCodeLaunchSpec())
+    if (!launchSpec) {
+      throw new Error('OpenCode CLI not found on PATH')
+    }
 
-  const url = new Promise<string>((resolve, reject) => {
-    const id = setTimeout(() => {
-      reject(new Error(`Timeout waiting for opencode server to start after ${timeout}ms`))
-    }, timeout)
+    const args = ['serve', `--hostname=${hostname}`]
+    const proc: ChildProcess = spawnLaunchSpec(launchSpec, args, {
+      signal: options.signal,
+      env: { ...process.env }
+    })
 
-    let output = ''
-    proc.stdout?.on('data', (chunk: Buffer) => {
-      output += chunk.toString()
-      const lines = output.split('\n')
-      for (const line of lines) {
-        if (line.startsWith('opencode server listening')) {
-          const match = line.match(/on\s+(https?:\/\/[^\s]+)/)
+    const url = new Promise<string>((resolve, reject) => {
+      const id = setTimeout(() => {
+        reject(new Error(`Timeout waiting for opencode server to start after ${timeout}ms`))
+      }, timeout)
+
+      let output = ''
+      proc.stdout?.on('data', (chunk: Buffer) => {
+        output += chunk.toString()
+        const lines = output.split(/\r?\n/)
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (!trimmed.startsWith('opencode server listening')) continue
+          const match = trimmed.match(/on\s+(https?:\/\/[^\s]+)/)
           if (!match) {
             clearTimeout(id)
-            reject(new Error(`Failed to parse server url from output: ${line}`))
+            reject(new Error(`Failed to parse server url from output: ${trimmed}`))
             return
           }
           clearTimeout(id)
           resolve(match[1])
           return
         }
-      }
-    })
-
-    proc.stderr?.on('data', (chunk: Buffer) => {
-      output += chunk.toString()
-    })
-
-    proc.on('exit', (code) => {
-      clearTimeout(id)
-      let msg = `opencode server exited with code ${code}`
-      if (output.trim()) {
-        msg += `\nServer output: ${output}`
-      }
-      reject(new Error(msg))
-    })
-
-    proc.on('error', (error) => {
-      clearTimeout(id)
-      reject(error)
-    })
-
-    if (options.signal) {
-      options.signal.addEventListener('abort', () => {
-        clearTimeout(id)
-        reject(new Error('Aborted'))
       })
-    }
-  })
 
-  return url.then((resolvedUrl) => ({
-    url: resolvedUrl,
-    close() {
-      proc.kill()
-    }
-  }))
+      proc.stderr?.on('data', (chunk: Buffer) => {
+        output += chunk.toString()
+      })
+
+      proc.on('exit', (code) => {
+        clearTimeout(id)
+        let msg = `opencode server exited with code ${code}`
+        if (output.trim()) {
+          msg += `\nServer output: ${output}`
+        }
+        reject(new Error(msg))
+      })
+
+      proc.on('error', (error) => {
+        clearTimeout(id)
+        reject(error)
+      })
+
+      if (options.signal) {
+        options.signal.addEventListener('abort', () => {
+          clearTimeout(id)
+          reject(new Error('Aborted'))
+        })
+      }
+    })
+
+    return url.then((resolvedUrl) => ({
+      url: resolvedUrl,
+      close() {
+        if (process.platform === 'win32' && proc.pid && launchSpec.shell) {
+          try {
+            const killer = spawnLaunchSpec({ command: 'taskkill', shell: false }, ['/pid', String(proc.pid), '/t', '/f'])
+            killer.once('error', () => {
+              proc.kill()
+            })
+            return
+          } catch {
+            proc.kill()
+            return
+          }
+        }
+        proc.kill()
+      }
+    }))
+  })()
 }
 
 class OpenCodeService implements AgentSdkImplementer, AgentRuntimeAdapter {
@@ -671,6 +700,13 @@ class OpenCodeService implements AgentSdkImplementer, AgentRuntimeAdapter {
       throw new Error('No OpenCode instance available')
     }
 
+    const hiveSessionId =
+      this.getMappedHiveSessionId(this.instance, opencodeSessionId, worktreePath) ??
+      getDatabase().getSessionByOpenCodeSessionId(opencodeSessionId)?.id
+    if (hiveSessionId) {
+      beginSessionRun(hiveSessionId)
+    }
+
     const { variant, ...model } = modelOverride ?? this.getSelectedModel()
     log.info('Using model for prompt', { model, variant })
 
@@ -1111,6 +1147,17 @@ class OpenCodeService implements AgentSdkImplementer, AgentRuntimeAdapter {
       }
     }
 
+    if (
+      eventType === 'question.asked' ||
+      eventType === 'permission.asked' ||
+      eventType === 'command.approval_needed'
+    ) {
+      this.maybeNotifyPendingUserFeedback(
+        hiveSessionId,
+        eventType === 'question.asked' ? 'question' : 'approval'
+      )
+    }
+
     // Handle session.updated events — persist title to DB before forwarding to renderer
     // The SDK event structure is: { properties: { info: Session } } where Session has { id, title, ... }
     if (eventType === 'session.updated') {
@@ -1335,6 +1382,51 @@ class OpenCodeService implements AgentSdkImplementer, AgentRuntimeAdapter {
       })
     } catch (error) {
       log.warn('Failed to show session completion notification', { hiveSessionId, error })
+    }
+  }
+
+  private maybeNotifyPendingUserFeedback(
+    hiveSessionId: string,
+    kind: 'question' | 'approval'
+  ): void {
+    try {
+      if (!this.mainWindow || this.mainWindow.isDestroyed() || this.mainWindow.isFocused()) {
+        return
+      }
+
+      const db = getDatabase()
+      const session = db.getSession(hiveSessionId)
+      if (!session) {
+        log.warn('Cannot notify pending feedback: session not found', { hiveSessionId, kind })
+        return
+      }
+
+      const project = db.getProject(session.project_id)
+      if (!project) {
+        log.warn('Cannot notify pending feedback: project not found', {
+          hiveSessionId,
+          projectId: session.project_id,
+          kind
+        })
+        return
+      }
+
+      notificationService.showPendingUserFeedback(
+        {
+          projectName: project.name,
+          sessionName: session.name || 'Untitled',
+          projectId: session.project_id,
+          worktreeId: session.worktree_id || '',
+          sessionId: hiveSessionId
+        },
+        kind
+      )
+    } catch (error) {
+      log.warn('Failed to show pending user feedback notification', {
+        hiveSessionId,
+        kind,
+        error
+      })
     }
   }
 

@@ -18,6 +18,9 @@ const SettingsModal = lazy(() =>
 const AgentSetupGuard = lazy(() =>
   import('@/components/setup').then((m) => ({ default: m.AgentSetupGuard }))
 )
+const FdaSetupGuard = lazy(() =>
+  import('@/components/setup').then((m) => ({ default: m.FdaSetupGuard }))
+)
 const HelpOverlay = lazy(() =>
   import('@/components/ui/HelpOverlay').then((m) => ({ default: m.HelpOverlay }))
 )
@@ -32,6 +35,7 @@ import { useWindowFocusRefresh } from '@/hooks/useWindowFocusRefresh'
 import { useWorktreeWatcher } from '@/hooks/useWorktreeWatcher'
 import { useConnectionWatcher } from '@/hooks/useConnectionWatcher'
 import { useAutoUpdate } from '@/hooks/useAutoUpdate'
+import { useKeepAwake } from '@/hooks/useKeepAwake'
 import { ErrorBoundary, ErrorFallback } from '@/components/error'
 import { ProjectSettingsDialog } from '@/components/projects/ProjectSettingsDialog'
 import { useProjectStore } from '@/stores/useProjectStore'
@@ -87,6 +91,8 @@ export function AppLayout({ children }: AppLayoutProps): React.JSX.Element {
   useConnectionWatcher()
   // Auto-update notifications
   useAutoUpdate()
+  // Keep display awake while opted-in sessions are actively running
+  useKeepAwake()
 
   // Drag-and-drop from Finder
   const activeSessionId = useSessionStore((s) => s.activeSessionId)
@@ -235,6 +241,7 @@ export function AppLayout({ children }: AppLayoutProps): React.JSX.Element {
         </ErrorBoundary>
         <GlobalProjectSettings />
         <AgentSetupGuard />
+        <FdaSetupGuard />
         <HelpOverlay />
       </Suspense>
     </div>
