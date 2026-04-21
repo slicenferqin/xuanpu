@@ -318,7 +318,10 @@ export function writeEventToStreamingBuffer(
   event: CanonicalAgentEvent,
   options?: { activeSessionId?: string | null }
 ): StreamingBuffer {
-  const activeSessionId = options?.activeSessionId ?? null
+  // activeSessionId used to gate inactive-session idle cleanup; no longer
+  // needed now that idle keeps parts intact. Kept in the signature for
+  // backwards compat with callers that still supply it.
+  void options
 
   return updateStreamingBuffer(
     sessionId,
@@ -525,12 +528,12 @@ export function writeEventToStreamingBuffer(
         }
 
         if (statusType === 'idle') {
-          if (sessionId !== activeSessionId) {
-            return resetStreamingBufferOverlayState(current, {
-              preserveCompactionState: true
-            })
-          }
-
+          // Keep `parts` intact regardless of whether this session is the
+          // active view. Before, inactive sessions had their overlay wiped
+          // the moment their turn ended — so switching away mid-turn and
+          // back would show an empty (or near-empty) transcript until the
+          // next user message. The next send calls resetLiveOverlay(true)
+          // to clear, so there's no need to do it here.
           return {
             ...current,
             isStreaming: false,

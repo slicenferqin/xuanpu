@@ -50,8 +50,7 @@ import {
   getStreamingBuffer,
   getStreamingBufferSnapshot,
   subscribeToStreamingBuffer,
-  updateStreamingBuffer,
-  clearStreamingBufferOverlay
+  updateStreamingBuffer
 } from '@/stores/useSessionRuntimeStore'
 import {
   executeSendAction,
@@ -850,10 +849,12 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
               })
               .finally(() => {
                 optimisticRef.current = []
-                clearStreamingBufferOverlay(sessionId, {
-                  notify: 'immediate',
-                  preserveCompactionState: true
-                })
+                // NOTE: do NOT clearStreamingBufferOverlay here. By the time
+                // we reach this finally, the runtime mirror's idle handler
+                // already set isStreaming=false (so streamingNodes stop
+                // rendering). Wiping `parts` would destroy content the user
+                // might switch back to read, and the next user message will
+                // call resetLiveOverlay(true) before any new stream lands.
               })
 
             // Auto-drain pending message queue
