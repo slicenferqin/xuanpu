@@ -617,6 +617,13 @@ export interface AgentTimelineProps {
   activeRunStartedAt?: number | string | null
   lifecycle: SessionLifecycle
   ephemeralStatusRows?: ThreadStatusRowData[]
+  /**
+   * Live compaction marker that should appear inline at its own timestamp
+   * (NOT pinned at the bottom). Once the run finishes and the compaction
+   * lands in `timelineMessages` as a durable message part, the parent stops
+   * passing this so the durable copy takes over.
+   */
+  inflightCompaction?: ThreadStatusRowData | null
   /** Suppress inline TodoCard rendering when MissionControl handles tasks */
   suppressTodoCards?: boolean
   /** Aggregated final task list — renders ONE TodoCard after MissionControl fades */
@@ -649,6 +656,14 @@ export interface AgentTimelineProps {
   onPointerDown?: () => void
   onPointerUp?: () => void
   onPointerCancel?: () => void
+  /**
+   * Measured pixel height of the floating ComposerBar / dock so the scroll
+   * viewport can reserve enough bottom padding. The previous static value
+   * (`pb-[14.5rem]` = 232px) wasn't enough once the composer expanded
+   * (attachments preview, multi-line draft, slash popover, queue dropdown),
+   * causing the last few transcript nodes to render BEHIND the composer.
+   */
+  bottomFloatingHeight?: number
 }
 
 export function AgentTimeline({
@@ -659,6 +674,7 @@ export function AgentTimeline({
   activeRunStartedAt,
   lifecycle: _lifecycle,
   ephemeralStatusRows = [],
+  inflightCompaction = null,
   suppressTodoCards,
   finalTodoTasks,
   sessionId,
@@ -680,7 +696,8 @@ export function AgentTimeline({
   onWheel,
   onPointerDown,
   onPointerUp,
-  onPointerCancel
+  onPointerCancel,
+  bottomFloatingHeight = 0
 }: AgentTimelineProps): React.JSX.Element {
   // Flatten messages into timeline nodes
   const nodes = useMemo(() => {
@@ -722,6 +739,21 @@ export function AgentTimeline({
         return true
       })
   }, [timelineMessages, suppressTodoCards, isStreaming, activeRunStartedAt])
+
+  // Find where to splice the live `inflightCompaction` row inline by timestamp.
+  // -1 → render before any nodes; >=0 → render AFTER nodes[index]. Once the
+  // compaction lands as a durable message in `timelineMessages`, the parent
+  // stops passing `inflightCompaction` and the durable copy renders via the
+  // normal nodes path instead.
+  const inflightCompactionInsertAfter = useMemo(() => {
+    if (!inflightCompaction) return null
+    const target = inflightCompaction.timestamp
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const ts = Date.parse(nodes[i].message.timestamp)
+      if (Number.isFinite(ts) && ts <= target) return i
+    }
+    return -1
+  }, [nodes, inflightCompaction])
 
   // Dedupe by tool_use id: if a tool_use with the same id is already committed
   // in timelineMessages, skip the streaming copy — otherwise a switch-away-and-back
@@ -854,7 +886,19 @@ export function AgentTimeline({
       onPointerCancel={onPointerCancel}
       data-testid="hq-agent-timeline-scroll"
     >
-      <div className="w-[85%] ml-[5%] py-6 pb-[14.5rem]">
+      <div
+        className="w-[85%] ml-[5%] py-6"
+        style={{
+          // Reserve enough room below the last node for the floating composer
+          // (measured at runtime) plus a small breathing margin. Falls back to
+          // the prior static value when the height isn't measured yet.
+          paddingBottom: `${Math.max(bottomFloatingHeight + 64, 232)}px`
+        }}
+      >
+        {/* Inline compaction marker inserted by timestamp. */}
+        {inflightCompaction && inflightCompactionInsertAfter === -1 && (
+          <ThreadStatusRow key={inflightCompaction.id} status={inflightCompaction} />
+        )}
         {/* Timeline nodes */}
         {nodes.map((node, index) => {
           const iconCfg = ICON_MAP[node.cardType]
@@ -869,39 +913,99 @@ export function AgentTimeline({
             && node.isLastInMessage
             && (!nextNode || nextNode.cardType === 'user-message')
 
+          const compactionSuffix =
+            inflightCompaction && inflightCompactionInsertAfter === index ? (
+              <ThreadStatusRow
+                key={`${inflightCompaction.id}-after-${index}`}
+                status={inflightCompaction}
+              />
+            ) : null
+
           // User messages render without the timeline line
           if (node.cardType === 'user-message') {
             return (
-              <div key={node.key} className="mb-6">
-                <TimelineNodeView
-                  node={node}
-                  sessionId={sessionId}
-                  worktreePath={worktreePath}
-                  childPartsMap={childPartsMap}
-                  planContentByToolUseId={planContentByToolUseId}
-                  canEditUserMessage={canEditUserMessage}
-                  editingMessageId={editingMessageId}
-                  editingContent={editingContent}
-                  onEditingContentChange={onEditingContentChange}
-                  onSaveUserMessageEdit={onSaveUserMessageEdit}
-                  onCancelUserMessageEdit={onCancelUserMessageEdit}
-                  onCopyUserMessage={onCopyUserMessage}
-                  onEditUserMessage={onEditUserMessage}
-                  onForkUserMessage={onForkUserMessage}
-                  forkingMessageId={forkingMessageId}
-                />
-              </div>
+              <React.Fragment key={node.key}>
+                <div className="mb-6">
+                  <TimelineNodeView
+                    node={node}
+                    sessionId={sessionId}
+                    worktreePath={worktreePath}
+                    childPartsMap={childPartsMap}
+                    planContentByToolUseId={planContentByToolUseId}
+                    canEditUserMessage={canEditUserMessage}
+                    editingMessageId={editingMessageId}
+                    editingContent={editingContent}
+                    onEditingContentChange={onEditingContentChange}
+                    onSaveUserMessageEdit={onSaveUserMessageEdit}
+                    onCancelUserMessageEdit={onCancelUserMessageEdit}
+                    onCopyUserMessage={onCopyUserMessage}
+                    onEditUserMessage={onEditUserMessage}
+                    onForkUserMessage={onForkUserMessage}
+                    forkingMessageId={forkingMessageId}
+                  />
+                </div>
+                {compactionSuffix}
+              </React.Fragment>
             )
           }
 
           // Text nodes render inline without icon
           if (node.cardType === 'text') {
             return (
-              <div key={node.key} className="relative pl-10 mb-4">
+              <React.Fragment key={node.key}>
+                <div className="relative pl-10 mb-4">
+                  {/* Vertical line */}
+                  {renderConnector && (
+                    <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border" />
+                  )}
+                  <TimelineNodeView
+                    node={node}
+                    sessionId={sessionId}
+                    worktreePath={worktreePath}
+                    childPartsMap={childPartsMap}
+                    planContentByToolUseId={planContentByToolUseId}
+                    canEditUserMessage={canEditUserMessage}
+                    editingMessageId={editingMessageId}
+                    editingContent={editingContent}
+                    onEditingContentChange={onEditingContentChange}
+                    onSaveUserMessageEdit={onSaveUserMessageEdit}
+                    onCancelUserMessageEdit={onCancelUserMessageEdit}
+                    onCopyUserMessage={onCopyUserMessage}
+                    onEditUserMessage={onEditUserMessage}
+                    onForkUserMessage={onForkUserMessage}
+                    forkingMessageId={forkingMessageId}
+                  />
+                  {showTimestamp && node.message.timestamp && (
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {formatMessageTime(node.message.timestamp)}
+                    </div>
+                  )}
+                </div>
+                {compactionSuffix}
+              </React.Fragment>
+            )
+          }
+
+          return (
+            <React.Fragment key={node.key}>
+              <div className="relative pl-10 mb-4">
                 {/* Vertical line */}
                 {renderConnector && (
                   <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border" />
                 )}
+
+                {/* Icon node */}
+                <div
+                  className={cn(
+                    'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
+                    'flex items-center justify-center z-10',
+                    iconCfg.bgClass, iconCfg.colorClass
+                  )}
+                >
+                  <Icon className="h-3 w-3" />
+                </div>
+
+                {/* Card */}
                 <TimelineNodeView
                   node={node}
                   sessionId={sessionId}
@@ -925,51 +1029,8 @@ export function AgentTimeline({
                   </div>
                 )}
               </div>
-            )
-          }
-
-          return (
-            <div key={node.key} className="relative pl-10 mb-4">
-              {/* Vertical line */}
-              {renderConnector && (
-                <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border" />
-              )}
-
-              {/* Icon node */}
-              <div
-                className={cn(
-                  'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
-                  'flex items-center justify-center z-10',
-                  iconCfg.bgClass, iconCfg.colorClass
-                )}
-              >
-                <Icon className="h-3 w-3" />
-              </div>
-
-              {/* Card */}
-              <TimelineNodeView
-                node={node}
-                sessionId={sessionId}
-                worktreePath={worktreePath}
-                childPartsMap={childPartsMap}
-                planContentByToolUseId={planContentByToolUseId}
-                canEditUserMessage={canEditUserMessage}
-                editingMessageId={editingMessageId}
-                editingContent={editingContent}
-                onEditingContentChange={onEditingContentChange}
-                onSaveUserMessageEdit={onSaveUserMessageEdit}
-                onCancelUserMessageEdit={onCancelUserMessageEdit}
-                onCopyUserMessage={onCopyUserMessage}
-                onEditUserMessage={onEditUserMessage}
-                onForkUserMessage={onForkUserMessage}
-                forkingMessageId={forkingMessageId}
-              />
-              {showTimestamp && node.message.timestamp && (
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {formatMessageTime(node.message.timestamp)}
-                </div>
-              )}
-            </div>
+              {compactionSuffix}
+            </React.Fragment>
           )
         })}
 

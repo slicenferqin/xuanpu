@@ -24,6 +24,7 @@ interface UseSessionSmartScrollResult {
   showScrollFab: boolean
   scrollFabCount: number
   scrollFabBottomOffset: number
+  bottomFloatingHeight: number
   handleScroll: () => void
   handleScrollWheel: () => void
   handleScrollPointerDown: () => void
@@ -396,6 +397,13 @@ export function useSessionSmartScroll({
     showScrollFab,
     scrollFabCount,
     scrollFabBottomOffset,
+    /**
+     * Measured pixel height of the floating ComposerBar (and any sibling
+     * floating dock). Consumers should use this to size the bottom padding
+     * of their scroll viewport so transcript content doesn't get hidden
+     * behind the composer.
+     */
+    bottomFloatingHeight: Math.max(composerHeight, dockHeight),
     handleScroll,
     handleScrollWheel,
     handleScrollPointerDown,

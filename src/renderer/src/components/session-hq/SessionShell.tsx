@@ -493,20 +493,19 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     [timelineMessages]
   )
 
+  const inflightCompactionRow = useMemo<ThreadStatusRowData | null>(() => {
+    if (!compactionState) return null
+    if (compactionState.phase === 'completed' && hasDurableCompactionMessage) return null
+    return {
+      id: `compaction-${sessionId}`,
+      kind: compactionState.phase === 'running' ? 'compacting' : 'compacted',
+      timestamp: compactionState.timestamp,
+      ephemeral: true
+    }
+  }, [compactionState, hasDurableCompactionMessage, sessionId])
+
   const ephemeralStatusRows = useMemo<ThreadStatusRowData[]>(() => {
     const rows: ThreadStatusRowData[] = []
-
-    if (
-      compactionState &&
-      !(compactionState.phase === 'completed' && hasDurableCompactionMessage)
-    ) {
-      rows.push({
-        id: `compaction-${sessionId}`,
-        kind: compactionState.phase === 'running' ? 'compacting' : 'compacted',
-        timestamp: compactionState.timestamp,
-        ephemeral: true
-      })
-    }
 
     if (runStartedAt && (lifecycle === 'busy' || lifecycle === 'materializing')) {
       rows.push({
@@ -519,7 +518,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     }
 
     return rows
-  }, [compactionState, hasDurableCompactionMessage, lifecycle, runStartedAt, sessionId])
+  }, [lifecycle, runStartedAt, sessionId])
 
   const smartScroll = useSessionSmartScroll({
     sessionId,
@@ -1337,6 +1336,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           activeRunStartedAt={runStartedAt}
           lifecycle={lifecycle}
           ephemeralStatusRows={ephemeralStatusRows}
+          inflightCompaction={inflightCompactionRow}
           suppressTodoCards={missionVisible}
           sessionId={sessionId}
           worktreePath={worktreePath}
@@ -1358,6 +1358,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           onPointerDown={smartScroll.handleScrollPointerDown}
           onPointerUp={smartScroll.handleScrollPointerUp}
           onPointerCancel={smartScroll.handleScrollPointerCancel}
+          bottomFloatingHeight={smartScroll.bottomFloatingHeight}
         />
 
         <ScrollToBottomFab
