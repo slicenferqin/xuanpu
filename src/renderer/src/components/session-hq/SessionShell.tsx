@@ -822,8 +822,15 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
                 sessionId,
                 droidSessionId,
                 (sid) => useSessionRuntimeStore.getState().dequeueMessage(sid),
-                (wp, sid, content) => window.agentOps.prompt(wp, sid, content, requestModel),
-                worktreePath
+                async (wp, sid, message) => {
+                  let messageParts: MessagePart[] | undefined
+                  if (message.attachments.length > 0) {
+                    messageParts = await buildMessageParts(message.attachments as Attachment[], message.content)
+                  }
+                  return window.agentOps.prompt(wp, sid, messageParts ?? message.content, requestModel)
+                },
+                worktreePath,
+                (sid, message) => useSessionRuntimeStore.getState().requeueMessageFront(sid, message)
               ).catch((err) => console.error('[SessionShell] drainNextPending failed:', err))
             }
           }

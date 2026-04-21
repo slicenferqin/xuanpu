@@ -28,6 +28,7 @@ export interface ComposerInput {
   lifecycle: SessionLifecycle
   hasInterrupt: boolean
   hasPendingMessages: boolean
+  hasDraftContent: boolean
   isConnected: boolean
   supportsSteer?: boolean
 }
@@ -57,11 +58,20 @@ export interface ComposerActionSet {
  *   1. Not connected → disabled
  *   2. Interrupt pending → reply mode
  *   3. idle / error → send
- *   4. busy / materializing → stop+send (primary), queue / steer (alt)
+ *   4. busy / materializing →
+ *      - empty input: stop+send (primary)
+ *      - draft content: queue (primary), steer / stop+send (alt)
  *   5. retry → queue (primary), stop+send (alt)
  */
 export function determineComposerActions(input: ComposerInput): ComposerActionSet {
-  const { lifecycle, hasInterrupt, hasPendingMessages, isConnected, supportsSteer = false } = input
+  const {
+    lifecycle,
+    hasInterrupt,
+    hasPendingMessages,
+    hasDraftContent,
+    isConnected,
+    supportsSteer = false
+  } = input
 
   // 1. Not connected
   if (!isConnected) {
@@ -99,6 +109,15 @@ export function determineComposerActions(input: ComposerInput): ComposerActionSe
 
     case 'busy':
     case 'materializing':
+      if (hasDraftContent) {
+        return {
+          primary: 'queue',
+          alternatives: supportsSteer ? ['steer', 'stop_and_send'] : ['stop_and_send'],
+          inputEnabled: true,
+          primaryLabel: 'Queue',
+          iconHint: 'queue'
+        }
+      }
       return {
         primary: 'stop_and_send',
         alternatives: supportsSteer ? ['queue', 'steer'] : ['queue'],
@@ -286,12 +305,21 @@ export async function drainNextPending(
   prompt: (
     worktreePath: string,
     sessionId: string,
-    content: string
+    message: PendingMessage
   ) => Promise<{ success: boolean; error?: string }>,
-  worktreePath: string
+  worktreePath: string,
+  requeueFront?: (sessionId: string, message: PendingMessage) => void
 ): Promise<boolean> {
   const next = dequeue(storeSessionId)
   if (!next) return false
-  await prompt(worktreePath, agentSessionId, next.content)
+  try {
+    const result = await prompt(worktreePath, agentSessionId, next)
+    if (!result.success) {
+      throw new Error(result.error || 'Failed to drain pending message')
+    }
+  } catch (error) {
+    requeueFront?.(storeSessionId, next)
+    throw error
+  }
   return true
 }

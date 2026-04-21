@@ -7,7 +7,7 @@
  */
 
 import React, { useRef, useCallback, useState, useEffect, useMemo } from 'react'
-import { ArrowUp, Square, CornerDownLeft, ChevronDown } from 'lucide-react'
+import { ArrowUp, Square, CornerDownLeft, ListPlus, Workflow, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AttachmentButton } from '../sessions/AttachmentButton'
 import { AttachmentPreview, type Attachment } from '../sessions/AttachmentPreview'
@@ -71,7 +71,24 @@ function SendIcon({ hint }: { hint: ComposerActionSet['iconHint'] }): React.JSX.
   switch (hint) {
     case 'stop':
       return <Square className="h-3.5 w-3.5" />
+    case 'queue':
+      return <ListPlus className="h-4 w-4" />
     case 'reply':
+      return <CornerDownLeft className="h-4 w-4" />
+    default:
+      return <ArrowUp className="h-4 w-4" />
+  }
+}
+
+function ActionMenuIcon({ action }: { action: ComposerAction }): React.JSX.Element {
+  switch (action) {
+    case 'queue':
+      return <ListPlus className="h-4 w-4" />
+    case 'steer':
+      return <Workflow className="h-4 w-4" />
+    case 'stop_and_send':
+      return <Square className="h-3.5 w-3.5" />
+    case 'reply_interrupt':
       return <CornerDownLeft className="h-4 w-4" />
     default:
       return <ArrowUp className="h-4 w-4" />
@@ -146,16 +163,17 @@ export function ComposerBar({
     }).catch(() => {})
     return () => { mounted = false }
   }, [worktreePath, commandsVersion])
+  const canSend = content.trim().length > 0 || attachments.length > 0
   // Derive available actions from the state machine
   const actionSet = determineComposerActions({
     lifecycle,
     hasInterrupt: firstInterrupt != null,
     hasPendingMessages: pendingCount > 0,
+    hasDraftContent: canSend,
     isConnected,
     supportsSteer
   })
 
-  const canSend = content.trim().length > 0 || attachments.length > 0
   const isDisabled = !actionSet.inputEnabled
   const availableAlternatives = useMemo(
     () =>
@@ -295,6 +313,16 @@ export function ComposerBar({
     textareaRef.current?.focus()
   }, [])
 
+  const placeholder = pendingPlan
+    ? 'Provide feedback on the plan...'
+    : firstInterrupt
+      ? 'Type your reply...'
+      : actionSet.primary === 'queue'
+        ? 'Type a follow-up to queue after the current run...'
+        : actionSet.iconHint === 'stop'
+          ? 'Type to stop and send...'
+          : 'Type a message...'
+
   // Determine if button should be enabled
   const buttonEnabled =
     actionSet.primary != null &&
@@ -348,15 +376,7 @@ export function ComposerBar({
           onChange={(e) => handleContentChange(e.target.value)}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={
-            pendingPlan
-              ? 'Provide feedback on the plan...'
-              : firstInterrupt
-                ? 'Type your reply...'
-                : actionSet.iconHint === 'stop'
-                  ? 'Type to stop and send...'
-                  : 'Type a message...'
-          }
+          placeholder={placeholder}
           disabled={isDisabled}
           className={cn(
             'w-full resize-none bg-transparent border-0 outline-none',
@@ -404,30 +424,35 @@ export function ComposerBar({
         {availableAlternatives.length > 0 && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 rounded-full border border-border/70 px-2.5"
                 disabled={!alternativesEnabled}
-                className={cn(
-                  'h-8 w-8 rounded-full flex items-center justify-center shrink-0 transition-colors',
-                  alternativesEnabled
-                    ? 'border border-border/70 bg-background/70 text-muted-foreground hover:bg-background'
-                    : 'border border-border/50 bg-muted text-muted-foreground cursor-not-allowed'
-                )}
                 aria-label="More send actions"
-                title="More send actions"
+                data-testid="composer-action-menu-trigger"
               >
                 <ChevronDown className="h-4 w-4" />
-              </button>
+              </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuContent
+              align="end"
+              side="top"
+              className="w-52"
+              data-testid="composer-action-menu"
+            >
               {availableAlternatives.map((action) => (
                 <DropdownMenuItem
                   key={action}
-                  onClick={() => {
+                  onSelect={() => {
                     void handleActionSelection(action)
                   }}
+                  disabled={!canSend && action !== 'stop_and_send'}
+                  data-testid={`composer-action-${action}`}
                 >
-                  {getActionLabel(action)}
+                  <ActionMenuIcon action={action} />
+                  <span>{getActionLabel(action)}</span>
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
@@ -450,6 +475,7 @@ export function ComposerBar({
           )}
           aria-label={actionSet.primaryLabel}
           title={actionSet.primaryLabel}
+          data-testid="composer-primary-action"
         >
           <SendIcon hint={actionSet.iconHint} />
         </button>

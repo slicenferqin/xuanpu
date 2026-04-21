@@ -702,6 +702,7 @@ interface SessionRuntimeStoreActions {
   // Pending message queue (Phase 5 — composer state machine)
   queueMessage(sessionId: string, message: PendingMessage): void
   dequeueMessage(sessionId: string): PendingMessage | null
+  requeueMessageFront(sessionId: string, message: PendingMessage): void
   getPendingMessages(sessionId: string): PendingMessage[]
   getPendingCount(sessionId: string): number
   clearPendingMessages(sessionId: string): void
@@ -938,6 +939,15 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
       syncQueuedState(sessionId, stillQueued)
     }
     return first
+  },
+
+  requeueMessageFront(sessionId, message) {
+    set((state) => {
+      const pending = new Map(state.pendingMessages)
+      const queue = [...(pending.get(sessionId) ?? [])]
+      pending.set(sessionId, [message, ...queue])
+      return { pendingMessages: pending }
+    })
   },
 
   getPendingMessages(sessionId) {
