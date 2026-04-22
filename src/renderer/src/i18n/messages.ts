@@ -252,6 +252,11 @@ export const messages: Record<AppLocale, MessageTree> = {
           description:
             'Read .xuanpu/memory.md (project-level, in your worktree) and ~/.xuanpu/memory.md (global) and prepend them to agent prompts. Local-only.'
         },
+        bashOutputCapture: {
+          label: 'Capture agent Bash stdout/stderr',
+          description:
+            "When the agent runs a shell command, also store the first 1 KB of stdout and last 1 KB of stderr in the local event log. Default OFF because command output often contains API keys, env dumps, or error stacks with tokens. The command text itself is always captured regardless of this setting."
+        },
         fda: {
           title: 'Full Disk Access',
           description: 'Helps Xuanpu and agent runtimes read files in protected macOS locations.',
@@ -2532,6 +2537,11 @@ export const messages: Record<AppLocale, MessageTree> = {
           label: '把 memory.md 注入到 AI prompt',
           description:
             '读取 .xuanpu/memory.md(worktree 级)和 ~/.xuanpu/memory.md(全局),把它们拼到 AI prompt 最前面。数据只保存在本机。'
+        },
+        bashOutputCapture: {
+          label: '采集 Agent Bash 的 stdout/stderr',
+          description:
+            'Agent 跑 shell 命令时,把 stdout 前 1KB 和 stderr 后 1KB 也存进本地事件日志。默认关闭,因为命令输出常含 API key、env dump、带 token 的错误堆栈。命令本身无论此开关如何都会被采集。'
         },
         fda: {
           title: '完全磁盘访问权限',

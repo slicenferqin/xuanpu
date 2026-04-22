@@ -37,7 +37,12 @@ const SENSITIVE_TYPES: ReadonlySet<FieldEventType> = new Set<FieldEventType>([
   'file.selection',
   'terminal.command',
   'terminal.output',
-  'session.message'
+  'session.message',
+  // Phase 21.5 — agent tool events are also gated by field_collection_enabled
+  'agent.file_read',
+  'agent.file_write',
+  'agent.file_search',
+  'agent.bash_exec'
 ])
 
 /**

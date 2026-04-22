@@ -251,6 +251,31 @@ function formatRow(row: Row): string {
       const attach = (p?.attachmentCount ?? 0) > 0 ? ` [+${p?.attachmentCount} attached]` : ''
       return `- ${time} [session.message] ${sdk} "${truncate(p?.text ?? '', 200)}"${attach}`
     }
+    case 'agent.file_read': {
+      const p = payload as { path?: string; toolName?: string; bytes?: number | null }
+      const bytes = typeof p?.bytes === 'number' ? ` (${p.bytes}B)` : ''
+      return `- ${time} [agent.file_read:${p?.toolName ?? '?'}] \`${p?.path ?? ''}\`${bytes}`
+    }
+    case 'agent.file_write': {
+      const p = payload as { path?: string; toolName?: string; operation?: string }
+      return `- ${time} [agent.file_write:${p?.toolName ?? '?'}] \`${p?.path ?? ''}\` (${p?.operation ?? 'edit'})`
+    }
+    case 'agent.file_search': {
+      const p = payload as { pattern?: string; toolName?: string; matchCount?: number | null }
+      const mc = typeof p?.matchCount === 'number' ? ` → ${p.matchCount} matches` : ''
+      return `- ${time} [agent.file_search:${p?.toolName ?? '?'}] \`${p?.pattern ?? ''}\`${mc}`
+    }
+    case 'agent.bash_exec': {
+      const p = payload as {
+        command?: string
+        toolName?: string
+        exitCode?: number | null
+        durationMs?: number | null
+      }
+      const exit = p?.exitCode != null ? ` exit=${p.exitCode}` : ''
+      const dur = p?.durationMs != null ? ` ${p.durationMs}ms` : ''
+      return `- ${time} [agent.bash_exec:${p?.toolName ?? '?'}]${exit}${dur} \`${truncate(p?.command ?? '', 120)}\``
+    }
     default:
       return `- ${time} [${row.type}] ${truncate(row.payload_json, 200)}`
   }
