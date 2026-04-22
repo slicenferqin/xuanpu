@@ -5,7 +5,8 @@
  * Right: context capsule │ cost capsule
  */
 
-import { DollarSign, Clock3, Layers3, TriangleAlert } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { DollarSign, Clock3, Layers3, TriangleAlert, Lock, TerminalSquare, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ModelSelector } from '../sessions/ModelSelector'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -18,9 +19,15 @@ import {
 } from '@/components/ui/popover'
 import { useShallow } from 'zustand/react/shallow'
 import { useContextStore } from '@/stores/useContextStore'
+import { useSettingsStore } from '@/stores/useSettingsStore'
+import { useSessionStore } from '@/stores/useSessionStore'
+import { useI18n } from '@/i18n/useI18n'
+import { toast } from '@/lib/toast'
 import type { SessionLifecycle } from '@/stores/useSessionRuntimeStore'
 import type { UsageAnalyticsSessionSummary } from '@shared/types/usage-analytics'
 import { formatModelLabelSummary, getSessionSummaryModelLabels } from '@/lib/model-labels'
+
+type AgentSdk = 'opencode' | 'claude-code' | 'codex' | 'terminal'
 
 const PROVIDER_LABELS: Record<string, string> = {
   'claude-code': 'Claude',
@@ -68,20 +75,104 @@ function getBarColor(percent: number): string {
 }
 
 function ProviderCapsule({
+  sessionId,
   sdk,
-  lifecycle
+  lifecycle,
+  locked
 }: {
+  sessionId: string
   sdk: string
   lifecycle: SessionLifecycle
+  locked: boolean
 }): React.JSX.Element {
+  const { t } = useI18n()
   const label = PROVIDER_LABELS[sdk] ?? sdk
   const meta = LIFECYCLE_META[lifecycle] ?? LIFECYCLE_META.idle
+  const availableAgentSdks = useSettingsStore((s) => s.availableAgentSdks)
+  const [open, setOpen] = useState(false)
+
+  const enabledSdks = useMemo<AgentSdk[]>(() => {
+    const list: AgentSdk[] = []
+    if (availableAgentSdks?.opencode) list.push('opencode')
+    if (availableAgentSdks?.claude) list.push('claude-code')
+    if (availableAgentSdks?.codex) list.push('codex')
+    list.push('terminal')
+    return list
+  }, [availableAgentSdks])
+
+  if (locked) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            className="inline-flex items-center gap-1.5 border border-border/40 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground cursor-default"
+            data-testid="provider-capsule-locked"
+          >
+            <span className={cn('h-1.5 w-1.5 rounded-full', meta.dotClass)} />
+            {label}
+            <Lock className="h-3 w-3 opacity-70" />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" sideOffset={6} className="max-w-[240px]">
+          <div className="space-y-1">
+            <div className="font-medium text-[11px]">{t('newSessionDialog.lock.header')}</div>
+            <div className="text-[10px] opacity-80">{t('newSessionDialog.lock.description')}</div>
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    )
+  }
+
+  async function handleSelectSdk(next: AgentSdk): Promise<void> {
+    setOpen(false)
+    if (next === sdk) return
+    const result = await useSessionStore.getState().updateSessionAgent(sessionId, {
+      agentSdk: next
+    })
+    if (!result.success) {
+      toast.error(result.error || 'Failed to update provider')
+    }
+  }
 
   return (
-    <span className="inline-flex items-center gap-1.5 border border-border/40 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground">
-      <span className={cn('h-1.5 w-1.5 rounded-full', meta.dotClass)} />
-      {label}
-    </span>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 border border-border/40 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted/40 hover:text-foreground transition-colors cursor-pointer"
+          data-testid="provider-capsule"
+        >
+          <span className={cn('h-1.5 w-1.5 rounded-full', meta.dotClass)} />
+          {label}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-44 p-1">
+        {enabledSdks.map((s) => {
+          const active = s === sdk
+          return (
+            <button
+              key={s}
+              type="button"
+              onClick={() => {
+                void handleSelectSdk(s)
+              }}
+              className={cn(
+                'flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs transition-colors',
+                active
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-foreground hover:bg-muted/60'
+              )}
+            >
+              <span className="flex items-center gap-1.5">
+                {s === 'terminal' && <TerminalSquare className="h-3.5 w-3.5 text-emerald-500" />}
+                {PROVIDER_LABELS[s] ?? s}
+              </span>
+              {active && <Check className="h-3.5 w-3.5" />}
+            </button>
+          )
+        })}
+      </PopoverContent>
+    </Popover>
   )
 }
 
@@ -297,6 +388,7 @@ export interface SessionHeaderProps {
     agent_sdk: string
     model_id: string | null
     model_provider_id: string | null
+    first_message_at?: number | null
   }
   lifecycle: SessionLifecycle
   modelId?: string
@@ -318,11 +410,24 @@ export function SessionHeader({
 }: SessionHeaderProps): React.JSX.Element {
   const effectiveModelId = modelId ?? session.model_id ?? ''
   const effectiveProviderId = providerId ?? session.model_provider_id ?? ''
+  const locked = session.first_message_at != null
+  const isTerminal = session.agent_sdk === 'terminal'
 
   return (
     <div className="flex items-center gap-2 px-4 py-2 border-b border-border/60 shrink-0">
-      <ProviderCapsule sdk={session.agent_sdk} lifecycle={lifecycle} />
-      <ModelSelector sessionId={sessionId} compact showProviderPrefix={false} />
+      <ProviderCapsule
+        sessionId={sessionId}
+        sdk={session.agent_sdk}
+        lifecycle={lifecycle}
+        locked={locked}
+      />
+      {!isTerminal && (
+        <ModelSelector
+          sessionId={sessionId}
+          compact
+          showProviderPrefix={false}
+        />
+      )}
 
       <div className="flex-1" />
 

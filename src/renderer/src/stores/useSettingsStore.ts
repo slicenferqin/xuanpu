@@ -130,9 +130,11 @@ export interface AppSettings {
 
   // Privacy
   telemetryEnabled: boolean
+  fdaOnboardingDismissed: boolean
 
   // Git
   autoPullBeforeWorktree: boolean
+  keepAwakeEnabled: boolean
 
   // Appearance
   uiZoomLevel: number
@@ -190,7 +192,9 @@ const DEFAULT_SETTINGS: AppSettings = {
     enabled: false
   },
   telemetryEnabled: true,
+  fdaOnboardingDismissed: false,
   autoPullBeforeWorktree: true,
+  keepAwakeEnabled: false,
   uiZoomLevel: 0,
   uiFontScale: 1,
   sessionUiV2Enabled: false
@@ -299,7 +303,9 @@ function extractSettings(state: SettingsState): AppSettings {
     initialSetupComplete: state.initialSetupComplete,
     commandFilter: state.commandFilter,
     telemetryEnabled: state.telemetryEnabled,
+    fdaOnboardingDismissed: state.fdaOnboardingDismissed,
     autoPullBeforeWorktree: state.autoPullBeforeWorktree,
+    keepAwakeEnabled: state.keepAwakeEnabled,
     uiZoomLevel: state.uiZoomLevel,
     uiFontScale: state.uiFontScale,
     sessionUiV2Enabled: state.sessionUiV2Enabled
@@ -517,6 +523,8 @@ export const useSettingsStore = create<SettingsState>()(
         initialSetupComplete: state.initialSetupComplete,
         commandFilter: state.commandFilter,
         telemetryEnabled: state.telemetryEnabled,
+        fdaOnboardingDismissed: state.fdaOnboardingDismissed,
+        keepAwakeEnabled: state.keepAwakeEnabled,
         uiZoomLevel: state.uiZoomLevel,
         uiFontScale: state.uiFontScale,
         sessionUiV2Enabled: state.sessionUiV2Enabled

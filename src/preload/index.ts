@@ -71,7 +71,12 @@ const db = {
       ipcRenderer.invoke('db:worktree:getRecentlyActive', cutoffMs),
     update: (
       id: string,
-      data: { name?: string; status?: 'active' | 'archived'; last_accessed_at?: string }
+      data: {
+        name?: string
+        status?: 'active' | 'archived'
+        last_accessed_at?: string
+        last_agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | null
+      }
     ) => ipcRenderer.invoke('db:worktree:update', id, data),
     delete: (id: string) => ipcRenderer.invoke('db:worktree:delete', id),
     archive: (id: string) => ipcRenderer.invoke('db:worktree:archive', id),
@@ -436,9 +441,24 @@ const systemOps = {
   detectAgentRuntimes: (): Promise<{ opencode: boolean; claude: boolean; codex: boolean }> =>
     ipcRenderer.invoke('system:detectAgentRuntimes'),
 
+  setKeepAwakeEnabled: (enabled: boolean): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('system:setKeepAwakeEnabled', enabled),
+
+  setSessionQueuedState: (
+    sessionId: string,
+    queued: boolean
+  ): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('system:setSessionQueuedState', sessionId, queued),
+
   // Run the first-launch onboarding doctor
   runOnboardingDoctor: (): Promise<OnboardingDoctorResult> =>
     ipcRenderer.invoke('system:runOnboardingDoctor'),
+
+  checkFullDiskAccess: (): Promise<{ supported: boolean; granted: boolean }> =>
+    ipcRenderer.invoke('system:checkFullDiskAccess'),
+
+  openFullDiskAccessSettings: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('system:openFullDiskAccessSettings'),
 
   // Open a command in the user's system terminal
   openCommandInTerminal: (
@@ -585,9 +605,13 @@ const loggingOps = {
 export interface CanonicalAgentEvent {
   type: string
   sessionId: string
+  eventId: string
+  sessionSequence: number
+  runEpoch: number
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   data: any
   childSessionId?: string
+  sourceChannel?: 'agent:stream'
   /** session.status event payload -- only present when type === 'session.status' */
   statusPayload?: {
     type: 'idle' | 'busy' | 'retry'
@@ -1106,7 +1130,21 @@ const gitOps = {
     success: boolean
     diff?: string
     error?: string
-  }> => ipcRenderer.invoke('git:branchFileDiff', worktreePath, branch, filePath)
+  }> => ipcRenderer.invoke('git:branchFileDiff', worktreePath, branch, filePath),
+
+  getBranchBaseContent: (
+    worktreePath: string,
+    branch: string,
+    filePath: string
+  ): Promise<{ success: boolean; content?: string | null; error?: string }> =>
+    ipcRenderer.invoke('git:branchBaseContent', worktreePath, branch, filePath),
+
+  getBranchBaseContentBase64: (
+    worktreePath: string,
+    branch: string,
+    filePath: string
+  ): Promise<{ success: boolean; content?: string | null; error?: string }> =>
+    ipcRenderer.invoke('git:branchBaseContentBase64', worktreePath, branch, filePath)
 }
 
 const agentOps = {
@@ -1214,6 +1252,15 @@ const agentOps = {
     worktreePath?: string
   ): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('agent:question:reply', { requestId, answers, worktreePath }),
+
+  steer: (
+    worktreePath: string,
+    sessionId: string,
+    messageOrParts: string | MessagePart[],
+    model?: { providerID: string; modelID: string; variant?: string },
+    options?: { codexFastMode?: boolean }
+  ): Promise<{ success: boolean; error?: string; errorCode?: string }> =>
+    ipcRenderer.invoke('agent:steer', worktreePath, sessionId, messageOrParts, model, options),
 
   // Reject/dismiss a pending question from the AI
   questionReject: (
@@ -1355,12 +1402,13 @@ const agentOps = {
     sessionId?: string
   ): Promise<{
     success: boolean
-    capabilities?: {
-      supportsUndo: boolean
-      supportsRedo: boolean
-      supportsCommands: boolean
-      supportsPermissionRequests: boolean
-      supportsQuestionPrompts: boolean
+      capabilities?: {
+        supportsUndo: boolean
+        supportsRedo: boolean
+        supportsSteer: boolean
+        supportsCommands: boolean
+        supportsPermissionRequests: boolean
+        supportsQuestionPrompts: boolean
       supportsModelSelection: boolean
       supportsReconnect: boolean
       supportsPartialStreaming: boolean
@@ -1467,6 +1515,65 @@ const scriptOps = {
   // Get assigned port for a worktree path
   getPort: (cwd: string): Promise<{ port: number | null }> =>
     ipcRenderer.invoke('port:get', { cwd })
+}
+
+// Skill Hub operations API
+import type {
+  InstallSkillBatchResult,
+  InstalledSkill,
+  ProviderAvailability,
+  ReadSkillContentResult,
+  Skill,
+  SkillHub,
+  SkillProvider,
+  SkillScope,
+  UninstallSkillResult,
+  HubId,
+  AddHubResult,
+  RefreshHubResult,
+  RemoveHubResult
+} from '../shared/types/skill'
+
+const skillOps = {
+  listHubs: (): Promise<{ success: boolean; hubs: SkillHub[]; error?: string }> =>
+    ipcRenderer.invoke('skill:listHubs'),
+  addHub: (args: { repo: string; ref?: string; name?: string }): Promise<AddHubResult> =>
+    ipcRenderer.invoke('skill:addHub', args),
+  removeHub: (hubId: string): Promise<RemoveHubResult> =>
+    ipcRenderer.invoke('skill:removeHub', { hubId }),
+  refreshHub: (hubId: HubId): Promise<RefreshHubResult> =>
+    ipcRenderer.invoke('skill:refreshHub', { hubId }),
+  listSkills: (
+    hubId: HubId
+  ): Promise<{ success: boolean; skills: Skill[]; error?: string }> =>
+    ipcRenderer.invoke('skill:listSkills', { hubId }),
+  listInstalled: (
+    scope: SkillScope
+  ): Promise<{ success: boolean; skills: InstalledSkill[]; error?: string }> =>
+    ipcRenderer.invoke('skill:listInstalled', { scope }),
+  /**
+   * Install a skill into one or more providers under the same scope shape.
+   * The handler attaches the right `provider` field per-iteration and returns
+   * a per-provider result array. The `scope` here intentionally omits the
+   * `provider` discriminator since the dialog picks providers and scope
+   * level/path independently.
+   */
+  install: (
+    hubId: HubId,
+    skillId: string,
+    providers: SkillProvider[],
+    scope: { kind: SkillScope['kind']; path?: string },
+    overwrite = false
+  ): Promise<InstallSkillBatchResult> =>
+    ipcRenderer.invoke('skill:install', { hubId, skillId, providers, scope, overwrite }),
+  uninstall: (skillId: string, scope: SkillScope): Promise<UninstallSkillResult> =>
+    ipcRenderer.invoke('skill:uninstall', { skillId, scope }),
+  readContent: (absPath: string): Promise<ReadSkillContentResult> =>
+    ipcRenderer.invoke('skill:readContent', { absPath }),
+  openLocation: (absPath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('skill:openLocation', { absPath }),
+  detectProviders: (): Promise<{ success: true; availability: ProviderAvailability }> =>
+    ipcRenderer.invoke('skill:detectProviders')
 }
 
 // File operations API
@@ -1861,6 +1968,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('usageAnalyticsOps', usageAnalyticsOps)
     contextBridge.exposeInMainWorld('analyticsOps', analyticsOps)
     contextBridge.exposeInMainWorld('fieldOps', fieldOps)
+    contextBridge.exposeInMainWorld('skillOps', skillOps)
   } catch (error) {
     console.error(error)
   }
@@ -1901,4 +2009,6 @@ if (process.contextIsolated) {
   window.analyticsOps = analyticsOps
   // @ts-expect-error (define in dts)
   window.fieldOps = fieldOps
+  // @ts-expect-error (define in dts)
+  window.skillOps = skillOps
 }

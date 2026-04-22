@@ -13,6 +13,8 @@ import { formatFieldContext } from '../field/context-formatter'
 import { cacheLastInjection } from '../field/last-injection-cache'
 import {
   createAgentHandler,
+  AgentErrorCode,
+  AgentHandlerError,
   resolveRuntimeId,
   type AgentHandlerContext
 } from './agent-handler-wrapper'
@@ -33,6 +35,7 @@ import {
   planApproveSchema,
   planRejectSchema,
   promptSchema,
+  steerSchema,
   questionRejectSchema,
   questionReplySchema,
   reconnectSchema,
@@ -78,6 +81,13 @@ function prependToMessage<T extends MessageOrParts>(m: T, prefix: string): T {
   return copy as unknown as T
 }
 
+// Dedupe concurrent agent:connect calls per hive session. React StrictMode
+// double-invokes the renderer effect in dev, and stray callers may also retry —
+// without dedupe each call spins up a fresh runtime session (e.g. an extra
+// Codex thread) that nobody owns. The entry is cleared once the connect
+// settles so genuine reconnects after teardown still work.
+const inflightConnects = new Map<string, Promise<{ sessionId: string }>>()
+
 export function registerAgentHandlers(
   mainWindow: BrowserWindow,
   runtimeManager?: AgentRuntimeManager,
@@ -111,9 +121,45 @@ export function registerAgentHandlers(
           return { sessionId: hiveSessionId }
         }
         const impl = c.runtimeManager.getImplementer(runtimeId)
-        const result = await impl.connect(worktreePath, hiveSessionId)
-        telemetryService.track('session_started', { runtime_id: runtimeId })
-        return { ...result }
+
+        // Dedupe concurrent connects for the same hive session so StrictMode
+        // double-mount doesn't create duplicate runtime sessions.
+        const existing = inflightConnects.get(hiveSessionId)
+        if (existing) {
+          log.info('IPC: agent:connect reusing in-flight connect', { hiveSessionId })
+          const reused = await existing
+          return { ...reused }
+        }
+
+        const connectPromise = (async () => {
+          const result = await impl.connect(worktreePath, hiveSessionId)
+          // Persist opencode_session_id atomically in the main process so
+          // resolveRuntimeId() can route subsequent prompts/reconnects without
+          // depending on the renderer winning a state race.
+          if (result?.sessionId && result.sessionId !== hiveSessionId) {
+            try {
+              c.dbService.updateSession(hiveSessionId, {
+                opencode_session_id: result.sessionId
+              })
+            } catch (err) {
+              log.warn('Failed to persist opencode_session_id after connect', {
+                hiveSessionId,
+                runtimeSessionId: result.sessionId,
+                error: err instanceof Error ? err.message : String(err)
+              })
+            }
+          }
+          return result
+        })()
+
+        inflightConnects.set(hiveSessionId, connectPromise)
+        try {
+          const result = await connectPromise
+          telemetryService.track('session_started', { runtime_id: runtimeId })
+          return { ...result }
+        } finally {
+          inflightConnects.delete(hiveSessionId)
+        }
       }
     })
   )
@@ -322,6 +368,94 @@ export function registerAgentHandlers(
           })
         }
 
+        return {}
+      }
+    })
+  )
+
+  // Steer an actively running turn without interrupting it (Codex-only in this wave).
+  ipcMain.handle(
+    'agent:steer',
+    createAgentHandler(ctx, {
+      channel: 'agent:steer',
+      schema: steerSchema,
+      handler: async (args, c) => {
+        let worktreePath: string
+        let runtimeSessionId: string
+        let messageOrParts:
+          | string
+          | Array<{ type: string; text?: string; mime?: string; url?: string; filename?: string }>
+        let model: { providerID: string; modelID: string; variant?: string } | undefined
+        let options: PromptOptions | undefined
+
+        if (args.length === 1 && typeof args[0] === 'object' && args[0] !== null) {
+          const obj = args[0] as Record<string, unknown>
+          worktreePath = obj.worktreePath as string
+          runtimeSessionId = obj.sessionId as string
+          messageOrParts = (obj.parts as typeof messageOrParts) || [
+            { type: 'text', text: obj.message as string }
+          ]
+          const rawModel = obj.model as Record<string, unknown> | undefined
+          if (
+            rawModel &&
+            typeof rawModel.providerID === 'string' &&
+            typeof rawModel.modelID === 'string'
+          ) {
+            model = {
+              providerID: rawModel.providerID,
+              modelID: rawModel.modelID,
+              variant: typeof rawModel.variant === 'string' ? rawModel.variant : undefined
+            }
+          }
+          const rawOptions = obj.options as Record<string, unknown> | undefined
+          if (rawOptions && typeof rawOptions.codexFastMode === 'boolean') {
+            options = { codexFastMode: rawOptions.codexFastMode }
+          }
+        } else {
+          worktreePath = args[0] as string
+          runtimeSessionId = args[1] as string
+          messageOrParts = args[2] as string
+          const rawModel = args[3] as Record<string, unknown> | undefined
+          if (
+            rawModel &&
+            typeof rawModel.providerID === 'string' &&
+            typeof rawModel.modelID === 'string'
+          ) {
+            model = {
+              providerID: rawModel.providerID,
+              modelID: rawModel.modelID,
+              variant: typeof rawModel.variant === 'string' ? rawModel.variant : undefined
+            }
+          }
+          const rawOptions = args[4] as Record<string, unknown> | undefined
+          if (rawOptions && typeof rawOptions.codexFastMode === 'boolean') {
+            options = { codexFastMode: rawOptions.codexFastMode }
+          }
+        }
+
+        log.info('IPC: agent:steer', {
+          worktreePath,
+          runtimeSessionId,
+          partsCount: Array.isArray(messageOrParts) ? messageOrParts.length : 1
+        })
+
+        const runtimeId = resolveRuntimeId(c, runtimeSessionId)
+        if (runtimeId === 'terminal') {
+          throw new AgentHandlerError(
+            AgentErrorCode.STEER_NOT_SUPPORTED,
+            'Terminal sessions do not support steering'
+          )
+        }
+
+        const impl = c.runtimeManager.getImplementer(runtimeId)
+        if (!impl.capabilities.supportsSteer || !impl.steer) {
+          throw new AgentHandlerError(
+            AgentErrorCode.STEER_NOT_SUPPORTED,
+            `Runtime ${runtimeId} does not support steering`
+          )
+        }
+
+        await impl.steer(worktreePath, runtimeSessionId, messageOrParts, model, options)
         return {}
       }
     })

@@ -1,9 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { useSessionRuntimeStore } from '../../src/renderer/src/stores/useSessionRuntimeStore'
+import {
+  clearStreamingBuffer,
+  clearStreamingBufferOverlay,
+  getStreamingBufferSnapshot,
+  getStreamingBuffer,
+  resetStreamingBuffersForTests,
+  subscribeToStreamingBuffer,
+  syncStreamingBufferGuardState,
+  updateStreamingBuffer,
+  writeEventToStreamingBuffer,
+  useSessionRuntimeStore
+} from '../../src/renderer/src/stores/useSessionRuntimeStore'
 import type { CanonicalAgentEvent } from '../../src/shared/types/agent-protocol'
 
 // Reset store state between tests
 beforeEach(() => {
+  resetStreamingBuffersForTests()
   const state = useSessionRuntimeStore.getState()
   // Clear all sessions
   for (const sessionId of state.sessions.keys()) {
@@ -266,6 +278,297 @@ describe('useSessionRuntimeStore', () => {
       store.removeInterrupt('sess-1', 'q-1')
       // The internal map entry should be deleted when queue is empty
       expect(useSessionRuntimeStore.getState().interruptQueues.has('sess-1')).toBe(false)
+    })
+  })
+
+  describe('streaming mirror registry', () => {
+    it('returns a cached empty snapshot until the session mirror changes', () => {
+      const first = getStreamingBufferSnapshot('sess-empty')
+      const second = getStreamingBufferSnapshot('sess-empty')
+
+      expect(second).toBe(first)
+
+      updateStreamingBuffer(
+        'sess-empty',
+        (current) => ({
+          ...current,
+          streamingContent: 'hello',
+          parts: [{ type: 'text', text: 'hello' }],
+          isStreaming: true
+        }),
+        { notify: 'none' }
+      )
+
+      const afterWrite = getStreamingBufferSnapshot('sess-empty')
+      expect(afterWrite).not.toBe(first)
+      expect(getStreamingBufferSnapshot('sess-empty')).toBe(afterWrite)
+
+      clearStreamingBuffer('sess-empty')
+
+      const afterClear = getStreamingBufferSnapshot('sess-empty')
+      expect(afterClear).not.toBe(afterWrite)
+      expect(getStreamingBufferSnapshot('sess-empty')).toBe(afterClear)
+    })
+
+    it('stores updater results without deep-cloning the returned arrays and maps again', () => {
+      const parts = [{ type: 'text', text: 'hello' }] as const
+      const childParts = new Map<string, Array<{ type: 'text'; text: string }>>([
+        ['child-1', [{ type: 'text', text: 'child text' }]]
+      ])
+
+      updateStreamingBuffer(
+        'sess-refs',
+        (current) => ({
+          ...current,
+          parts: parts as unknown as typeof current.parts,
+          childParts: childParts as unknown as typeof current.childParts,
+          streamingContent: 'hello',
+          isStreaming: true
+        }),
+        { notify: 'none' }
+      )
+
+      const snapshot = getStreamingBufferSnapshot('sess-refs')
+      expect(snapshot.parts).toBe(parts)
+      expect(snapshot.childParts).toBe(childParts)
+
+      const detached = getStreamingBuffer('sess-refs')
+      expect(detached?.parts).not.toBe(parts)
+      expect(detached?.childParts).not.toBe(childParts)
+    })
+
+    it('stores live overlay outside Zustand state and notifies immediate subscribers', () => {
+      let callbackCount = 0
+      const unsubscribe = subscribeToStreamingBuffer('sess-1', () => {
+        callbackCount += 1
+      })
+
+      updateStreamingBuffer(
+        'sess-1',
+        (current) => ({
+          ...current,
+          streamingContent: 'hello',
+          parts: [{ type: 'text', text: 'hello' }],
+          isStreaming: true
+        }),
+        { notify: 'immediate' }
+      )
+
+      const snapshot = getStreamingBufferSnapshot('sess-1')
+      expect(snapshot.streamingContent).toBe('hello')
+      expect(snapshot.parts).toEqual([{ type: 'text', text: 'hello' }])
+      expect(snapshot.isStreaming).toBe(true)
+      expect(snapshot.mirrorVersion).toBe(1)
+      expect(callbackCount).toBe(1)
+
+      unsubscribe()
+    })
+
+    it('does not notify or bump mirrorVersion when an updater returns the current snapshot', () => {
+      let callbackCount = 0
+      const unsubscribe = subscribeToStreamingBuffer('sess-noop', () => {
+        callbackCount += 1
+      })
+
+      const before = getStreamingBufferSnapshot('sess-noop')
+      const after = updateStreamingBuffer('sess-noop', (current) => current, { notify: 'immediate' })
+
+      expect(after).toBe(before)
+      expect(getStreamingBufferSnapshot('sess-noop')).toBe(before)
+      expect(callbackCount).toBe(0)
+
+      unsubscribe()
+    })
+
+    it('coalesces multiple frame writes into a single mirrorVersion tick', () => {
+      vi.useFakeTimers()
+      const originalRaf = globalThis.requestAnimationFrame
+      globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) =>
+        setTimeout(() => cb(Date.now()), 0)) as typeof requestAnimationFrame
+
+      let callbackCount = 0
+      const unsubscribe = subscribeToStreamingBuffer('sess-2', () => {
+        callbackCount += 1
+      })
+
+      updateStreamingBuffer(
+        'sess-2',
+        (current) => ({
+          ...current,
+          streamingContent: 'a'
+        }),
+        { notify: 'frame' }
+      )
+      updateStreamingBuffer(
+        'sess-2',
+        (current) => ({
+          ...current,
+          streamingContent: `${current.streamingContent}b`
+        }),
+        { notify: 'frame' }
+      )
+
+      expect(callbackCount).toBe(0)
+      vi.runAllTimers()
+
+      const snapshot = getStreamingBufferSnapshot('sess-2')
+      expect(snapshot.streamingContent).toBe('ab')
+      expect(snapshot.mirrorVersion).toBe(1)
+      expect(callbackCount).toBe(1)
+
+      unsubscribe()
+      globalThis.requestAnimationFrame = originalRaf
+      vi.useRealTimers()
+    })
+
+    it('resets only the live overlay when a newer run is accepted', () => {
+      updateStreamingBuffer(
+        'sess-3',
+        (current) => ({
+          ...current,
+          streamingContent: 'old run text',
+          parts: [{ type: 'text', text: 'old run text' }],
+          isStreaming: true,
+          compactionState: {
+            phase: 'completed',
+            timestamp: 123
+          },
+          optimisticMessages: [
+            {
+              id: 'optimistic-1',
+              role: 'user',
+              content: 'please continue',
+              timestamp: '2026-04-19T00:00:00.000Z'
+            }
+          ]
+        }),
+        { notify: 'none' }
+      )
+
+      syncStreamingBufferGuardState(
+        'sess-3',
+        { activeRunEpoch: 2, lastAppliedSequence: 8 },
+        { resetOverlay: true, notify: 'immediate' }
+      )
+
+      const snapshot = getStreamingBufferSnapshot('sess-3')
+      expect(snapshot.activeRunEpoch).toBe(2)
+      expect(snapshot.lastAppliedSequence).toBe(8)
+      expect(snapshot.streamingContent).toBe('')
+      expect(snapshot.parts).toEqual([])
+      expect(snapshot.isStreaming).toBe(false)
+      expect(snapshot.compactionState).toEqual({
+        phase: 'completed',
+        timestamp: 123
+      })
+      expect(snapshot.optimisticMessages).toEqual([
+        {
+          id: 'optimistic-1',
+          role: 'user',
+          content: 'please continue',
+          timestamp: '2026-04-19T00:00:00.000Z'
+        }
+      ])
+    })
+
+    it('clears overlay on background idle while preserving compaction state', () => {
+      updateStreamingBuffer(
+        'sess-idle',
+        (current) => ({
+          ...current,
+          activeRunEpoch: 4,
+          lastAppliedSequence: 18,
+          streamingContent: 'background reply',
+          parts: [{ type: 'text', text: 'background reply' }],
+          isStreaming: true,
+          compactionState: {
+            phase: 'running',
+            timestamp: 456
+          },
+          optimisticMessages: [
+            {
+              id: 'optimistic-1',
+              role: 'user',
+              content: 'queued',
+              timestamp: '2026-04-19T00:00:00.000Z'
+            }
+          ]
+        }),
+        { notify: 'none' }
+      )
+
+      writeEventToStreamingBuffer(
+        'sess-idle',
+        {
+          type: 'session.status',
+          sessionId: 'sess-idle',
+          runEpoch: 4,
+          sessionSequence: 19,
+          eventId: 'idle-1',
+          sourceChannel: 'agent:stream',
+          data: {
+            status: {
+              type: 'idle'
+            }
+          }
+        } as CanonicalAgentEvent,
+        { activeSessionId: 'other-session' }
+      )
+
+      const snapshot = getStreamingBufferSnapshot('sess-idle')
+      expect(snapshot.activeRunEpoch).toBe(4)
+      expect(snapshot.lastAppliedSequence).toBe(18)
+      expect(snapshot.streamingContent).toBe('')
+      expect(snapshot.parts).toEqual([])
+      expect(snapshot.isStreaming).toBe(false)
+      expect(snapshot.optimisticMessages).toBeUndefined()
+      expect(snapshot.compactionState).toEqual({
+        phase: 'running',
+        timestamp: 456
+      })
+    })
+
+    it('clears active overlays without deleting guard state or compaction chips', () => {
+      updateStreamingBuffer(
+        'sess-active',
+        (current) => ({
+          ...current,
+          activeRunEpoch: 7,
+          lastAppliedSequence: 22,
+          streamingContent: 'done',
+          parts: [{ type: 'text', text: 'done' }],
+          isStreaming: true,
+          compactionState: {
+            phase: 'completed',
+            timestamp: 789
+          },
+          optimisticMessages: [
+            {
+              id: 'optimistic-1',
+              role: 'user',
+              content: 'hello',
+              timestamp: '2026-04-19T00:00:00.000Z'
+            }
+          ]
+        }),
+        { notify: 'none' }
+      )
+
+      clearStreamingBufferOverlay('sess-active', {
+        notify: 'immediate',
+        preserveCompactionState: true
+      })
+
+      const snapshot = getStreamingBufferSnapshot('sess-active')
+      expect(snapshot.activeRunEpoch).toBe(7)
+      expect(snapshot.lastAppliedSequence).toBe(22)
+      expect(snapshot.streamingContent).toBe('')
+      expect(snapshot.parts).toEqual([])
+      expect(snapshot.optimisticMessages).toBeUndefined()
+      expect(snapshot.compactionState).toEqual({
+        phase: 'completed',
+        timestamp: 789
+      })
     })
   })
 

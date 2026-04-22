@@ -99,14 +99,17 @@ describe('Codex title integration', () => {
     expect(mockDb.updateSession).toHaveBeenCalledWith('hive-session-1', {
       name: 'Fix auth refresh'
     })
-    expect(mockWindow.webContents.send).toHaveBeenCalledWith('agent:stream', {
-      type: 'session.updated',
-      sessionId: 'hive-session-1',
-      data: {
-        title: 'Fix auth refresh',
-        info: { title: 'Fix auth refresh' }
-      }
-    })
+    expect(mockWindow.webContents.send).toHaveBeenCalledWith(
+      'agent:stream',
+      expect.objectContaining({
+        type: 'session.updated',
+        sessionId: 'hive-session-1',
+        data: {
+          title: 'Fix auth refresh',
+          info: { title: 'Fix auth refresh' }
+        }
+      })
+    )
     expect(mockAutoRenameWorktreeBranch).toHaveBeenCalledWith({
       worktreeId: 'wt-1',
       worktreePath: '/path/to/worktree',

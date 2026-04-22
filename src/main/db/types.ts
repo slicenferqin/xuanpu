@@ -52,6 +52,7 @@ export interface Worktree {
   last_model_provider_id: string | null
   last_model_id: string | null
   last_model_variant: string | null
+  last_agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | null
   attachments: string // JSON array of Attachment objects
   pinned: number // 0 = not pinned, 1 = pinned
   context: string | null
@@ -78,6 +79,7 @@ export interface WorktreeUpdate {
   last_model_provider_id?: string | null
   last_model_id?: string | null
   last_model_variant?: string | null
+  last_agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | null
   pinned?: number
   github_pr_number?: number | null
   github_pr_url?: string | null
@@ -99,6 +101,7 @@ export interface Session {
   model_provider_id: string | null
   model_id: string | null
   model_variant: string | null
+  first_message_at: number | null
   created_at: string
   updated_at: string
   completed_at: string | null
@@ -126,6 +129,7 @@ export interface SessionUpdate {
   model_id?: string | null
   model_variant?: string | null
   color?: string | null
+  first_message_at?: number | null
   updated_at?: string
   completed_at?: string | null
 }

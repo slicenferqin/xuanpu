@@ -2,6 +2,7 @@ import { execFile, spawn } from 'node:child_process'
 
 import { checkCodexHealth } from './codex-health'
 import { createLogger } from './logger'
+import { getOpenCodeVersion, resolveOpenCodeLaunchSpec } from './opencode-binary-resolver'
 import { checkClaudeAuth } from './usage-service'
 
 const log = createLogger({ component: 'OnboardingDoctor' })
@@ -250,9 +251,10 @@ async function checkCodex(): Promise<OnboardingAgentStatus> {
 }
 
 async function checkOpencode(): Promise<OnboardingAgentStatus> {
-  const version = await getBinaryVersion('opencode')
+  const spec = await resolveOpenCodeLaunchSpec()
+  const version = await getOpenCodeVersion(spec)
 
-  if (!version) {
+  if (!spec || !version) {
     return {
       id: 'opencode',
       status: 'missing',

@@ -1,6 +1,11 @@
 import type { SessionActivityCreate, SessionActivityKind, SessionActivityTone } from '../db'
 import type { CodexManagerEvent } from './codex-app-server-manager'
 import { asObject, asString } from './codex-utils'
+import {
+  buildCodexPlanUpdateSummary,
+  buildCodexUpdatePlanCallId,
+  normalizeCodexPlanUpdateTodos
+} from './codex-event-mapper'
 
 function stringifyPayload(payload: unknown): string | null {
   if (payload === undefined) return null
@@ -170,6 +175,27 @@ export function mapCodexManagerEventToActivity(
         'info',
         asString(payload?.threadName) ?? 'Thread title updated'
       )
+
+    case 'turn/plan/updated': {
+      const todos = normalizeCodexPlanUpdateTodos(event.payload)
+      const summary = buildCodexPlanUpdateSummary(todos)
+
+      return buildActivity(
+        sessionId,
+        agentSessionId,
+        event,
+        'session.info',
+        'info',
+        summary,
+        {
+          ...(payload ?? {}),
+          kind: 'update_plan',
+          tool: 'update_plan',
+          callID: buildCodexUpdatePlanCallId(event),
+          todos
+        }
+      )
+    }
 
     default:
       return null

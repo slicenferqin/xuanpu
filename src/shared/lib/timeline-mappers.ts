@@ -285,6 +285,7 @@ function mapRawMessage(rawMessage: unknown, index: number): MappedMessage {
       role,
       content,
       timestamp,
+      ...(messageRecord?.steered === true || info?.steered === true ? { steered: true } : {}),
       parts: mappedParts.length > 0 ? mappedParts : undefined,
       ...(role === 'user' && fileAttachments.length > 0
         ? { attachments: fileAttachments }
@@ -362,6 +363,7 @@ export function mapDbRowsToTimelineMessages(messages: DbSessionMessage[]): Timel
   return messages
     .filter((m) => !(m.role === 'user' && isSyntheticUserMessage(m.content)))
     .map((message) => {
+    const parsedMessage = parseJson<Record<string, unknown>>(message.opencode_message_json)
     const parsedParts = parseJson<unknown[]>(message.opencode_parts_json)
     const parts = Array.isArray(parsedParts)
       ? parsedParts
@@ -369,14 +371,101 @@ export function mapDbRowsToTimelineMessages(messages: DbSessionMessage[]): Timel
           .filter((part): part is StreamingPart => part !== null)
       : undefined
 
+    // Extract usage + model identity from the raw SDK message so the renderer
+    // can rehydrate context-window state when reopening old sessions.
+    let usage: TimelineMessage['usage']
+    let modelRef: TimelineMessage['modelRef']
+    if (message.role === 'assistant' && parsedMessage) {
+      const info = isPlainRecord(parsedMessage.info) ? parsedMessage.info : undefined
+      const innerMessage = isPlainRecord(parsedMessage.message) ? parsedMessage.message : undefined
+      const rawUsage =
+        (isPlainRecord(parsedMessage.usage) ? parsedMessage.usage : undefined) ??
+        (info && isPlainRecord(info.usage) ? info.usage : undefined) ??
+        (innerMessage && isPlainRecord(innerMessage.usage) ? innerMessage.usage : undefined)
+
+      if (rawUsage) {
+        const input = pickNumber(rawUsage, 'input_tokens', 'inputTokens', 'input')
+        const output = pickNumber(rawUsage, 'output_tokens', 'outputTokens', 'output')
+        const cacheRead = pickNumber(
+          rawUsage,
+          'cache_read_input_tokens',
+          'cacheReadInputTokens',
+          'cache_read',
+          'cacheRead'
+        )
+        const cacheWrite = pickNumber(
+          rawUsage,
+          'cache_creation_input_tokens',
+          'cacheCreationInputTokens',
+          'cache_creation',
+          'cacheCreation',
+          'cache_write',
+          'cacheWrite'
+        )
+        const reasoning = pickNumber(rawUsage, 'reasoning_tokens', 'reasoningTokens', 'reasoning')
+        if (input || output || cacheRead || cacheWrite || reasoning) {
+          usage = { input, output, cacheRead, cacheWrite, reasoning }
+        }
+      }
+
+      const providerID = firstString(
+        parsedMessage.providerID,
+        info?.providerID,
+        info?.provider_id,
+        innerMessage?.provider
+      )
+      const modelID = firstString(
+        parsedMessage.modelID,
+        parsedMessage.model,
+        info?.modelID,
+        info?.model_id,
+        info?.model,
+        innerMessage?.model
+      )
+      if (providerID && modelID) {
+        modelRef = { providerID, modelID }
+      } else if (modelID) {
+        modelRef = { providerID: 'anthropic', modelID }
+      }
+    }
+
     return {
       id: message.opencode_message_id ?? message.id,
       role: message.role,
       content: message.content,
       timestamp: message.created_at,
-      parts: parts && parts.length > 0 ? parts : undefined
+      ...(parsedMessage?.steered === true ? { steered: true } : {}),
+      parts: parts && parts.length > 0 ? parts : undefined,
+      ...(usage ? { usage } : {}),
+      ...(modelRef ? { modelRef } : {})
     }
   })
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function pickNumber(
+  source: Record<string, unknown>,
+  ...keys: string[]
+): number {
+  for (const key of keys) {
+    const raw = source[key]
+    if (typeof raw === 'number' && Number.isFinite(raw)) return raw
+    if (typeof raw === 'string') {
+      const parsed = Number(raw)
+      if (Number.isFinite(parsed)) return parsed
+    }
+  }
+  return 0
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  for (const v of values) {
+    if (typeof v === 'string' && v.length > 0) return v
+  }
+  return undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -538,30 +627,57 @@ function parseToolPartFromActivity(activity: DbSessionActivity): StreamingPart |
 }
 
 function parsePlanPartFromActivity(activity: DbSessionActivity): StreamingPart | null {
-  if (activity.kind !== 'plan.ready') return null
   const payload = parseJson<Record<string, unknown>>(activity.payload_json)
-  const plan =
-    (typeof payload?.plan === 'string' && payload.plan.trim()) ||
-    (typeof payload?.planContent === 'string' && payload.planContent.trim()) ||
-    ''
-  if (!plan) return null
+  if (activity.kind === 'plan.ready') {
+    const plan =
+      (typeof payload?.plan === 'string' && payload.plan.trim()) ||
+      (typeof payload?.planContent === 'string' && payload.planContent.trim()) ||
+      ''
+    if (!plan) return null
 
-  const toolUseId =
-    (typeof payload?.toolUseID === 'string' && payload.toolUseID) ||
-    activity.item_id ||
-    activity.request_id ||
-    activity.id
+    const toolUseId =
+      (typeof payload?.toolUseID === 'string' && payload.toolUseID) ||
+      activity.item_id ||
+      activity.request_id ||
+      activity.id
 
-  return {
-    type: 'tool_use',
-    toolUse: {
-      id: toolUseId,
-      name: 'ExitPlanMode',
-      input: { plan },
-      status: 'pending',
-      startTime: Date.parse(activity.created_at) || Date.now()
+    return {
+      type: 'tool_use',
+      toolUse: {
+        id: toolUseId,
+        name: 'ExitPlanMode',
+        input: { plan },
+        status: 'pending',
+        startTime: Date.parse(activity.created_at) || Date.now()
+      }
     }
   }
+
+  if (
+    activity.kind === 'session.info' &&
+    payload?.kind === 'update_plan' &&
+    Array.isArray(payload.todos)
+  ) {
+    const toolUseId =
+      (typeof payload.callID === 'string' && payload.callID) ||
+      activity.item_id ||
+      activity.request_id ||
+      activity.id
+
+    return {
+      type: 'tool_use',
+      toolUse: {
+        id: toolUseId,
+        name: 'update_plan',
+        input: { todos: payload.todos },
+        status: 'success',
+        startTime: Date.parse(activity.created_at) || Date.now(),
+        endTime: Date.parse(activity.created_at) || Date.now()
+      }
+    }
+  }
+
+  return null
 }
 
 function upsertToolPart(

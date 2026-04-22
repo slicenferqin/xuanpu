@@ -4,6 +4,7 @@ import { vi, describe, test, expect, beforeEach } from 'vitest'
 const mockSetBadge = vi.fn()
 const mockNotificationShow = vi.fn()
 const mockNotificationOn = vi.fn()
+const mockNotificationOptions: Record<string, unknown>[] = []
 let notificationsSupported = true
 
 vi.mock('electron', () => ({
@@ -11,7 +12,9 @@ vi.mock('electron', () => ({
     static isSupported() {
       return notificationsSupported
     }
-    constructor(_opts: Record<string, unknown>) {} // eslint-disable-line @typescript-eslint/no-empty-function
+    constructor(opts: Record<string, unknown>) {
+      mockNotificationOptions.push(opts)
+    }
     on = mockNotificationOn
     show = mockNotificationShow
   },
@@ -68,6 +71,7 @@ function resetServiceState(): void {
 describe('Session 6: Dock Badge', () => {
   beforeEach(() => {
     notificationsSupported = true
+    mockNotificationOptions.length = 0
     resetServiceState()
   })
 
@@ -144,6 +148,46 @@ describe('Session 6: Dock Badge', () => {
     // The fact that all other tests pass with the mock dock confirms
     // the setBadge calls work. The optional chaining is a code-level guarantee.
     notificationService.showSessionComplete(mockSessionData)
+    expect(mockSetBadge).toHaveBeenCalledWith('1')
+  })
+
+  test('pending-user-feedback notifications reuse badge behavior and approval copy', () => {
+    notificationService.showPendingUserFeedback(mockSessionData, 'approval')
+
+    expect(mockNotificationOptions).toHaveLength(1)
+    expect(mockNotificationOptions[0]).toMatchObject({
+      title: 'Test Project',
+      body: '"Test Session" needs your permission'
+    })
+    expect(mockNotificationShow).toHaveBeenCalledTimes(1)
+    expect(mockSetBadge).toHaveBeenCalledWith('1')
+  })
+
+  test('suppresses completion notification while session still has queued follow-up', () => {
+    notificationService.setSessionQueuedState(mockSessionData.sessionId, true)
+
+    notificationService.showSessionComplete(mockSessionData)
+
+    expect(mockNotificationShow).not.toHaveBeenCalled()
+    expect(mockSetBadge).not.toHaveBeenCalled()
+  })
+
+  test('queued-state suppression does not affect pending-user-feedback notifications', () => {
+    notificationService.setSessionQueuedState(mockSessionData.sessionId, true)
+
+    notificationService.showPendingUserFeedback(mockSessionData, 'question')
+
+    expect(mockNotificationShow).toHaveBeenCalledTimes(1)
+    expect(mockSetBadge).toHaveBeenCalledWith('1')
+  })
+
+  test('completion notification resumes after queued state is cleared', () => {
+    notificationService.setSessionQueuedState(mockSessionData.sessionId, true)
+    notificationService.setSessionQueuedState(mockSessionData.sessionId, false)
+
+    notificationService.showSessionComplete(mockSessionData)
+
+    expect(mockNotificationShow).toHaveBeenCalledTimes(1)
     expect(mockSetBadge).toHaveBeenCalledWith('1')
   })
 })

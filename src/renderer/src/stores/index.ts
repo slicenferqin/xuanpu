@@ -60,3 +60,4 @@ export {
   type InterruptItem,
   type SessionRuntimeState
 } from './useSessionRuntimeStore'
+export { useSkillStore } from './useSkillStore'

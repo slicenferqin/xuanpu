@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, existsSync, statSync } from 'fs'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { app } from 'electron'
 import { getImageMimeType } from '@shared/types/file-utils'
 
@@ -94,13 +94,23 @@ export function writeFile(filePath: string, content: string): { success: boolean
     if (typeof content !== 'string') {
       return { success: false, error: 'Invalid content' }
     }
-    if (!existsSync(filePath)) {
-      return { success: false, error: 'File does not exist' }
+    if (existsSync(filePath)) {
+      const stat = statSync(filePath)
+      if (stat.isDirectory()) {
+        return { success: false, error: 'Path is a directory' }
+      }
+    } else {
+      const parentDir = dirname(filePath)
+      if (!existsSync(parentDir)) {
+        return { success: false, error: 'Parent directory does not exist' }
+      }
+
+      const parentStat = statSync(parentDir)
+      if (!parentStat.isDirectory()) {
+        return { success: false, error: 'Parent path is not a directory' }
+      }
     }
-    const stat = statSync(filePath)
-    if (stat.isDirectory()) {
-      return { success: false, error: 'Path is a directory' }
-    }
+
     writeFileSync(filePath, content, 'utf-8')
     return { success: true }
   } catch (error) {

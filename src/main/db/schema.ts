@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 15
+export const CURRENT_SCHEMA_VERSION = 18
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS worktrees (
   last_model_provider_id TEXT,
   last_model_id TEXT,
   last_model_variant TEXT,
+  last_agent_sdk TEXT DEFAULT NULL,
   attachments TEXT DEFAULT '[]',
   pinned INTEGER NOT NULL DEFAULT 0,
   context TEXT DEFAULT NULL,
@@ -57,6 +58,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   model_id TEXT,
   model_variant TEXT,
   color TEXT DEFAULT NULL,
+  first_message_at INTEGER DEFAULT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   completed_at TEXT
@@ -467,6 +469,67 @@ export const MIGRATIONS: Migration[] = [
   },
   {
     version: 14,
+    name: 'add_session_level_provider_lock',
+    // NOTE: ALTER TABLE for sessions.first_message_at and worktrees.last_agent_sdk
+    // is handled idempotently by ensureConnectionTables() in database.ts via
+    // safeAddColumn(). This migration also backfills first_message_at for any
+    // historical sessions that already have activity, locking them so the
+    // provider/model can no longer be changed mid-conversation.
+    up: `
+      UPDATE sessions
+         SET first_message_at = CAST((julianday(created_at) - 2440587.5) * 86400000 AS INTEGER)
+       WHERE first_message_at IS NULL
+         AND id IN (SELECT DISTINCT session_id FROM session_activities);
+    `,
+    down: `-- SQLite cannot drop columns; this is a no-op for safety`
+  },
+  {
+    version: 15,
+    name: 'add_remote_skill_hubs',
+    up: `
+      CREATE TABLE IF NOT EXISTS remote_skill_hubs (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        repo TEXT NOT NULL,
+        ref TEXT NOT NULL DEFAULT 'main',
+        last_refreshed_at TEXT,
+        last_sha TEXT,
+        builtin INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (repo, ref)
+      );
+    `,
+    down: `DROP TABLE IF EXISTS remote_skill_hubs;`
+  },
+  {
+    version: 16,
+    name: 'backfill_first_message_at_from_messages',
+    // v14 only backfilled from session_activities (Codex path). Sessions whose
+    // SDK was Claude Code or OpenCode never wrote activities, so their
+    // first_message_at stayed NULL and the provider/model selectors never
+    // locked. Backfill from session_messages too.
+    up: `
+      UPDATE sessions
+         SET first_message_at = COALESCE(
+           (
+             SELECT CAST((julianday(MIN(sm.created_at)) - 2440587.5) * 86400000 AS INTEGER)
+               FROM session_messages sm
+              WHERE sm.session_id = sessions.id
+                AND sm.role IN ('user', 'assistant')
+           ),
+           first_message_at
+          )
+       WHERE first_message_at IS NULL
+         AND EXISTS (
+           SELECT 1 FROM session_messages sm
+            WHERE sm.session_id = sessions.id
+              AND sm.role IN ('user', 'assistant')
+         );
+    `,
+    down: `-- backfill is one-way; nothing to undo`
+  },
+  {
+    version: 17,
     name: 'add_field_events',
     up: `
       -- Phase 21: Field Event Stream
@@ -512,7 +575,7 @@ export const MIGRATIONS: Migration[] = [
     `
   },
   {
-    version: 15,
+    version: 18,
     name: 'add_field_episodic_memory',
     up: `
       -- Phase 22B.1: Episodic Memory (per-worktree rolling summary)

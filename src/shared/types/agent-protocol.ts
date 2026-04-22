@@ -123,6 +123,8 @@ export interface EventEnvelope {
   eventId: string
   /** Monotonically increasing counter per session, for ordering. */
   sessionSequence: number
+  /** Monotonically increasing run identifier per hive session. */
+  runEpoch: number
   /** Which IPC channel the event arrived on (set by preload normalizer). */
   sourceChannel?: 'agent:stream'
 }

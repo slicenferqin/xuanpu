@@ -47,6 +47,27 @@ describe('normalizeAgentEvent', () => {
       expect(result.sessionSequence).toBe(42)
     })
 
+    it('sets runEpoch to 0 when missing', () => {
+      const raw = {
+        type: 'session.updated',
+        sessionId: 'sess-1',
+        data: { title: 'hello' }
+      }
+      const result = normalizeAgentEvent(raw, 'agent:stream')
+      expect(result.runEpoch).toBe(0)
+    })
+
+    it('preserves existing runEpoch', () => {
+      const raw = {
+        type: 'session.updated',
+        sessionId: 'sess-1',
+        runEpoch: 7,
+        data: { title: 'hello' }
+      }
+      const result = normalizeAgentEvent(raw, 'agent:stream')
+      expect(result.runEpoch).toBe(7)
+    })
+
     it('tags sourceChannel', () => {
       const raw = {
         type: 'session.updated',
@@ -205,6 +226,8 @@ describe('normalizeAgentEvent', () => {
 // ---------------------------------------------------------------------------
 describe('emitAgentEvent', () => {
   let emitAgentEvent: typeof import('../../src/shared/lib/normalize-agent-event').emitAgentEvent
+  let beginSessionRun: typeof import('../../src/shared/lib/normalize-agent-event').beginSessionRun
+  let getCurrentRunEpoch: typeof import('../../src/shared/lib/normalize-agent-event').getCurrentRunEpoch
   let resetSessionSequence: typeof import('../../src/shared/lib/normalize-agent-event').resetSessionSequence
 
   beforeEach(async () => {
@@ -212,6 +235,8 @@ describe('emitAgentEvent', () => {
     vi.resetModules()
     const mod = await import('../../src/shared/lib/normalize-agent-event')
     emitAgentEvent = mod.emitAgentEvent
+    beginSessionRun = mod.beginSessionRun
+    getCurrentRunEpoch = mod.getCurrentRunEpoch
     resetSessionSequence = mod.resetSessionSequence
   })
 
@@ -244,7 +269,41 @@ describe('emitAgentEvent', () => {
     const event = captured as Record<string, unknown>
     expect(event.eventId).toBeDefined()
     expect(event.sessionSequence).toBe(1)
+    expect(event.runEpoch).toBe(0)
     expect(event.type).toBe('session.updated')
+  })
+
+  it('stamps the current runEpoch after beginSessionRun', () => {
+    let captured: unknown
+    const mockWindow = {
+      isDestroyed: () => false,
+      webContents: {
+        send: (_channel: string, data: unknown) => {
+          captured = data
+        }
+      }
+    }
+
+    expect(getCurrentRunEpoch('sess-1')).toBe(0)
+    expect(beginSessionRun('sess-1')).toBe(1)
+    expect(getCurrentRunEpoch('sess-1')).toBe(1)
+
+    emitAgentEvent(mockWindow as never, {
+      type: 'session.updated',
+      sessionId: 'sess-1',
+      data: { title: 'hello' }
+    })
+
+    const event = captured as Record<string, unknown>
+    expect(event.runEpoch).toBe(1)
+  })
+
+  it('increments runEpoch per session independently', () => {
+    expect(beginSessionRun('sess-1')).toBe(1)
+    expect(beginSessionRun('sess-1')).toBe(2)
+    expect(beginSessionRun('sess-2')).toBe(1)
+    expect(getCurrentRunEpoch('sess-1')).toBe(2)
+    expect(getCurrentRunEpoch('sess-2')).toBe(1)
   })
 
   it('increments sessionSequence per session', () => {

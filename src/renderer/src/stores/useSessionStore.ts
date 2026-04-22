@@ -4,6 +4,7 @@ import type { SelectedModel } from './useSettingsStore'
 import { useSettingsStore } from './useSettingsStore'
 import { useGitStore } from './useGitStore'
 import { useWorktreeStore } from './useWorktreeStore'
+import { removeSessionViewState } from '@/lib/session-view-registry'
 import { translate } from '@/i18n/useI18n'
 import { DEFAULT_LOCALE } from '@/i18n/messages'
 
@@ -36,9 +37,18 @@ interface Session {
   model_provider_id: string | null
   model_id: string | null
   model_variant: string | null
+  first_message_at: number | null
   created_at: string
   updated_at: string
   completed_at: string | null
+}
+
+// Options for creating a session from the new session dialog (or quick paths)
+export interface CreateSessionOptions {
+  name?: string
+  agentSdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+  model?: SelectedModel | null
+  initialMode?: SessionMode
 }
 
 interface SessionState {
@@ -85,8 +95,16 @@ interface SessionState {
     worktreeId: string,
     projectId: string,
     agentSdkOverride?: 'opencode' | 'claude-code' | 'codex' | 'terminal',
-    initialMode?: SessionMode
+    initialMode?: SessionMode,
+    options?: { name?: string; model?: SelectedModel | null }
   ) => Promise<{ success: boolean; session?: Session; error?: string }>
+  updateSessionAgent: (
+    sessionId: string,
+    update: {
+      agentSdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+      model?: SelectedModel | null
+    }
+  ) => Promise<{ success: boolean; error?: string }>
   closeSession: (sessionId: string) => Promise<{ success: boolean; error?: string }>
   reopenSession: (
     sessionId: string,
@@ -108,6 +126,12 @@ interface SessionState {
     options?: { skipGlobalUpdate?: boolean }
   ) => Promise<void>
   setOpenCodeSessionId: (sessionId: string, opencodeSessionId: string | null) => void
+  /**
+   * Optimistically stamp `first_message_at` on a session so the UI locks the
+   * provider/model selectors immediately (the canonical write happens in main
+   * via createSessionMessage / upsertSessionActivity).
+   */
+  markSessionFirstMessage: (sessionId: string) => void
   setPendingMessage: (sessionId: string, message: string) => void
   dequeuePendingMessage: (sessionId: string) => string | null
   requeuePendingMessage: (sessionId: string, message: string) => void
@@ -133,7 +157,8 @@ interface SessionState {
   createConnectionSession: (
     connectionId: string,
     agentSdkOverride?: 'opencode' | 'claude-code' | 'codex' | 'terminal',
-    initialMode?: SessionMode
+    initialMode?: SessionMode,
+    options?: { name?: string; model?: SelectedModel | null }
   ) => Promise<{ success: boolean; session?: Session; error?: string }>
   setActiveConnectionSession: (sessionId: string | null) => void
   setActiveConnection: (connectionId: string | null) => void
@@ -280,20 +305,46 @@ export const useSessionStore = create<SessionState>()(
         worktreeId: string,
         projectId: string,
         agentSdkOverride?: 'opencode' | 'claude-code' | 'codex' | 'terminal',
-        initialMode?: SessionMode
+        initialMode?: SessionMode,
+        options?: { name?: string; model?: SelectedModel | null }
       ) => {
         try {
-          // Resolve default agent SDK from settings
+          // Resolve default agent SDK: explicit override → worktree.last_agent_sdk → settings default
           const { useSettingsStore } = await import('./useSettingsStore')
+          let worktreeLastAgentSdk:
+            | 'opencode'
+            | 'claude-code'
+            | 'codex'
+            | 'terminal'
+            | null
+            | undefined
+          const worktreesByProject = useWorktreeStore.getState().worktreesByProject
+          for (const worktrees of worktreesByProject.values()) {
+            const w = worktrees.find((w) => w.id === worktreeId)
+            if (w) {
+              worktreeLastAgentSdk = (w as { last_agent_sdk?: typeof worktreeLastAgentSdk })
+                .last_agent_sdk
+              break
+            }
+          }
           const defaultAgentSdk =
-            agentSdkOverride ?? useSettingsStore.getState().defaultAgentSdk ?? 'opencode'
+            agentSdkOverride ??
+            worktreeLastAgentSdk ??
+            useSettingsStore.getState().defaultAgentSdk ??
+            'opencode'
 
           const isTerminal = defaultAgentSdk === 'terminal'
 
           // Terminal sessions skip model resolution entirely
           let defaultModel: { providerID: string; modelID: string; variant?: string } | null = null
 
-          if (!isTerminal) {
+          if (options?.model) {
+            defaultModel = {
+              providerID: options.model.providerID,
+              modelID: options.model.modelID,
+              variant: options.model.variant
+            }
+          } else if (!isTerminal) {
             const { resolveModelForSdk } = await import('./useSettingsStore')
             const configuredDefaultSdk = useSettingsStore.getState().defaultAgentSdk ?? 'opencode'
 
@@ -343,10 +394,14 @@ export const useSessionStore = create<SessionState>()(
           const existingSessions = get().sessionsByWorktree.get(worktreeId) || []
           const sessionNumber = existingSessions.length + 1
 
+          const sessionName =
+            options?.name?.trim() ||
+            (isTerminal ? `Terminal ${sessionNumber}` : `Session ${sessionNumber}`)
+
           const session = await window.db.session.create({
             worktree_id: worktreeId,
             project_id: projectId,
-            name: isTerminal ? `Terminal ${sessionNumber}` : `Session ${sessionNumber}`,
+            name: sessionName,
             agent_sdk: defaultAgentSdk,
             ...(defaultModel
               ? {
@@ -356,6 +411,19 @@ export const useSessionStore = create<SessionState>()(
                 }
               : {})
           })
+
+          // Persist last_agent_sdk on the worktree so the next session defaults to it.
+          // Fire-and-forget; not critical to the create flow.
+          if (worktreeLastAgentSdk !== defaultAgentSdk) {
+            window.db.worktree
+              .update(worktreeId, { last_agent_sdk: defaultAgentSdk })
+              .then(() => {
+                useWorktreeStore.getState().updateWorktreeLastAgentSdk(worktreeId, defaultAgentSdk)
+              })
+              .catch(() => {
+                /* non-critical */
+              })
+          }
 
           // Clear file viewer so the new session takes focus in MainPane
           const { useFileViewerStore } = await import('./useFileViewerStore')
@@ -544,6 +612,8 @@ export const useSessionStore = create<SessionState>()(
               break
             }
           }
+
+          removeSessionViewState(sessionId)
 
           return { success: true }
         } catch (error) {
@@ -753,6 +823,154 @@ export const useSessionStore = create<SessionState>()(
         } catch {
           return false
         }
+      },
+
+      // Update agent_sdk and/or model for a session. Locked once the session
+      // has received its first activity (first_message_at is set).
+      updateSessionAgent: async (
+        sessionId: string,
+        update: {
+          agentSdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+          model?: SelectedModel | null
+        }
+      ) => {
+        // Look up the session across both scopes
+        let target: Session | null = null
+        let scope: { type: 'worktree'; scopeId: string } | { type: 'connection'; scopeId: string } | null =
+          null
+        for (const [worktreeId, sessions] of get().sessionsByWorktree.entries()) {
+          const found = sessions.find((s) => s.id === sessionId)
+          if (found) {
+            target = found
+            scope = { type: 'worktree', scopeId: worktreeId }
+            break
+          }
+        }
+        if (!target) {
+          for (const [connectionId, sessions] of get().sessionsByConnection.entries()) {
+            const found = sessions.find((s) => s.id === sessionId)
+            if (found) {
+              target = found
+              scope = { type: 'connection', scopeId: connectionId }
+              break
+            }
+          }
+        }
+
+        if (!target) {
+          return { success: false, error: t('sessionStore.errors.sessionNotFound') }
+        }
+        // Lock applies to provider (agent_sdk) only — switching SDKs mid-session
+        // would break the underlying runtime. Model changes within the same SDK
+        // are allowed; only context-window behaviour shifts.
+        const isProviderChange =
+          update.agentSdk !== undefined && update.agentSdk !== target.agent_sdk
+        if (isProviderChange && target.first_message_at != null) {
+          return { success: false, error: t('sessionStore.errors.sessionLocked') }
+        }
+
+        const newAgentSdk = update.agentSdk ?? target.agent_sdk
+        const isTerminal = newAgentSdk === 'terminal'
+
+        // Resolve model: explicit override → per-SDK default → current session model (if SDK unchanged)
+        let nextModel: SelectedModel | null = null
+        if (update.model) {
+          nextModel = update.model
+        } else if (!isTerminal) {
+          if (newAgentSdk === target.agent_sdk && target.model_id && target.model_provider_id) {
+            nextModel = {
+              providerID: target.model_provider_id,
+              modelID: target.model_id,
+              variant: target.model_variant ?? undefined
+            }
+          } else {
+            const { resolveModelForSdk } = await import('./useSettingsStore')
+            const resolved = resolveModelForSdk(newAgentSdk)
+            if (resolved) {
+              nextModel = {
+                providerID: resolved.providerID,
+                modelID: resolved.modelID,
+                variant: resolved.variant ?? undefined
+              }
+            }
+          }
+        }
+
+        try {
+          await window.db.session.update(sessionId, {
+            agent_sdk: newAgentSdk,
+            model_provider_id: isTerminal ? null : nextModel?.providerID ?? null,
+            model_id: isTerminal ? null : nextModel?.modelID ?? null,
+            model_variant: isTerminal ? null : nextModel?.variant ?? null
+          })
+        } catch (error) {
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Failed to update session agent'
+          }
+        }
+
+        // Update in-memory state in the scope we found
+        set((state) => {
+          const updater = (s: Session): Session =>
+            s.id === sessionId
+              ? {
+                  ...s,
+                  agent_sdk: newAgentSdk,
+                  model_provider_id: isTerminal ? null : nextModel?.providerID ?? null,
+                  model_id: isTerminal ? null : nextModel?.modelID ?? null,
+                  model_variant: isTerminal ? null : nextModel?.variant ?? null
+                }
+              : s
+
+          if (scope?.type === 'worktree') {
+            const newMap = new Map(state.sessionsByWorktree)
+            const sessions = newMap.get(scope.scopeId) || []
+            newMap.set(scope.scopeId, sessions.map(updater))
+            return { sessionsByWorktree: newMap }
+          }
+          if (scope?.type === 'connection') {
+            const newMap = new Map(state.sessionsByConnection)
+            const sessions = newMap.get(scope.scopeId) || []
+            newMap.set(scope.scopeId, sessions.map(updater))
+            return { sessionsByConnection: newMap }
+          }
+          return {}
+        })
+
+        // Persist last_agent_sdk on the worktree (worktree-scoped sessions only)
+        if (scope?.type === 'worktree' && newAgentSdk !== target.agent_sdk) {
+          window.db.worktree
+            .update(scope.scopeId, { last_agent_sdk: newAgentSdk })
+            .then(() => {
+              useWorktreeStore
+                .getState()
+                .updateWorktreeLastAgentSdk(scope!.scopeId as string, newAgentSdk)
+            })
+            .catch(() => {
+              /* non-critical */
+            })
+        }
+
+        // Push the new model to the agent backend (SDK-aware)
+        if (!isTerminal && nextModel) {
+          try {
+            await window.agentOps.setModel({ ...nextModel, runtimeId: newAgentSdk })
+          } catch (error) {
+            console.error('Failed to push model to agent backend:', error)
+          }
+          // Remember this model per-SDK so future sessions inherit it
+          try {
+            const { useSettingsStore } = await import('./useSettingsStore')
+            useSettingsStore
+              .getState()
+              .setSelectedModelForSdk(newAgentSdk, nextModel, { skipBackendPush: true })
+          } catch {
+            /* non-critical */
+          }
+        }
+
+        return { success: true }
       },
 
       // Reorder tabs
@@ -1028,6 +1246,39 @@ export const useSessionStore = create<SessionState>()(
         })
       },
 
+      markSessionFirstMessage: (sessionId: string) => {
+        const stamp = Date.now()
+        set((state) => {
+          const stampSession = (s: Session): Session =>
+            s.id === sessionId && s.first_message_at == null
+              ? { ...s, first_message_at: stamp }
+              : s
+
+          let touched = false
+          const newWorktreeMap = new Map(state.sessionsByWorktree)
+          for (const [worktreeId, sessions] of newWorktreeMap.entries()) {
+            const updated = sessions.map(stampSession)
+            if (updated.some((s, i) => s !== sessions[i])) {
+              newWorktreeMap.set(worktreeId, updated)
+              touched = true
+            }
+          }
+          const newConnectionMap = new Map(state.sessionsByConnection)
+          for (const [connectionId, sessions] of newConnectionMap.entries()) {
+            const updated = sessions.map(stampSession)
+            if (updated.some((s, i) => s !== sessions[i])) {
+              newConnectionMap.set(connectionId, updated)
+              touched = true
+            }
+          }
+          if (!touched) return {}
+          return {
+            sessionsByWorktree: newWorktreeMap,
+            sessionsByConnection: newConnectionMap
+          }
+        })
+      },
+
       // Set a pending initial message for a session (e.g., code review prompt)
       setPendingMessage: (sessionId: string, message: string) => {
         set((state) => {
@@ -1126,7 +1377,10 @@ export const useSessionStore = create<SessionState>()(
         if (index === -1) return
         const toClose = tabOrder.slice(index + 1)
         for (const sessionId of toClose) {
-          await get().closeSession(sessionId)
+          const result = await get().closeSession(sessionId)
+          if (result.success) {
+            removeSessionViewState(sessionId)
+          }
         }
       },
 
@@ -1290,7 +1544,8 @@ export const useSessionStore = create<SessionState>()(
       createConnectionSession: async (
         connectionId: string,
         agentSdkOverride?: 'opencode' | 'claude-code' | 'codex' | 'terminal',
-        initialMode?: SessionMode
+        initialMode?: SessionMode,
+        options?: { name?: string; model?: SelectedModel | null }
       ) => {
         try {
           // Look up the connection to get the first member's project_id
@@ -1308,8 +1563,13 @@ export const useSessionStore = create<SessionState>()(
             const { useSettingsStore } = await import('./useSettingsStore')
             defaultAgentSdk =
               agentSdkOverride ?? useSettingsStore.getState().defaultAgentSdk ?? 'opencode'
-            // Terminal sessions skip model resolution
-            if (defaultAgentSdk !== 'terminal') {
+            if (options?.model) {
+              defaultModel = {
+                providerID: options.model.providerID,
+                modelID: options.model.modelID,
+                variant: options.model.variant
+              }
+            } else if (defaultAgentSdk !== 'terminal') {
               const configuredDefaultSdk = useSettingsStore.getState().defaultAgentSdk ?? 'opencode'
 
               // Priority 1: mode-specific default (only when session SDK matches the
@@ -1337,11 +1597,15 @@ export const useSessionStore = create<SessionState>()(
           const existingSessions = get().sessionsByConnection.get(connectionId) || []
           const sessionNumber = existingSessions.length + 1
 
+          const sessionName =
+            options?.name?.trim() ||
+            (isTerminal ? `Terminal ${sessionNumber}` : `Session ${sessionNumber}`)
+
           const session = await window.db.session.create({
             worktree_id: null,
             project_id: projectId,
             connection_id: connectionId,
-            name: isTerminal ? `Terminal ${sessionNumber}` : `Session ${sessionNumber}`,
+            name: sessionName,
             agent_sdk: defaultAgentSdk,
             ...(defaultModel
               ? {

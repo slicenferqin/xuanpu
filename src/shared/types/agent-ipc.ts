@@ -16,6 +16,7 @@ export const AgentErrorCodeValues = [
   'INVALID_PARAM',
   'UNKNOWN_RUNTIME',
   'RUNTIME_UNAVAILABLE',
+  'STEER_NOT_SUPPORTED',
   'SESSION_NOT_FOUND',
   'INTERNAL_ERROR'
 ] as const

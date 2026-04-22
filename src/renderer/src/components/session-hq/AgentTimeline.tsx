@@ -10,7 +10,7 @@
  *   streamingContent (live)    → inline streaming text at bottom
  */
 
-import React, { useRef, useEffect, useMemo } from 'react'
+import React, { useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import { formatMessageTime } from '@/lib/format-time'
 import type { TimelineMessage, StreamingPart, ToolUseInfo } from '@shared/lib/timeline-types'
@@ -20,6 +20,7 @@ import { CopyMessageButton } from '@/components/sessions/CopyMessageButton'
 import { ForkMessageButton } from '@/components/sessions/ForkMessageButton'
 import { Button } from '@/components/ui/button'
 import { useI18n } from '@/i18n/useI18n'
+import { isTodoWriteTool } from '@/components/sessions/tools/todo-utils'
 import {
   BashCard,
   FileReadCard,
@@ -33,6 +34,8 @@ import {
   TodoCard
 } from './cards'
 import { ThreadStatusRow, type ThreadStatusRowData } from './ThreadStatusRow'
+import { SystemNotificationBar } from '../sessions/SystemNotificationBar'
+import { extractTaskNotifications, stripTaskNotifications } from '@/lib/content-sanitizer'
 import { getMessageDisplayContent } from '@/lib/message-actions'
 
 import {
@@ -57,6 +60,7 @@ import {
 type CardType =
   | 'user-message'
   | 'system'
+  | 'task-notification'
   | 'thinking'
   | 'bash'
   | 'file-read'
@@ -89,8 +93,34 @@ interface TimelineNode {
  * Text parts are collapsed into a single text node at the end.
  */
 function messageToNodes(message: TimelineMessage): TimelineNode[] {
-  // User messages → single node
+  // User messages → single node, except SDK-injected <task-notification> blocks
+  // (background bash completion etc.) which should render as a thin status bar
+  // rather than a chat bubble.
   if (message.role === 'user') {
+    const raw = message.content ?? ''
+    const notifications = extractTaskNotifications(raw)
+    if (notifications.length > 0) {
+      const remaining = stripTaskNotifications(raw)
+      const nodes: TimelineNode[] = []
+      if (remaining.length > 0) {
+        nodes.push({
+          key: `${message.id}-user`,
+          cardType: 'user-message',
+          message,
+          textContent: remaining,
+          attachments: message.attachments
+        })
+      }
+      nodes.push({
+        key: `${message.id}-task-notification`,
+        cardType: 'task-notification',
+        message,
+        textContent: raw,
+        isLastInMessage: true
+      })
+      return nodes
+    }
+
     return [{
       key: `${message.id}-user`,
       cardType: 'user-message',
@@ -193,7 +223,7 @@ function messageToNodes(message: TimelineMessage): TimelineNode[] {
       } else if (toolName === 'askuserquestion' || toolName === 'ask_user') {
         cardType = 'ask-user'
       } else if (
-        toolName === 'todowrite' || toolName === 'todo_write' ||
+        isTodoWriteTool(toolName) ||
         toolName === 'taskcreate' || toolName === 'task_create' ||
         toolName === 'taskupdate' || toolName === 'task_update' ||
         toolName === 'todoread' || toolName === 'todo_read' ||
@@ -248,6 +278,7 @@ interface IconConfig {
 const ICON_MAP: Record<CardType, IconConfig> = {
   'user-message': { icon: User, colorClass: 'text-blue-600 dark:text-blue-400', bgClass: 'bg-blue-500/15' },
   'system': { icon: MessageSquare, colorClass: 'text-muted-foreground', bgClass: 'bg-muted' },
+  'task-notification': { icon: MessageSquare, colorClass: 'text-muted-foreground', bgClass: 'bg-muted' },
   'thinking': { icon: Brain, colorClass: 'text-muted-foreground', bgClass: 'bg-muted' },
   'bash': { icon: Terminal, colorClass: 'text-celadon', bgClass: 'bg-celadon/15' },
   'file-read': { icon: FileText, colorClass: 'text-celadon', bgClass: 'bg-celadon/15' },
@@ -290,6 +321,7 @@ function TimelineNodeView({
   sessionId,
   worktreePath,
   childPartsMap,
+  planContentByToolUseId,
   canEditUserMessage,
   editingMessageId,
   editingContent,
@@ -305,6 +337,7 @@ function TimelineNodeView({
   sessionId?: string
   worktreePath?: string | null
   childPartsMap?: Map<string, StreamingPart[]>
+  planContentByToolUseId?: Map<string, string>
   canEditUserMessage?: (message: TimelineMessage) => boolean
   editingMessageId?: string | null
   editingContent?: string
@@ -331,6 +364,13 @@ function TimelineNodeView({
       return (
         <div className="group/user-message">
           <div className="bg-blue-500/5 border border-blue-500/20 rounded-[10px] px-3.5 py-2.5">
+            {node.message.steered === true && (
+              <div className="mb-2">
+                <span className="inline-flex items-center rounded-md bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold text-sky-500">
+                  STEERED
+                </span>
+              </div>
+            )}
             {images.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {images.map((img, i) => (
@@ -452,6 +492,9 @@ function TimelineNodeView({
         />
       )
 
+    case 'task-notification':
+      return <SystemNotificationBar content={node.textContent ?? ''} />
+
     case 'thinking':
       return <ThinkingCard content={node.textContent ?? ''} />
 
@@ -488,17 +531,23 @@ function TimelineNodeView({
       return <SubAgentCard subtask={subtaskData} childParts={childParts} />
     }
 
-    case 'plan':
+    case 'plan': {
+      const toolUseId = node.toolUse?.id
+      const overrideContent = toolUseId ? planContentByToolUseId?.get(toolUseId) : undefined
+      const inputPlan = node.toolUse?.input?.plan as string | undefined
+      const output = node.toolUse?.output as string | undefined
+      const content =
+        (overrideContent && overrideContent.length > 0 ? overrideContent : undefined)
+        ?? (inputPlan && inputPlan.length > 0 ? inputPlan : undefined)
+        ?? output
+        ?? ''
       return (
         <PlanCard
-          content={
-            (node.toolUse?.input?.plan as string)
-            ?? (node.toolUse?.output as string)
-            ?? ''
-          }
+          content={content}
           isPending={node.toolUse?.status === 'pending' || node.toolUse?.status === 'running'}
         />
       )
+    }
 
     case 'ask-user':
       return (
@@ -557,8 +606,24 @@ export interface AgentTimelineProps {
   streamingContent: string
   streamingParts?: StreamingPart[]
   isStreaming: boolean
+  /**
+   * Timestamp (ISO string or epoch ms) of when the current streaming run
+   * started. Assistant messages with timestamp >= this value are suppressed
+   * from the durable timeline so they don't double-render alongside the live
+   * streaming overlay (the SDK persists partial progress to DB throughout the
+   * turn — without this filter the user sees their own message twice after
+   * switching tabs and back during streaming).
+   */
+  activeRunStartedAt?: number | string | null
   lifecycle: SessionLifecycle
   ephemeralStatusRows?: ThreadStatusRowData[]
+  /**
+   * Live compaction marker that should appear inline at its own timestamp
+   * (NOT pinned at the bottom). Once the run finishes and the compaction
+   * lands in `timelineMessages` as a durable message part, the parent stops
+   * passing this so the durable copy takes over.
+   */
+  inflightCompaction?: ThreadStatusRowData | null
   /** Suppress inline TodoCard rendering when MissionControl handles tasks */
   suppressTodoCards?: boolean
   /** Aggregated final task list — renders ONE TodoCard after MissionControl fades */
@@ -569,6 +634,12 @@ export interface AgentTimelineProps {
   worktreePath?: string | null
   /** Child-session parts keyed by parent tool_use id (sub-agent tool calls) */
   childPartsMap?: Map<string, StreamingPart[]>
+  /**
+   * Plan content resolved out-of-band (e.g. Claude Code reads the plan from
+   * disk in `canUseTool(ExitPlanMode)` and ships it via plan.ready — the SDK's
+   * own tool_use.input.plan is empty). Keyed by tool_use id.
+   */
+  planContentByToolUseId?: Map<string, string>
   onCopyUserMessage?: (message: TimelineMessage) => void
   onEditUserMessage?: (message: TimelineMessage) => void
   onForkUserMessage?: (message: TimelineMessage) => void | Promise<void>
@@ -579,6 +650,20 @@ export interface AgentTimelineProps {
   onSaveUserMessageEdit?: (messageId: string) => void | Promise<void>
   onCancelUserMessageEdit?: () => void
   forkingMessageId?: string | null
+  scrollContainerRef?: React.RefObject<HTMLDivElement | null>
+  onScroll?: () => void
+  onWheel?: () => void
+  onPointerDown?: () => void
+  onPointerUp?: () => void
+  onPointerCancel?: () => void
+  /**
+   * Measured pixel height of the floating ComposerBar / dock so the scroll
+   * viewport can reserve enough bottom padding. The previous static value
+   * (`pb-[14.5rem]` = 232px) wasn't enough once the composer expanded
+   * (attachments preview, multi-line draft, slash popover, queue dropdown),
+   * causing the last few transcript nodes to render BEHIND the composer.
+   */
+  bottomFloatingHeight?: number
 }
 
 export function AgentTimeline({
@@ -586,13 +671,16 @@ export function AgentTimeline({
   streamingContent,
   streamingParts = [],
   isStreaming,
+  activeRunStartedAt,
   lifecycle: _lifecycle,
   ephemeralStatusRows = [],
+  inflightCompaction = null,
   suppressTodoCards,
   finalTodoTasks,
   sessionId,
   worktreePath,
   childPartsMap,
+  planContentByToolUseId,
   onCopyUserMessage,
   onEditUserMessage,
   onForkUserMessage,
@@ -602,39 +690,70 @@ export function AgentTimeline({
   onEditingContentChange,
   onSaveUserMessageEdit,
   onCancelUserMessageEdit,
-  forkingMessageId
+  forkingMessageId,
+  scrollContainerRef,
+  onScroll,
+  onWheel,
+  onPointerDown,
+  onPointerUp,
+  onPointerCancel,
+  bottomFloatingHeight = 0
 }: AgentTimelineProps): React.JSX.Element {
-  const scrollRef = useRef<HTMLDivElement>(null)
-
-  // Auto-scroll to bottom when new content arrives
-  const prevMessageCountRef = useRef(0)
-  useEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
-    const messageCount = timelineMessages.length
-    const hasNewMessages = messageCount > prevMessageCountRef.current
-    prevMessageCountRef.current = messageCount
-
-    if (hasNewMessages || isStreaming) {
-      // Only auto-scroll if user is near the bottom
-      const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150
-      if (isNearBottom || hasNewMessages) {
-        requestAnimationFrame(() => {
-          el.scrollTop = el.scrollHeight
-        })
-      }
-    }
-  }, [timelineMessages.length, streamingContent, streamingParts, isStreaming])
-
   // Flatten messages into timeline nodes
   const nodes = useMemo(() => {
-    return timelineMessages.flatMap((msg) => messageToNodes(msg))
+    // Compute a numeric cutoff for the active run. Assistant messages whose
+    // timestamp is at or after this cutoff are part of the in-flight turn and
+    // are owned by the live streaming overlay below — BUT only for plain
+    // text/reasoning content. Structured parts (tool_use, plan, ask-user,
+    // subtask, file) come from DB activities that the streaming overlay
+    // doesn't replicate, so they must remain visible even while streaming.
+    const runCutoffMs =
+      isStreaming && activeRunStartedAt != null
+        ? typeof activeRunStartedAt === 'number'
+          ? activeRunStartedAt
+          : Date.parse(activeRunStartedAt)
+        : null
+
+    const hasStructuredPart = (msg: TimelineMessage): boolean => {
+      if (!msg.parts || msg.parts.length === 0) return false
+      return msg.parts.some(
+        (part) => part.type !== 'text' && part.type !== 'reasoning'
+      )
+    }
+
+    const filteredMessages =
+      runCutoffMs != null && Number.isFinite(runCutoffMs)
+        ? timelineMessages.filter((msg) => {
+            if (msg.role !== 'assistant') return true
+            if (hasStructuredPart(msg)) return true
+            const ts = Date.parse(msg.timestamp)
+            if (!Number.isFinite(ts)) return true
+            return ts < runCutoffMs
+          })
+        : timelineMessages
+
+    return filteredMessages.flatMap((msg) => messageToNodes(msg))
       .filter((node) => {
         // Suppress inline TodoCards when MissionControl handles tasks
         if (suppressTodoCards && node.cardType === 'todo') return false
         return true
       })
-  }, [timelineMessages, suppressTodoCards])
+  }, [timelineMessages, suppressTodoCards, isStreaming, activeRunStartedAt])
+
+  // Find where to splice the live `inflightCompaction` row inline by timestamp.
+  // -1 → render before any nodes; >=0 → render AFTER nodes[index]. Once the
+  // compaction lands as a durable message in `timelineMessages`, the parent
+  // stops passing `inflightCompaction` and the durable copy renders via the
+  // normal nodes path instead.
+  const inflightCompactionInsertAfter = useMemo(() => {
+    if (!inflightCompaction) return null
+    const target = inflightCompaction.timestamp
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const ts = Date.parse(nodes[i].message.timestamp)
+      if (Number.isFinite(ts) && ts <= target) return i
+    }
+    return -1
+  }, [nodes, inflightCompaction])
 
   // Dedupe by tool_use id: if a tool_use with the same id is already committed
   // in timelineMessages, skip the streaming copy — otherwise a switch-away-and-back
@@ -758,10 +877,31 @@ export function AgentTimeline({
 
   return (
     <div
-      ref={scrollRef}
+      ref={scrollContainerRef}
       className="flex-1 overflow-y-auto"
+      onScroll={onScroll}
+      onWheel={onWheel}
+      onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      data-testid="hq-agent-timeline-scroll"
     >
-      <div className="w-[85%] ml-[5%] py-6 pb-[14.5rem]">
+      <div
+        className="w-[85%] ml-[5%] py-6"
+        style={{
+          // The ComposerBar is `absolute bottom-16` (64px from viewport bottom).
+          // Its TOP edge sits `composerHeight + 64` above the bottom. Reserve
+          // that much plus 24px breathing room so the last transcript node is
+          // never hidden behind it. Fallback is generous (360px) because the
+          // initial ResizeObserver tick can arrive AFTER the first paint — a
+          // small 232px fallback leaves the last node covered for one frame.
+          paddingBottom: `${Math.max(bottomFloatingHeight + 88, 360)}px`
+        }}
+      >
+        {/* Inline compaction marker inserted by timestamp. */}
+        {inflightCompaction && inflightCompactionInsertAfter === -1 && (
+          <ThreadStatusRow key={inflightCompaction.id} status={inflightCompaction} />
+        )}
         {/* Timeline nodes */}
         {nodes.map((node, index) => {
           const iconCfg = ICON_MAP[node.cardType]
@@ -776,43 +916,105 @@ export function AgentTimeline({
             && node.isLastInMessage
             && (!nextNode || nextNode.cardType === 'user-message')
 
+          const compactionSuffix =
+            inflightCompaction && inflightCompactionInsertAfter === index ? (
+              <ThreadStatusRow
+                key={`${inflightCompaction.id}-after-${index}`}
+                status={inflightCompaction}
+              />
+            ) : null
+
           // User messages render without the timeline line
           if (node.cardType === 'user-message') {
             return (
-              <div key={node.key} className="mb-6">
-                <TimelineNodeView
-                  node={node}
-                  sessionId={sessionId}
-                  worktreePath={worktreePath}
-                  childPartsMap={childPartsMap}
-                  canEditUserMessage={canEditUserMessage}
-                  editingMessageId={editingMessageId}
-                  editingContent={editingContent}
-                  onEditingContentChange={onEditingContentChange}
-                  onSaveUserMessageEdit={onSaveUserMessageEdit}
-                  onCancelUserMessageEdit={onCancelUserMessageEdit}
-                  onCopyUserMessage={onCopyUserMessage}
-                  onEditUserMessage={onEditUserMessage}
-                  onForkUserMessage={onForkUserMessage}
-                  forkingMessageId={forkingMessageId}
-                />
-              </div>
+              <React.Fragment key={node.key}>
+                <div className="mb-6">
+                  <TimelineNodeView
+                    node={node}
+                    sessionId={sessionId}
+                    worktreePath={worktreePath}
+                    childPartsMap={childPartsMap}
+                    planContentByToolUseId={planContentByToolUseId}
+                    canEditUserMessage={canEditUserMessage}
+                    editingMessageId={editingMessageId}
+                    editingContent={editingContent}
+                    onEditingContentChange={onEditingContentChange}
+                    onSaveUserMessageEdit={onSaveUserMessageEdit}
+                    onCancelUserMessageEdit={onCancelUserMessageEdit}
+                    onCopyUserMessage={onCopyUserMessage}
+                    onEditUserMessage={onEditUserMessage}
+                    onForkUserMessage={onForkUserMessage}
+                    forkingMessageId={forkingMessageId}
+                  />
+                </div>
+                {compactionSuffix}
+              </React.Fragment>
             )
           }
 
           // Text nodes render inline without icon
           if (node.cardType === 'text') {
             return (
-              <div key={node.key} className="relative pl-10 mb-4">
+              <React.Fragment key={node.key}>
+                <div className="relative pl-10 mb-4">
+                  {/* Vertical line */}
+                  {renderConnector && (
+                    <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border" />
+                  )}
+                  <TimelineNodeView
+                    node={node}
+                    sessionId={sessionId}
+                    worktreePath={worktreePath}
+                    childPartsMap={childPartsMap}
+                    planContentByToolUseId={planContentByToolUseId}
+                    canEditUserMessage={canEditUserMessage}
+                    editingMessageId={editingMessageId}
+                    editingContent={editingContent}
+                    onEditingContentChange={onEditingContentChange}
+                    onSaveUserMessageEdit={onSaveUserMessageEdit}
+                    onCancelUserMessageEdit={onCancelUserMessageEdit}
+                    onCopyUserMessage={onCopyUserMessage}
+                    onEditUserMessage={onEditUserMessage}
+                    onForkUserMessage={onForkUserMessage}
+                    forkingMessageId={forkingMessageId}
+                  />
+                  {showTimestamp && node.message.timestamp && (
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {formatMessageTime(node.message.timestamp)}
+                    </div>
+                  )}
+                </div>
+                {compactionSuffix}
+              </React.Fragment>
+            )
+          }
+
+          return (
+            <React.Fragment key={node.key}>
+              <div className="relative pl-10 mb-4">
                 {/* Vertical line */}
                 {renderConnector && (
                   <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border" />
                 )}
+
+                {/* Icon node */}
+                <div
+                  className={cn(
+                    'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
+                    'flex items-center justify-center z-10',
+                    iconCfg.bgClass, iconCfg.colorClass
+                  )}
+                >
+                  <Icon className="h-3 w-3" />
+                </div>
+
+                {/* Card */}
                 <TimelineNodeView
                   node={node}
                   sessionId={sessionId}
                   worktreePath={worktreePath}
                   childPartsMap={childPartsMap}
+                  planContentByToolUseId={planContentByToolUseId}
                   canEditUserMessage={canEditUserMessage}
                   editingMessageId={editingMessageId}
                   editingContent={editingContent}
@@ -830,50 +1032,8 @@ export function AgentTimeline({
                   </div>
                 )}
               </div>
-            )
-          }
-
-          return (
-            <div key={node.key} className="relative pl-10 mb-4">
-              {/* Vertical line */}
-              {renderConnector && (
-                <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border" />
-              )}
-
-              {/* Icon node */}
-              <div
-                className={cn(
-                  'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
-                  'flex items-center justify-center z-10',
-                  iconCfg.bgClass, iconCfg.colorClass
-                )}
-              >
-                <Icon className="h-3 w-3" />
-              </div>
-
-              {/* Card */}
-              <TimelineNodeView
-                node={node}
-                sessionId={sessionId}
-                worktreePath={worktreePath}
-                childPartsMap={childPartsMap}
-                canEditUserMessage={canEditUserMessage}
-                editingMessageId={editingMessageId}
-                editingContent={editingContent}
-                onEditingContentChange={onEditingContentChange}
-                onSaveUserMessageEdit={onSaveUserMessageEdit}
-                onCancelUserMessageEdit={onCancelUserMessageEdit}
-                onCopyUserMessage={onCopyUserMessage}
-                onEditUserMessage={onEditUserMessage}
-                onForkUserMessage={onForkUserMessage}
-                forkingMessageId={forkingMessageId}
-              />
-              {showTimestamp && node.message.timestamp && (
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {formatMessageTime(node.message.timestamp)}
-                </div>
-              )}
-            </div>
+              {compactionSuffix}
+            </React.Fragment>
           )
         })}
 
@@ -938,6 +1098,7 @@ export function AgentTimeline({
                 sessionId={sessionId}
                 worktreePath={worktreePath}
                 childPartsMap={childPartsMap}
+                planContentByToolUseId={planContentByToolUseId}
                 canEditUserMessage={canEditUserMessage}
                 editingMessageId={editingMessageId}
                 editingContent={editingContent}

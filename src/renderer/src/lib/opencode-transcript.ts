@@ -39,6 +39,7 @@ export interface OpenCodeMessage {
   role: 'user' | 'assistant' | 'system'
   content: string
   timestamp: string
+  steered?: boolean
   parts?: StreamingPart[]
   /** File attachments for user messages (images, PDFs, etc.) */
   attachments?: MessagePart[]
@@ -289,6 +290,7 @@ function mapMessage(rawMessage: unknown, index: number): MappedMessage {
       role,
       content,
       timestamp,
+      ...(messageRecord?.steered === true || info?.steered === true ? { steered: true } : {}),
       parts: mappedParts.length > 0 ? mappedParts : undefined,
       ...(role === 'user' && fileAttachments.length > 0
         ? { attachments: fileAttachments }

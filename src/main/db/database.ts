@@ -77,7 +77,12 @@ export class DatabaseService {
     }
   }
 
-  private getDb(): Database.Database {
+  /**
+   * Returns the raw better-sqlite3 handle. Public so feature services can
+   * issue scoped queries without bloating this class. Throws if init() has
+   * not been called.
+   */
+  public getDb(): Database.Database {
     if (!this.db) {
       throw new Error('Database not initialized. Call init() first.')
     }
@@ -202,6 +207,8 @@ export class DatabaseService {
     this.safeAddColumn('worktrees', 'context', 'TEXT DEFAULT NULL')
     this.safeAddColumn('worktrees', 'github_pr_number', 'INTEGER DEFAULT NULL')
     this.safeAddColumn('worktrees', 'github_pr_url', 'TEXT DEFAULT NULL')
+    this.safeAddColumn('worktrees', 'last_agent_sdk', 'TEXT DEFAULT NULL')
+    this.safeAddColumn('sessions', 'first_message_at', 'INTEGER DEFAULT NULL')
     this.safeAddColumn('connections', 'pinned', 'INTEGER NOT NULL DEFAULT 0')
 
     db.exec(`
@@ -1293,6 +1300,15 @@ export class DatabaseService {
     // Update session updated_at
     db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(now, data.session_id)
 
+    // Lock provider/model selection once a real user/assistant message lands.
+    // Mirror of the same UPDATE inside upsertSessionActivity for SDK paths
+    // (Codex) that bypass session_messages entirely.
+    if (data.role === 'user' || data.role === 'assistant') {
+      db.prepare(
+        'UPDATE sessions SET first_message_at = ? WHERE id = ? AND first_message_at IS NULL'
+      ).run(Date.now(), data.session_id)
+    }
+
     return message
   }
 
@@ -1479,6 +1495,13 @@ export class DatabaseService {
     )
 
     db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(now, data.session_id)
+
+    // Mark the session as locked once the first activity lands. This freezes the
+    // agent_sdk + model so a user can no longer change them mid-conversation.
+    // The UPDATE is a no-op after the first hit thanks to the WHERE clause.
+    db.prepare(
+      'UPDATE sessions SET first_message_at = ? WHERE id = ? AND first_message_at IS NULL'
+    ).run(Date.now(), data.session_id)
 
     const row = db.prepare('SELECT * FROM session_activities WHERE id = ?').get(id) as
       | SessionActivity

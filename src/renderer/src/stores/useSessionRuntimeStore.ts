@@ -77,6 +77,9 @@ const _sessionEventCallbacks = new Map<string, Set<EventCallback>>()
 // ---------------------------------------------------------------------------
 
 export interface StreamingBuffer {
+  activeRunEpoch: number
+  lastAppliedSequence: number
+  mirrorVersion: number
   parts: StreamingPart[]
   /** Child session parts keyed by child session id */
   childParts: Map<string, StreamingPart[]>
@@ -92,17 +95,570 @@ export interface StreamingBuffer {
 }
 
 const _streamingBuffers = new Map<string, StreamingBuffer>()
+type StreamingBufferCallback = () => void
+const _streamingBufferCallbacks = new Map<string, Set<StreamingBufferCallback>>()
+const _pendingStreamingBufferFlushes = new Set<string>()
+const _emptyStreamingBufferSnapshots = new Map<string, StreamingBuffer>()
+
+function createStreamingBuffer(overrides?: Partial<StreamingBuffer>): StreamingBuffer {
+  return {
+    activeRunEpoch: 0,
+    lastAppliedSequence: -1,
+    mirrorVersion: 0,
+    parts: [],
+    childParts: new Map(),
+    streamingContent: '',
+    isStreaming: false,
+    runStartedAt: undefined,
+    compactionState: null,
+    optimisticMessages: undefined,
+    ...overrides
+  }
+}
+
+function cloneStreamingBuffer(buffer: StreamingBuffer): StreamingBuffer {
+  return {
+    ...buffer,
+    parts: [...buffer.parts],
+    childParts: new Map(
+      Array.from(buffer.childParts.entries(), ([childId, parts]) => [childId, [...parts]])
+    ),
+    optimisticMessages: buffer.optimisticMessages ? [...buffer.optimisticMessages] : undefined
+  }
+}
+
+function getEmptyStreamingBufferSnapshot(sessionId: string): StreamingBuffer {
+  const existing = _emptyStreamingBufferSnapshots.get(sessionId)
+  if (existing) return existing
+
+  const next = createStreamingBuffer()
+  _emptyStreamingBufferSnapshots.set(sessionId, next)
+  return next
+}
+
+function resetStreamingBufferOverlayState(
+  current: StreamingBuffer,
+  options?: { preserveOptimisticMessages?: boolean; preserveCompactionState?: boolean }
+): StreamingBuffer {
+  return createStreamingBuffer({
+    activeRunEpoch: current.activeRunEpoch,
+    lastAppliedSequence: current.lastAppliedSequence,
+    mirrorVersion: current.mirrorVersion,
+    optimisticMessages: options?.preserveOptimisticMessages ? current.optimisticMessages : undefined,
+    compactionState: options?.preserveCompactionState ? current.compactionState : null
+  })
+}
+
+function notifyStreamingBufferSubscribers(sessionId: string): void {
+  const callbacks = _streamingBufferCallbacks.get(sessionId)
+  if (!callbacks) return
+  for (const cb of callbacks) {
+    try {
+      cb()
+    } catch (error) {
+      console.error('[SessionRuntimeStore] streaming buffer callback error:', error)
+    }
+  }
+}
+
+function flushStreamingBufferVersion(sessionId: string): void {
+  const current = _streamingBuffers.get(sessionId)
+  if (!current) return
+  _streamingBuffers.set(sessionId, {
+    ...current,
+    mirrorVersion: current.mirrorVersion + 1
+  })
+  notifyStreamingBufferSubscribers(sessionId)
+}
+
+function scheduleStreamingBufferFlush(sessionId: string): void {
+  if (_pendingStreamingBufferFlushes.has(sessionId)) return
+  _pendingStreamingBufferFlushes.add(sessionId)
+  const schedule =
+    typeof requestAnimationFrame === 'function'
+      ? requestAnimationFrame
+      : (cb: FrameRequestCallback) => setTimeout(() => cb(Date.now()), 0)
+
+  schedule(() => {
+    _pendingStreamingBufferFlushes.delete(sessionId)
+    flushStreamingBufferVersion(sessionId)
+  })
+}
+
+function mapPartStatus(
+  value: unknown
+): 'pending' | 'running' | 'success' | 'error' {
+  if (value === 'pending' || value === 'running') return value
+  if (value === 'completed' || value === 'success') return 'success'
+  if (value === 'error') return 'error'
+  return 'running'
+}
 
 export function getStreamingBuffer(sessionId: string): StreamingBuffer | undefined {
-  return _streamingBuffers.get(sessionId)
+  const buffer = _streamingBuffers.get(sessionId)
+  return buffer ? cloneStreamingBuffer(buffer) : undefined
 }
 
 export function setStreamingBuffer(sessionId: string, buffer: StreamingBuffer): void {
-  _streamingBuffers.set(sessionId, buffer)
+  _streamingBuffers.set(sessionId, cloneStreamingBuffer(buffer))
+  _emptyStreamingBufferSnapshots.delete(sessionId)
 }
 
 export function clearStreamingBuffer(sessionId: string): void {
   _streamingBuffers.delete(sessionId)
+  _pendingStreamingBufferFlushes.delete(sessionId)
+  notifyStreamingBufferSubscribers(sessionId)
+}
+
+export function resetStreamingBuffersForTests(): void {
+  _streamingBuffers.clear()
+  _pendingStreamingBufferFlushes.clear()
+  _emptyStreamingBufferSnapshots.clear()
+  _streamingBufferCallbacks.clear()
+}
+
+export function subscribeToStreamingBuffer(sessionId: string, cb: StreamingBufferCallback): () => void {
+  let callbackSet = _streamingBufferCallbacks.get(sessionId)
+  if (!callbackSet) {
+    callbackSet = new Set()
+    _streamingBufferCallbacks.set(sessionId, callbackSet)
+  }
+  callbackSet.add(cb)
+  return () => {
+    const setForSession = _streamingBufferCallbacks.get(sessionId)
+    if (!setForSession) return
+    setForSession.delete(cb)
+    if (setForSession.size === 0) {
+      _streamingBufferCallbacks.delete(sessionId)
+    }
+  }
+}
+
+export function getStreamingBufferSnapshot(sessionId: string): StreamingBuffer {
+  return _streamingBuffers.get(sessionId) ?? getEmptyStreamingBufferSnapshot(sessionId)
+}
+
+export function updateStreamingBuffer(
+  sessionId: string,
+  updater: (current: StreamingBuffer) => StreamingBuffer,
+  options?: { notify?: 'none' | 'frame' | 'immediate' }
+): StreamingBuffer {
+  const current = _streamingBuffers.get(sessionId) ?? createStreamingBuffer()
+  const next = updater(current)
+
+  if (next === current) {
+    return getStreamingBufferSnapshot(sessionId)
+  }
+
+  _streamingBuffers.set(sessionId, next)
+  _emptyStreamingBufferSnapshots.delete(sessionId)
+
+  const notifyMode = options?.notify ?? 'frame'
+  if (notifyMode === 'immediate') {
+    flushStreamingBufferVersion(sessionId)
+  } else if (notifyMode === 'frame') {
+    scheduleStreamingBufferFlush(sessionId)
+  }
+
+  return getStreamingBufferSnapshot(sessionId)
+}
+
+export function clearStreamingBufferOverlay(
+  sessionId: string,
+  options?: {
+    notify?: 'none' | 'frame' | 'immediate'
+    preserveOptimisticMessages?: boolean
+    preserveCompactionState?: boolean
+  }
+): StreamingBuffer {
+  return updateStreamingBuffer(
+    sessionId,
+    (current) => {
+      if (!_streamingBuffers.has(sessionId)) {
+        return current
+      }
+
+      return resetStreamingBufferOverlayState(current, {
+        preserveOptimisticMessages: options?.preserveOptimisticMessages,
+        preserveCompactionState: options?.preserveCompactionState
+      })
+    },
+    { notify: options?.notify ?? 'immediate' }
+  )
+}
+
+export function syncStreamingBufferGuardState(
+  sessionId: string,
+  state: SessionEventGuardState,
+  options?: { resetOverlay?: boolean; notify?: 'none' | 'frame' | 'immediate' }
+): StreamingBuffer {
+  return updateStreamingBuffer(
+    sessionId,
+    (current) =>
+      options?.resetOverlay
+        ? {
+            ...resetStreamingBufferOverlayState(current, {
+              preserveOptimisticMessages: true,
+              preserveCompactionState: true
+            }),
+            activeRunEpoch: state.activeRunEpoch,
+            lastAppliedSequence: state.lastAppliedSequence
+          }
+        : {
+            ...current,
+            activeRunEpoch: state.activeRunEpoch,
+            lastAppliedSequence: state.lastAppliedSequence
+          },
+    { notify: options?.notify ?? 'none' }
+  )
+}
+
+export function writeEventToStreamingBuffer(
+  sessionId: string,
+  event: CanonicalAgentEvent,
+  options?: { activeSessionId?: string | null }
+): StreamingBuffer {
+  // activeSessionId used to gate inactive-session idle cleanup; no longer
+  // needed now that idle keeps parts intact. Kept in the signature for
+  // backwards compat with callers that still supply it.
+  void options
+
+  return updateStreamingBuffer(
+    sessionId,
+    (current) => {
+      if (event.type === 'message.part.updated') {
+        const partData = event.data as Record<string, unknown> | undefined
+        const part = partData?.part as Record<string, unknown> | undefined
+        if (!part) return current
+
+        if (event.childSessionId) {
+          const nextChildParts = new Map(current.childParts)
+          const existing = [...(nextChildParts.get(event.childSessionId) ?? [])]
+
+          if (part.type === 'text') {
+            const delta = (partData?.delta as string) ?? (part.text as string) ?? ''
+            if (!delta) return current
+            const last = existing[existing.length - 1]
+            if (last?.type === 'text') {
+              existing[existing.length - 1] = { ...last, text: (last.text ?? '') + delta }
+            } else {
+              existing.push({ type: 'text', text: delta })
+            }
+          } else if (part.type === 'tool') {
+            const toolId =
+              (part.callID as string) || (part.id as string) || `child-tool-${Date.now()}`
+            const toolName = (part.tool as string) || 'unknown'
+            const state = (part.state as Record<string, unknown>) || {}
+            const stateTime = state.time as Record<string, number> | undefined
+            const idx = existing.findIndex((p) => p.type === 'tool_use' && p.toolUse?.id === toolId)
+            // Merge with the previous part instead of overwriting it. Some
+            // updates only carry status/output/time and would otherwise wipe
+            // already-streamed input (e.g. the bash command shown on the card).
+            const previous = idx >= 0 ? existing[idx]?.toolUse : undefined
+            const nextStatus = mapPartStatus(state.status)
+            const toolPart: StreamingPart = {
+              type: 'tool_use',
+              toolUse: {
+                id: toolId,
+                name: toolName !== 'unknown' ? toolName : previous?.name ?? toolName,
+                input: (state.input as Record<string, unknown>) ?? previous?.input ?? {},
+                status: nextStatus,
+                startTime: stateTime?.start || previous?.startTime || Date.now(),
+                endTime: stateTime?.end ?? previous?.endTime,
+                output:
+                  nextStatus === 'success' || nextStatus === 'error'
+                    ? (state.output as string) ?? previous?.output
+                    : previous?.output,
+                error:
+                  nextStatus === 'error'
+                    ? (state.error as string) ?? previous?.error
+                    : previous?.error
+              }
+            }
+            if (idx >= 0) {
+              existing[idx] = toolPart
+            } else {
+              existing.push(toolPart)
+            }
+          } else {
+            return current
+          }
+
+          nextChildParts.set(event.childSessionId, existing)
+          return {
+            ...current,
+            childParts: nextChildParts,
+            isStreaming: true
+          }
+        }
+
+        if (part.type === 'text') {
+          const delta = (partData?.delta as string) ?? (part.text as string) ?? ''
+          if (!delta) return current
+
+          const nextParts = [...current.parts]
+          const last = nextParts[nextParts.length - 1]
+          if (last?.type === 'text') {
+            nextParts[nextParts.length - 1] = {
+              ...last,
+              text: (last.text ?? '') + delta
+            }
+          } else {
+            nextParts.push({ type: 'text', text: delta })
+          }
+
+          return {
+            ...current,
+            parts: nextParts,
+            streamingContent: current.streamingContent + delta,
+            isStreaming: true
+          }
+        }
+
+        if (part.type === 'tool') {
+          const toolId = (part.callID as string) || (part.id as string) || `tool-${Date.now()}`
+          const toolName = (part.tool as string) || 'unknown'
+          const state = (part.state as Record<string, unknown>) || {}
+          const stateTime = state.time as Record<string, number> | undefined
+          const nextParts = [...current.parts]
+          const idx = nextParts.findIndex((p) => p.type === 'tool_use' && p.toolUse?.id === toolId)
+          // Merge with the previous part rather than rebuild from this update
+          // alone — partial updates (e.g. status -> success without input,
+          // tool_progress with status only) would otherwise wipe already-
+          // streamed fields like the command/input.
+          const previous = idx >= 0 ? nextParts[idx]?.toolUse : undefined
+          const nextStatus = mapPartStatus(state.status)
+          const toolPart: StreamingPart = {
+            type: 'tool_use',
+            toolUse: {
+              id: toolId,
+              name: toolName !== 'unknown' ? toolName : previous?.name ?? toolName,
+              input: (state.input as Record<string, unknown>) ?? previous?.input ?? {},
+              status: nextStatus,
+              startTime: stateTime?.start || previous?.startTime || Date.now(),
+              endTime: stateTime?.end ?? previous?.endTime,
+              output:
+                nextStatus === 'success' || nextStatus === 'error'
+                  ? (state.output as string) ?? previous?.output
+                  : previous?.output,
+              error:
+                nextStatus === 'error'
+                  ? (state.error as string) ?? previous?.error
+                  : previous?.error
+            }
+          }
+
+          if (idx >= 0) {
+            nextParts[idx] = toolPart
+          } else {
+            nextParts.push(toolPart)
+          }
+
+          return {
+            ...current,
+            parts: nextParts,
+            isStreaming: true
+          }
+        }
+
+        if (part.type === 'reasoning') {
+          const delta = (partData?.delta as string) ?? (part.text as string) ?? ''
+          if (!delta) return current
+          const nextParts = [...current.parts]
+          const last = nextParts[nextParts.length - 1]
+          if (last?.type === 'reasoning') {
+            nextParts[nextParts.length - 1] = {
+              ...last,
+              reasoning: (last.reasoning ?? '') + delta
+            }
+          } else {
+            nextParts.push({ type: 'reasoning', reasoning: delta })
+          }
+          return {
+            ...current,
+            parts: nextParts,
+            isStreaming: true
+          }
+        }
+
+        if (part.type === 'subtask') {
+          return {
+            ...current,
+            parts: [
+              ...current.parts,
+              {
+                type: 'subtask',
+                subtask: {
+                  id: (part.id as string) || `subtask-${Date.now()}`,
+                  sessionID: (part.sessionID as string) || '',
+                  prompt: (part.prompt as string) || '',
+                  description: (part.description as string) || '',
+                  agent: (part.agent as string) || 'unknown',
+                  parts: [],
+                  status: 'running'
+                }
+              }
+            ],
+            isStreaming: true
+          }
+        }
+
+        return current
+      }
+
+      if (event.type === 'session.status') {
+        const statusType =
+          (event.statusPayload as { type?: string } | undefined)?.type ??
+          ((event.data as Record<string, unknown> | undefined)?.status as { type?: string } | undefined)
+            ?.type
+
+        if (statusType === 'busy' || statusType === 'materializing') {
+          return {
+            ...current,
+            isStreaming: true,
+            runStartedAt: current.runStartedAt ?? Date.now()
+          }
+        }
+
+        if (statusType === 'retry') {
+          return {
+            ...current,
+            runStartedAt: undefined
+          }
+        }
+
+        if (statusType === 'idle') {
+          // Keep `parts` intact regardless of whether this session is the
+          // active view. Before, inactive sessions had their overlay wiped
+          // the moment their turn ended — so switching away mid-turn and
+          // back would show an empty (or near-empty) transcript until the
+          // next user message. The next send calls resetLiveOverlay(true)
+          // to clear, so there's no need to do it here.
+          return {
+            ...current,
+            isStreaming: false,
+            runStartedAt: undefined
+          }
+        }
+
+        return current
+      }
+
+      if (event.type === 'session.compaction_started') {
+        return {
+          ...current,
+          compactionState: {
+            phase: 'running',
+            timestamp: Date.now()
+          }
+        }
+      }
+
+      if (event.type === 'session.context_compacted') {
+        return {
+          ...current,
+          compactionState: {
+            phase: 'completed',
+            timestamp: Date.now()
+          }
+        }
+      }
+
+      if (event.type === 'session.error') {
+        return {
+          ...current,
+          runStartedAt: undefined
+        }
+      }
+
+      return current
+    },
+    { notify: 'frame' }
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Per-session event guard registry (module-level, non-reactive)
+// Tracks the active run epoch and latest accepted sessionSequence so the global
+// event bridge can drop stale events before they reach any mounted view.
+// ---------------------------------------------------------------------------
+
+export interface SessionEventGuardState {
+  activeRunEpoch: number
+  lastAppliedSequence: number
+}
+
+export interface SessionEventGuardResult {
+  accepted: boolean
+  advancedRun: boolean
+  state: SessionEventGuardState
+}
+
+const _sessionEventGuards = new Map<string, SessionEventGuardState>()
+const DEFAULT_EVENT_GUARD_STATE: Readonly<SessionEventGuardState> = {
+  activeRunEpoch: 0,
+  lastAppliedSequence: -1
+}
+
+export function getSessionEventGuardState(sessionId: string): SessionEventGuardState | undefined {
+  const state = _sessionEventGuards.get(sessionId)
+  return state ? { ...state } : undefined
+}
+
+export function acceptSessionEvent(
+  event: Pick<CanonicalAgentEvent, 'sessionId' | 'runEpoch' | 'sessionSequence'>
+): SessionEventGuardResult {
+  const current = _sessionEventGuards.get(event.sessionId) ?? DEFAULT_EVENT_GUARD_STATE
+  const nextRunEpoch = event.runEpoch
+  const nextSequence = event.sessionSequence
+
+  if (nextRunEpoch < current.activeRunEpoch) {
+    return {
+      accepted: false,
+      advancedRun: false,
+      state: { ...current }
+    }
+  }
+
+  if (nextRunEpoch > current.activeRunEpoch) {
+    const nextState = {
+      activeRunEpoch: nextRunEpoch,
+      lastAppliedSequence: nextSequence
+    }
+    _sessionEventGuards.set(event.sessionId, nextState)
+    return {
+      accepted: true,
+      advancedRun: true,
+      state: { ...nextState }
+    }
+  }
+
+  if (nextSequence <= current.lastAppliedSequence) {
+    return {
+      accepted: false,
+      advancedRun: false,
+      state: { ...current }
+    }
+  }
+
+  const nextState = {
+    activeRunEpoch: current.activeRunEpoch,
+    lastAppliedSequence: nextSequence
+  }
+  _sessionEventGuards.set(event.sessionId, nextState)
+  return {
+    accepted: true,
+    advancedRun: false,
+    state: { ...nextState }
+  }
+}
+
+export function clearSessionEventGuard(sessionId: string): void {
+  _sessionEventGuards.delete(sessionId)
+}
+
+export function resetSessionEventGuardsForTests(): void {
+  _sessionEventGuards.clear()
 }
 
 // ---------------------------------------------------------------------------
@@ -149,6 +705,7 @@ interface SessionRuntimeStoreActions {
   // Pending message queue (Phase 5 — composer state machine)
   queueMessage(sessionId: string, message: PendingMessage): void
   dequeueMessage(sessionId: string): PendingMessage | null
+  requeueMessageFront(sessionId: string, message: PendingMessage): void
   getPendingMessages(sessionId: string): PendingMessage[]
   getPendingCount(sessionId: string): number
   clearPendingMessages(sessionId: string): void
@@ -163,6 +720,20 @@ export type SessionRuntimeStore = SessionRuntimeStoreState & SessionRuntimeStore
 // references on every call, which would cause useSyncExternalStore (#185) loops.
 const EMPTY_INTERRUPT_QUEUE: readonly InterruptItem[] = []
 const EMPTY_PENDING_MESSAGES: readonly PendingMessage[] = []
+
+function syncQueuedState(sessionId: string, queued: boolean): void {
+  if (typeof window === 'undefined' || !window.systemOps?.setSessionQueuedState) {
+    return
+  }
+
+  window.systemOps.setSessionQueuedState(sessionId, queued).catch((error) => {
+    console.warn('[SessionRuntimeStore] Failed to sync queued state', {
+      sessionId,
+      queued,
+      error
+    })
+  })
+}
 
 function ensureSession(
   sessions: Map<string, SessionRuntimeState>,
@@ -346,16 +917,19 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
       pending.set(sessionId, queue)
       return { pendingMessages: pending }
     })
+    syncQueuedState(sessionId, true)
   },
 
   dequeueMessage(sessionId) {
     // P1-5 CR fix: read-then-write inside the set() updater to avoid TOCTOU race
     let first: PendingMessage | null = null
+    let stillQueued = false
     set((state) => {
       const queue = state.pendingMessages.get(sessionId)
       if (!queue || queue.length === 0) return state
       const [head, ...rest] = queue
       first = head
+      stillQueued = rest.length > 0
       const pending = new Map(state.pendingMessages)
       if (rest.length === 0) {
         pending.delete(sessionId)
@@ -364,7 +938,19 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
       }
       return { pendingMessages: pending }
     })
+    if (first) {
+      syncQueuedState(sessionId, stillQueued)
+    }
     return first
+  },
+
+  requeueMessageFront(sessionId, message) {
+    set((state) => {
+      const pending = new Map(state.pendingMessages)
+      const queue = [...(pending.get(sessionId) ?? [])]
+      pending.set(sessionId, [message, ...queue])
+      return { pendingMessages: pending }
+    })
   },
 
   getPendingMessages(sessionId) {
@@ -376,16 +962,22 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
   },
 
   clearPendingMessages(sessionId) {
+    let changed = false
     set((state) => {
       const pending = new Map(state.pendingMessages)
       if (!pending.has(sessionId)) return state
+      changed = true
       pending.delete(sessionId)
       return { pendingMessages: pending }
     })
+    if (changed) {
+      syncQueuedState(sessionId, false)
+    }
   },
 
   // -- Cleanup --
   clearSession(sessionId) {
+    const hadPending = get().pendingMessages.has(sessionId)
     set((state) => {
       const sessions = new Map(state.sessions)
       const queues = new Map(state.interruptQueues)
@@ -397,5 +989,11 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
     })
     _sessionEventCallbacks.delete(sessionId)
     _streamingBuffers.delete(sessionId)
+    _emptyStreamingBufferSnapshots.delete(sessionId)
+    _pendingStreamingBufferFlushes.delete(sessionId)
+    _sessionEventGuards.delete(sessionId)
+    if (hadPending) {
+      syncQueuedState(sessionId, false)
+    }
   }
 }))

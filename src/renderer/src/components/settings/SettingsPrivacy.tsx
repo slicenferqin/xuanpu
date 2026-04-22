@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/i18n/useI18n'
+import { Button } from '@/components/ui/button'
+import { toast } from 'sonner'
 
 const FIELD_COLLECTION_SETTING_KEY = 'field_collection_enabled'
 const MEMORY_INJECTION_SETTING_KEY = 'include_memory_in_prompts'
@@ -46,6 +48,9 @@ export function SettingsPrivacy(): React.JSX.Element {
   const [fieldCollectionEnabled, setFieldCollectionEnabled] = useState(true)
   const [memoryInjectionEnabled, setMemoryInjectionEnabled] = useState(true)
   const [loaded, setLoaded] = useState(false)
+  const [platform, setPlatform] = useState<string | null>(null)
+  const [fdaStatus, setFdaStatus] = useState<{ supported: boolean; granted: boolean } | null>(null)
+  const [fdaChecking, setFdaChecking] = useState(false)
   const { t } = useI18n()
 
   useEffect(() => {
@@ -61,6 +66,48 @@ export function SettingsPrivacy(): React.JSX.Element {
       setLoaded(true)
     })
   }, [])
+
+  // Phase: macOS Full Disk Access detection (from main)
+  useEffect(() => {
+    let cancelled = false
+
+    window.systemOps
+      .getPlatform()
+      .then((value) => {
+        if (!cancelled) {
+          setPlatform(value)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPlatform(null)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const refreshFdaStatus = useCallback(async (): Promise<void> => {
+    if (platform !== 'darwin') return
+
+    setFdaChecking(true)
+    try {
+      const result = await window.systemOps.checkFullDiskAccess()
+      setFdaStatus(result)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('settings.privacy.fda.checkFailed'))
+    } finally {
+      setFdaChecking(false)
+    }
+  }, [platform, t])
+
+  useEffect(() => {
+    if (platform === 'darwin') {
+      void refreshFdaStatus()
+    }
+  }, [platform, refreshFdaStatus])
 
   const handleAnalyticsToggle = (): void => {
     const newValue = !analyticsEnabled
@@ -79,6 +126,13 @@ export function SettingsPrivacy(): React.JSX.Element {
     const newValue = !memoryInjectionEnabled
     setMemoryInjectionEnabled(newValue)
     void window.db.setting.set(MEMORY_INJECTION_SETTING_KEY, String(newValue))
+  }
+
+  const handleOpenFdaSettings = async (): Promise<void> => {
+    const result = await window.systemOps.openFullDiskAccessSettings()
+    if (!result.success) {
+      toast.error(result.error || t('settings.privacy.fda.openFailed'))
+    }
   }
 
   if (!loaded) return <div />
@@ -126,6 +180,56 @@ export function SettingsPrivacy(): React.JSX.Element {
           {t('settings.privacy.neverCollect.description')}
         </p>
       </div>
+
+      {platform === 'darwin' && (
+        <div className="rounded-md border border-border bg-background/50 p-4 space-y-3">
+          <div>
+            <div className="text-sm font-medium">{t('settings.privacy.fda.title')}</div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {t('settings.privacy.fda.description')}
+            </p>
+          </div>
+
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-sm">
+              {fdaStatus?.granted
+                ? t('settings.privacy.fda.statusGranted')
+                : t('settings.privacy.fda.statusNotGranted')}
+            </div>
+            <div
+              className={cn(
+                'inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium',
+                fdaStatus?.granted
+                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                  : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+              )}
+            >
+              {fdaChecking
+                ? t('settings.privacy.fda.checking')
+                : fdaStatus?.granted
+                  ? t('settings.privacy.fda.grantedBadge')
+                  : t('settings.privacy.fda.notGrantedBadge')}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => void refreshFdaStatus()}>
+              {t('settings.privacy.fda.checkAgain')}
+            </Button>
+            <Button type="button" size="sm" onClick={() => void handleOpenFdaSettings()}>
+              {t('settings.privacy.fda.openSettings')}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => updateSetting('fdaOnboardingDismissed', false)}
+            >
+              {t('settings.privacy.fda.showOnboardingAgain')}
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

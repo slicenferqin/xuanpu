@@ -401,6 +401,21 @@ describe('CodexAppServerManager', () => {
       expect(events[0].method).toBe('item/agentMessage/delta')
     })
 
+    it('emits event for notifications without params', () => {
+      const { context } = createTestContext()
+      const events: any[] = []
+      manager.on('event', (event) => events.push(event))
+
+      expect(() =>
+        manager.handleStdoutLine(context, JSON.stringify({ method: 'thread/name/updated' }))
+      ).not.toThrow()
+
+      expect(events).toHaveLength(1)
+      expect(events[0].kind).toBe('notification')
+      expect(events[0].method).toBe('thread/name/updated')
+      expect(events[0].payload).toBeUndefined()
+    })
+
     it('emits event for server requests', () => {
       const { context } = createTestContext()
       const events: any[] = []

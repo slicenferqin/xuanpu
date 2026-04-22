@@ -7,6 +7,7 @@ interface UserBubbleProps {
   timestamp?: string
   isPlanMode?: boolean
   isAskMode?: boolean
+  isSteered?: boolean
   attachments?: MessagePart[]
   isEditing?: boolean
   isLastUserMessage?: boolean
@@ -22,6 +23,7 @@ export function UserBubble({
   content,
   isPlanMode,
   isAskMode,
+  isSteered,
   attachments,
   isEditing,
   canEdit,
@@ -73,6 +75,14 @@ export function UserBubble({
               data-testid="ask-mode-badge"
             >
               ASK
+            </span>
+          )}
+          {isSteered && (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-sky-500/15 text-sky-500 mb-1"
+              data-testid="steered-mode-badge"
+            >
+              STEERED
             </span>
           )}
           {imageAttachments.length > 0 && (
