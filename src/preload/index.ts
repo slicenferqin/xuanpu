@@ -1905,46 +1905,6 @@ const analyticsOps = {
   isEnabled: () => ipcRenderer.invoke('telemetry:isEnabled') as Promise<boolean>
 }
 
-// Phase 21: Field Event Stream — narrow renderer-side reporter.
-// Only `worktree.switch` is reportable from the renderer; all other event
-// types are emitted from the main process. See docs/prd/phase-21-field-events.md §5.
-const fieldOps = {
-  reportWorktreeSwitch: (input: import('../shared/types/field-event').WorktreeSwitchInput) =>
-    ipcRenderer.send('field:reportWorktreeSwitch', input),
-  reportFileOpen: (input: import('../shared/types/field-event').FileOpenInput) =>
-    ipcRenderer.send('field:reportFileOpen', input),
-  reportFileFocus: (input: import('../shared/types/field-event').FileFocusInput) =>
-    ipcRenderer.send('field:reportFileFocus', input),
-  reportFileSelection: (input: import('../shared/types/field-event').FileSelectionInput) =>
-    ipcRenderer.send('field:reportFileSelection', input),
-  /** Phase 22A debug: fetch the last Field Context injected for a session. */
-  getLastInjection: (sessionId: string) =>
-    ipcRenderer.invoke('field:getLastInjection', sessionId) as Promise<{
-      preview: string
-      timestamp: number
-      approxTokens: number
-    } | null>,
-  /** Phase 22B.1 debug: fetch the episodic memory summary for a worktree. */
-  getEpisodicMemory: (worktreeId: string) =>
-    ipcRenderer.invoke('field:getEpisodicMemory', worktreeId) as Promise<{
-      worktreeId: string
-      summaryMarkdown: string
-      compactorId: string
-      version: number
-      compactedAt: number
-      sourceEventCount: number
-      sourceSince: number
-      sourceUntil: number
-    } | null>,
-  /** Phase 22C.1 debug: fetch project + user memory.md files for a worktree. */
-  getSemanticMemory: (worktreeId: string) =>
-    ipcRenderer.invoke('field:getSemanticMemory', worktreeId) as Promise<{
-      project: { path: string; mtimeMs: number; size: number; markdown: string | null }
-      user: { path: string; mtimeMs: number; size: number; markdown: string | null }
-      lastReadAt: number
-    } | null>
-}
-
 // Use `contextBridge` APIs to expose Electron APIs to
 // renderer only if context isolation is enabled, otherwise
 // just add to the DOM global.
@@ -1967,7 +1927,6 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('usageOps', usageOps)
     contextBridge.exposeInMainWorld('usageAnalyticsOps', usageAnalyticsOps)
     contextBridge.exposeInMainWorld('analyticsOps', analyticsOps)
-    contextBridge.exposeInMainWorld('fieldOps', fieldOps)
     contextBridge.exposeInMainWorld('skillOps', skillOps)
   } catch (error) {
     console.error(error)
@@ -2007,8 +1966,6 @@ if (process.contextIsolated) {
   window.usageAnalyticsOps = usageAnalyticsOps
   // @ts-expect-error (define in dts)
   window.analyticsOps = analyticsOps
-  // @ts-expect-error (define in dts)
-  window.fieldOps = fieldOps
   // @ts-expect-error (define in dts)
   window.skillOps = skillOps
 }

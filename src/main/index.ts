@@ -6,8 +6,6 @@ import { promisify } from 'util'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs'
 import { electronApp, is } from '@electron-toolkit/utils'
 import { getDatabase, closeDatabase } from './db'
-import { getFieldEventSink } from './field/sink'
-import { getEpisodicMemoryUpdater } from './field/episodic-updater'
 import {
   registerDatabaseHandlers,
   registerProjectHandlers,
@@ -29,7 +27,6 @@ import {
   registerConnectionHandlers,
   registerUsageHandlers,
   registerTimelineHandlers,
-  registerFieldHandlers,
   registerSkillHandlers
 } from './ipc'
 import { buildMenu, updateMenuState } from './menu'
@@ -675,16 +672,6 @@ app.whenReady().then(async () => {
   log.info('Initializing database')
   getDatabase()
 
-  // Phase 21: eager-init the field event sink so the before-quit shutdown hook
-  // is registered before any quit signal can fire. See PRD §3.4.
-  log.info('Initializing field event sink')
-  getFieldEventSink()
-
-  // Phase 22B.1: eager-init the episodic memory updater so it subscribes to
-  // the bus and registers its periodic sweep before any field events flow.
-  log.info('Initializing episodic memory updater')
-  getEpisodicMemoryUpdater()
-
   // Initialize telemetry (must come after DB init since it reads/writes settings)
   telemetryService.init()
 
@@ -698,7 +685,6 @@ app.whenReady().then(async () => {
   registerFileHandlers()
   registerConnectionHandlers()
   registerUsageHandlers()
-  registerFieldHandlers()
   registerSkillHandlers()
 
   // Telemetry IPC
@@ -801,25 +787,6 @@ app.on('window-all-closed', () => {
 
 // Cleanup when app is about to quit
 app.on('will-quit', async () => {
-  // Phase 22B.1: shut down the episodic memory updater first (before the sink),
-  // so it stops scheduling new compactions that would race with sink flush.
-  try {
-    await getEpisodicMemoryUpdater().shutdown()
-  } catch (err) {
-    log.warn('episodic memory updater shutdown failed', {
-      error: err instanceof Error ? err.message : String(err)
-    })
-  }
-  // Phase 21: ensure the field event sink has flushed before we close the DB.
-  // The sink's own `before-quit` hook normally handles this, but we call
-  // shutdown() defensively here too — it's idempotent.
-  try {
-    await getFieldEventSink().shutdown()
-  } catch (err) {
-    log.warn('field event sink shutdown failed', {
-      error: err instanceof Error ? err.message : String(err)
-    })
-  }
   // Cleanup updater timers
   updaterService.cleanup()
   // Cleanup terminal PTYs

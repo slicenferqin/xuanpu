@@ -58,7 +58,6 @@ scripts/*
 !scripts/release.sh
 !scripts/prepare-win-deps.sh
 !scripts/codex-app-server-probe.ts
-!scripts/dump-field-events.ts
 
 # AI coding tool configs
 .claude/

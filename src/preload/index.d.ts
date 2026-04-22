@@ -1323,45 +1323,6 @@ declare global {
       setEnabled: (enabled: boolean) => Promise<void>
       isEnabled: () => Promise<boolean>
     }
-    fieldOps: {
-      reportWorktreeSwitch: (
-        input: import('../shared/types/field-event').WorktreeSwitchInput
-      ) => void
-      reportFileOpen: (input: import('../shared/types/field-event').FileOpenInput) => void
-      reportFileFocus: (input: import('../shared/types/field-event').FileFocusInput) => void
-      reportFileSelection: (
-        input: import('../shared/types/field-event').FileSelectionInput
-      ) => void
-      /** Phase 22A debug: fetch the last Field Context injected for a session. */
-      getLastInjection: (
-        sessionId: string
-      ) => Promise<{
-        preview: string
-        timestamp: number
-        approxTokens: number
-      } | null>
-      /** Phase 22B.1 debug: fetch the episodic memory summary for a worktree. */
-      getEpisodicMemory: (
-        worktreeId: string
-      ) => Promise<{
-        worktreeId: string
-        summaryMarkdown: string
-        compactorId: string
-        version: number
-        compactedAt: number
-        sourceEventCount: number
-        sourceSince: number
-        sourceUntil: number
-      } | null>
-      /** Phase 22C.1 debug: fetch project + user memory.md files for a worktree. */
-      getSemanticMemory: (
-        worktreeId: string
-      ) => Promise<{
-        project: { path: string; mtimeMs: number; size: number; markdown: string | null }
-        user: { path: string; mtimeMs: number; size: number; markdown: string | null }
-        lastReadAt: number
-      } | null>
-    }
     skillOps: {
       listHubs: () => Promise<{
         success: boolean

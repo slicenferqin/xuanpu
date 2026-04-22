@@ -10,7 +10,6 @@ import { getLanguageExtension } from './cm-languages'
 interface CodeMirrorEditorProps {
   content: string
   filePath: string
-  worktreeId?: string
   onContentChange?: (content: string) => void
   onSave?: (content: string) => void
 }
@@ -35,7 +34,6 @@ const editorTheme = EditorView.theme({
 export function CodeMirrorEditor({
   content,
   filePath,
-  worktreeId,
   onContentChange,
   onSave
 }: CodeMirrorEditorProps): React.JSX.Element {
@@ -45,16 +43,6 @@ export function CodeMirrorEditor({
   onContentChangeRef.current = onContentChange
   const onSaveRef = useRef(onSave)
   onSaveRef.current = onSave
-  const worktreeIdRef = useRef(worktreeId)
-  worktreeIdRef.current = worktreeId
-  const filePathRef = useRef(filePath)
-  filePathRef.current = filePath
-
-  // Phase 21 file.selection reporter — throttled + non-caret-only.
-  // Debounce 250ms so drag-select doesn't spam events. Only reports ranges
-  // that actually select characters; caret-only movements are ignored.
-  const selectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const lastReportedRef = useRef<string>('')
 
   // Initializes the EditorView once on mount and cleans it up on unmount.
   // The parent component keys this component by filePath, so a new file
@@ -93,30 +81,6 @@ export function CodeMirrorEditor({
           if (update.docChanged && onContentChangeRef.current) {
             onContentChangeRef.current(update.state.doc.toString())
           }
-          // Phase 21: report selection ranges (non-caret-only, debounced).
-          if (update.selectionSet && worktreeIdRef.current) {
-            const sel = update.state.selection.main
-            if (sel.from === sel.to) {
-              // Caret-only movement — ignore (too noisy, no semantic signal).
-              return
-            }
-            const fromLine = update.state.doc.lineAt(sel.from).number
-            const toLine = update.state.doc.lineAt(sel.to).number
-            const length = sel.to - sel.from
-            const key = `${filePathRef.current}:${fromLine}:${toLine}:${length}`
-            if (key === lastReportedRef.current) return
-            if (selectionTimerRef.current) clearTimeout(selectionTimerRef.current)
-            selectionTimerRef.current = setTimeout(() => {
-              lastReportedRef.current = key
-              window.fieldOps?.reportFileSelection({
-                worktreeId: worktreeIdRef.current as string,
-                path: filePathRef.current,
-                fromLine,
-                toLine,
-                length
-              })
-            }, 250)
-          }
         })
       ]
     })
@@ -131,10 +95,6 @@ export function CodeMirrorEditor({
     return () => {
       view.destroy()
       viewRef.current = null
-      if (selectionTimerRef.current) {
-        clearTimeout(selectionTimerRef.current)
-        selectionTimerRef.current = null
-      }
     }
   }, [])
 

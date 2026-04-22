@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 18
+export const CURRENT_SCHEMA_VERSION = 16
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -179,38 +179,6 @@ CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at);
 CREATE INDEX IF NOT EXISTS idx_projects_accessed ON projects(last_accessed_at);
 CREATE INDEX IF NOT EXISTS idx_project_spaces_space ON project_spaces(space_id);
 CREATE INDEX IF NOT EXISTS idx_project_spaces_project ON project_spaces(project_id);
-
--- Phase 21: Field Event Stream
-CREATE TABLE IF NOT EXISTS field_events (
-  seq INTEGER PRIMARY KEY AUTOINCREMENT,
-  id TEXT NOT NULL UNIQUE,
-  timestamp INTEGER NOT NULL,
-  worktree_id TEXT,
-  project_id TEXT,
-  session_id TEXT,
-  type TEXT NOT NULL,
-  related_event_id TEXT,
-  payload_json TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_field_events_worktree_ts ON field_events(worktree_id, timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_field_events_project_ts ON field_events(project_id, timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_field_events_type_ts ON field_events(type, timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_field_events_ts ON field_events(timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_field_events_session_ts ON field_events(session_id, timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_field_events_related ON field_events(related_event_id) WHERE related_event_id IS NOT NULL;
-
--- Phase 22B.1: Episodic Memory (per-worktree rolling summary)
-CREATE TABLE IF NOT EXISTS field_episodic_memory (
-  worktree_id TEXT PRIMARY KEY,
-  summary_markdown TEXT NOT NULL,
-  compactor_id TEXT NOT NULL,
-  version INTEGER NOT NULL,
-  compacted_at INTEGER NOT NULL,
-  source_event_count INTEGER NOT NULL,
-  source_since INTEGER NOT NULL,
-  source_until INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_field_episodic_memory_compacted ON field_episodic_memory(compacted_at DESC);
 `
 
 export interface Migration {
@@ -518,7 +486,7 @@ export const MIGRATIONS: Migration[] = [
                 AND sm.role IN ('user', 'assistant')
            ),
            first_message_at
-          )
+         )
        WHERE first_message_at IS NULL
          AND EXISTS (
            SELECT 1 FROM session_messages sm
@@ -527,75 +495,5 @@ export const MIGRATIONS: Migration[] = [
          );
     `,
     down: `-- backfill is one-way; nothing to undo`
-  },
-  {
-    version: 17,
-    name: 'add_field_events',
-    up: `
-      -- Phase 21: Field Event Stream
-      -- Append-only structured log of user actions observed by the main process.
-      -- See docs/prd/phase-21-field-events.md
-      --
-      -- No FKs to worktrees/sessions/projects: events are historical and survive
-      -- subject deletion. project_id is denormalized for cheap grouping.
-      -- seq AUTOINCREMENT gives stable total order even within the same millisecond.
-      CREATE TABLE IF NOT EXISTS field_events (
-        seq INTEGER PRIMARY KEY AUTOINCREMENT,
-        id TEXT NOT NULL UNIQUE,
-        timestamp INTEGER NOT NULL,
-        worktree_id TEXT,
-        project_id TEXT,
-        session_id TEXT,
-        type TEXT NOT NULL,
-        related_event_id TEXT,
-        payload_json TEXT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_field_events_worktree_ts
-        ON field_events(worktree_id, timestamp DESC);
-      CREATE INDEX IF NOT EXISTS idx_field_events_project_ts
-        ON field_events(project_id, timestamp DESC);
-      CREATE INDEX IF NOT EXISTS idx_field_events_type_ts
-        ON field_events(type, timestamp DESC);
-      CREATE INDEX IF NOT EXISTS idx_field_events_ts
-        ON field_events(timestamp DESC);
-      CREATE INDEX IF NOT EXISTS idx_field_events_session_ts
-        ON field_events(session_id, timestamp DESC);
-      CREATE INDEX IF NOT EXISTS idx_field_events_related
-        ON field_events(related_event_id) WHERE related_event_id IS NOT NULL;
-    `,
-    down: `
-      DROP INDEX IF EXISTS idx_field_events_related;
-      DROP INDEX IF EXISTS idx_field_events_session_ts;
-      DROP INDEX IF EXISTS idx_field_events_ts;
-      DROP INDEX IF EXISTS idx_field_events_type_ts;
-      DROP INDEX IF EXISTS idx_field_events_project_ts;
-      DROP INDEX IF EXISTS idx_field_events_worktree_ts;
-      DROP TABLE IF EXISTS field_events;
-    `
-  },
-  {
-    version: 18,
-    name: 'add_field_episodic_memory',
-    up: `
-      -- Phase 22B.1: Episodic Memory (per-worktree rolling summary)
-      -- See docs/prd/phase-22b-episodic-memory.md
-      CREATE TABLE IF NOT EXISTS field_episodic_memory (
-        worktree_id TEXT PRIMARY KEY,
-        summary_markdown TEXT NOT NULL,
-        compactor_id TEXT NOT NULL,
-        version INTEGER NOT NULL,
-        compacted_at INTEGER NOT NULL,
-        source_event_count INTEGER NOT NULL,
-        source_since INTEGER NOT NULL,
-        source_until INTEGER NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_field_episodic_memory_compacted
-        ON field_episodic_memory(compacted_at DESC);
-    `,
-    down: `
-      DROP INDEX IF EXISTS idx_field_episodic_memory_compacted;
-      DROP TABLE IF EXISTS field_episodic_memory;
-    `
   }
 ]

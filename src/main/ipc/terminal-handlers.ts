@@ -4,18 +4,6 @@ import { ghosttyService } from '../services/ghostty-service'
 import { parseGhosttyConfig } from '../services/ghostty-config'
 import { createLogger } from '../services/logger'
 import { getEventBus } from '../../server/event-bus'
-import { emitFieldEvent } from '../field/emit'
-import {
-  feedTerminalInput,
-  clearTerminalBuffer
-} from '../field/terminal-line-buffer'
-import {
-  recordCommandEventId,
-  clearTerminalOutputWindow,
-  subscribeTerminalOutputBus
-} from '../field/terminal-output-window'
-import { getFieldEventSink } from '../field/sink'
-import { getDatabase } from '../db'
 
 const log = createLogger({ component: 'TerminalHandlers' })
 
@@ -34,11 +22,6 @@ const flushScheduled = new Set<string>()
 export function registerTerminalHandlers(mainWindow: BrowserWindow): void {
   // Set main window reference on the Ghostty service
   ghosttyService.setMainWindow(mainWindow)
-
-  // Phase 21: begin accumulating terminal.output windows from the existing
-  // EventBus `terminal:data` / `terminal:exit` fan-out. Idempotent — safe to
-  // call on re-registration.
-  subscribeTerminalOutputBus()
 
   // -----------------------------------------------------------------------
   // node-pty (xterm.js backend) handlers
@@ -128,38 +111,6 @@ export function registerTerminalHandlers(mainWindow: BrowserWindow): void {
   // Write data to a PTY (fire-and-forget — no response needed for keystrokes)
   ipcMain.on('terminal:write', (_event, worktreeId: string, data: string) => {
     ptyService.write(worktreeId, data)
-
-    // Phase 21: best-effort terminal.command capture. See terminal-line-buffer.ts
-    // for the known limitations of this approach.
-    try {
-      const lines = feedTerminalInput(worktreeId, data, () => {
-        getFieldEventSink().incrementCounter('dropped_overflow')
-      })
-      if (lines.length > 0) {
-        const projectId = getDatabase().getWorktree(worktreeId)?.project_id ?? null
-        for (const command of lines) {
-          const eventId = emitFieldEvent({
-            type: 'terminal.command',
-            worktreeId,
-            projectId,
-            sessionId: null,
-            relatedEventId: null,
-            payload: { command }
-          })
-          if (eventId) {
-            // Correlate subsequent terminal.output events to this command.
-            // This also closes any in-progress output window so output doesn't
-            // leak across commands.
-            recordCommandEventId(worktreeId, eventId)
-          }
-        }
-      }
-    } catch (err) {
-      // Never let field instrumentation break the terminal
-      log.warn('field: terminal.command emit failed', {
-        error: err instanceof Error ? err.message : String(err)
-      })
-    }
   })
 
   // Resize a PTY
@@ -180,8 +131,6 @@ export function registerTerminalHandlers(mainWindow: BrowserWindow): void {
     // Discard any pending buffered data
     dataBuffers.delete(worktreeId)
     flushScheduled.delete(worktreeId)
-    clearTerminalBuffer(worktreeId)
-    clearTerminalOutputWindow(worktreeId)
     ptyService.destroy(worktreeId)
   })
 
