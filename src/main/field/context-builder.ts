@@ -20,10 +20,12 @@ import { isFieldCollectionEnabled } from './privacy'
 import { getFieldEventSink } from './sink'
 import { getRecentFieldEvents, type StoredFieldEvent } from './repository'
 import { getSemanticMemory } from './semantic-memory-loader'
+import { verifyCheckpoint } from './checkpoint-verifier'
 import { createLogger } from '../services/logger'
 import type {
   FieldContextSnapshot,
-  FieldContextActivityEntry
+  FieldContextActivityEntry,
+  ResumedCheckpointBlock
 } from '../../shared/types'
 
 const log = createLogger({ component: 'FieldContextBuilder' })
@@ -52,19 +54,32 @@ export async function buildFieldContextSnapshot(
   const db = getDatabase()
   const worktreeRow = db.getWorktree(opts.worktreeId)
 
-  // Step 3: parallel I/O — flush sink + load semantic memory (Phase 22C.1).
-  // Both are independent; running them concurrently saves a few ms per prompt.
+  // Step 3: parallel I/O — flush sink + load semantic memory + verify checkpoint.
+  // All three are independent reads; running concurrently saves a few ms per prompt.
   let semanticMemory: Awaited<ReturnType<typeof getSemanticMemory>> = null
+  let checkpoint: ResumedCheckpointBlock | null = null
   try {
-    const [, sem] = await Promise.all([
+    const [, sem, ck] = await Promise.all([
       getFieldEventSink().flushNow(),
       worktreeRow
         ? getSemanticMemory(opts.worktreeId, worktreeRow.path)
+        : Promise.resolve(null),
+      worktreeRow
+        ? verifyCheckpoint({
+            worktreeId: opts.worktreeId,
+            worktreePath: worktreeRow.path
+          }).catch((err) => {
+            log.warn('verifyCheckpoint failed; continuing without resume block', {
+              error: err instanceof Error ? err.message : String(err)
+            })
+            return null
+          })
         : Promise.resolve(null)
     ])
     semanticMemory = sem
+    checkpoint = ck
   } catch (err) {
-    log.warn('flushNow or semantic-memory load failed; continuing', {
+    log.warn('flushNow / semantic-memory / checkpoint load failed; continuing', {
       error: err instanceof Error ? err.message : String(err)
     })
   }
@@ -115,6 +130,7 @@ export async function buildFieldContextSnapshot(
         }
       : null,
     worktreeNotes: worktreeRow?.context ?? null,
+    checkpoint,
     episodicSummary: readEpisodicSummary(opts.worktreeId),
     semanticMemory: semanticMemory
       ? {

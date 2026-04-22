@@ -11,6 +11,7 @@ import { isFieldCollectionEnabled } from '../field/privacy'
 import { buildFieldContextSnapshot } from '../field/context-builder'
 import { formatFieldContext } from '../field/context-formatter'
 import { cacheLastInjection } from '../field/last-injection-cache'
+import { recordCheckpointOnAbort } from '../field/checkpoint-hooks'
 import {
   createAgentHandler,
   AgentErrorCode,
@@ -921,6 +922,15 @@ export function registerAgentHandlers(
         if (runtimeId === 'terminal') return {}
         const impl = c.runtimeManager.getImplementer(runtimeId)
         const ok = await impl.abort(worktreePath, runtimeSessionId)
+        // Phase 24C: fire-and-forget checkpoint generation. Failure must
+        // never block the user-visible abort response.
+        setImmediate(() => {
+          recordCheckpointOnAbort(worktreePath, runtimeSessionId).catch((err) => {
+            log.warn('checkpoint on abort failed', {
+              err: err instanceof Error ? err.message : String(err)
+            })
+          })
+        })
         return { aborted: ok }
       }
     })

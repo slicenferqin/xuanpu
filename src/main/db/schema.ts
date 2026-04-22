@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 18
+export const CURRENT_SCHEMA_VERSION = 19
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -211,6 +211,29 @@ CREATE TABLE IF NOT EXISTS field_episodic_memory (
   source_until INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_field_episodic_memory_compacted ON field_episodic_memory(compacted_at DESC);
+
+-- Phase 24C: Session Checkpoint (per-worktree resume hints)
+-- See docs/prd/phase-24c-session-checkpoint.md
+CREATE TABLE IF NOT EXISTS field_session_checkpoints (
+  id TEXT PRIMARY KEY,
+  created_at INTEGER NOT NULL,
+  worktree_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  branch TEXT,
+  repo_head TEXT,
+  source TEXT NOT NULL CHECK (source IN ('abort', 'shutdown')),
+  summary TEXT NOT NULL,
+  current_goal TEXT,
+  next_action TEXT,
+  blocking_reason TEXT,
+  hot_files_json TEXT NOT NULL,
+  hot_file_digests_json TEXT,
+  packet_hash TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_field_session_checkpoints_worktree_created
+  ON field_session_checkpoints(worktree_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_field_session_checkpoints_worktree_hash
+  ON field_session_checkpoints(worktree_id, packet_hash);
 `
 
 export interface Migration {
@@ -596,6 +619,46 @@ export const MIGRATIONS: Migration[] = [
     down: `
       DROP INDEX IF EXISTS idx_field_episodic_memory_compacted;
       DROP TABLE IF EXISTS field_episodic_memory;
+    `
+  },
+  {
+    version: 19,
+    name: 'add_field_session_checkpoints',
+    up: `
+      -- Phase 24C: Session Checkpoint
+      -- Per-worktree resume hints generated on abort/shutdown.
+      -- See docs/prd/phase-24c-session-checkpoint.md
+      --
+      -- No status/stale_reason columns on purpose: verifier is a pure
+      -- read-only function that computes staleness from branch/HEAD/digest
+      -- at lookup time. Stale rows are superseded naturally by the next
+      -- generate (verifier only reads the most recent row).
+      CREATE TABLE IF NOT EXISTS field_session_checkpoints (
+        id TEXT PRIMARY KEY,
+        created_at INTEGER NOT NULL,
+        worktree_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        branch TEXT,
+        repo_head TEXT,
+        source TEXT NOT NULL CHECK (source IN ('abort', 'shutdown')),
+        summary TEXT NOT NULL,
+        current_goal TEXT,
+        next_action TEXT,
+        blocking_reason TEXT,
+        hot_files_json TEXT NOT NULL,
+        hot_file_digests_json TEXT,
+        packet_hash TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_field_session_checkpoints_worktree_created
+        ON field_session_checkpoints(worktree_id, created_at DESC);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_field_session_checkpoints_worktree_hash
+        ON field_session_checkpoints(worktree_id, packet_hash);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_field_session_checkpoints_worktree_hash;
+      DROP INDEX IF EXISTS idx_field_session_checkpoints_worktree_created;
+      DROP TABLE IF EXISTS field_session_checkpoints;
     `
   }
 ]

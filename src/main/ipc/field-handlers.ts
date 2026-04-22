@@ -183,5 +183,24 @@ export function registerFieldHandlers(): void {
     if (!worktree) return null
     return await getSemanticMemory(worktreeId, worktree.path)
   })
+
+  // -------------------------------------------------------------------------
+  // Debug: retrieve the latest Session Checkpoint for a worktree, evaluated
+  // through the verifier (so the debug UI sees what the agent would see).
+  // Phase 24C.
+  // -------------------------------------------------------------------------
+  ipcMain.handle('field:getCheckpoint', async (_event, worktreeId: unknown) => {
+    if (typeof worktreeId !== 'string' || worktreeId.length === 0) return null
+    const worktree = getDatabase().getWorktree(worktreeId)
+    if (!worktree) return null
+    const { verifyCheckpoint } = await import('../field/checkpoint-verifier')
+    const { getLatestCheckpoint } = await import('../field/checkpoint-repository')
+    const verified = await verifyCheckpoint({
+      worktreeId,
+      worktreePath: worktree.path
+    }).catch(() => null)
+    const raw = getLatestCheckpoint(worktreeId)
+    return { verified, raw }
+  })
 }
 

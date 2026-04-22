@@ -27,6 +27,8 @@ interface Args {
   episodicWorktreeId?: string
   /** When set, dump the semantic memory (project + user memory.md) for this worktree id. */
   semanticWorktreeId?: string
+  /** When set, dump the latest session checkpoint for this worktree id. */
+  checkpointWorktreeId?: string
 }
 
 function parseArgs(argv: string[]): Args {
@@ -35,6 +37,7 @@ function parseArgs(argv: string[]): Args {
   let projectId: string | undefined
   let episodicWorktreeId: string | undefined
   let semanticWorktreeId: string | undefined
+  let checkpointWorktreeId: string | undefined
   let dbPath = process.env.XUANPU_DB_PATH ?? join(homedir(), '.xuanpu', 'xuanpu.db')
 
   for (let i = 0; i < argv.length; i++) {
@@ -63,6 +66,11 @@ function parseArgs(argv: string[]): Args {
         semanticWorktreeId = argv[++i]
         if (!semanticWorktreeId) throw new Error('--semantic requires a worktree id argument')
         break
+      case '--checkpoint':
+        checkpointWorktreeId = argv[++i]
+        if (!checkpointWorktreeId)
+          throw new Error('--checkpoint requires a worktree id argument')
+        break
       case '--db':
         dbPath = argv[++i]
         break
@@ -76,7 +84,15 @@ function parseArgs(argv: string[]): Args {
     }
   }
 
-  return { minutes, worktreeId, projectId, dbPath, episodicWorktreeId, semanticWorktreeId }
+  return {
+    minutes,
+    worktreeId,
+    projectId,
+    dbPath,
+    episodicWorktreeId,
+    semanticWorktreeId,
+    checkpointWorktreeId
+  }
 }
 
 function printHelp(): void {
@@ -88,6 +104,7 @@ Options:
   -p, --project <id>       Filter to a single project id
       --episodic <id>      Print the episodic memory summary for the given worktree
       --semantic <id>      Print the semantic memory (memory.md files) for the given worktree
+      --checkpoint <id>    Print the latest session checkpoint for the given worktree
       --db <path>          DB file path (default: $XUANPU_DB_PATH or ~/.xuanpu/xuanpu.db)
   -h, --help               Show this help
 `)
@@ -155,6 +172,15 @@ function formatTime(ms: number): string {
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s
   return s.slice(0, max) + '…'
+}
+
+function safeJson<T>(json: string, fallback: T): T {
+  try {
+    const v = JSON.parse(json)
+    return (v ?? fallback) as T
+  } catch {
+    return fallback
+  }
 }
 
 function formatRow(row: Row): string {
@@ -362,6 +388,85 @@ async function main(): Promise<void> {
       `**Path**: \`${userPath}\``,
       ``,
       userMd ?? '_(file not found)_'
+    ]
+    console.log(lines.join('\n'))
+    db.close()
+    return
+  }
+
+  // Phase 24C: --checkpoint prints the latest session checkpoint for a worktree.
+  if (args.checkpointWorktreeId) {
+    const row = db
+      .prepare(
+        `SELECT id, created_at, worktree_id, session_id, branch, repo_head,
+                source, summary, current_goal, next_action, blocking_reason,
+                hot_files_json, hot_file_digests_json, packet_hash
+           FROM field_session_checkpoints
+          WHERE worktree_id = ?
+          ORDER BY created_at DESC LIMIT 1`
+      )
+      .get(args.checkpointWorktreeId) as
+      | {
+          id: string
+          created_at: number
+          worktree_id: string
+          session_id: string
+          branch: string | null
+          repo_head: string | null
+          source: string
+          summary: string
+          current_goal: string | null
+          next_action: string | null
+          blocking_reason: string | null
+          hot_files_json: string
+          hot_file_digests_json: string | null
+          packet_hash: string
+        }
+      | undefined
+
+    if (!row) {
+      console.log(
+        `# Session Checkpoint\n\n_No checkpoint recorded yet for worktree ${args.checkpointWorktreeId}._`
+      )
+      db.close()
+      return
+    }
+
+    const meta = fetchWorktreeMeta(db, [row.worktree_id]).get(row.worktree_id)
+    const hotFiles = safeJson<string[]>(row.hot_files_json, [])
+    const digests = row.hot_file_digests_json
+      ? safeJson<Record<string, string | null>>(row.hot_file_digests_json, {})
+      : null
+
+    const lines = [
+      `# Session Checkpoint`,
+      ``,
+      `**Worktree**: ${meta ? `${meta.name} (\`${meta.branch_name}\`)` : row.worktree_id}`,
+      `**Created**: ${new Date(row.created_at).toISOString()}`,
+      `**Source**: ${row.source}`,
+      `**Session**: \`${row.session_id.slice(0, 8)}\``,
+      `**Branch**: ${row.branch ?? '_null_'}`,
+      `**HEAD**: ${row.repo_head ? `\`${row.repo_head.slice(0, 12)}\`` : '_null_'}`,
+      `**Packet hash**: \`${row.packet_hash.slice(0, 12)}\``,
+      ``,
+      `---`,
+      ``,
+      `## Summary`,
+      row.summary,
+      ``,
+      ...(row.current_goal ? [`**Current goal** (heuristic): ${row.current_goal}`, ``] : []),
+      ...(row.next_action ? [`**Next action** (heuristic): ${row.next_action}`, ``] : []),
+      ...(row.blocking_reason ? [`**Blocking reason**: ${row.blocking_reason}`, ``] : []),
+      `## Hot files (${hotFiles.length})`,
+      ``,
+      ...hotFiles.map((p) => {
+        const sha = digests?.[p]
+        return sha
+          ? `- \`${p}\` (sha1 \`${sha.slice(0, 10)}\`)`
+          : sha === null
+            ? `- \`${p}\` (digest missing)`
+            : `- \`${p}\``
+      })
     ]
     console.log(lines.join('\n'))
     db.close()

@@ -35,6 +35,14 @@ const OUTPUT_TAIL_LINES_SHRUNK = 10
 const RECENT_ACTIVITY_FULL = 30
 const RECENT_ACTIVITY_SHRUNK = 5
 
+// Phase 24C: Resumed-session block shrink levels.
+// Full  = summary + goal + nextAction + hotFiles + warnings
+// Shrunk = summary + goal + warnings (nextAction + hotFiles dropped)
+// Minimal = summary + warnings only
+const RESUMED_FULL = 0
+const RESUMED_SHRUNK = 1
+const RESUMED_MINIMAL = 2
+
 export interface FormatOptions {
   /** Soft cap on output size in tokens. Default 1500 tokens ≈ 4500 chars. */
   tokenBudget?: number
@@ -71,7 +79,8 @@ export function formatFieldContext(
       summaryMaxChars: MAX_SUMMARY_CHARS,
       semanticMaxChars: MAX_SEMANTIC_CHARS,
       outputHeadLines: OUTPUT_HEAD_LINES_BASE,
-      outputTailLines: OUTPUT_TAIL_LINES_BASE
+      outputTailLines: OUTPUT_TAIL_LINES_BASE,
+      resumedLevel: RESUMED_FULL
     },
     // Tier 1: shrink activity
     {
@@ -80,7 +89,8 @@ export function formatFieldContext(
       summaryMaxChars: MAX_SUMMARY_CHARS,
       semanticMaxChars: MAX_SEMANTIC_CHARS,
       outputHeadLines: OUTPUT_HEAD_LINES_BASE,
-      outputTailLines: OUTPUT_TAIL_LINES_BASE
+      outputTailLines: OUTPUT_TAIL_LINES_BASE,
+      resumedLevel: RESUMED_FULL
     },
     // Tier 2: shrink summary
     {
@@ -89,7 +99,8 @@ export function formatFieldContext(
       summaryMaxChars: MAX_SUMMARY_CHARS_SHRUNK,
       semanticMaxChars: MAX_SEMANTIC_CHARS,
       outputHeadLines: OUTPUT_HEAD_LINES_BASE,
-      outputTailLines: OUTPUT_TAIL_LINES_BASE
+      outputTailLines: OUTPUT_TAIL_LINES_BASE,
+      resumedLevel: RESUMED_FULL
     },
     // Tier 3: truncate notes
     {
@@ -98,16 +109,18 @@ export function formatFieldContext(
       summaryMaxChars: MAX_SUMMARY_CHARS_SHRUNK,
       semanticMaxChars: MAX_SEMANTIC_CHARS,
       outputHeadLines: OUTPUT_HEAD_LINES_BASE,
-      outputTailLines: OUTPUT_TAIL_LINES_BASE
+      outputTailLines: OUTPUT_TAIL_LINES_BASE,
+      resumedLevel: RESUMED_FULL
     },
-    // Tier 4: shrink output tail
+    // Tier 4: shrink output tail + resumed
     {
       activityCount: RECENT_ACTIVITY_SHRUNK,
       notesMaxChars: MAX_NOTES_CHARS,
       summaryMaxChars: MAX_SUMMARY_CHARS_SHRUNK,
       semanticMaxChars: MAX_SEMANTIC_CHARS_SHRUNK,
       outputHeadLines: OUTPUT_HEAD_LINES_BASE,
-      outputTailLines: OUTPUT_TAIL_LINES_SHRUNK
+      outputTailLines: OUTPUT_TAIL_LINES_SHRUNK,
+      resumedLevel: RESUMED_SHRUNK
     },
     // Tier 5: shrink output head
     {
@@ -116,16 +129,18 @@ export function formatFieldContext(
       summaryMaxChars: MAX_SUMMARY_CHARS_SHRUNK,
       semanticMaxChars: MAX_SEMANTIC_CHARS_SHRUNK,
       outputHeadLines: OUTPUT_HEAD_LINES_SHRUNK,
-      outputTailLines: OUTPUT_TAIL_LINES_SHRUNK
+      outputTailLines: OUTPUT_TAIL_LINES_SHRUNK,
+      resumedLevel: RESUMED_SHRUNK
     },
-    // Tier 6: drop activity entirely
+    // Tier 6: drop activity entirely + resumed minimal
     {
       activityCount: 0,
       notesMaxChars: MAX_NOTES_CHARS,
       summaryMaxChars: MAX_SUMMARY_CHARS_SHRUNK,
       semanticMaxChars: MAX_SEMANTIC_CHARS_SHRUNK,
       outputHeadLines: OUTPUT_HEAD_LINES_SHRUNK,
-      outputTailLines: OUTPUT_TAIL_LINES_SHRUNK
+      outputTailLines: OUTPUT_TAIL_LINES_SHRUNK,
+      resumedLevel: RESUMED_MINIMAL
     },
     // Tier 7: drop summary entirely
     {
@@ -134,16 +149,20 @@ export function formatFieldContext(
       summaryMaxChars: 0,
       semanticMaxChars: MAX_SEMANTIC_CHARS_SHRUNK,
       outputHeadLines: OUTPUT_HEAD_LINES_SHRUNK,
-      outputTailLines: OUTPUT_TAIL_LINES_SHRUNK
+      outputTailLines: OUTPUT_TAIL_LINES_SHRUNK,
+      resumedLevel: RESUMED_MINIMAL
     },
-    // Tier 8: drop semantic memory entirely (extreme budget)
+    // Tier 8: drop semantic memory entirely (extreme budget). Resumed kept
+    // minimal (summary+warnings only) — it's a 1-line fact about prior session
+    // that's almost always cheaper than dropping entirely.
     {
       activityCount: 0,
       notesMaxChars: MAX_NOTES_CHARS,
       summaryMaxChars: 0,
       semanticMaxChars: 0,
       outputHeadLines: OUTPUT_HEAD_LINES_SHRUNK,
-      outputTailLines: OUTPUT_TAIL_LINES_SHRUNK
+      outputTailLines: OUTPUT_TAIL_LINES_SHRUNK,
+      resumedLevel: RESUMED_MINIMAL
     }
   ]
 
@@ -175,6 +194,8 @@ interface FormatTier {
   semanticMaxChars: number
   outputHeadLines: number
   outputTailLines: number
+  /** Phase 24C: Resumed block shrink level. 0=full, 1=shrunk, 2=minimal, 3=dropped. */
+  resumedLevel: number
 }
 
 function render(snapshot: FieldContextSnapshot, tier: FormatTier): string {
@@ -212,6 +233,11 @@ function render(snapshot: FieldContextSnapshot, tier: FormatTier): string {
     lines.push(...focusLines)
     lines.push('')
   }
+
+  // Resumed from previous session (Phase 24C) — placed after Current Focus
+  // (so the live scene wins) and before Semantic Memory (because resume
+  // hints are more time-sensitive than long-lived rules).
+  renderResumedBlock(lines, snapshot, tier.resumedLevel)
 
   // Semantic Memory: project-level (Phase 22C.1).
   if (snapshot.semanticMemory && tier.semanticMaxChars > 0) {
@@ -324,6 +350,51 @@ function compactorIdToLabel(id: string): string {
     default:
       return id
   }
+}
+
+/**
+ * Phase 24C: render the "Resumed from previous session" sub-block.
+ *
+ * Levels:
+ *   0 = full     : summary + goal + nextAction + hotFiles + warnings
+ *   1 = shrunk   : summary + goal (heuristic) + warnings
+ *   2 = minimal  : summary + warnings only
+ *   ≥ 3 = drop   : nothing
+ *
+ * The `(heuristic)` tag on goal/nextAction is MANDATORY (PRD §"Formatter 渲染")
+ * — both fields come from a rule-based extractor and may be wrong.
+ */
+function renderResumedBlock(
+  lines: string[],
+  snapshot: FieldContextSnapshot,
+  level: number
+): void {
+  const ck = snapshot.checkpoint
+  if (!ck || level >= 3) return
+
+  lines.push('## Resumed from previous session')
+  const elapsed = humanElapsed(snapshot.asOf - ck.createdAt)
+  lines.push(`> Last session ended ${elapsed} ago (source: ${ck.source}).`)
+  lines.push('')
+
+  if (level <= 1 && ck.currentGoal) {
+    lines.push(`**Current goal** (heuristic): ${truncate(ck.currentGoal, 200)}`)
+  }
+  if (level === 0 && ck.nextAction) {
+    lines.push(`**Next action** (heuristic): ${truncate(ck.nextAction, 200)}`)
+  }
+  if (ck.blockingReason) {
+    lines.push(`**Blocked by**: ${truncate(ck.blockingReason, 200)}`)
+  }
+  if (level === 0 && ck.hotFiles.length > 0) {
+    lines.push(`**Hot files**: ${ck.hotFiles.slice(0, 5).join(', ')}`)
+  }
+  if (ck.warnings.length > 0) {
+    for (const w of ck.warnings) {
+      lines.push(`⚠ ${w}`)
+    }
+  }
+  lines.push('')
 }
 
 function takeLines(text: string, n: number): string[] {

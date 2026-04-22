@@ -62,8 +62,8 @@ describe('field_episodic_memory schema (Phase 22B.1 M1)', () => {
       expect(indexes).toContain('idx_field_episodic_memory_compacted')
     })
 
-    it('schema version is 18', () => {
-      expect(db.getSchemaVersion()).toBe(18)
+    it('schema version is at least 18', () => {
+      expect(db.getSchemaVersion()).toBeGreaterThanOrEqual(18)
     })
   })
 

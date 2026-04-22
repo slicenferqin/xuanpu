@@ -57,6 +57,11 @@ export interface FieldContextSnapshot {
   /** User-authored notes from `worktrees.context`. */
   worktreeNotes: string | null
   /**
+   * Phase 24C: resumed work-state from the previous session on this worktree.
+   * Null when no checkpoint, stale, or field collection disabled.
+   */
+  checkpoint: ResumedCheckpointBlock | null
+  /**
    * Episodic memory (Phase 22B): a longer-horizon rolling summary of this
    * worktree's recent activity. Null if no summary has been compacted yet
    * or if field collection is disabled.
@@ -95,4 +100,28 @@ export interface SemanticMemoryBlock {
   path: string
   /** Markdown contents; null when the file does not exist. */
   markdown: string | null
+}
+
+/**
+ * Phase 24C — Resumed Session Checkpoint injection block.
+ *
+ * Built by `verifyCheckpoint` from the most recent
+ * `field_session_checkpoints` row for the worktree. Null when there is no
+ * checkpoint, or when the checkpoint is stale (branch changed / ≥50% hot
+ * files drifted / expired > 24h).
+ *
+ * `currentGoal` and `nextAction` are rule-based heuristics; the formatter
+ * MUST render them with a "(heuristic)" tag so the agent knows they may be
+ * wrong.
+ */
+export interface ResumedCheckpointBlock {
+  createdAt: number
+  ageMinutes: number
+  source: 'abort' | 'shutdown'
+  summary: string
+  currentGoal: string | null
+  nextAction: string | null
+  blockingReason: string | null
+  hotFiles: string[]
+  warnings: string[]
 }

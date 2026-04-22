@@ -1361,6 +1361,38 @@ declare global {
         user: { path: string; mtimeMs: number; size: number; markdown: string | null }
         lastReadAt: number
       } | null>
+      /** Phase 24C debug: fetch latest checkpoint (raw row + verifier-evaluated block). */
+      getCheckpoint: (
+        worktreeId: string
+      ) => Promise<{
+        verified: {
+          createdAt: number
+          ageMinutes: number
+          source: 'abort' | 'shutdown'
+          summary: string
+          currentGoal: string | null
+          nextAction: string | null
+          blockingReason: string | null
+          hotFiles: string[]
+          warnings: string[]
+        } | null
+        raw: {
+          id: string
+          createdAt: number
+          worktreeId: string
+          sessionId: string
+          branch: string | null
+          repoHead: string | null
+          source: 'abort' | 'shutdown'
+          summary: string
+          currentGoal: string | null
+          nextAction: string | null
+          blockingReason: string | null
+          hotFiles: string[]
+          hotFileDigests: Record<string, string | null> | null
+          packetHash: string
+        } | null
+      } | null>
     }
     skillOps: {
       listHubs: () => Promise<{
