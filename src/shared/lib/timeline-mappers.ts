@@ -105,6 +105,46 @@ function isSyntheticUserMessage(content: string): boolean {
   )
 }
 
+/**
+ * Strip the Phase 22A Field Context / Phase 21 Worktree Context envelope from a
+ * user message so the bubble shows only what the user actually typed.
+ *
+ * The envelope is prefixed in src/main/ipc/agent-handlers.ts and looks like:
+ *
+ *   [Field Context — as of HH:MM:SS]
+ *   ...
+ *   ## Worktree
+ *   ...
+ *   [User Message]
+ *   <actual user text>
+ *
+ * or the legacy:
+ *
+ *   [Worktree Context]
+ *   ...
+ *   [User Message]
+ *   <actual user text>
+ *
+ * SDK transcripts capture the full envelope (we can't avoid that — three SDKs
+ * disallow editing the user turn after send), so we strip on read for display.
+ * The injected envelope is still observable in `agent:prompt` logs and in the
+ * Field Context Debug panel for verification.
+ */
+export function stripInjectedContextEnvelope(content: string): string {
+  if (!content) return content
+  if (
+    !content.startsWith('[Field Context') &&
+    !content.startsWith('[Worktree Context]')
+  ) {
+    return content
+  }
+  // Anchor on the literal closing marker the prefix templates always emit.
+  const marker = '\n[User Message]\n'
+  const idx = content.indexOf(marker)
+  if (idx === -1) return content
+  return content.slice(idx + marker.length)
+}
+
 // ---------------------------------------------------------------------------
 // Part mappers (from opencode-transcript.ts)
 // ---------------------------------------------------------------------------
@@ -260,11 +300,12 @@ function mapRawMessage(rawMessage: unknown, index: number): MappedMessage {
     })
     .filter((f) => f.url)
 
-  const content =
+  const rawContent =
     extractTextContentFromParts(rawParts) ||
     asString(info?.content) ||
     asString(messageRecord?.content) ||
     ''
+  const content = role === 'user' ? stripInjectedContextEnvelope(rawContent) : rawContent
 
   const sortTime =
     toTimestampMs(info?.time && asRecord(info.time)?.created) ??
@@ -432,7 +473,10 @@ export function mapDbRowsToTimelineMessages(messages: DbSessionMessage[]): Timel
     return {
       id: message.opencode_message_id ?? message.id,
       role: message.role,
-      content: message.content,
+      content:
+        message.role === 'user'
+          ? stripInjectedContextEnvelope(message.content)
+          : message.content,
       timestamp: message.created_at,
       ...(parsedMessage?.steered === true ? { steered: true } : {}),
       parts: parts && parts.length > 0 ? parts : undefined,
