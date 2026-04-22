@@ -23,6 +23,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         usage: 'Usage',
         archivedChats: 'Archived Chats',
         skills: 'Skills',
+        hub: 'Hub (Mobile)',
         shortcuts: 'Shortcuts',
         updates: 'Updates'
       },
@@ -2307,6 +2308,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         usage: '使用统计',
         archivedChats: '已归档聊天',
         skills: 'Skill Hub',
+        hub: '远程访问',
         shortcuts: '快捷键',
         updates: '更新'
       },

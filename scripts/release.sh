@@ -356,6 +356,14 @@ info "Building native addon..."
 pnpm build:native
 ok "ghostty.node built"
 
+info "Downloading cloudflared binaries (Hub mode)..."
+bash "$SCRIPT_DIR/download-cloudflared.sh"
+ok "cloudflared binaries ready"
+
+info "Building mobile UI (Hub mode)..."
+pnpm build:mobile
+ok "mobile/dist built"
+
 info "Building Electron app..."
 pnpm build
 ok "Electron build complete"

@@ -12,5 +12,11 @@
     <true/>
     <key>com.apple.security.files.user-selected.read-write</key>
     <true/>
+    <!-- Hub mode: required so the loopback HTTP/WS server and cloudflared
+         child process can listen on sockets when hardenedRuntime is enabled. -->
+    <key>com.apple.security.network.server</key>
+    <true/>
+    <key>com.apple.security.network.client</key>
+    <true/>
 </dict>
 </plist>
