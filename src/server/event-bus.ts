@@ -2,7 +2,8 @@ import { EventEmitter } from 'events'
 import type {
   OpenCodeStreamEvent,
   FileTreeIndividualChangeEvent,
-  ScriptOutputEvent
+  ScriptOutputEvent,
+  FieldEvent
 } from '../shared/types'
 
 interface EventBusEvents {
@@ -14,6 +15,10 @@ interface EventBusEvents {
   'script:output': [channel: string, event: ScriptOutputEvent]
   'terminal:data': [worktreeId: string, data: string]
   'terminal:exit': [worktreeId: string, code: number]
+  // Phase 21: Field Event Stream — best-effort fan-out only.
+  // NOT the persistence path; FieldEventSink is enqueued directly from emitFieldEvent().
+  // Reserved for future debug/UI subscribers (Phase 22 Field Timeline).
+  'field:event': [event: FieldEvent]
 }
 
 export class EventBus {
