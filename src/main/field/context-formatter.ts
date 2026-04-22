@@ -26,6 +26,8 @@ const CHARS_PER_TOKEN = 3 // conservative
 const MAX_NOTES_CHARS = 1000
 const MAX_SUMMARY_CHARS = 2000
 const MAX_SUMMARY_CHARS_SHRUNK = 800
+const MAX_SEMANTIC_CHARS = 4000
+const MAX_SEMANTIC_CHARS_SHRUNK = 1000
 const OUTPUT_HEAD_LINES_BASE = 20
 const OUTPUT_HEAD_LINES_SHRUNK = 3
 const OUTPUT_TAIL_LINES_BASE = 50
@@ -67,6 +69,7 @@ export function formatFieldContext(
       activityCount: RECENT_ACTIVITY_FULL,
       notesMaxChars: Infinity,
       summaryMaxChars: MAX_SUMMARY_CHARS,
+      semanticMaxChars: MAX_SEMANTIC_CHARS,
       outputHeadLines: OUTPUT_HEAD_LINES_BASE,
       outputTailLines: OUTPUT_TAIL_LINES_BASE
     },
@@ -75,6 +78,7 @@ export function formatFieldContext(
       activityCount: RECENT_ACTIVITY_SHRUNK,
       notesMaxChars: Infinity,
       summaryMaxChars: MAX_SUMMARY_CHARS,
+      semanticMaxChars: MAX_SEMANTIC_CHARS,
       outputHeadLines: OUTPUT_HEAD_LINES_BASE,
       outputTailLines: OUTPUT_TAIL_LINES_BASE
     },
@@ -83,6 +87,7 @@ export function formatFieldContext(
       activityCount: RECENT_ACTIVITY_SHRUNK,
       notesMaxChars: Infinity,
       summaryMaxChars: MAX_SUMMARY_CHARS_SHRUNK,
+      semanticMaxChars: MAX_SEMANTIC_CHARS,
       outputHeadLines: OUTPUT_HEAD_LINES_BASE,
       outputTailLines: OUTPUT_TAIL_LINES_BASE
     },
@@ -91,6 +96,7 @@ export function formatFieldContext(
       activityCount: RECENT_ACTIVITY_SHRUNK,
       notesMaxChars: MAX_NOTES_CHARS,
       summaryMaxChars: MAX_SUMMARY_CHARS_SHRUNK,
+      semanticMaxChars: MAX_SEMANTIC_CHARS,
       outputHeadLines: OUTPUT_HEAD_LINES_BASE,
       outputTailLines: OUTPUT_TAIL_LINES_BASE
     },
@@ -99,6 +105,7 @@ export function formatFieldContext(
       activityCount: RECENT_ACTIVITY_SHRUNK,
       notesMaxChars: MAX_NOTES_CHARS,
       summaryMaxChars: MAX_SUMMARY_CHARS_SHRUNK,
+      semanticMaxChars: MAX_SEMANTIC_CHARS_SHRUNK,
       outputHeadLines: OUTPUT_HEAD_LINES_BASE,
       outputTailLines: OUTPUT_TAIL_LINES_SHRUNK
     },
@@ -107,6 +114,7 @@ export function formatFieldContext(
       activityCount: RECENT_ACTIVITY_SHRUNK,
       notesMaxChars: MAX_NOTES_CHARS,
       summaryMaxChars: MAX_SUMMARY_CHARS_SHRUNK,
+      semanticMaxChars: MAX_SEMANTIC_CHARS_SHRUNK,
       outputHeadLines: OUTPUT_HEAD_LINES_SHRUNK,
       outputTailLines: OUTPUT_TAIL_LINES_SHRUNK
     },
@@ -115,6 +123,7 @@ export function formatFieldContext(
       activityCount: 0,
       notesMaxChars: MAX_NOTES_CHARS,
       summaryMaxChars: MAX_SUMMARY_CHARS_SHRUNK,
+      semanticMaxChars: MAX_SEMANTIC_CHARS_SHRUNK,
       outputHeadLines: OUTPUT_HEAD_LINES_SHRUNK,
       outputTailLines: OUTPUT_TAIL_LINES_SHRUNK
     },
@@ -123,6 +132,16 @@ export function formatFieldContext(
       activityCount: 0,
       notesMaxChars: MAX_NOTES_CHARS,
       summaryMaxChars: 0,
+      semanticMaxChars: MAX_SEMANTIC_CHARS_SHRUNK,
+      outputHeadLines: OUTPUT_HEAD_LINES_SHRUNK,
+      outputTailLines: OUTPUT_TAIL_LINES_SHRUNK
+    },
+    // Tier 8: drop semantic memory entirely (extreme budget)
+    {
+      activityCount: 0,
+      notesMaxChars: MAX_NOTES_CHARS,
+      summaryMaxChars: 0,
+      semanticMaxChars: 0,
       outputHeadLines: OUTPUT_HEAD_LINES_SHRUNK,
       outputTailLines: OUTPUT_TAIL_LINES_SHRUNK
     }
@@ -152,6 +171,8 @@ interface FormatTier {
   activityCount: number
   notesMaxChars: number
   summaryMaxChars: number
+  /** Char budget per semantic-memory layer (project, user). 0 = drop entirely. */
+  semanticMaxChars: number
   outputHeadLines: number
   outputTailLines: number
 }
@@ -175,7 +196,50 @@ function render(snapshot: FieldContextSnapshot, tier: FormatTier): string {
     lines.push('')
   }
 
-  // Worktree Notes (user-authored; truncatable)
+  // Current Focus (always kept) — placed BEFORE memory/summary blocks per oracle:
+  // "current task grounding closer to attention frontier than long-lived rules"
+  const focusLines: string[] = []
+  if (snapshot.focus.file) {
+    focusLines.push(`- File: ${snapshot.focus.file.path}`)
+  }
+  if (snapshot.focus.selection) {
+    const { fromLine, toLine, length } = snapshot.focus.selection
+    const range = fromLine === toLine ? `line ${fromLine}` : `lines ${fromLine}-${toLine}`
+    focusLines.push(`- Selection: ${range} (${length} chars selected)`)
+  }
+  if (focusLines.length > 0) {
+    lines.push('## Current Focus')
+    lines.push(...focusLines)
+    lines.push('')
+  }
+
+  // Semantic Memory: project-level (Phase 22C.1).
+  if (snapshot.semanticMemory && tier.semanticMaxChars > 0) {
+    const project = snapshot.semanticMemory.project
+    if (project.markdown && project.markdown.trim().length > 0) {
+      lines.push(`## Project Rules (\`${project.path}\`)`)
+      lines.push(
+        `*(Treat as advisory rules from the repo. Higher-priority instructions and the current task always win.)*`
+      )
+      lines.push('')
+      lines.push(truncateSemantic(project.markdown, tier.semanticMaxChars, project.path))
+      lines.push('')
+    }
+  }
+
+  // Semantic Memory: user-level (Phase 22C.1).
+  if (snapshot.semanticMemory && tier.semanticMaxChars > 0) {
+    const user = snapshot.semanticMemory.user
+    if (user.markdown && user.markdown.trim().length > 0) {
+      lines.push(`## User Preferences (\`${user.path}\`)`)
+      lines.push(`*(Treat as advisory user preferences. Current task always wins.)*`)
+      lines.push('')
+      lines.push(truncateSemantic(user.markdown, tier.semanticMaxChars, user.path))
+      lines.push('')
+    }
+  }
+
+  // Worktree Notes (user-authored field; truncatable)
   if (snapshot.worktreeNotes) {
     lines.push('## Worktree Notes')
     lines.push(truncate(snapshot.worktreeNotes, tier.notesMaxChars))
@@ -189,22 +253,6 @@ function render(snapshot: FieldContextSnapshot, tier: FormatTier): string {
     const elapsed = humanElapsed(snapshot.asOf - compactedAt)
     lines.push(`## Worktree Summary (source: ${provenance}, compacted ${elapsed} ago)`)
     lines.push(truncate(markdown, tier.summaryMaxChars))
-    lines.push('')
-  }
-
-  // Current Focus (always kept)
-  const focusLines: string[] = []
-  if (snapshot.focus.file) {
-    focusLines.push(`- File: ${snapshot.focus.file.path}`)
-  }
-  if (snapshot.focus.selection) {
-    const { fromLine, toLine, length } = snapshot.focus.selection
-    const range = fromLine === toLine ? `line ${fromLine}` : `lines ${fromLine}-${toLine}`
-    focusLines.push(`- Selection: ${range} (${length} chars selected)`)
-  }
-  if (focusLines.length > 0) {
-    lines.push('## Current Focus')
-    lines.push(...focusLines)
     lines.push('')
   }
 
@@ -287,6 +335,15 @@ function takeLines(text: string, n: number): string[] {
 function truncate(s: string, maxChars: number): string {
   if (s.length <= maxChars) return s
   return s.slice(0, Math.max(0, maxChars - 1)) + '…'
+}
+
+/**
+ * Truncate semantic memory markdown with a "see full file at PATH" notice
+ * so the agent knows where to look for the rest if needed.
+ */
+function truncateSemantic(s: string, maxChars: number, path: string): string {
+  if (s.length <= maxChars) return s
+  return s.slice(0, Math.max(0, maxChars - 1)) + `\n\n…(truncated, see ${path})`
 }
 
 // Re-export tunables for tests

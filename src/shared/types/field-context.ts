@@ -67,6 +67,14 @@ export interface FieldContextSnapshot {
     compactedAt: number
     sourceEventCount: number
   } | null
+  /**
+   * Semantic memory (Phase 22C.1): hand-authored markdown files at two layers.
+   * Null when user has disabled memory injection.
+   */
+  semanticMemory: {
+    project: SemanticMemoryBlock
+    user: SemanticMemoryBlock
+  } | null
   /** Aggregated current focus derived from file.* events. */
   focus: {
     file: FieldContextFocusFile | null
@@ -76,4 +84,15 @@ export interface FieldContextSnapshot {
   lastTerminal: FieldContextLastTerminal | null
   /** Remaining events in chronological order, deduped against structured sections. */
   recentActivity: FieldContextActivityEntry[]
+}
+
+/**
+ * A single memory.md file layer (Phase 22C.1).
+ * The path is returned even when the file does not exist,
+ * so the debug UI can tell the user where to write one.
+ */
+export interface SemanticMemoryBlock {
+  path: string
+  /** Markdown contents; null when the file does not exist. */
+  markdown: string | null
 }

@@ -18,6 +18,7 @@ import { getDatabase } from '../db'
 import { createLogger } from '../services/logger'
 import { emitFieldEvent } from '../field/emit'
 import { getLastInjection } from '../field/last-injection-cache'
+import { getSemanticMemory } from '../field/semantic-memory-loader'
 import type { WorktreeSwitchTrigger } from '../../shared/types'
 
 const log = createLogger({ component: 'FieldHandlers' })
@@ -170,6 +171,17 @@ export function registerFieldHandlers(): void {
   ipcMain.handle('field:getEpisodicMemory', (_event, worktreeId: unknown) => {
     if (typeof worktreeId !== 'string' || worktreeId.length === 0) return null
     return getDatabase().getEpisodicMemory(worktreeId)
+  })
+
+  // -------------------------------------------------------------------------
+  // Debug: retrieve semantic memory (project + user memory.md files) for a worktree.
+  // Phase 22C.1.
+  // -------------------------------------------------------------------------
+  ipcMain.handle('field:getSemanticMemory', async (_event, worktreeId: unknown) => {
+    if (typeof worktreeId !== 'string' || worktreeId.length === 0) return null
+    const worktree = getDatabase().getWorktree(worktreeId)
+    if (!worktree) return null
+    return await getSemanticMemory(worktreeId, worktree.path)
   })
 }
 

@@ -19,6 +19,19 @@ interface EpisodicMemoryEntry {
   sourceUntil: number
 }
 
+interface SemanticMemoryFile {
+  path: string
+  mtimeMs: number
+  size: number
+  markdown: string | null
+}
+
+interface SemanticMemoryEntry {
+  project: SemanticMemoryFile
+  user: SemanticMemoryFile
+  lastReadAt: number
+}
+
 interface FieldContextDebugProps {
   sessionId: string | null | undefined
   /** Optional extra ids to try (e.g. the Hive session id vs the runtime session id). */
@@ -28,7 +41,7 @@ interface FieldContextDebugProps {
   className?: string
 }
 
-type Tab = 'injection' | 'episodic'
+type Tab = 'injection' | 'episodic' | 'semantic'
 
 /**
  * Phase 22A/22B debug UI: lets the user inspect what Field Context was injected
@@ -46,6 +59,7 @@ export function FieldContextDebug({
   const [tab, setTab] = useState<Tab>('injection')
   const [data, setData] = useState<LastInjection | null>(null)
   const [episodic, setEpisodic] = useState<EpisodicMemoryEntry | null>(null)
+  const [semantic, setSemantic] = useState<SemanticMemoryEntry | null>(null)
   const [loading, setLoading] = useState(false)
 
   const refresh = useCallback(async () => {
@@ -65,10 +79,15 @@ export function FieldContextDebug({
       }
       setData(injection)
       if (worktreeId) {
-        const ep = await window.fieldOps.getEpisodicMemory(worktreeId)
+        const [ep, sem] = await Promise.all([
+          window.fieldOps.getEpisodicMemory(worktreeId),
+          window.fieldOps.getSemanticMemory(worktreeId)
+        ])
         setEpisodic(ep)
+        setSemantic(sem)
       } else {
         setEpisodic(null)
+        setSemantic(null)
       }
     } finally {
       setLoading(false)
@@ -155,6 +174,18 @@ export function FieldContextDebug({
             >
               Episodic Memory
             </button>
+            <button
+              type="button"
+              onClick={() => setTab('semantic')}
+              className={cn(
+                'px-2 py-0.5 rounded',
+                tab === 'semantic'
+                  ? 'bg-primary/20 text-foreground'
+                  : 'text-muted-foreground hover:bg-muted/50'
+              )}
+            >
+              Semantic Memory
+            </button>
           </div>
 
           {tab === 'injection' && (
@@ -196,7 +227,54 @@ export function FieldContextDebug({
               )}
             </>
           )}
+
+          {tab === 'semantic' && (
+            <>
+              {loading && !semantic && (
+                <div className="text-muted-foreground/60">Loading…</div>
+              )}
+              {!loading && !semantic && (
+                <div className="text-muted-foreground/60">
+                  Memory injection is disabled. Enable it in Settings → Privacy to include
+                  your memory.md files in agent prompts.
+                </div>
+              )}
+              {semantic && (
+                <div className="space-y-3">
+                  <SemanticFileBlock label="Project Rules" file={semantic.project} />
+                  <SemanticFileBlock label="User Preferences" file={semantic.user} />
+                </div>
+              )}
+            </>
+          )}
         </div>
+      )}
+    </div>
+  )
+}
+
+function SemanticFileBlock({
+  label,
+  file
+}: {
+  label: string
+  file: SemanticMemoryFile
+}): React.JSX.Element {
+  return (
+    <div>
+      <div className="text-muted-foreground/70 mb-1 flex items-center justify-between">
+        <span>
+          <strong className="text-foreground">{label}</strong>{' '}
+          <code className="text-[10px]">{file.path}</code>
+        </span>
+        {file.markdown === null && (
+          <span className="text-muted-foreground/50">(file not found)</span>
+        )}
+      </div>
+      {file.markdown !== null && (
+        <pre className="whitespace-pre-wrap break-words text-[11px] leading-relaxed bg-background/50 rounded p-2 max-h-48 overflow-auto">
+          {file.markdown}
+        </pre>
       )}
     </div>
   )

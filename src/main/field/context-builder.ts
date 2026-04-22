@@ -19,6 +19,7 @@ import { getDatabase } from '../db'
 import { isFieldCollectionEnabled } from './privacy'
 import { getFieldEventSink } from './sink'
 import { getRecentFieldEvents, type StoredFieldEvent } from './repository'
+import { getSemanticMemory } from './semantic-memory-loader'
 import { createLogger } from '../services/logger'
 import type {
   FieldContextSnapshot,
@@ -51,12 +52,19 @@ export async function buildFieldContextSnapshot(
   const db = getDatabase()
   const worktreeRow = db.getWorktree(opts.worktreeId)
 
-  // Step 3: flush pending sink writes so the query below sees them.
+  // Step 3: parallel I/O — flush sink + load semantic memory (Phase 22C.1).
+  // Both are independent; running them concurrently saves a few ms per prompt.
+  let semanticMemory: Awaited<ReturnType<typeof getSemanticMemory>> = null
   try {
-    await getFieldEventSink().flushNow()
+    const [, sem] = await Promise.all([
+      getFieldEventSink().flushNow(),
+      worktreeRow
+        ? getSemanticMemory(opts.worktreeId, worktreeRow.path)
+        : Promise.resolve(null)
+    ])
+    semanticMemory = sem
   } catch (err) {
-    // Never block snapshot construction on sink issues — we'll just see slightly stale data.
-    log.warn('flushNow failed; continuing with possibly stale data', {
+    log.warn('flushNow or semantic-memory load failed; continuing', {
       error: err instanceof Error ? err.message : String(err)
     })
   }
@@ -108,6 +116,18 @@ export async function buildFieldContextSnapshot(
       : null,
     worktreeNotes: worktreeRow?.context ?? null,
     episodicSummary: readEpisodicSummary(opts.worktreeId),
+    semanticMemory: semanticMemory
+      ? {
+          project: {
+            path: semanticMemory.project.path,
+            markdown: semanticMemory.project.markdown
+          },
+          user: {
+            path: semanticMemory.user.path,
+            markdown: semanticMemory.user.markdown
+          }
+        }
+      : null,
     focus: { file: focusFile, selection: focusSelection },
     lastTerminal,
     recentActivity

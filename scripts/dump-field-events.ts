@@ -25,6 +25,8 @@ interface Args {
   dbPath: string
   /** When set, dump the episodic memory summary for this worktree id instead of the timeline. */
   episodicWorktreeId?: string
+  /** When set, dump the semantic memory (project + user memory.md) for this worktree id. */
+  semanticWorktreeId?: string
 }
 
 function parseArgs(argv: string[]): Args {
@@ -32,6 +34,7 @@ function parseArgs(argv: string[]): Args {
   let worktreeId: string | undefined
   let projectId: string | undefined
   let episodicWorktreeId: string | undefined
+  let semanticWorktreeId: string | undefined
   let dbPath = process.env.XUANPU_DB_PATH ?? join(homedir(), '.xuanpu', 'xuanpu.db')
 
   for (let i = 0; i < argv.length; i++) {
@@ -56,6 +59,10 @@ function parseArgs(argv: string[]): Args {
         episodicWorktreeId = argv[++i]
         if (!episodicWorktreeId) throw new Error('--episodic requires a worktree id argument')
         break
+      case '--semantic':
+        semanticWorktreeId = argv[++i]
+        if (!semanticWorktreeId) throw new Error('--semantic requires a worktree id argument')
+        break
       case '--db':
         dbPath = argv[++i]
         break
@@ -69,7 +76,7 @@ function parseArgs(argv: string[]): Args {
     }
   }
 
-  return { minutes, worktreeId, projectId, dbPath, episodicWorktreeId }
+  return { minutes, worktreeId, projectId, dbPath, episodicWorktreeId, semanticWorktreeId }
 }
 
 function printHelp(): void {
@@ -80,6 +87,7 @@ Options:
   -w, --worktree <id>      Filter to a single worktree id
   -p, --project <id>       Filter to a single project id
       --episodic <id>      Print the episodic memory summary for the given worktree
+      --semantic <id>      Print the semantic memory (memory.md files) for the given worktree
       --db <path>          DB file path (default: $XUANPU_DB_PATH or ~/.xuanpu/xuanpu.db)
   -h, --help               Show this help
 `)
@@ -256,7 +264,7 @@ function fetchEpisodic(
   return row ?? null
 }
 
-function main(): void {
+async function main(): Promise<void> {
   let args: Args
   try {
     args = parseArgs(process.argv.slice(2))
@@ -308,6 +316,58 @@ function main(): void {
     return
   }
 
+  // Phase 22C.1: --semantic prints the two memory.md files for a worktree.
+  // Standalone from the Electron loader: we read directly so this script
+  // stays independent of main-process runtime. Privacy gate is NOT checked
+  // here (the dump script is for dev/debug; if you ran it, you want to see).
+  if (args.semanticWorktreeId) {
+    const worktreeRow = db
+      .prepare('SELECT id, name, branch_name, path FROM worktrees WHERE id = ?')
+      .get(args.semanticWorktreeId) as
+      | { id: string; name: string; branch_name: string; path: string }
+      | undefined
+    if (!worktreeRow) {
+      console.log(
+        `# Semantic Memory\n\n_Worktree ${args.semanticWorktreeId} not found._`
+      )
+      db.close()
+      return
+    }
+
+    const fs = await import('node:fs/promises')
+    const { join: pjoin } = await import('node:path')
+    const { homedir: getHome } = await import('node:os')
+
+    const projectPath = pjoin(worktreeRow.path, '.xuanpu', 'memory.md')
+    const userPath = pjoin(getHome(), '.xuanpu', 'memory.md')
+
+    const [projectMd, userMd] = await Promise.all([
+      fs.readFile(projectPath, 'utf-8').catch(() => null),
+      fs.readFile(userPath, 'utf-8').catch(() => null)
+    ])
+
+    const lines = [
+      `# Semantic Memory`,
+      ``,
+      `**Worktree**: ${worktreeRow.name} (\`${worktreeRow.branch_name}\`)`,
+      ``,
+      `## Project Rules`,
+      `**Path**: \`${projectPath}\``,
+      ``,
+      projectMd ?? '_(file not found)_',
+      ``,
+      `---`,
+      ``,
+      `## User Preferences`,
+      `**Path**: \`${userPath}\``,
+      ``,
+      userMd ?? '_(file not found)_'
+    ]
+    console.log(lines.join('\n'))
+    db.close()
+    return
+  }
+
   const events = fetchEvents(db, args)
   if (events.length === 0) {
     console.log(`# Field Event Timeline\n\n_No events in the last ${args.minutes} minutes._`)
@@ -353,4 +413,4 @@ function main(): void {
   db.close()
 }
 
-main()
+void main()

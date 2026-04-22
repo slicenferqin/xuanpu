@@ -1320,6 +1320,14 @@ declare global {
         sourceSince: number
         sourceUntil: number
       } | null>
+      /** Phase 22C.1 debug: fetch project + user memory.md files for a worktree. */
+      getSemanticMemory: (
+        worktreeId: string
+      ) => Promise<{
+        project: { path: string; mtimeMs: number; size: number; markdown: string | null }
+        user: { path: string; mtimeMs: number; size: number; markdown: string | null }
+        lastReadAt: number
+      } | null>
     }
   }
 

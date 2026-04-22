@@ -242,6 +242,11 @@ export const messages: Record<AppLocale, MessageTree> = {
           description:
             'Capture worktree switches, terminal commands, and your prompts to a local SQLite log. Used to build context for AI sessions. Stays on your device — never uploaded.'
         },
+        memoryInjection: {
+          label: 'Include memory.md files in agent prompts',
+          description:
+            'Read .xuanpu/memory.md (project-level, in your worktree) and ~/.xuanpu/memory.md (global) and prepend them to agent prompts. Local-only.'
+        },
         collect: {
           title: 'What we collect:',
           description: 'Feature usage counts, app version, platform (macOS/Windows/Linux).'
@@ -2379,6 +2384,11 @@ export const messages: Record<AppLocale, MessageTree> = {
           label: '在本地记录现场事件',
           description:
             '把 worktree 切换、终端命令、你发给 AI 的消息记录到本地 SQLite 日志，用于构建 AI 会话上下文。数据只保存在本机，永不上传。'
+        },
+        memoryInjection: {
+          label: '把 memory.md 注入到 AI prompt',
+          description:
+            '读取 .xuanpu/memory.md(worktree 级)和 ~/.xuanpu/memory.md(全局),把它们拼到 AI prompt 最前面。数据只保存在本机。'
         },
         collect: {
           title: '我们会收集：',

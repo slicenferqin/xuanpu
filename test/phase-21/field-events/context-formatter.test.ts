@@ -16,6 +16,7 @@ function snapshot(overrides: Partial<FieldContextSnapshot> = {}): FieldContextSn
     },
     worktreeNotes: null,
     episodicSummary: null,
+    semanticMemory: null,
     focus: { file: null, selection: null },
     lastTerminal: null,
     recentActivity: [],
@@ -327,7 +328,7 @@ describe('formatFieldContext — Phase 22A M2', () => {
       expect(out.markdown).toContain('source: future-compactor-v99')
     })
 
-    it('is inserted between Worktree Notes and Current Focus', () => {
+    it('is inserted after Current Focus and Worktree Notes (Phase 22C.1 reordering)', () => {
       const asOf = Date.now()
       const out = formatFieldContext(
         snapshot({
@@ -342,11 +343,12 @@ describe('formatFieldContext — Phase 22A M2', () => {
           focus: { file: { path: '/a.ts', name: 'a.ts' }, selection: null }
         })
       )
+      const focusIdx = out.markdown.indexOf('## Current Focus')
       const notesIdx = out.markdown.indexOf('## Worktree Notes')
       const summaryIdx = out.markdown.indexOf('## Worktree Summary')
-      const focusIdx = out.markdown.indexOf('## Current Focus')
+      // New order: Current Focus → (Semantic) → Worktree Notes → Worktree Summary
+      expect(focusIdx).toBeLessThan(notesIdx)
       expect(notesIdx).toBeLessThan(summaryIdx)
-      expect(summaryIdx).toBeLessThan(focusIdx)
     })
 
     it('is omitted when episodicSummary is null', () => {
@@ -374,6 +376,123 @@ describe('formatFieldContext — Phase 22A M2', () => {
       expect(out.markdown).toContain('## Current Focus')
       // Summary should be entirely gone at tiny budget
       expect(out.markdown).not.toContain('## Worktree Summary')
+    })
+  })
+
+  describe('semantic memory (Phase 22C.1)', () => {
+    it('renders Project Rules section with untrusted notice and path', () => {
+      const out = formatFieldContext(
+        snapshot({
+          semanticMemory: {
+            project: { path: '/repo/.xuanpu/memory.md', markdown: 'use pnpm not npm' },
+            user: { path: '/home/me/.xuanpu/memory.md', markdown: null }
+          }
+        })
+      )
+      expect(out.markdown).toContain('## Project Rules')
+      expect(out.markdown).toContain('/repo/.xuanpu/memory.md')
+      expect(out.markdown).toContain('Treat as advisory rules from the repo')
+      expect(out.markdown).toContain('use pnpm not npm')
+    })
+
+    it('renders User Preferences section with untrusted notice', () => {
+      const out = formatFieldContext(
+        snapshot({
+          semanticMemory: {
+            project: { path: '/repo/.xuanpu/memory.md', markdown: null },
+            user: { path: '/home/me/.xuanpu/memory.md', markdown: 'I prefer functional style' }
+          }
+        })
+      )
+      expect(out.markdown).toContain('## User Preferences')
+      expect(out.markdown).toContain('Treat as advisory user preferences')
+      expect(out.markdown).toContain('I prefer functional style')
+    })
+
+    it('omits both sections when semanticMemory is null', () => {
+      const out = formatFieldContext(snapshot())
+      expect(out.markdown).not.toContain('## Project Rules')
+      expect(out.markdown).not.toContain('## User Preferences')
+    })
+
+    it('omits a section when its markdown is null', () => {
+      const out = formatFieldContext(
+        snapshot({
+          semanticMemory: {
+            project: { path: '/p.md', markdown: 'project rule' },
+            user: { path: '/u.md', markdown: null }
+          }
+        })
+      )
+      expect(out.markdown).toContain('Project Rules')
+      expect(out.markdown).not.toContain('User Preferences')
+    })
+
+    it('omits a section when its markdown is whitespace-only', () => {
+      const out = formatFieldContext(
+        snapshot({
+          semanticMemory: {
+            project: { path: '/p.md', markdown: '   \n\n  ' },
+            user: { path: '/u.md', markdown: 'real content' }
+          }
+        })
+      )
+      expect(out.markdown).not.toContain('## Project Rules')
+      expect(out.markdown).toContain('User Preferences')
+    })
+
+    it('places Project Rules and User Preferences AFTER Current Focus, BEFORE Worktree Notes', () => {
+      const out = formatFieldContext(
+        snapshot({
+          worktreeNotes: 'some notes',
+          focus: { file: { path: '/a.ts', name: 'a.ts' }, selection: null },
+          semanticMemory: {
+            project: { path: '/p.md', markdown: 'rule' },
+            user: { path: '/u.md', markdown: 'pref' }
+          }
+        })
+      )
+      const focusIdx = out.markdown.indexOf('## Current Focus')
+      const projIdx = out.markdown.indexOf('## Project Rules')
+      const userIdx = out.markdown.indexOf('## User Preferences')
+      const notesIdx = out.markdown.indexOf('## Worktree Notes')
+      expect(focusIdx).toBeGreaterThan(0)
+      expect(focusIdx).toBeLessThan(projIdx)
+      expect(projIdx).toBeLessThan(userIdx)
+      expect(userIdx).toBeLessThan(notesIdx)
+    })
+
+    it('truncates with "see {path}" notice when memory exceeds 4000 chars', () => {
+      const huge = 'X'.repeat(10_000)
+      const out = formatFieldContext(
+        snapshot({
+          semanticMemory: {
+            project: { path: '/very/long/path/memory.md', markdown: huge },
+            user: { path: '/u.md', markdown: null }
+          }
+        })
+      )
+      expect(out.markdown).toContain('truncated, see /very/long/path/memory.md')
+    })
+
+    it('drops semantic memory entirely at the most extreme tier', () => {
+      const out = formatFieldContext(
+        snapshot({
+          focus: { file: { path: '/a.ts', name: 'a.ts' }, selection: null },
+          semanticMemory: {
+            project: { path: '/p.md', markdown: 'X'.repeat(100_000) },
+            user: { path: '/u.md', markdown: 'Y'.repeat(100_000) }
+          }
+        }),
+        { tokenBudget: 50 }
+      )
+      expect(out.wasTruncated).toBe(true)
+      expect(out.markdown).toContain('## Worktree')
+      // Even at extreme budget, Current Focus stays
+      expect(out.markdown).toContain('## Current Focus')
+      // Semantic memory fully dropped at last tier
+      expect(out.markdown).not.toContain('## Project Rules')
+      expect(out.markdown).not.toContain('## User Preferences')
     })
   })
 

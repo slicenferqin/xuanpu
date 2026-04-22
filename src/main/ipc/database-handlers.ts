@@ -4,7 +4,9 @@ import { createLogger } from '../services/logger'
 import { telemetryService } from '../services/telemetry-service'
 import {
   setFieldCollectionEnabledCache,
-  FIELD_COLLECTION_SETTING_KEY
+  setMemoryInjectionEnabledCache,
+  FIELD_COLLECTION_SETTING_KEY,
+  MEMORY_INJECTION_SETTING_KEY
 } from '../field/privacy'
 import type {
   ProjectCreate,
@@ -34,6 +36,10 @@ export function registerDatabaseHandlers(): void {
     if (key === FIELD_COLLECTION_SETTING_KEY) {
       setFieldCollectionEnabledCache(value !== 'false')
     }
+    // Phase 22C.1: same pattern for memory injection toggle.
+    if (key === MEMORY_INJECTION_SETTING_KEY) {
+      setMemoryInjectionEnabledCache(value !== 'false')
+    }
     return true
   })
 
@@ -42,6 +48,10 @@ export function registerDatabaseHandlers(): void {
     // Phase 21: deleting the setting reverts to the default (enabled).
     if (key === FIELD_COLLECTION_SETTING_KEY) {
       setFieldCollectionEnabledCache(true)
+    }
+    // Phase 22C.1: same.
+    if (key === MEMORY_INJECTION_SETTING_KEY) {
+      setMemoryInjectionEnabledCache(true)
     }
     return true
   })

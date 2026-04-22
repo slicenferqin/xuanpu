@@ -1,44 +1,68 @@
 /**
- * Field Event Stream — privacy gate.
+ * Field Event Stream — privacy + injection gates.
  *
- * Phase 21: a single boolean toggle (`field_collection_enabled` setting)
- * determines whether ANY field events are recorded. Default: enabled.
+ * Phase 21 introduced `field_collection_enabled` (do we capture events?).
+ * Phase 22C.1 added a separate control: `include_memory_in_prompts` (do we
+ * read user-authored memory.md files and inject them into prompts?).
  *
- * The cache MUST be updated synchronously in the same call path as the
- * underlying setting write (see settings-handlers.ts) to avoid a stale-read
- * window between writing the DB and the next event being processed.
+ * They are DELIBERATELY separate:
+ *   - Event collection is passive capture of user activity. Privacy-sensitive.
+ *   - Memory injection is active reading of user-authored markdown. Trust-level
+ *     belongs to the user, not to the event-stream privacy model.
  *
- * See docs/prd/phase-21-field-events.md §6
+ * Each cache MUST be updated synchronously in the same call path as the
+ * underlying setting write (see database-handlers.ts) to avoid stale-read
+ * windows between the DB write and the next decision point.
+ *
+ * See docs/prd/phase-21-field-events.md §6 and docs/prd/phase-22c-semantic-memory.md §7
  */
 import { getDatabase } from '../db'
 
-const SETTING_KEY = 'field_collection_enabled'
+// ---------------------------------------------------------------------------
+// field_collection_enabled (Phase 21)
+// ---------------------------------------------------------------------------
 
-let cached: boolean | null = null
+const COLLECTION_SETTING_KEY = 'field_collection_enabled'
+let collectionCached: boolean | null = null
 
 export function isFieldCollectionEnabled(): boolean {
-  if (cached !== null) return cached
-  const value = getDatabase().getSetting(SETTING_KEY)
-  // Absent or any value other than the literal string 'false' -> enabled.
-  cached = value !== 'false'
-  return cached
+  if (collectionCached !== null) return collectionCached
+  const value = getDatabase().getSetting(COLLECTION_SETTING_KEY)
+  collectionCached = value !== 'false'
+  return collectionCached
 }
 
-/**
- * Update the cache immediately, in the same call path as the DB write.
- * Call this from the settings:set IPC handler when the user toggles
- * `field_collection_enabled`.
- */
 export function setFieldCollectionEnabledCache(value: boolean): void {
-  cached = value
+  collectionCached = value
 }
 
-/**
- * Force the next read to re-query the DB. Intended for tests and for
- * recovery after manual DB edits; not used in the normal toggle path.
- */
+export const FIELD_COLLECTION_SETTING_KEY = COLLECTION_SETTING_KEY
+
+// ---------------------------------------------------------------------------
+// include_memory_in_prompts (Phase 22C.1)
+// ---------------------------------------------------------------------------
+
+const INJECTION_SETTING_KEY = 'include_memory_in_prompts'
+let injectionCached: boolean | null = null
+
+export function isMemoryInjectionEnabled(): boolean {
+  if (injectionCached !== null) return injectionCached
+  const value = getDatabase().getSetting(INJECTION_SETTING_KEY)
+  injectionCached = value !== 'false'
+  return injectionCached
+}
+
+export function setMemoryInjectionEnabledCache(value: boolean): void {
+  injectionCached = value
+}
+
+export const MEMORY_INJECTION_SETTING_KEY = INJECTION_SETTING_KEY
+
+// ---------------------------------------------------------------------------
+// Test helpers
+// ---------------------------------------------------------------------------
+
 export function invalidatePrivacyCache(): void {
-  cached = null
+  collectionCached = null
+  injectionCached = null
 }
-
-export const FIELD_COLLECTION_SETTING_KEY = SETTING_KEY
