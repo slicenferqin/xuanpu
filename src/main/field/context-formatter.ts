@@ -24,6 +24,8 @@ const DEFAULT_TOKEN_BUDGET = 1500
 const CHARS_PER_TOKEN = 3 // conservative
 
 const MAX_NOTES_CHARS = 1000
+const MAX_SUMMARY_CHARS = 2000
+const MAX_SUMMARY_CHARS_SHRUNK = 800
 const OUTPUT_HEAD_LINES_BASE = 20
 const OUTPUT_HEAD_LINES_SHRUNK = 3
 const OUTPUT_TAIL_LINES_BASE = 50
@@ -50,13 +52,21 @@ export function formatFieldContext(
   const charBudget = tokenBudget * CHARS_PER_TOKEN
 
   // Build in tiers. Each tier progressively shrinks the less important parts.
-  // We render once per tier until we fit; that's still O(1) renders because
-  // there are a fixed small number of tiers.
+  // Truncation priority (per VISION §4.1.3 + oracle review):
+  //   1. Always keep: Worktree, Current Focus, Command + exit code
+  //   2. Shrink Recent Activity first (5 entries)
+  //   3. Shrink Worktree Summary next (to 800 chars)
+  //   4. Shrink Worktree Notes (to 1000 chars)
+  //   5. Shrink Output tail (10 lines)
+  //   6. Shrink Output head (3 lines)
+  //   7. Drop Recent Activity entirely
+  //   8. Drop Worktree Summary entirely
   const tiers: Array<FormatTier> = [
     // Tier 0: everything full
     {
       activityCount: RECENT_ACTIVITY_FULL,
       notesMaxChars: Infinity,
+      summaryMaxChars: MAX_SUMMARY_CHARS,
       outputHeadLines: OUTPUT_HEAD_LINES_BASE,
       outputTailLines: OUTPUT_TAIL_LINES_BASE
     },
@@ -64,34 +74,55 @@ export function formatFieldContext(
     {
       activityCount: RECENT_ACTIVITY_SHRUNK,
       notesMaxChars: Infinity,
+      summaryMaxChars: MAX_SUMMARY_CHARS,
       outputHeadLines: OUTPUT_HEAD_LINES_BASE,
       outputTailLines: OUTPUT_TAIL_LINES_BASE
     },
-    // Tier 2: truncate notes
+    // Tier 2: shrink summary
     {
       activityCount: RECENT_ACTIVITY_SHRUNK,
-      notesMaxChars: MAX_NOTES_CHARS,
+      notesMaxChars: Infinity,
+      summaryMaxChars: MAX_SUMMARY_CHARS_SHRUNK,
       outputHeadLines: OUTPUT_HEAD_LINES_BASE,
       outputTailLines: OUTPUT_TAIL_LINES_BASE
     },
-    // Tier 3: shrink output tail
+    // Tier 3: truncate notes
     {
       activityCount: RECENT_ACTIVITY_SHRUNK,
       notesMaxChars: MAX_NOTES_CHARS,
+      summaryMaxChars: MAX_SUMMARY_CHARS_SHRUNK,
+      outputHeadLines: OUTPUT_HEAD_LINES_BASE,
+      outputTailLines: OUTPUT_TAIL_LINES_BASE
+    },
+    // Tier 4: shrink output tail
+    {
+      activityCount: RECENT_ACTIVITY_SHRUNK,
+      notesMaxChars: MAX_NOTES_CHARS,
+      summaryMaxChars: MAX_SUMMARY_CHARS_SHRUNK,
       outputHeadLines: OUTPUT_HEAD_LINES_BASE,
       outputTailLines: OUTPUT_TAIL_LINES_SHRUNK
     },
-    // Tier 4: shrink output head
+    // Tier 5: shrink output head
     {
       activityCount: RECENT_ACTIVITY_SHRUNK,
       notesMaxChars: MAX_NOTES_CHARS,
+      summaryMaxChars: MAX_SUMMARY_CHARS_SHRUNK,
       outputHeadLines: OUTPUT_HEAD_LINES_SHRUNK,
       outputTailLines: OUTPUT_TAIL_LINES_SHRUNK
     },
-    // Tier 5: drop activity entirely
+    // Tier 6: drop activity entirely
     {
       activityCount: 0,
       notesMaxChars: MAX_NOTES_CHARS,
+      summaryMaxChars: MAX_SUMMARY_CHARS_SHRUNK,
+      outputHeadLines: OUTPUT_HEAD_LINES_SHRUNK,
+      outputTailLines: OUTPUT_TAIL_LINES_SHRUNK
+    },
+    // Tier 7: drop summary entirely
+    {
+      activityCount: 0,
+      notesMaxChars: MAX_NOTES_CHARS,
+      summaryMaxChars: 0,
       outputHeadLines: OUTPUT_HEAD_LINES_SHRUNK,
       outputTailLines: OUTPUT_TAIL_LINES_SHRUNK
     }
@@ -120,6 +151,7 @@ export function formatFieldContext(
 interface FormatTier {
   activityCount: number
   notesMaxChars: number
+  summaryMaxChars: number
   outputHeadLines: number
   outputTailLines: number
 }
@@ -147,6 +179,16 @@ function render(snapshot: FieldContextSnapshot, tier: FormatTier): string {
   if (snapshot.worktreeNotes) {
     lines.push('## Worktree Notes')
     lines.push(truncate(snapshot.worktreeNotes, tier.notesMaxChars))
+    lines.push('')
+  }
+
+  // Worktree Summary (episodic memory, Phase 22B)
+  if (snapshot.episodicSummary && tier.summaryMaxChars > 0) {
+    const { compactorId, compactedAt, markdown } = snapshot.episodicSummary
+    const provenance = compactorIdToLabel(compactorId)
+    const elapsed = humanElapsed(snapshot.asOf - compactedAt)
+    lines.push(`## Worktree Summary (source: ${provenance}, compacted ${elapsed} ago)`)
+    lines.push(truncate(markdown, tier.summaryMaxChars))
     lines.push('')
   }
 
@@ -223,6 +265,17 @@ function humanElapsed(ms: number): string {
   if (min < 60) return `${min}m`
   const hr = Math.floor(min / 60)
   return `${hr}h`
+}
+
+function compactorIdToLabel(id: string): string {
+  switch (id) {
+    case 'rule-based':
+      return 'rule-based heuristic'
+    case 'claude-haiku':
+      return 'Claude Haiku summary'
+    default:
+      return id
+  }
 }
 
 function takeLines(text: string, n: number): string[] {

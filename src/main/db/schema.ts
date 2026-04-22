@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 14
+export const CURRENT_SCHEMA_VERSION = 15
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -196,6 +196,19 @@ CREATE INDEX IF NOT EXISTS idx_field_events_type_ts ON field_events(type, timest
 CREATE INDEX IF NOT EXISTS idx_field_events_ts ON field_events(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_field_events_session_ts ON field_events(session_id, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_field_events_related ON field_events(related_event_id) WHERE related_event_id IS NOT NULL;
+
+-- Phase 22B.1: Episodic Memory (per-worktree rolling summary)
+CREATE TABLE IF NOT EXISTS field_episodic_memory (
+  worktree_id TEXT PRIMARY KEY,
+  summary_markdown TEXT NOT NULL,
+  compactor_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  compacted_at INTEGER NOT NULL,
+  source_event_count INTEGER NOT NULL,
+  source_since INTEGER NOT NULL,
+  source_until INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_field_episodic_memory_compacted ON field_episodic_memory(compacted_at DESC);
 `
 
 export interface Migration {
@@ -496,6 +509,30 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_field_events_project_ts;
       DROP INDEX IF EXISTS idx_field_events_worktree_ts;
       DROP TABLE IF EXISTS field_events;
+    `
+  },
+  {
+    version: 15,
+    name: 'add_field_episodic_memory',
+    up: `
+      -- Phase 22B.1: Episodic Memory (per-worktree rolling summary)
+      -- See docs/prd/phase-22b-episodic-memory.md
+      CREATE TABLE IF NOT EXISTS field_episodic_memory (
+        worktree_id TEXT PRIMARY KEY,
+        summary_markdown TEXT NOT NULL,
+        compactor_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        compacted_at INTEGER NOT NULL,
+        source_event_count INTEGER NOT NULL,
+        source_since INTEGER NOT NULL,
+        source_until INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_field_episodic_memory_compacted
+        ON field_episodic_memory(compacted_at DESC);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_field_episodic_memory_compacted;
+      DROP TABLE IF EXISTS field_episodic_memory;
     `
   }
 ]

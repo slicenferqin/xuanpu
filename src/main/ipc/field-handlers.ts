@@ -162,5 +162,14 @@ export function registerFieldHandlers(): void {
     if (typeof sessionId !== 'string' || sessionId.length === 0) return null
     return getLastInjection(sessionId)
   })
+
+  // -------------------------------------------------------------------------
+  // Debug: retrieve the episodic memory summary for a worktree.
+  // Phase 22B.1.
+  // -------------------------------------------------------------------------
+  ipcMain.handle('field:getEpisodicMemory', (_event, worktreeId: unknown) => {
+    if (typeof worktreeId !== 'string' || worktreeId.length === 0) return null
+    return getDatabase().getEpisodicMemory(worktreeId)
+  })
 }
 

@@ -56,6 +56,17 @@ export interface FieldContextSnapshot {
   worktree: FieldContextWorktree | null
   /** User-authored notes from `worktrees.context`. */
   worktreeNotes: string | null
+  /**
+   * Episodic memory (Phase 22B): a longer-horizon rolling summary of this
+   * worktree's recent activity. Null if no summary has been compacted yet
+   * or if field collection is disabled.
+   */
+  episodicSummary: {
+    markdown: string
+    compactorId: string
+    compactedAt: number
+    sourceEventCount: number
+  } | null
   /** Aggregated current focus derived from file.* events. */
   focus: {
     file: FieldContextFocusFile | null

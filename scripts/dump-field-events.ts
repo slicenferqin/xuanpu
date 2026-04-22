@@ -23,12 +23,15 @@ interface Args {
   worktreeId?: string
   projectId?: string
   dbPath: string
+  /** When set, dump the episodic memory summary for this worktree id instead of the timeline. */
+  episodicWorktreeId?: string
 }
 
 function parseArgs(argv: string[]): Args {
   let minutes = 30
   let worktreeId: string | undefined
   let projectId: string | undefined
+  let episodicWorktreeId: string | undefined
   let dbPath = process.env.XUANPU_DB_PATH ?? join(homedir(), '.xuanpu', 'xuanpu.db')
 
   for (let i = 0; i < argv.length; i++) {
@@ -49,6 +52,10 @@ function parseArgs(argv: string[]): Args {
       case '-p':
         projectId = argv[++i]
         break
+      case '--episodic':
+        episodicWorktreeId = argv[++i]
+        if (!episodicWorktreeId) throw new Error('--episodic requires a worktree id argument')
+        break
       case '--db':
         dbPath = argv[++i]
         break
@@ -62,18 +69,19 @@ function parseArgs(argv: string[]): Args {
     }
   }
 
-  return { minutes, worktreeId, projectId, dbPath }
+  return { minutes, worktreeId, projectId, dbPath, episodicWorktreeId }
 }
 
 function printHelp(): void {
   console.log(`Usage: pnpm tsx scripts/dump-field-events.ts [options]
 
 Options:
-  -m, --minutes <n>     Lookback window in minutes (default: 30)
-  -w, --worktree <id>   Filter to a single worktree id
-  -p, --project <id>    Filter to a single project id
-      --db <path>       DB file path (default: $XUANPU_DB_PATH or ~/.xuanpu/xuanpu.db)
-  -h, --help            Show this help
+  -m, --minutes <n>        Lookback window in minutes (default: 30)
+  -w, --worktree <id>      Filter to a single worktree id
+  -p, --project <id>       Filter to a single project id
+      --episodic <id>      Print the episodic memory summary for the given worktree
+      --db <path>          DB file path (default: $XUANPU_DB_PATH or ~/.xuanpu/xuanpu.db)
+  -h, --help               Show this help
 `)
 }
 
@@ -214,6 +222,40 @@ function formatRow(row: Row): string {
   }
 }
 
+function fetchEpisodic(
+  db: Database.Database,
+  worktreeId: string
+): {
+  worktree_id: string
+  summary_markdown: string
+  compactor_id: string
+  version: number
+  compacted_at: number
+  source_event_count: number
+  source_since: number
+  source_until: number
+} | null {
+  const row = db
+    .prepare(
+      `SELECT worktree_id, summary_markdown, compactor_id, version, compacted_at,
+              source_event_count, source_since, source_until
+       FROM field_episodic_memory WHERE worktree_id = ?`
+    )
+    .get(worktreeId) as
+    | {
+        worktree_id: string
+        summary_markdown: string
+        compactor_id: string
+        version: number
+        compacted_at: number
+        source_event_count: number
+        source_since: number
+        source_until: number
+      }
+    | undefined
+  return row ?? null
+}
+
 function main(): void {
   let args: Args
   try {
@@ -234,6 +276,37 @@ function main(): void {
     process.exit(1)
   }
   db.pragma('journal_mode = WAL')
+
+  // Phase 22B.1: --episodic prints the episodic memory summary instead of the event timeline.
+  if (args.episodicWorktreeId) {
+    const entry = fetchEpisodic(db, args.episodicWorktreeId)
+    if (!entry) {
+      console.log(
+        `# Episodic Memory\n\n_No summary recorded yet for worktree ${args.episodicWorktreeId}._`
+      )
+      db.close()
+      return
+    }
+    const meta = fetchWorktreeMeta(db, [entry.worktree_id]).get(entry.worktree_id)
+    const since = new Date(entry.source_since).toISOString()
+    const until = new Date(entry.source_until).toISOString()
+    const compactedAt = new Date(entry.compacted_at).toISOString()
+    const lines = [
+      `# Episodic Memory`,
+      ``,
+      `**Worktree**: ${meta ? `${meta.name} (\`${meta.branch_name}\`)` : entry.worktree_id}`,
+      `**Compactor**: ${entry.compactor_id} v${entry.version}`,
+      `**Compacted at**: ${compactedAt}`,
+      `**Source window**: ${entry.source_event_count} events between ${since} and ${until}`,
+      ``,
+      `---`,
+      ``,
+      entry.summary_markdown
+    ]
+    console.log(lines.join('\n'))
+    db.close()
+    return
+  }
 
   const events = fetchEvents(db, args)
   if (events.length === 0) {

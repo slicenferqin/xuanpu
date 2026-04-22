@@ -1521,6 +1521,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         <FieldContextDebug
           sessionId={droidSessionId}
           fallbackSessionIds={[sessionId]}
+          worktreeId={worktreeId}
         />
 
         <ForkFromMessageConfirmDialog

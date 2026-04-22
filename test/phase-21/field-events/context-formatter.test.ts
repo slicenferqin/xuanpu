@@ -15,6 +15,7 @@ function snapshot(overrides: Partial<FieldContextSnapshot> = {}): FieldContextSn
       branchName: 'feature/auth'
     },
     worktreeNotes: null,
+    episodicSummary: null,
     focus: { file: null, selection: null },
     lastTerminal: null,
     recentActivity: [],
@@ -271,6 +272,108 @@ describe('formatFieldContext — Phase 22A M2', () => {
         .split('\n')
         .filter((l) => l.includes('very-long-file-path'))
       expect(activityEntries.length).toBeLessThan(30)
+    })
+  })
+
+  describe('worktree summary (episodic memory)', () => {
+    it('renders with rule-based provenance header', () => {
+      const asOf = new Date('2026-04-21T14:25:30').getTime()
+      const out = formatFieldContext(
+        snapshot({
+          asOf,
+          episodicSummary: {
+            markdown: '## Observed Recent Work\n- some bucket',
+            compactorId: 'rule-based',
+            compactedAt: asOf - 5 * 60_000,
+            sourceEventCount: 42
+          }
+        })
+      )
+      expect(out.markdown).toContain('## Worktree Summary')
+      expect(out.markdown).toContain('source: rule-based heuristic')
+      expect(out.markdown).toContain('compacted 5m ago')
+      expect(out.markdown).toContain('Observed Recent Work')
+    })
+
+    it('renders with Claude Haiku provenance header', () => {
+      const asOf = new Date('2026-04-21T14:25:30').getTime()
+      const out = formatFieldContext(
+        snapshot({
+          asOf,
+          episodicSummary: {
+            markdown: '## Summary\nThings happened.',
+            compactorId: 'claude-haiku',
+            compactedAt: asOf - 60_000,
+            sourceEventCount: 100
+          }
+        })
+      )
+      expect(out.markdown).toContain('source: Claude Haiku summary')
+      expect(out.markdown).toContain('compacted 1m ago')
+    })
+
+    it('renders unknown compactor_id verbatim in provenance', () => {
+      const asOf = Date.now()
+      const out = formatFieldContext(
+        snapshot({
+          episodicSummary: {
+            markdown: 'body',
+            compactorId: 'future-compactor-v99',
+            compactedAt: asOf,
+            sourceEventCount: 10
+          }
+        })
+      )
+      expect(out.markdown).toContain('source: future-compactor-v99')
+    })
+
+    it('is inserted between Worktree Notes and Current Focus', () => {
+      const asOf = Date.now()
+      const out = formatFieldContext(
+        snapshot({
+          asOf,
+          worktreeNotes: 'my notes',
+          episodicSummary: {
+            markdown: 'summary body',
+            compactorId: 'rule-based',
+            compactedAt: asOf,
+            sourceEventCount: 10
+          },
+          focus: { file: { path: '/a.ts', name: 'a.ts' }, selection: null }
+        })
+      )
+      const notesIdx = out.markdown.indexOf('## Worktree Notes')
+      const summaryIdx = out.markdown.indexOf('## Worktree Summary')
+      const focusIdx = out.markdown.indexOf('## Current Focus')
+      expect(notesIdx).toBeLessThan(summaryIdx)
+      expect(summaryIdx).toBeLessThan(focusIdx)
+    })
+
+    it('is omitted when episodicSummary is null', () => {
+      const out = formatFieldContext(snapshot())
+      expect(out.markdown).not.toContain('## Worktree Summary')
+    })
+
+    it('is dropped entirely at the most aggressive tier', () => {
+      const asOf = Date.now()
+      const hugeMarkdown = 'X'.repeat(30_000)
+      const out = formatFieldContext(
+        snapshot({
+          asOf,
+          episodicSummary: {
+            markdown: hugeMarkdown,
+            compactorId: 'rule-based',
+            compactedAt: asOf,
+            sourceEventCount: 10
+          },
+          focus: { file: { path: '/a.ts', name: 'a.ts' }, selection: null }
+        }),
+        { tokenBudget: 100 }
+      )
+      expect(out.wasTruncated).toBe(true)
+      expect(out.markdown).toContain('## Current Focus')
+      // Summary should be entirely gone at tiny budget
+      expect(out.markdown).not.toContain('## Worktree Summary')
     })
   })
 

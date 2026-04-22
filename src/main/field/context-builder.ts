@@ -107,9 +107,23 @@ export async function buildFieldContextSnapshot(
         }
       : null,
     worktreeNotes: worktreeRow?.context ?? null,
+    episodicSummary: readEpisodicSummary(opts.worktreeId),
     focus: { file: focusFile, selection: focusSelection },
     lastTerminal,
     recentActivity
+  }
+}
+
+function readEpisodicSummary(
+  worktreeId: string
+): FieldContextSnapshot['episodicSummary'] {
+  const entry = getDatabase().getEpisodicMemory(worktreeId)
+  if (!entry) return null
+  return {
+    markdown: entry.summaryMarkdown,
+    compactorId: entry.compactorId,
+    compactedAt: entry.compactedAt,
+    sourceEventCount: entry.sourceEventCount
   }
 }
 

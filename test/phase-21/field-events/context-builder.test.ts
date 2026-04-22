@@ -451,6 +451,35 @@ describe('FieldContextBuilder — Phase 22A M1', () => {
     })
   })
 
+  describe('episodic summary integration (Phase 22B)', () => {
+    it('reads episodic memory from DB into snapshot', async () => {
+      seedWorktree('w-1')
+      db.upsertEpisodicMemory({
+        worktreeId: 'w-1',
+        summaryMarkdown: '## Observed Recent Work\n- bucket1\n- bucket2',
+        compactorId: 'rule-based',
+        version: 1,
+        compactedAt: 1_700_000_000_000,
+        sourceEventCount: 42,
+        sourceSince: 1_699_900_000_000,
+        sourceUntil: 1_700_000_000_000
+      })
+      const snap = await buildFieldContextSnapshot({ worktreeId: 'w-1' })
+      expect(snap?.episodicSummary).toEqual({
+        markdown: '## Observed Recent Work\n- bucket1\n- bucket2',
+        compactorId: 'rule-based',
+        compactedAt: 1_700_000_000_000,
+        sourceEventCount: 42
+      })
+    })
+
+    it('returns null episodicSummary when no entry exists', async () => {
+      seedWorktree('w-1')
+      const snap = await buildFieldContextSnapshot({ worktreeId: 'w-1' })
+      expect(snap?.episodicSummary).toBeNull()
+    })
+  })
+
   describe('worktree isolation', () => {
     it('does not leak events from a different worktree', async () => {
       seedWorktree('w-1')

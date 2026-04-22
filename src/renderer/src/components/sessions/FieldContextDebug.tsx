@@ -8,53 +8,88 @@ interface LastInjection {
   approxTokens: number
 }
 
+interface EpisodicMemoryEntry {
+  worktreeId: string
+  summaryMarkdown: string
+  compactorId: string
+  version: number
+  compactedAt: number
+  sourceEventCount: number
+  sourceSince: number
+  sourceUntil: number
+}
+
 interface FieldContextDebugProps {
   sessionId: string | null | undefined
   /** Optional extra ids to try (e.g. the Hive session id vs the runtime session id). */
   fallbackSessionIds?: Array<string | null | undefined>
+  /** Worktree id for the Episodic Memory tab (Phase 22B.1). */
+  worktreeId?: string | null
   className?: string
 }
 
+type Tab = 'injection' | 'episodic'
+
 /**
- * Phase 22A debug UI: lets the user inspect what Field Context was injected
- * into the last agent prompt. Intentionally minimal — Phase 22B will replace
+ * Phase 22A/22B debug UI: lets the user inspect what Field Context was injected
+ * into the last agent prompt, and what the worktree's episodic memory summary
+ * currently contains. Intentionally minimal — Phase 22+ will replace
  * this with a first-class UI.
  */
 export function FieldContextDebug({
   sessionId,
   fallbackSessionIds = [],
+  worktreeId,
   className
 }: FieldContextDebugProps): React.JSX.Element | null {
   const [open, setOpen] = useState(false)
+  const [tab, setTab] = useState<Tab>('injection')
   const [data, setData] = useState<LastInjection | null>(null)
+  const [episodic, setEpisodic] = useState<EpisodicMemoryEntry | null>(null)
   const [loading, setLoading] = useState(false)
 
   const refresh = useCallback(async () => {
-    if (!sessionId && fallbackSessionIds.every((s) => !s)) return
+    if (!sessionId && fallbackSessionIds.every((s) => !s) && !worktreeId) return
     setLoading(true)
     try {
       const candidates = [sessionId, ...fallbackSessionIds].filter(
         (s): s is string => typeof s === 'string' && s.length > 0
       )
+      let injection: LastInjection | null = null
       for (const id of candidates) {
         const result = await window.fieldOps.getLastInjection(id)
         if (result) {
-          setData(result)
-          return
+          injection = result
+          break
         }
       }
-      setData(null)
+      setData(injection)
+      if (worktreeId) {
+        const ep = await window.fieldOps.getEpisodicMemory(worktreeId)
+        setEpisodic(ep)
+      } else {
+        setEpisodic(null)
+      }
     } finally {
       setLoading(false)
     }
-  }, [sessionId, fallbackSessionIds])
+  }, [sessionId, fallbackSessionIds, worktreeId])
 
-  // Re-fetch when the panel opens, or when sessionId changes while open
+  // Re-fetch when the panel opens, or when sessionId/worktreeId changes while open
   useEffect(() => {
     if (open) void refresh()
   }, [open, refresh])
 
-  if (!sessionId && fallbackSessionIds.every((s) => !s)) return null
+  if (!sessionId && fallbackSessionIds.every((s) => !s) && !worktreeId) return null
+
+  const headerLabel =
+    tab === 'injection'
+      ? data
+        ? `~${data.approxTokens} tokens • ${new Date(data.timestamp).toLocaleTimeString()}`
+        : 'no injection yet'
+      : episodic
+        ? `${episodic.compactorId} • ${new Date(episodic.compactedAt).toLocaleTimeString()}`
+        : 'no episodic summary yet'
 
   return (
     <div
@@ -71,12 +106,8 @@ export function FieldContextDebug({
       >
         <div className="flex items-center gap-1.5">
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          <span>Field Context (last injection)</span>
-          {data && (
-            <span className="text-muted-foreground/70 ml-2">
-              ~{data.approxTokens} tokens • {new Date(data.timestamp).toLocaleTimeString()}
-            </span>
-          )}
+          <span>Field Context</span>
+          <span className="text-muted-foreground/70 ml-2">{headerLabel}</span>
         </div>
         {open && (
           <span
@@ -98,19 +129,72 @@ export function FieldContextDebug({
 
       {open && (
         <div className="px-3 pb-2 pt-1">
-          {loading && !data && (
-            <div className="text-muted-foreground/60">Loading…</div>
+          {/* Tab bar */}
+          <div className="flex items-center gap-1 mb-2 text-[11px]">
+            <button
+              type="button"
+              onClick={() => setTab('injection')}
+              className={cn(
+                'px-2 py-0.5 rounded',
+                tab === 'injection'
+                  ? 'bg-primary/20 text-foreground'
+                  : 'text-muted-foreground hover:bg-muted/50'
+              )}
+            >
+              Last Injection
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab('episodic')}
+              className={cn(
+                'px-2 py-0.5 rounded',
+                tab === 'episodic'
+                  ? 'bg-primary/20 text-foreground'
+                  : 'text-muted-foreground hover:bg-muted/50'
+              )}
+            >
+              Episodic Memory
+            </button>
+          </div>
+
+          {tab === 'injection' && (
+            <>
+              {loading && !data && <div className="text-muted-foreground/60">Loading…</div>}
+              {!loading && !data && (
+                <div className="text-muted-foreground/60">
+                  No injection recorded yet for this session. Field Context is injected on
+                  the next prompt when field event collection is enabled.
+                </div>
+              )}
+              {data && (
+                <pre className="whitespace-pre-wrap break-words text-[11px] leading-relaxed bg-background/50 rounded p-2 max-h-64 overflow-auto">
+                  {data.preview}
+                </pre>
+              )}
+            </>
           )}
-          {!loading && !data && (
-            <div className="text-muted-foreground/60">
-              No injection recorded yet for this session. Field Context is injected on the
-              next prompt when field event collection is enabled.
-            </div>
-          )}
-          {data && (
-            <pre className="whitespace-pre-wrap break-words text-[11px] leading-relaxed bg-background/50 rounded p-2 max-h-64 overflow-auto">
-              {data.preview}
-            </pre>
+
+          {tab === 'episodic' && (
+            <>
+              {loading && !episodic && <div className="text-muted-foreground/60">Loading…</div>}
+              {!loading && !episodic && (
+                <div className="text-muted-foreground/60">
+                  No episodic summary yet. Summaries are compacted from the event stream
+                  every 30 minutes (or after ~20 events) when collection is enabled.
+                </div>
+              )}
+              {episodic && (
+                <>
+                  <div className="text-muted-foreground/70 mb-1">
+                    {episodic.compactorId} v{episodic.version} • {episodic.sourceEventCount}{' '}
+                    events
+                  </div>
+                  <pre className="whitespace-pre-wrap break-words text-[11px] leading-relaxed bg-background/50 rounded p-2 max-h-64 overflow-auto">
+                    {episodic.summaryMarkdown}
+                  </pre>
+                </>
+              )}
+            </>
           )}
         </div>
       )}

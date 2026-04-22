@@ -1816,6 +1816,18 @@ const fieldOps = {
       preview: string
       timestamp: number
       approxTokens: number
+    } | null>,
+  /** Phase 22B.1 debug: fetch the episodic memory summary for a worktree. */
+  getEpisodicMemory: (worktreeId: string) =>
+    ipcRenderer.invoke('field:getEpisodicMemory', worktreeId) as Promise<{
+      worktreeId: string
+      summaryMarkdown: string
+      compactorId: string
+      version: number
+      compactedAt: number
+      sourceEventCount: number
+      sourceSince: number
+      sourceUntil: number
     } | null>
 }
 

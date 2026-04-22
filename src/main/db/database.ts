@@ -139,6 +139,7 @@ export class DatabaseService {
     this.ensureConnectionTables()
     this.ensureUsageAnalyticsTables()
     this.ensureFieldEventsTable()
+    this.ensureEpisodicMemoryTable()
   }
 
   /**
@@ -313,6 +314,110 @@ export class DatabaseService {
       CREATE INDEX IF NOT EXISTS idx_field_events_related
         ON field_events(related_event_id) WHERE related_event_id IS NOT NULL;
     `)
+  }
+
+  /**
+   * Idempotently ensure the field_episodic_memory table exists.
+   * Phase 22B.1 — see docs/prd/phase-22b-episodic-memory.md
+   */
+  private ensureEpisodicMemoryTable(): void {
+    const db = this.getDb()
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS field_episodic_memory (
+        worktree_id TEXT PRIMARY KEY,
+        summary_markdown TEXT NOT NULL,
+        compactor_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        compacted_at INTEGER NOT NULL,
+        source_event_count INTEGER NOT NULL,
+        source_since INTEGER NOT NULL,
+        source_until INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_field_episodic_memory_compacted
+        ON field_episodic_memory(compacted_at DESC);
+    `)
+  }
+
+  // -------------------------------------------------------------------------
+  // Episodic Memory CRUD (Phase 22B.1)
+  // -------------------------------------------------------------------------
+
+  upsertEpisodicMemory(entry: {
+    worktreeId: string
+    summaryMarkdown: string
+    compactorId: string
+    version: number
+    compactedAt: number
+    sourceEventCount: number
+    sourceSince: number
+    sourceUntil: number
+  }): void {
+    const db = this.getDb()
+    db.prepare(
+      `INSERT OR REPLACE INTO field_episodic_memory
+        (worktree_id, summary_markdown, compactor_id, version, compacted_at,
+         source_event_count, source_since, source_until)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      entry.worktreeId,
+      entry.summaryMarkdown,
+      entry.compactorId,
+      entry.version,
+      entry.compactedAt,
+      entry.sourceEventCount,
+      entry.sourceSince,
+      entry.sourceUntil
+    )
+  }
+
+  getEpisodicMemory(worktreeId: string): {
+    worktreeId: string
+    summaryMarkdown: string
+    compactorId: string
+    version: number
+    compactedAt: number
+    sourceEventCount: number
+    sourceSince: number
+    sourceUntil: number
+  } | null {
+    const db = this.getDb()
+    const row = db
+      .prepare(
+        `SELECT worktree_id, summary_markdown, compactor_id, version, compacted_at,
+                source_event_count, source_since, source_until
+         FROM field_episodic_memory WHERE worktree_id = ?`
+      )
+      .get(worktreeId) as
+      | {
+          worktree_id: string
+          summary_markdown: string
+          compactor_id: string
+          version: number
+          compacted_at: number
+          source_event_count: number
+          source_since: number
+          source_until: number
+        }
+      | undefined
+    if (!row) return null
+    return {
+      worktreeId: row.worktree_id,
+      summaryMarkdown: row.summary_markdown,
+      compactorId: row.compactor_id,
+      version: row.version,
+      compactedAt: row.compacted_at,
+      sourceEventCount: row.source_event_count,
+      sourceSince: row.source_since,
+      sourceUntil: row.source_until
+    }
+  }
+
+  deleteEpisodicMemory(worktreeId: string): boolean {
+    const db = this.getDb()
+    const result = db
+      .prepare('DELETE FROM field_episodic_memory WHERE worktree_id = ?')
+      .run(worktreeId)
+    return result.changes > 0
   }
 
   /**
