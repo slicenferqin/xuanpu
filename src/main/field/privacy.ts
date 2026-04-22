@@ -59,10 +59,39 @@ export function setMemoryInjectionEnabledCache(value: boolean): void {
 export const MEMORY_INJECTION_SETTING_KEY = INJECTION_SETTING_KEY
 
 // ---------------------------------------------------------------------------
+// agent_bash_capture_output (Phase 21.5)
+//
+// Bash output (stdout/stderr) captured from agent tool_use observations is
+// frequently sensitive: API keys, env dumps, error stacks with tokens.
+//
+// Default OFF. Opt-in via Settings → Privacy → "Capture Bash stdout/stderr
+// for agent analysis". The command itself is still captured regardless of
+// this flag (the user can already see it in the sidebar).
+// ---------------------------------------------------------------------------
+
+const BASH_CAPTURE_SETTING_KEY = 'agent_bash_capture_output'
+let bashCaptureCached: boolean | null = null
+
+export function isBashOutputCaptureEnabled(): boolean {
+  if (bashCaptureCached !== null) return bashCaptureCached
+  const value = getDatabase().getSetting(BASH_CAPTURE_SETTING_KEY)
+  // Default OFF: unset or literally 'false' → false. Must be 'true' to enable.
+  bashCaptureCached = value === 'true'
+  return bashCaptureCached
+}
+
+export function setBashOutputCaptureEnabledCache(value: boolean): void {
+  bashCaptureCached = value
+}
+
+export const BASH_OUTPUT_CAPTURE_SETTING_KEY = BASH_CAPTURE_SETTING_KEY
+
+// ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
 export function invalidatePrivacyCache(): void {
   collectionCached = null
   injectionCached = null
+  bashCaptureCached = null
 }

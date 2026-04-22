@@ -115,11 +115,20 @@ export function rankHotFiles(
   }
 
   for (const ev of events) {
-    // file.edit (P1, not yet implemented) would score 3; currently absent.
+    // Human-action events (Phase 21)
     if (ev.type === 'file.focus' || ev.type === 'file.open') {
       bump((ev.payload as { path?: string }).path, 1)
     } else if (ev.type === 'file.selection') {
       bump((ev.payload as { path?: string }).path, 2)
+    }
+    // Agent tool events (Phase 21.5). agent.file_write is the strongest
+    // signal — the agent just changed the file — and agent.file_read a
+    // weaker one. agent.file_search (glob/regex patterns) and
+    // agent.bash_exec do NOT point to a specific file and are excluded.
+    else if (ev.type === 'agent.file_write') {
+      bump((ev.payload as { path?: string }).path, 3)
+    } else if (ev.type === 'agent.file_read') {
+      bump((ev.payload as { path?: string }).path, 1)
     }
     // terminal.command cwd inside worktree is a weak signal; skipped
     // because it doesn't point to a specific file.
@@ -343,17 +352,22 @@ export async function generateCheckpoint(
   // Goals
   const { currentGoal, nextAction } = deriveGoals(events)
 
-  // Stats for summary. file.edit is P1 (not implemented); as a proxy, count
-  // distinct files with any focus/selection activity — matches "files touched".
+  // Stats for summary. Count distinct files touched (by either human focus
+  // events from Phase 21 or agent file_write/file_read from Phase 21.5).
   const touchedFiles = new Set<string>()
   for (const ev of events) {
     if (ev.type === 'file.focus' || ev.type === 'file.selection' || ev.type === 'file.open') {
       const p = (ev.payload as { path?: string }).path
       if (p) touchedFiles.add(p)
+    } else if (ev.type === 'agent.file_write' || ev.type === 'agent.file_read') {
+      const p = (ev.payload as { path?: string }).path
+      if (p) touchedFiles.add(p)
     }
   }
   const editCount = touchedFiles.size
-  const commandCount = events.filter((e) => e.type === 'terminal.command').length
+  const commandCount = events.filter(
+    (e) => e.type === 'terminal.command' || e.type === 'agent.bash_exec'
+  ).length
   const firstTs = events[0]?.timestamp ?? now
   const durationMinutes = Math.max(0, Math.round((now - firstTs) / 60_000))
 

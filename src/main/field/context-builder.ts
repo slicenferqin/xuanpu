@@ -185,6 +185,10 @@ function deriveFocus(events: StoredFieldEvent[]): FocusResult {
   let focusFileSourceId: string | null = null
   let focusSelectionSourceId: string | null = null
 
+  // Track agent fallbacks separately so they only fire when no human signal exists.
+  let agentWriteFallback: { path: string; sourceId: string } | null = null
+  let agentReadFallback: { path: string; sourceId: string } | null = null
+
   // Events are ASC order. Walking forward and overwriting gives us "last wins".
   for (const e of events) {
     if (e.type === 'file.open' || e.type === 'file.focus') {
@@ -217,6 +221,16 @@ function deriveFocus(events: StoredFieldEvent[]): FocusResult {
         }
         focusSelectionSourceId = e.id
       }
+    } else if (e.type === 'agent.file_write') {
+      const p = e.payload as { path?: string }
+      if (typeof p?.path === 'string') {
+        agentWriteFallback = { path: p.path, sourceId: e.id }
+      }
+    } else if (e.type === 'agent.file_read') {
+      const p = e.payload as { path?: string }
+      if (typeof p?.path === 'string') {
+        agentReadFallback = { path: p.path, sourceId: e.id }
+      }
     }
   }
 
@@ -227,6 +241,17 @@ function deriveFocus(events: StoredFieldEvent[]): FocusResult {
     // Don't overwrite focusFileSourceId — the original file.focus/open event
     // is still the source of the "file" facet; the selection event is its own
     // source. Both end up in promotedIds.
+  }
+
+  // Phase 21.5: if no human focus exists, fall back to agent activity.
+  // Priority within agent: write > read (write means the agent just changed
+  // the file; read means it just looked at it).
+  if (!focusFile) {
+    const fallback = agentWriteFallback ?? agentReadFallback
+    if (fallback) {
+      focusFile = { path: fallback.path, name: basename(fallback.path) }
+      focusFileSourceId = fallback.sourceId
+    }
   }
 
   return { focusFile, focusSelection, focusFileSourceId, focusSelectionSourceId }
@@ -332,6 +357,24 @@ function summarizeEvent(e: StoredFieldEvent): FieldContextActivityEntry {
       const sdk = p?.agentSdk ? `(${p.agentSdk}) ` : ''
       const text = p?.text ? truncate(p.text, 80) : ''
       return { ...base, summary: `${sdk}message: "${text}"` }
+    }
+    case 'agent.file_read': {
+      const p = e.payload as { path?: string; toolName?: string }
+      return { ...base, summary: `agent read \`${p?.path ?? ''}\`` }
+    }
+    case 'agent.file_write': {
+      const p = e.payload as { path?: string; toolName?: string }
+      return { ...base, summary: `agent edited \`${p?.path ?? ''}\`` }
+    }
+    case 'agent.file_search': {
+      const p = e.payload as { pattern?: string; matchCount?: number | null }
+      const mc = typeof p?.matchCount === 'number' ? ` → ${p.matchCount} matches` : ''
+      return { ...base, summary: `agent searched \`${p?.pattern ?? ''}\`${mc}` }
+    }
+    case 'agent.bash_exec': {
+      const p = e.payload as { command?: string; exitCode?: number | null }
+      const exit = p?.exitCode != null ? ` (exit ${p.exitCode})` : ''
+      return { ...base, summary: `agent ran \`${(p?.command ?? '').slice(0, 80)}\`${exit}` }
     }
     default:
       return { ...base, summary: type }

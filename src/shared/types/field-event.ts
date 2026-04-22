@@ -16,6 +16,10 @@ export type FieldEventType =
   | 'terminal.command'
   | 'terminal.output'
   | 'session.message'
+  | 'agent.file_read'
+  | 'agent.file_write'
+  | 'agent.file_search'
+  | 'agent.bash_exec'
 
 /**
  * Common envelope shared by all field events.
@@ -118,6 +122,72 @@ export interface SessionMessagePayload {
 }
 
 // ---------------------------------------------------------------------------
+// Agent tool events (Phase 21.5)
+//
+// Captured when a runtime adapter (Claude Code / Codex / OpenCode) observes
+// a tool_use → tool_result completion. Lets fully-delegated users (where the
+// agent does all reads/edits/commands) populate hot_files, Current Focus,
+// and the Phase 24C session checkpoint.
+//
+// Sub-agent / Task-tool nested events are SKIPPED at emit time (V1) — only
+// outermost-session tool calls are captured.
+//
+// `toolUseId` is mandatory in every payload as a join key for future
+// Outcome Loop attribution (e.g. linking a test_pass back to the bash
+// command that triggered it).
+// ---------------------------------------------------------------------------
+
+export interface AgentFileReadPayload {
+  /** Tool-use id from the SDK (Claude block.id / Codex item.id / OpenCode part id). */
+  toolUseId: string
+  /** Tool name as reported by the SDK (Read / NotebookRead / file_read). */
+  toolName: string
+  /** Path relative to the worktree root. Never a glob — Glob/Grep emit `agent.file_search` instead. */
+  path: string
+  /** Bytes returned by the read, if known. */
+  bytes: number | null
+}
+
+export interface AgentFileWritePayload {
+  toolUseId: string
+  toolName: string
+  path: string
+  /**
+   * V1: always 'edit'. Future Outcome Loop may refine to
+   * 'create' | 'edit' | 'delete' once file-existed-before detection is
+   * implemented. Single-value union is forward-compatible.
+   */
+  operation: 'edit'
+}
+
+export interface AgentFileSearchPayload {
+  toolUseId: string
+  toolName: string
+  /** The glob/regex pattern as given to the tool (truncated 512 chars). */
+  pattern: string
+  /** Number of matches returned, if known. */
+  matchCount: number | null
+}
+
+export interface AgentBashExecPayload {
+  toolUseId: string
+  toolName: string
+  /** First 512 chars of the command. */
+  command: string
+  exitCode: number | null
+  durationMs: number | null
+  /**
+   * First 1024 chars of stdout. Only populated when the user has explicitly
+   * opted into bash output capture (Settings → Privacy → "Capture Bash
+   * stdout/stderr for agent analysis"). Default OFF — bash output frequently
+   * contains secrets (API keys, env dumps, error stacks with tokens).
+   */
+  stdoutHead: string | null
+  /** Last 1024 chars of stderr. Same opt-in rule as stdoutHead. */
+  stderrTail: string | null
+}
+
+// ---------------------------------------------------------------------------
 // Discriminated union
 // ---------------------------------------------------------------------------
 
@@ -129,6 +199,10 @@ export type FieldEvent =
   | (FieldEventEnvelope & { type: 'terminal.command'; payload: TerminalCommandPayload })
   | (FieldEventEnvelope & { type: 'terminal.output'; payload: TerminalOutputPayload })
   | (FieldEventEnvelope & { type: 'session.message'; payload: SessionMessagePayload })
+  | (FieldEventEnvelope & { type: 'agent.file_read'; payload: AgentFileReadPayload })
+  | (FieldEventEnvelope & { type: 'agent.file_write'; payload: AgentFileWritePayload })
+  | (FieldEventEnvelope & { type: 'agent.file_search'; payload: AgentFileSearchPayload })
+  | (FieldEventEnvelope & { type: 'agent.bash_exec'; payload: AgentBashExecPayload })
 
 /**
  * Renderer-side input for the narrow `field:reportWorktreeSwitch` IPC channel.

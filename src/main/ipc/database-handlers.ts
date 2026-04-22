@@ -5,8 +5,10 @@ import { telemetryService } from '../services/telemetry-service'
 import {
   setFieldCollectionEnabledCache,
   setMemoryInjectionEnabledCache,
+  setBashOutputCaptureEnabledCache,
   FIELD_COLLECTION_SETTING_KEY,
-  MEMORY_INJECTION_SETTING_KEY
+  MEMORY_INJECTION_SETTING_KEY,
+  BASH_OUTPUT_CAPTURE_SETTING_KEY
 } from '../field/privacy'
 import type {
   ProjectCreate,
@@ -40,6 +42,11 @@ export function registerDatabaseHandlers(): void {
     if (key === MEMORY_INJECTION_SETTING_KEY) {
       setMemoryInjectionEnabledCache(value !== 'false')
     }
+    // Phase 21.5: same pattern for agent bash output capture toggle.
+    // Default OFF — must be literally 'true' to enable.
+    if (key === BASH_OUTPUT_CAPTURE_SETTING_KEY) {
+      setBashOutputCaptureEnabledCache(value === 'true')
+    }
     return true
   })
 
@@ -52,6 +59,10 @@ export function registerDatabaseHandlers(): void {
     // Phase 22C.1: same.
     if (key === MEMORY_INJECTION_SETTING_KEY) {
       setMemoryInjectionEnabledCache(true)
+    }
+    // Phase 21.5: delete reverts bash output capture to default OFF.
+    if (key === BASH_OUTPUT_CAPTURE_SETTING_KEY) {
+      setBashOutputCaptureEnabledCache(false)
     }
     return true
   })

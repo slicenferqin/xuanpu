@@ -207,6 +207,19 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     const targetSession = this.findSessionByThreadId(event.threadId)
     if (targetSession) {
       this.persistActivity(targetSession, event)
+
+      // Phase 21.5: emit agent.* field events when a tool item completes.
+      // Wrapped in try/catch — instrumentation failure must never affect
+      // the main event flow.
+      if (event.kind === 'notification' && event.method === 'item/completed') {
+        try {
+          this.emitAgentToolField(targetSession, event)
+        } catch (err) {
+          log.debug('Phase 21.5 emit failed; continuing', {
+            error: err instanceof Error ? err.message : String(err)
+          })
+        }
+      }
     }
 
     // Clean up stale pending entries when a session closes
@@ -2388,5 +2401,69 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         return a.order - b.order
       })
       .map((entry) => entry.message)
+  }
+
+  /**
+   * Phase 21.5: emit an agent.* field event when a Codex tool item completes.
+   * Called from handleManagerEvent on `item/completed` notifications.
+   *
+   * Codex tool lifecycle items are `commandExecution` (Bash) and `fileChange`
+   * (apply_patch); anything else is ignored by `isToolLifecycleItem`.
+   */
+  private emitAgentToolField(
+    session: CodexSessionState,
+    event: CodexManagerEvent
+  ): void {
+    if (!this.dbService) return
+
+    const payload = asObject(event.payload)
+    const item = asObject(payload?.item)
+    if (!item) return
+
+    const itemType = asString(item?.type)?.toLowerCase()
+    // Only emit for the tool lifecycle itemTypes Codex uses. Non-tool items
+    // (agentMessage / reasoning / plan) are ignored.
+    if (itemType !== 'commandexecution' && itemType !== 'filechange') return
+
+    const toolName =
+      asString(item?.toolName) ??
+      asString(item?.name) ??
+      // Fall back to a canonical name derived from the itemType so the
+      // router in emit-agent-tool.ts knows how to categorize it.
+      (itemType === 'commandexecution' ? 'exec_command' : 'apply_patch')
+
+    const toolUseId =
+      asString(item?.id) ?? asString(event.itemId) ?? asString(payload?.itemId) ?? ''
+    if (!toolUseId) return
+
+    const input = (item?.input as Record<string, unknown> | undefined) ?? {}
+    const status = asString(item?.status)
+    const isError = status === 'failed'
+    const outputText = asString(item?.output) ?? asString(item?.aggregatedOutput) ?? undefined
+    const exitCode = asNumber(item?.exitCode) ?? (isError ? 1 : undefined)
+    const durationMs = asNumber(item?.durationMs) ?? undefined
+
+    const worktreeRow = this.dbService.getWorktreeByPath(session.worktreePath)
+    if (!worktreeRow) return
+
+    void import('../field/emit-agent-tool').then(({ emitAgentToolEvent }) => {
+      emitAgentToolEvent({
+        worktreeId: worktreeRow.id,
+        projectId: worktreeRow.project_id ?? null,
+        sessionId: session.hiveSessionId,
+        worktreePath: session.worktreePath,
+        toolName,
+        toolUseId,
+        // Codex does not surface sub-agent nesting today; V1 stays null.
+        parentToolUseId: null,
+        input,
+        output: {
+          text: isError ? undefined : outputText,
+          error: isError ? outputText : undefined,
+          exitCode,
+          durationMs
+        }
+      })
+    })
   }
 }

@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 
 const FIELD_COLLECTION_SETTING_KEY = 'field_collection_enabled'
 const MEMORY_INJECTION_SETTING_KEY = 'include_memory_in_prompts'
+const BASH_OUTPUT_CAPTURE_SETTING_KEY = 'agent_bash_capture_output'
 
 interface ToggleProps {
   label: string
@@ -47,6 +48,7 @@ export function SettingsPrivacy(): React.JSX.Element {
   const [analyticsEnabled, setAnalyticsEnabled] = useState(true)
   const [fieldCollectionEnabled, setFieldCollectionEnabled] = useState(true)
   const [memoryInjectionEnabled, setMemoryInjectionEnabled] = useState(true)
+  const [bashOutputCaptureEnabled, setBashOutputCaptureEnabled] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [platform, setPlatform] = useState<string | null>(null)
   const [fdaStatus, setFdaStatus] = useState<{ supported: boolean; granted: boolean } | null>(null)
@@ -57,12 +59,16 @@ export function SettingsPrivacy(): React.JSX.Element {
     void Promise.all([
       window.analyticsOps.isEnabled().catch(() => true),
       window.db.setting.get(FIELD_COLLECTION_SETTING_KEY).catch(() => null),
-      window.db.setting.get(MEMORY_INJECTION_SETTING_KEY).catch(() => null)
-    ]).then(([analytics, fieldRaw, memoryRaw]) => {
+      window.db.setting.get(MEMORY_INJECTION_SETTING_KEY).catch(() => null),
+      window.db.setting.get(BASH_OUTPUT_CAPTURE_SETTING_KEY).catch(() => null)
+    ]).then(([analytics, fieldRaw, memoryRaw, bashRaw]) => {
       setAnalyticsEnabled(analytics)
       // Default ON when absent or any value other than the literal 'false'
       setFieldCollectionEnabled(fieldRaw !== 'false')
       setMemoryInjectionEnabled(memoryRaw !== 'false')
+      // Phase 21.5: default OFF — must be literally 'true' to enable, since
+      // bash output can contain secrets (API keys, env dumps, error tokens).
+      setBashOutputCaptureEnabled(bashRaw === 'true')
       setLoaded(true)
     })
   }, [])
@@ -128,6 +134,12 @@ export function SettingsPrivacy(): React.JSX.Element {
     void window.db.setting.set(MEMORY_INJECTION_SETTING_KEY, String(newValue))
   }
 
+  const handleBashOutputCaptureToggle = (): void => {
+    const newValue = !bashOutputCaptureEnabled
+    setBashOutputCaptureEnabled(newValue)
+    void window.db.setting.set(BASH_OUTPUT_CAPTURE_SETTING_KEY, String(newValue))
+  }
+
   const handleOpenFdaSettings = async (): Promise<void> => {
     const result = await window.systemOps.openFullDiskAccessSettings()
     if (!result.success) {
@@ -164,6 +176,12 @@ export function SettingsPrivacy(): React.JSX.Element {
           description={t('settings.privacy.memoryInjection.description')}
           enabled={memoryInjectionEnabled}
           onToggle={handleMemoryInjectionToggle}
+        />
+        <Toggle
+          label={t('settings.privacy.bashOutputCapture.label')}
+          description={t('settings.privacy.bashOutputCapture.description')}
+          enabled={bashOutputCaptureEnabled}
+          onToggle={handleBashOutputCaptureToggle}
         />
       </div>
 
