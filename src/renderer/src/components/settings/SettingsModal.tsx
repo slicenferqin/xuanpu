@@ -12,7 +12,8 @@ import {
   Sparkles,
   BarChart3,
   Archive,
-  BookOpen
+  BookOpen,
+  Smartphone
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { useSettingsStore } from '@/stores/useSettingsStore'
@@ -29,6 +30,7 @@ import { SettingsPrivacy } from './SettingsPrivacy'
 import { SettingsUsage } from './SettingsUsage'
 import { SettingsArchivedChats } from './SettingsArchivedChats'
 import { SettingsSkills } from './SettingsSkills'
+import { HubSection } from './HubSection'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/i18n/useI18n'
 
@@ -43,6 +45,7 @@ const SECTIONS = [
   { id: 'usage', icon: BarChart3 },
   { id: 'archivedChats', icon: Archive },
   { id: 'skills', icon: BookOpen },
+  { id: 'hub', icon: Smartphone },
   { id: 'shortcuts', icon: Keyboard },
   { id: 'updates', icon: Download }
 ] as const
@@ -126,6 +129,7 @@ export function SettingsModal(): React.JSX.Element {
             {activeSection === 'usage' && <SettingsUsage />}
             {activeSection === 'archivedChats' && <SettingsArchivedChats />}
             {activeSection === 'skills' && <SettingsSkills />}
+            {activeSection === 'hub' && <HubSection />}
             {activeSection === 'shortcuts' && <SettingsShortcuts />}
             {activeSection === 'updates' && <SettingsUpdates />}
           </div>
