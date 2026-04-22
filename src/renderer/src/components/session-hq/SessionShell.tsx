@@ -30,6 +30,7 @@ import type { ThreadStatusRowData } from './ThreadStatusRow'
 import { MissionControl, type MissionTask } from './MissionControl'
 import { InterruptDock } from './InterruptDock'
 import { ComposerBar } from './ComposerBar'
+import { FieldContextDebug } from '@/components/sessions/FieldContextDebug'
 import { ForkFromMessageConfirmDialog } from './ForkFromMessageConfirmDialog'
 import { PlanReadyImplementFab } from '../sessions/PlanReadyImplementFab'
 import { ScrollToBottomFab } from '../sessions/ScrollToBottomFab'
@@ -1439,6 +1440,13 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           pendingPlan={pendingPlan}
           worktreePath={worktreePath}
           commandsVersion={commandsVersion}
+        />
+
+        {/* Phase 22A debug: collapsible view of the last Field Context injection. */}
+        <FieldContextDebug
+          sessionId={droidSessionId}
+          fallbackSessionIds={[sessionId]}
+          worktreeId={worktreeId}
         />
 
         <ForkFromMessageConfirmDialog

@@ -335,6 +335,11 @@ export function FileViewer({ filePath }: FileViewerProps): React.JSX.Element {
           key={`${filePath}-${reloadKey}`}
           content={content!}
           filePath={filePath}
+          worktreeId={
+            (useFileViewerStore.getState().openFiles.get(filePath) as
+              | { type: 'file'; worktreeId: string }
+              | undefined)?.worktreeId
+          }
           onContentChange={handleContentChange}
           onSave={handleSave}
         />
