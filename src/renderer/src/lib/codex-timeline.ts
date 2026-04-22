@@ -3,6 +3,7 @@ import {
   type OpenCodeMessage,
   type StreamingPart
 } from '@/lib/opencode-transcript'
+import { stripInjectedContextEnvelope } from '@shared/lib/timeline-mappers'
 
 function parseJson<T>(value: string | null): T | null {
   if (!value) return null
@@ -297,7 +298,10 @@ export function mapDbSessionMessagesToOpenCodeMessages(
     return {
       id: message.opencode_message_id ?? message.id,
       role: message.role,
-      content: message.content,
+      content:
+        message.role === 'user'
+          ? stripInjectedContextEnvelope(message.content)
+          : message.content,
       timestamp: message.created_at,
       parts: parts && parts.length > 0 ? parts : undefined
     }

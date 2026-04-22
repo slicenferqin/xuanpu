@@ -131,7 +131,7 @@ export function TerminalManager({
 
   return (
     <>
-      {allTabs.map(({ tabId, cwd, isActive }) => {
+      {allTabs.map(({ tabId, worktreeId, cwd, isActive }) => {
         const termRef = getTerminalRef(tabId)
 
         return (
@@ -140,7 +140,13 @@ export function TerminalManager({
             className={isActive ? 'h-full w-full' : 'hidden'}
             data-testid={`terminal-instance-${tabId}`}
           >
-            <TerminalView ref={termRef} terminalId={tabId} cwd={cwd} isVisible={isActive} />
+            <TerminalView
+              ref={termRef}
+              terminalId={tabId}
+              worktreeId={worktreeId}
+              cwd={cwd}
+              isVisible={isActive}
+            />
           </div>
         )
       })}
