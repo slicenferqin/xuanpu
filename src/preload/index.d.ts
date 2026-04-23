@@ -1446,6 +1446,79 @@ declare global {
         availability: import('../shared/types/skill').ProviderAvailability
       }>
     }
+
+    hubOps: {
+      getStatus: () => Promise<HubStatusSnapshot>
+      start: () => Promise<{ success: boolean; status?: HubStatusSnapshot; error?: string }>
+      stop: () => Promise<{ success: boolean; status?: HubStatusSnapshot; error?: string }>
+      startTunnel: () => Promise<{ success: boolean; tunnel: HubTunnelStatus }>
+      stopTunnel: () => Promise<{ success: boolean }>
+      setAuthMode: (mode: HubAuthMode) => Promise<{ success: boolean }>
+      getCfAccessEmails: () => Promise<{ emails: string[] }>
+      setCfAccessEmails: (emails: string[]) => Promise<{ success: boolean }>
+      setRequireDesktopConfirm: (value: boolean) => Promise<{ success: boolean }>
+      createUser: (args: {
+        setupKey: string
+        username: string
+        password: string
+      }) => Promise<{ success: boolean; error?: string }>
+      changePassword: (args: {
+        username: string
+        oldPassword: string
+        newPassword: string
+      }) => Promise<{ success: boolean; error?: string }>
+      pendingConfirmations: () => Promise<{ confirmations: HubPendingConfirmation[] }>
+      respondConfirmation: (args: {
+        confirmId: string
+        approve: boolean
+        reason?: string
+      }) => Promise<{ success: boolean }>
+      listTokens: () => Promise<{ tokens: HubTokenRow[] }>
+      createToken: (
+        name: string
+      ) => Promise<
+        { success: true; name: string; token: string; prefix: string } | { success: false; error: string }
+      >
+      revokeToken: (id: number) => Promise<{ success: boolean }>
+      onStatusChanged: (cb: (status: HubStatusSnapshot) => void) => () => void
+      onConfirmationRequested: (cb: (req: HubPendingConfirmation) => void) => () => void
+    }
+  }
+
+  type HubAuthMode = 'password' | 'cf_access' | 'hybrid'
+
+  type HubTunnelStatus =
+    | { state: 'stopped' }
+    | { state: 'starting' }
+    | { state: 'running'; url: string }
+    | { state: 'error'; message: string }
+
+  interface HubStatusSnapshot {
+    enabled: boolean
+    port: number | null
+    host: string | null
+    authMode: HubAuthMode
+    requireDesktopConfirm: boolean
+    tunnel: HubTunnelStatus
+    hasAdmin: boolean
+    setupKey: string | null
+  }
+
+  interface HubPendingConfirmation {
+    confirmId: string
+    hiveSessionId: string
+    preview: string
+    createdAt: number
+  }
+
+  interface HubTokenRow {
+    id: number
+    name: string
+    prefix: string
+    createdAt: number
+    lastUsed: number | null
+    lastDeviceId: string | null
+    disabled: boolean
   }
 
   interface GitDiffStatFile {

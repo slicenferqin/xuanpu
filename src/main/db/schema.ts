@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 19
+export const CURRENT_SCHEMA_VERSION = 20
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -541,7 +541,7 @@ export const MIGRATIONS: Migration[] = [
                 AND sm.role IN ('user', 'assistant')
            ),
            first_message_at
-          )
+         )
        WHERE first_message_at IS NULL
          AND EXISTS (
            SELECT 1 FROM session_messages sm
@@ -553,6 +553,63 @@ export const MIGRATIONS: Migration[] = [
   },
   {
     version: 17,
+    name: 'add_hub_tables',
+    // Hub mode: mobile/remote control over claude-code/codex sessions.
+    // See src/main/services/hub/* and docs/architecture/hub.md
+    up: `
+      CREATE TABLE IF NOT EXISTS hub_users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS hub_tokens (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL,
+        hash TEXT NOT NULL,
+        prefix TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        last_used INTEGER,
+        last_device_id TEXT,
+        disabled INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_hub_tokens_prefix ON hub_tokens(prefix);
+
+      CREATE TABLE IF NOT EXISTS hub_cookie_sessions (
+        id TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES hub_users(id) ON DELETE CASCADE,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_hub_cookie_sessions_expires
+        ON hub_cookie_sessions(expires_at);
+
+      CREATE TABLE IF NOT EXISTS hub_devices (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        hostname TEXT,
+        last_seen INTEGER,
+        online INTEGER NOT NULL DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS hub_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    `,
+    down: `
+      DROP TABLE IF EXISTS hub_settings;
+      DROP TABLE IF EXISTS hub_devices;
+      DROP INDEX IF EXISTS idx_hub_cookie_sessions_expires;
+      DROP TABLE IF EXISTS hub_cookie_sessions;
+      DROP INDEX IF EXISTS idx_hub_tokens_prefix;
+      DROP TABLE IF EXISTS hub_tokens;
+      DROP TABLE IF EXISTS hub_users;
+    `
+  },
+  {
+    version: 18,
     name: 'add_field_events',
     up: `
       -- Phase 21: Field Event Stream
@@ -598,7 +655,7 @@ export const MIGRATIONS: Migration[] = [
     `
   },
   {
-    version: 18,
+    version: 19,
     name: 'add_field_episodic_memory',
     up: `
       -- Phase 22B.1: Episodic Memory (per-worktree rolling summary)
@@ -622,7 +679,7 @@ export const MIGRATIONS: Migration[] = [
     `
   },
   {
-    version: 19,
+    version: 20,
     name: 'add_field_session_checkpoints',
     up: `
       -- Phase 24C: Session Checkpoint

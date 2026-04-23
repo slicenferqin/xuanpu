@@ -1976,6 +1976,51 @@ const fieldOps = {
     } | null>
 }
 
+// Hub mode (#34): mobile / remote-control over Claude Code sessions.
+// All channels prefix `hub:`; events are pushed via webContents.send.
+const hubOps = {
+  getStatus: () => ipcRenderer.invoke('hub:getStatus'),
+  start: () => ipcRenderer.invoke('hub:start'),
+  stop: () => ipcRenderer.invoke('hub:stop'),
+  startTunnel: () => ipcRenderer.invoke('hub:tunnel:start'),
+  stopTunnel: () => ipcRenderer.invoke('hub:tunnel:stop'),
+  setAuthMode: (mode: 'password' | 'cf_access' | 'hybrid') =>
+    ipcRenderer.invoke('hub:setAuthMode', mode),
+  getCfAccessEmails: () => ipcRenderer.invoke('hub:getCfAccessEmails'),
+  setCfAccessEmails: (emails: string[]) => ipcRenderer.invoke('hub:setCfAccessEmails', emails),
+  setRequireDesktopConfirm: (value: boolean) =>
+    ipcRenderer.invoke('hub:setRequireDesktopConfirm', value),
+  createUser: (args: { setupKey: string; username: string; password: string }) =>
+    ipcRenderer.invoke('hub:createUser', args),
+  changePassword: (args: { username: string; oldPassword: string; newPassword: string }) =>
+    ipcRenderer.invoke('hub:changePassword', args),
+  pendingConfirmations: () => ipcRenderer.invoke('hub:pendingConfirmations'),
+  respondConfirmation: (args: { confirmId: string; approve: boolean; reason?: string }) =>
+    ipcRenderer.invoke('hub:respondConfirmation', args),
+  listTokens: () => ipcRenderer.invoke('hub:listTokens'),
+  createToken: (name: string) => ipcRenderer.invoke('hub:createToken', { name }),
+  revokeToken: (id: number) => ipcRenderer.invoke('hub:revokeToken', { id }),
+  onStatusChanged: (callback: (status: unknown) => void): (() => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, status: unknown): void => callback(status)
+    ipcRenderer.on('hub:status-changed', handler)
+    return () => {
+      ipcRenderer.removeListener('hub:status-changed', handler)
+    }
+  },
+  onConfirmationRequested: (
+    callback: (req: { confirmId: string; hiveSessionId: string; preview: string }) => void
+  ): (() => void) => {
+    const handler = (
+      _e: Electron.IpcRendererEvent,
+      req: { confirmId: string; hiveSessionId: string; preview: string }
+    ): void => callback(req)
+    ipcRenderer.on('hub:confirmation-requested', handler)
+    return () => {
+      ipcRenderer.removeListener('hub:confirmation-requested', handler)
+    }
+  }
+}
+
 // Use `contextBridge` APIs to expose Electron APIs to
 // renderer only if context isolation is enabled, otherwise
 // just add to the DOM global.
@@ -1998,8 +2043,9 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('usageOps', usageOps)
     contextBridge.exposeInMainWorld('usageAnalyticsOps', usageAnalyticsOps)
     contextBridge.exposeInMainWorld('analyticsOps', analyticsOps)
-    contextBridge.exposeInMainWorld('fieldOps', fieldOps)
     contextBridge.exposeInMainWorld('skillOps', skillOps)
+    contextBridge.exposeInMainWorld('fieldOps', fieldOps)
+    contextBridge.exposeInMainWorld('hubOps', hubOps)
   } catch (error) {
     console.error(error)
   }
@@ -2039,7 +2085,9 @@ if (process.contextIsolated) {
   // @ts-expect-error (define in dts)
   window.analyticsOps = analyticsOps
   // @ts-expect-error (define in dts)
+  window.skillOps = skillOps
+  // @ts-expect-error (define in dts)
   window.fieldOps = fieldOps
   // @ts-expect-error (define in dts)
-  window.skillOps = skillOps
+  window.hubOps = hubOps
 }

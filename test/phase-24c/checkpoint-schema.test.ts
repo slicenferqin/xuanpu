@@ -26,8 +26,8 @@ afterEach(() => {
   rmSync(tmpDir, { recursive: true, force: true })
 })
 
-describe('field_session_checkpoints schema (Phase 24C v19)', () => {
-  it('migration v19 creates the table with expected columns', () => {
+describe('field_session_checkpoints schema (Phase 24C v20)', () => {
+  it('migration v20 creates the table with expected columns', () => {
     const cols = db
       .getDbHandle()
       .pragma('table_info(field_session_checkpoints)') as Array<{ name: string }>
@@ -124,7 +124,7 @@ describe('field_session_checkpoints schema (Phase 24C v19)', () => {
     expect(cols).not.toContain('stale_reason')
   })
 
-  it('schema version is 19', () => {
-    expect(db.getSchemaVersion()).toBe(19)
+  it('schema version is 20', () => {
+    expect(db.getSchemaVersion()).toBe(20)
   })
 })

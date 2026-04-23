@@ -6,8 +6,6 @@ import { promisify } from 'util'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs'
 import { electronApp, is } from '@electron-toolkit/utils'
 import { getDatabase, closeDatabase } from './db'
-import { getFieldEventSink } from './field/sink'
-import { getEpisodicMemoryUpdater } from './field/episodic-updater'
 import {
   registerDatabaseHandlers,
   registerProjectHandlers,
@@ -29,8 +27,8 @@ import {
   registerConnectionHandlers,
   registerUsageHandlers,
   registerTimelineHandlers,
-  registerFieldHandlers,
-  registerSkillHandlers
+  registerSkillHandlers,
+  registerHubHandlers
 } from './ipc'
 import { buildMenu, updateMenuState } from './menu'
 import type { MenuState } from './menu'
@@ -47,6 +45,7 @@ import { ClaudeCodeImplementer } from './services/claude-code-implementer'
 import { CodexImplementer } from './services/codex-implementer'
 import { openCodeService } from './services/opencode-service'
 import { AgentRuntimeManager } from './services/agent-runtime-manager'
+import { createHubController } from './services/hub/hub-controller'
 import { resolveClaudeBinaryPath } from './services/claude-binary-resolver'
 import { powerSaveBlockerService } from './services/power-save-blocker'
 import {
@@ -675,16 +674,6 @@ app.whenReady().then(async () => {
   log.info('Initializing database')
   getDatabase()
 
-  // Phase 21: eager-init the field event sink so the before-quit shutdown hook
-  // is registered before any quit signal can fire. See PRD §3.4.
-  log.info('Initializing field event sink')
-  getFieldEventSink()
-
-  // Phase 22B.1: eager-init the episodic memory updater so it subscribes to
-  // the bus and registers its periodic sweep before any field events flow.
-  log.info('Initializing episodic memory updater')
-  getEpisodicMemoryUpdater()
-
   // Initialize telemetry (must come after DB init since it reads/writes settings)
   telemetryService.init()
 
@@ -698,7 +687,6 @@ app.whenReady().then(async () => {
   registerFileHandlers()
   registerConnectionHandlers()
   registerUsageHandlers()
-  registerFieldHandlers()
   registerSkillHandlers()
 
   // Telemetry IPC
@@ -746,13 +734,22 @@ app.whenReady().then(async () => {
 
     // Create the canonical runtime manager
     const runtimeManager = new AgentRuntimeManager([openCodeService, claudeImpl, codexImpl])
-    runtimeManager.setMainWindow(mainWindow)
+
+    // Hub mode (#34): wrap mainWindow so agent IPC events fan out to mobile
+    // clients. The wrapped window is what runtime implementers call
+    // .webContents.send() on; the unwrapped window is still used by
+    // notificationService etc.
+    const hubController = createHubController({ runtimeManager, mainWindow })
+
+    runtimeManager.setMainWindow(hubController.wrappedWindow)
     agentRuntimeManager = runtimeManager
 
     const databaseService = getDatabase()
 
     log.info('Registering Agent handlers (canonical)')
     registerAgentHandlers(mainWindow, runtimeManager, databaseService)
+    log.info('Registering Hub handlers')
+    registerHubHandlers(mainWindow, hubController)
     log.info('Registering Timeline handlers')
     registerTimelineHandlers(runtimeManager)
     log.info('Registering FileTree handlers')
@@ -848,6 +845,16 @@ app.on('will-quit', async () => {
   await cleanupBranchWatchers()
   // Cleanup canonical agent handlers
   await cleanupAgentHandlers(agentRuntimeManager ?? undefined)
+  // Cleanup hub controller (stops server + tunnel)
+  try {
+    const { getHubController } = await import('./services/hub/hub-controller')
+    const ctrl = getHubController()
+    if (ctrl) await ctrl.stop()
+  } catch (err) {
+    log.warn('hub cleanup failed', {
+      error: err instanceof Error ? err.message : String(err)
+    })
+  }
   // Flush telemetry before closing database
   telemetryService.track('app_session_ended', {
     session_duration_ms: Date.now() - appStartTime
