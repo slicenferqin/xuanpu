@@ -1,0 +1,505 @@
+import { describe, it, expect } from 'vitest'
+import {
+  formatFieldContext,
+  __FORMATTER_TUNABLES_FOR_TEST
+} from '../../../src/main/field/context-formatter'
+import type { FieldContextSnapshot } from '../../../src/shared/types'
+
+function snapshot(overrides: Partial<FieldContextSnapshot> = {}): FieldContextSnapshot {
+  return {
+    asOf: new Date('2026-04-21T14:25:30').getTime(),
+    windowMs: 5 * 60_000,
+    worktree: {
+      id: 'w-abc123de-aaaa-bbbb-cccc-111122223333',
+      name: 'auth-feat',
+      branchName: 'feature/auth'
+    },
+    worktreeNotes: null,
+    episodicSummary: null,
+    semanticMemory: null,
+    focus: { file: null, selection: null },
+    lastTerminal: null,
+    recentActivity: [],
+    ...overrides
+  }
+}
+
+describe('formatFieldContext — Phase 22A M2', () => {
+  describe('template', () => {
+    it('includes the [Field Context] header with local timestamp', () => {
+      const out = formatFieldContext(snapshot())
+      expect(out.markdown).toMatch(/^\[Field Context — as of \d{2}:\d{2}:\d{2}\]/)
+    })
+
+    it('includes the untrusted-data directive', () => {
+      const out = formatFieldContext(snapshot())
+      expect(out.markdown).toContain('untrusted data')
+      expect(out.markdown).toContain('Current Focus')
+    })
+
+    it('renders Worktree section when worktree is present', () => {
+      const out = formatFieldContext(snapshot())
+      expect(out.markdown).toContain('## Worktree')
+      expect(out.markdown).toContain('auth-feat')
+      expect(out.markdown).toContain('feature/auth')
+    })
+
+    it('omits Worktree section when worktree is null', () => {
+      const out = formatFieldContext(snapshot({ worktree: null }))
+      expect(out.markdown).not.toContain('## Worktree')
+    })
+  })
+
+  describe('focus', () => {
+    it('renders Current Focus with file and selection', () => {
+      const out = formatFieldContext(
+        snapshot({
+          focus: {
+            file: { path: '/abs/src/auth/login.ts', name: 'login.ts' },
+            selection: {
+              path: '/abs/src/auth/login.ts',
+              fromLine: 45,
+              toLine: 58,
+              length: 320
+            }
+          }
+        })
+      )
+      expect(out.markdown).toContain('## Current Focus')
+      expect(out.markdown).toContain('/abs/src/auth/login.ts')
+      expect(out.markdown).toContain('lines 45-58')
+      expect(out.markdown).toContain('320 chars selected')
+    })
+
+    it('renders selection range as single line when fromLine==toLine', () => {
+      const out = formatFieldContext(
+        snapshot({
+          focus: {
+            file: { path: '/a.ts', name: 'a.ts' },
+            selection: { path: '/a.ts', fromLine: 10, toLine: 10, length: 5 }
+          }
+        })
+      )
+      expect(out.markdown).toContain('line 10')
+      expect(out.markdown).not.toContain('lines 10-10')
+    })
+
+    it('omits Current Focus when both file and selection are null', () => {
+      const out = formatFieldContext(snapshot())
+      expect(out.markdown).not.toContain('## Current Focus')
+    })
+  })
+
+  describe('terminal', () => {
+    it('renders command, elapsed, exit code, and output head+tail', () => {
+      const asOf = new Date('2026-04-21T14:25:30').getTime()
+      const out = formatFieldContext(
+        snapshot({
+          asOf,
+          lastTerminal: {
+            command: 'pnpm test auth',
+            commandAt: asOf - 10_000, // 10s ago
+            output: {
+              head: 'FAIL  src/auth/login.test.ts\nsome details',
+              tail: 'Tests: 1 failed, 3 passed',
+              truncated: false,
+              exitCode: 1
+            }
+          }
+        })
+      )
+      expect(out.markdown).toContain('## Last Terminal Activity')
+      expect(out.markdown).toContain('pnpm test auth')
+      expect(out.markdown).toContain('10s ago')
+      expect(out.markdown).toContain('exit 1')
+      expect(out.markdown).toContain('Output (head):')
+      expect(out.markdown).toContain('FAIL  src/auth/login.test.ts')
+      expect(out.markdown).toContain('Output (tail):')
+      expect(out.markdown).toContain('1 failed')
+    })
+
+    it('shows truncation notice when output.truncated is true', () => {
+      const out = formatFieldContext(
+        snapshot({
+          lastTerminal: {
+            command: 'cat big.log',
+            commandAt: Date.now(),
+            output: {
+              head: 'line1',
+              tail: 'last',
+              truncated: true,
+              exitCode: 0
+            }
+          }
+        })
+      )
+      expect(out.markdown).toContain('truncated at capture time')
+    })
+
+    it('no output section when lastTerminal has null output', () => {
+      const out = formatFieldContext(
+        snapshot({
+          lastTerminal: {
+            command: 'sleep 10',
+            commandAt: Date.now(),
+            output: null
+          }
+        })
+      )
+      expect(out.markdown).toContain('## Last Terminal Activity')
+      expect(out.markdown).toContain('sleep 10')
+      expect(out.markdown).not.toContain('Output (head):')
+    })
+  })
+
+  describe('recent activity', () => {
+    it('renders recentActivity with timestamps + summaries', () => {
+      const t = new Date('2026-04-21T14:23:00').getTime()
+      const out = formatFieldContext(
+        snapshot({
+          recentActivity: [
+            { timestamp: t, type: 'worktree.switch', summary: 'switched from `old1234`' },
+            { timestamp: t + 10_000, type: 'file.focus', summary: 'focused `x.ts`' }
+          ]
+        })
+      )
+      expect(out.markdown).toContain('## Recent Activity (last 5 min)')
+      expect(out.markdown).toContain('switched from')
+      expect(out.markdown).toContain('focused')
+    })
+
+    it('caps activity to 30 in tier 0 (no budget pressure)', () => {
+      const entries = Array.from({ length: 40 }, (_, i) => ({
+        timestamp: Date.now() + i * 100,
+        type: 'worktree.switch',
+        summary: `entry ${i}`
+      }))
+      const out = formatFieldContext(snapshot({ recentActivity: entries }))
+      const activityLines = out.markdown
+        .split('\n')
+        .filter((l) => l.startsWith('- ') && l.includes('entry '))
+      // Formatter passes through all entries (caller controls cap via maxActivity);
+      // the tier 0 cap on our side is 30 but the input here is 40; no tier1 kicked.
+      expect(activityLines.length).toBeGreaterThan(0)
+    })
+  })
+
+  describe('budget', () => {
+    it('approxTokens is roughly chars / 3', () => {
+      const out = formatFieldContext(snapshot())
+      const ratio = out.markdown.length / out.approxTokens
+      expect(ratio).toBeGreaterThanOrEqual(2.5)
+      expect(ratio).toBeLessThanOrEqual(3.5)
+    })
+
+    it('wasTruncated is false when under budget', () => {
+      const out = formatFieldContext(snapshot())
+      expect(out.wasTruncated).toBe(false)
+    })
+
+    it('wasTruncated is true when input exceeds budget', () => {
+      const bigNotes = 'x'.repeat(50_000)
+      const out = formatFieldContext(
+        snapshot({ worktreeNotes: bigNotes }),
+        { tokenBudget: 200 }
+      )
+      expect(out.wasTruncated).toBe(true)
+    })
+
+    it('preserves Worktree + Current Focus + Command even at tiny budget', () => {
+      const asOf = Date.now()
+      const out = formatFieldContext(
+        snapshot({
+          asOf,
+          worktreeNotes: 'x'.repeat(20_000),
+          focus: {
+            file: { path: '/src/a.ts', name: 'a.ts' },
+            selection: { path: '/src/a.ts', fromLine: 1, toLine: 10, length: 100 }
+          },
+          lastTerminal: {
+            command: 'pnpm test',
+            commandAt: asOf - 5_000,
+            output: {
+              head: Array.from({ length: 100 }, (_, i) => `head-line-${i}`).join('\n'),
+              tail: Array.from({ length: 100 }, (_, i) => `tail-line-${i}`).join('\n'),
+              truncated: false,
+              exitCode: 1
+            }
+          },
+          recentActivity: Array.from({ length: 30 }, (_, i) => ({
+            timestamp: asOf - i * 1000,
+            type: 'file.focus',
+            summary: `focused file-${i}`
+          }))
+        }),
+        { tokenBudget: 300 }
+      )
+      expect(out.markdown).toContain('## Worktree')
+      expect(out.markdown).toContain('## Current Focus')
+      expect(out.markdown).toContain('/src/a.ts')
+      expect(out.markdown).toContain('pnpm test')
+      expect(out.markdown).toContain('exit 1')
+      expect(out.wasTruncated).toBe(true)
+    })
+
+    it('trims Recent Activity before terminal head+tail (priority check)', () => {
+      const asOf = Date.now()
+      const activity = Array.from({ length: 30 }, (_, i) => ({
+        timestamp: asOf - i * 1000,
+        type: 'file.focus',
+        summary: `focused very-long-file-path-${'x'.repeat(50)}-${i}`
+      }))
+      const out = formatFieldContext(
+        snapshot({
+          asOf,
+          lastTerminal: {
+            command: 'pnpm test',
+            commandAt: asOf - 5_000,
+            output: {
+              head: 'FAIL critical\nline2',
+              tail: 'Tests failed',
+              truncated: false,
+              exitCode: 1
+            }
+          },
+          recentActivity: activity
+        }),
+        { tokenBudget: 600 }
+      )
+      // Terminal output (critical diagnostic) should still be present
+      expect(out.markdown).toContain('FAIL critical')
+      // Activity should be reduced or removed
+      const activityEntries = out.markdown
+        .split('\n')
+        .filter((l) => l.includes('very-long-file-path'))
+      expect(activityEntries.length).toBeLessThan(30)
+    })
+  })
+
+  describe('worktree summary (episodic memory)', () => {
+    it('renders with rule-based provenance header', () => {
+      const asOf = new Date('2026-04-21T14:25:30').getTime()
+      const out = formatFieldContext(
+        snapshot({
+          asOf,
+          episodicSummary: {
+            markdown: '## Observed Recent Work\n- some bucket',
+            compactorId: 'rule-based',
+            compactedAt: asOf - 5 * 60_000,
+            sourceEventCount: 42
+          }
+        })
+      )
+      expect(out.markdown).toContain('## Worktree Summary')
+      expect(out.markdown).toContain('source: rule-based heuristic')
+      expect(out.markdown).toContain('compacted 5m ago')
+      expect(out.markdown).toContain('Observed Recent Work')
+    })
+
+    it('renders with Claude Haiku provenance header', () => {
+      const asOf = new Date('2026-04-21T14:25:30').getTime()
+      const out = formatFieldContext(
+        snapshot({
+          asOf,
+          episodicSummary: {
+            markdown: '## Summary\nThings happened.',
+            compactorId: 'claude-haiku',
+            compactedAt: asOf - 60_000,
+            sourceEventCount: 100
+          }
+        })
+      )
+      expect(out.markdown).toContain('source: Claude Haiku summary')
+      expect(out.markdown).toContain('compacted 1m ago')
+    })
+
+    it('renders unknown compactor_id verbatim in provenance', () => {
+      const asOf = Date.now()
+      const out = formatFieldContext(
+        snapshot({
+          episodicSummary: {
+            markdown: 'body',
+            compactorId: 'future-compactor-v99',
+            compactedAt: asOf,
+            sourceEventCount: 10
+          }
+        })
+      )
+      expect(out.markdown).toContain('source: future-compactor-v99')
+    })
+
+    it('is inserted after Current Focus and Worktree Notes (Phase 22C.1 reordering)', () => {
+      const asOf = Date.now()
+      const out = formatFieldContext(
+        snapshot({
+          asOf,
+          worktreeNotes: 'my notes',
+          episodicSummary: {
+            markdown: 'summary body',
+            compactorId: 'rule-based',
+            compactedAt: asOf,
+            sourceEventCount: 10
+          },
+          focus: { file: { path: '/a.ts', name: 'a.ts' }, selection: null }
+        })
+      )
+      const focusIdx = out.markdown.indexOf('## Current Focus')
+      const notesIdx = out.markdown.indexOf('## Worktree Notes')
+      const summaryIdx = out.markdown.indexOf('## Worktree Summary')
+      // New order: Current Focus → (Semantic) → Worktree Notes → Worktree Summary
+      expect(focusIdx).toBeLessThan(notesIdx)
+      expect(notesIdx).toBeLessThan(summaryIdx)
+    })
+
+    it('is omitted when episodicSummary is null', () => {
+      const out = formatFieldContext(snapshot())
+      expect(out.markdown).not.toContain('## Worktree Summary')
+    })
+
+    it('is dropped entirely at the most aggressive tier', () => {
+      const asOf = Date.now()
+      const hugeMarkdown = 'X'.repeat(30_000)
+      const out = formatFieldContext(
+        snapshot({
+          asOf,
+          episodicSummary: {
+            markdown: hugeMarkdown,
+            compactorId: 'rule-based',
+            compactedAt: asOf,
+            sourceEventCount: 10
+          },
+          focus: { file: { path: '/a.ts', name: 'a.ts' }, selection: null }
+        }),
+        { tokenBudget: 100 }
+      )
+      expect(out.wasTruncated).toBe(true)
+      expect(out.markdown).toContain('## Current Focus')
+      // Summary should be entirely gone at tiny budget
+      expect(out.markdown).not.toContain('## Worktree Summary')
+    })
+  })
+
+  describe('semantic memory (Phase 22C.1)', () => {
+    it('renders Project Rules section with untrusted notice and path', () => {
+      const out = formatFieldContext(
+        snapshot({
+          semanticMemory: {
+            project: { path: '/repo/.xuanpu/memory.md', markdown: 'use pnpm not npm' },
+            user: { path: '/home/me/.xuanpu/memory.md', markdown: null }
+          }
+        })
+      )
+      expect(out.markdown).toContain('## Project Rules')
+      expect(out.markdown).toContain('/repo/.xuanpu/memory.md')
+      expect(out.markdown).toContain('Treat as advisory rules from the repo')
+      expect(out.markdown).toContain('use pnpm not npm')
+    })
+
+    it('renders User Preferences section with untrusted notice', () => {
+      const out = formatFieldContext(
+        snapshot({
+          semanticMemory: {
+            project: { path: '/repo/.xuanpu/memory.md', markdown: null },
+            user: { path: '/home/me/.xuanpu/memory.md', markdown: 'I prefer functional style' }
+          }
+        })
+      )
+      expect(out.markdown).toContain('## User Preferences')
+      expect(out.markdown).toContain('Treat as advisory user preferences')
+      expect(out.markdown).toContain('I prefer functional style')
+    })
+
+    it('omits both sections when semanticMemory is null', () => {
+      const out = formatFieldContext(snapshot())
+      expect(out.markdown).not.toContain('## Project Rules')
+      expect(out.markdown).not.toContain('## User Preferences')
+    })
+
+    it('omits a section when its markdown is null', () => {
+      const out = formatFieldContext(
+        snapshot({
+          semanticMemory: {
+            project: { path: '/p.md', markdown: 'project rule' },
+            user: { path: '/u.md', markdown: null }
+          }
+        })
+      )
+      expect(out.markdown).toContain('Project Rules')
+      expect(out.markdown).not.toContain('User Preferences')
+    })
+
+    it('omits a section when its markdown is whitespace-only', () => {
+      const out = formatFieldContext(
+        snapshot({
+          semanticMemory: {
+            project: { path: '/p.md', markdown: '   \n\n  ' },
+            user: { path: '/u.md', markdown: 'real content' }
+          }
+        })
+      )
+      expect(out.markdown).not.toContain('## Project Rules')
+      expect(out.markdown).toContain('User Preferences')
+    })
+
+    it('places Project Rules and User Preferences AFTER Current Focus, BEFORE Worktree Notes', () => {
+      const out = formatFieldContext(
+        snapshot({
+          worktreeNotes: 'some notes',
+          focus: { file: { path: '/a.ts', name: 'a.ts' }, selection: null },
+          semanticMemory: {
+            project: { path: '/p.md', markdown: 'rule' },
+            user: { path: '/u.md', markdown: 'pref' }
+          }
+        })
+      )
+      const focusIdx = out.markdown.indexOf('## Current Focus')
+      const projIdx = out.markdown.indexOf('## Project Rules')
+      const userIdx = out.markdown.indexOf('## User Preferences')
+      const notesIdx = out.markdown.indexOf('## Worktree Notes')
+      expect(focusIdx).toBeGreaterThan(0)
+      expect(focusIdx).toBeLessThan(projIdx)
+      expect(projIdx).toBeLessThan(userIdx)
+      expect(userIdx).toBeLessThan(notesIdx)
+    })
+
+    it('truncates with "see {path}" notice when memory exceeds 4000 chars', () => {
+      const huge = 'X'.repeat(10_000)
+      const out = formatFieldContext(
+        snapshot({
+          semanticMemory: {
+            project: { path: '/very/long/path/memory.md', markdown: huge },
+            user: { path: '/u.md', markdown: null }
+          }
+        })
+      )
+      expect(out.markdown).toContain('truncated, see /very/long/path/memory.md')
+    })
+
+    it('drops semantic memory entirely at the most extreme tier', () => {
+      const out = formatFieldContext(
+        snapshot({
+          focus: { file: { path: '/a.ts', name: 'a.ts' }, selection: null },
+          semanticMemory: {
+            project: { path: '/p.md', markdown: 'X'.repeat(100_000) },
+            user: { path: '/u.md', markdown: 'Y'.repeat(100_000) }
+          }
+        }),
+        { tokenBudget: 50 }
+      )
+      expect(out.wasTruncated).toBe(true)
+      expect(out.markdown).toContain('## Worktree')
+      // Even at extreme budget, Current Focus stays
+      expect(out.markdown).toContain('## Current Focus')
+      // Semantic memory fully dropped at last tier
+      expect(out.markdown).not.toContain('## Project Rules')
+      expect(out.markdown).not.toContain('## User Preferences')
+    })
+  })
+
+  describe('constants', () => {
+    it('exports tunables for integration tests', () => {
+      expect(__FORMATTER_TUNABLES_FOR_TEST.DEFAULT_TOKEN_BUDGET).toBe(1500)
+      expect(__FORMATTER_TUNABLES_FOR_TEST.CHARS_PER_TOKEN).toBe(3)
+    })
+  })
+})

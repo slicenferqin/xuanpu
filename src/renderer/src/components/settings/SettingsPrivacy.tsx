@@ -5,9 +5,50 @@ import { useI18n } from '@/i18n/useI18n'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 
+const FIELD_COLLECTION_SETTING_KEY = 'field_collection_enabled'
+const MEMORY_INJECTION_SETTING_KEY = 'include_memory_in_prompts'
+const BASH_OUTPUT_CAPTURE_SETTING_KEY = 'agent_bash_capture_output'
+
+interface ToggleProps {
+  label: string
+  description: string
+  enabled: boolean
+  onToggle: () => void
+}
+
+function Toggle({ label, description, enabled, onToggle }: ToggleProps): React.JSX.Element {
+  return (
+    <div className="flex items-center justify-between">
+      <div className="pr-4">
+        <label className="text-sm font-medium">{label}</label>
+        <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
+      </div>
+      <button
+        role="switch"
+        aria-checked={enabled}
+        onClick={onToggle}
+        className={cn(
+          'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
+          enabled ? 'bg-primary' : 'bg-muted'
+        )}
+      >
+        <span
+          className={cn(
+            'pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform',
+            enabled ? 'translate-x-4' : 'translate-x-0'
+          )}
+        />
+      </button>
+    </div>
+  )
+}
+
 export function SettingsPrivacy(): React.JSX.Element {
   const updateSetting = useSettingsStore((s) => s.updateSetting)
-  const [enabled, setEnabled] = useState(true)
+  const [analyticsEnabled, setAnalyticsEnabled] = useState(true)
+  const [fieldCollectionEnabled, setFieldCollectionEnabled] = useState(true)
+  const [memoryInjectionEnabled, setMemoryInjectionEnabled] = useState(true)
+  const [bashOutputCaptureEnabled, setBashOutputCaptureEnabled] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [platform, setPlatform] = useState<string | null>(null)
   const [fdaStatus, setFdaStatus] = useState<{ supported: boolean; granted: boolean } | null>(null)
@@ -15,17 +56,24 @@ export function SettingsPrivacy(): React.JSX.Element {
   const { t } = useI18n()
 
   useEffect(() => {
-    window.analyticsOps
-      .isEnabled()
-      .then((val) => {
-        setEnabled(val)
-        setLoaded(true)
-      })
-      .catch(() => {
-        setLoaded(true) // Fall back to default (enabled=true)
-      })
+    void Promise.all([
+      window.analyticsOps.isEnabled().catch(() => true),
+      window.db.setting.get(FIELD_COLLECTION_SETTING_KEY).catch(() => null),
+      window.db.setting.get(MEMORY_INJECTION_SETTING_KEY).catch(() => null),
+      window.db.setting.get(BASH_OUTPUT_CAPTURE_SETTING_KEY).catch(() => null)
+    ]).then(([analytics, fieldRaw, memoryRaw, bashRaw]) => {
+      setAnalyticsEnabled(analytics)
+      // Default ON when absent or any value other than the literal 'false'
+      setFieldCollectionEnabled(fieldRaw !== 'false')
+      setMemoryInjectionEnabled(memoryRaw !== 'false')
+      // Phase 21.5: default OFF — must be literally 'true' to enable, since
+      // bash output can contain secrets (API keys, env dumps, error tokens).
+      setBashOutputCaptureEnabled(bashRaw === 'true')
+      setLoaded(true)
+    })
   }, [])
 
+  // Phase: macOS Full Disk Access detection (from main)
   useEffect(() => {
     let cancelled = false
 
@@ -67,14 +115,32 @@ export function SettingsPrivacy(): React.JSX.Element {
     }
   }, [platform, refreshFdaStatus])
 
-  const handleToggle = () => {
-    const newValue = !enabled
-    setEnabled(newValue)
+  const handleAnalyticsToggle = (): void => {
+    const newValue = !analyticsEnabled
+    setAnalyticsEnabled(newValue)
     updateSetting('telemetryEnabled', newValue)
     window.analyticsOps.setEnabled(newValue)
   }
 
-  const handleOpenFdaSettings = async () => {
+  const handleFieldCollectionToggle = (): void => {
+    const newValue = !fieldCollectionEnabled
+    setFieldCollectionEnabled(newValue)
+    void window.db.setting.set(FIELD_COLLECTION_SETTING_KEY, String(newValue))
+  }
+
+  const handleMemoryInjectionToggle = (): void => {
+    const newValue = !memoryInjectionEnabled
+    setMemoryInjectionEnabled(newValue)
+    void window.db.setting.set(MEMORY_INJECTION_SETTING_KEY, String(newValue))
+  }
+
+  const handleBashOutputCaptureToggle = (): void => {
+    const newValue = !bashOutputCaptureEnabled
+    setBashOutputCaptureEnabled(newValue)
+    void window.db.setting.set(BASH_OUTPUT_CAPTURE_SETTING_KEY, String(newValue))
+  }
+
+  const handleOpenFdaSettings = async (): Promise<void> => {
     const result = await window.systemOps.openFullDiskAccessSettings()
     if (!result.success) {
       toast.error(result.error || t('settings.privacy.fda.openFailed'))
@@ -91,30 +157,32 @@ export function SettingsPrivacy(): React.JSX.Element {
         <p className="text-sm text-muted-foreground">{t('settings.privacy.description')}</p>
       </div>
 
-      {/* Toggle */}
-      <div className="flex items-center justify-between">
-        <div>
-          <label className="text-sm font-medium">{t('settings.privacy.analytics.label')}</label>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {t('settings.privacy.analytics.description')}
-          </p>
-        </div>
-        <button
-          role="switch"
-          aria-checked={enabled}
-          onClick={handleToggle}
-          className={cn(
-            'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
-            enabled ? 'bg-primary' : 'bg-muted'
-          )}
-        >
-          <span
-            className={cn(
-              'pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform',
-              enabled ? 'translate-x-4' : 'translate-x-0'
-            )}
-          />
-        </button>
+      {/* Toggles */}
+      <div className="space-y-5">
+        <Toggle
+          label={t('settings.privacy.analytics.label')}
+          description={t('settings.privacy.analytics.description')}
+          enabled={analyticsEnabled}
+          onToggle={handleAnalyticsToggle}
+        />
+        <Toggle
+          label={t('settings.privacy.fieldEvents.label')}
+          description={t('settings.privacy.fieldEvents.description')}
+          enabled={fieldCollectionEnabled}
+          onToggle={handleFieldCollectionToggle}
+        />
+        <Toggle
+          label={t('settings.privacy.memoryInjection.label')}
+          description={t('settings.privacy.memoryInjection.description')}
+          enabled={memoryInjectionEnabled}
+          onToggle={handleMemoryInjectionToggle}
+        />
+        <Toggle
+          label={t('settings.privacy.bashOutputCapture.label')}
+          description={t('settings.privacy.bashOutputCapture.description')}
+          enabled={bashOutputCaptureEnabled}
+          onToggle={handleBashOutputCaptureToggle}
+        />
       </div>
 
       {/* Info box */}

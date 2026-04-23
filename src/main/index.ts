@@ -798,6 +798,39 @@ app.on('window-all-closed', () => {
 
 // Cleanup when app is about to quit
 app.on('will-quit', async () => {
+  // Phase 24C: capture session checkpoints BEFORE the sink shuts down, so
+  // generators can still query recent events. Hard 2s timeout per PRD —
+  // shutdown safety > completeness.
+  try {
+    const { recordCheckpointsOnShutdown } = await import('./field/checkpoint-hooks')
+    await Promise.race([
+      recordCheckpointsOnShutdown(),
+      new Promise<void>((resolve) => setTimeout(resolve, 2000))
+    ])
+  } catch (err) {
+    log.warn('checkpoint shutdown failed', {
+      error: err instanceof Error ? err.message : String(err)
+    })
+  }
+  // Phase 22B.1: shut down the episodic memory updater first (before the sink),
+  // so it stops scheduling new compactions that would race with sink flush.
+  try {
+    await getEpisodicMemoryUpdater().shutdown()
+  } catch (err) {
+    log.warn('episodic memory updater shutdown failed', {
+      error: err instanceof Error ? err.message : String(err)
+    })
+  }
+  // Phase 21: ensure the field event sink has flushed before we close the DB.
+  // The sink's own `before-quit` hook normally handles this, but we call
+  // shutdown() defensively here too — it's idempotent.
+  try {
+    await getFieldEventSink().shutdown()
+  } catch (err) {
+    log.warn('field event sink shutdown failed', {
+      error: err instanceof Error ? err.message : String(err)
+    })
+  }
   // Cleanup updater timers
   updaterService.cleanup()
   // Cleanup terminal PTYs

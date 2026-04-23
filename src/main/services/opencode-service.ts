@@ -1289,6 +1289,20 @@ class OpenCodeService implements AgentSdkImplementer, AgentRuntimeAdapter {
     }
 
     emitAgentEvent(this.mainWindow, streamEvent)
+
+    // Phase 21.5: emit agent.* field event when a tool part completes.
+    // OpenCode streams tool parts via `message.part.updated`; we only emit
+    // when state.status transitions to a terminal state (completed/error).
+    // Sub-agent / child-session tool calls are skipped entirely (V1).
+    if (eventType === 'message.part.updated' && !isChildEvent) {
+      try {
+        this.maybeEmitAgentToolField(hiveSessionId, event)
+      } catch (err) {
+        log.debug('Phase 21.5 emit failed; continuing', {
+          error: err instanceof Error ? err.message : String(err)
+        })
+      }
+    }
   }
 
   /**
@@ -1530,6 +1544,72 @@ class OpenCodeService implements AgentSdkImplementer, AgentRuntimeAdapter {
   async cleanup(): Promise<void> {
     log.info('Cleaning up OpenCode instance')
     this.shutdownServer()
+  }
+
+  /**
+   * Phase 21.5: emit an agent.* field event when an OpenCode tool part
+   * reaches a terminal state (completed/error).
+   *
+   * OpenCode streams tool parts via `message.part.updated` events. A tool
+   * part carries `{ type: 'tool', callID, tool, state: { status, input,
+   * output, error, time } }`. Non-tool parts (text/reasoning) are ignored.
+   *
+   * Only terminal statuses trigger emission — mid-stream updates would
+   * produce duplicate events for the same tool_use_id.
+   */
+  private maybeEmitAgentToolField(
+    hiveSessionId: string,
+    event: {
+      properties?: {
+        part?: Record<string, unknown>
+      }
+    }
+  ): void {
+    const part = event.properties?.part
+    if (!part || part.type !== 'tool') return
+
+    const state = (part.state as Record<string, unknown> | undefined) ?? {}
+    const status = state.status as string | undefined
+    // Only emit on terminal transitions — avoids double-counting the stream
+    // of 'running' updates OpenCode sends as input_json_delta arrives.
+    if (status !== 'completed' && status !== 'error') return
+
+    const toolUseId = (part.callID as string) || (part.id as string) || ''
+    if (!toolUseId) return
+
+    const toolName = (part.tool as string) || 'unknown'
+    const input = (state.input as Record<string, unknown> | undefined) ?? {}
+    const outputText = state.output as string | undefined
+    const errorText = state.error as string | undefined
+    const stateTime = state.time as Record<string, number> | undefined
+    const durationMs =
+      stateTime?.start && stateTime?.end ? stateTime.end - stateTime.start : undefined
+
+    const db = getDatabase()
+    const hiveSession = db.getSession(hiveSessionId)
+    if (!hiveSession?.worktree_id) return
+    const worktreeRow = db.getWorktree(hiveSession.worktree_id)
+    if (!worktreeRow) return
+
+    void import('../field/emit-agent-tool').then(({ emitAgentToolEvent }) => {
+      emitAgentToolEvent({
+        worktreeId: worktreeRow.id,
+        projectId: worktreeRow.project_id ?? null,
+        sessionId: hiveSessionId,
+        worktreePath: worktreeRow.path,
+        toolName,
+        toolUseId,
+        // Child/subagent events are filtered at the caller (`!isChildEvent`).
+        parentToolUseId: null,
+        input,
+        output: {
+          text: status === 'error' ? undefined : outputText,
+          error: status === 'error' ? errorText ?? outputText : undefined,
+          exitCode: status === 'error' ? 1 : undefined,
+          durationMs
+        }
+      })
+    })
   }
 }
 

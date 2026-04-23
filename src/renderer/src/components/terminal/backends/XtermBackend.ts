@@ -158,6 +158,7 @@ export class XtermBackend implements TerminalBackend {
   private removeExitListener: (() => void) | null = null
   private inputDisposable: { dispose: () => void } | null = null
   private terminalId: string = ''
+  private worktreeId: string | undefined
   private ghosttyConfig: GhosttyTerminalConfig = {}
 
   /** Callback for the host to wire Cmd+F search toggling */
@@ -167,6 +168,7 @@ export class XtermBackend implements TerminalBackend {
 
   mount(container: HTMLDivElement, opts: TerminalOpts, callbacks: TerminalBackendCallbacks): void {
     this.terminalId = opts.terminalId
+    this.worktreeId = opts.worktreeId
     container.innerHTML = ''
 
     // Store config for theme rebuilding
@@ -314,7 +316,9 @@ export class XtermBackend implements TerminalBackend {
 
     // Create the PTY
     callbacks.onStatusChange('creating')
-    window.terminalOps.create(this.terminalId, opts.cwd, opts.shell).then((result) => {
+    window.terminalOps
+      .create(this.terminalId, opts.cwd, opts.shell, this.worktreeId)
+      .then((result) => {
       if (result.success) {
         callbacks.onStatusChange('running')
 

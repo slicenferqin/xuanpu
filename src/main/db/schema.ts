@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 17
+export const CURRENT_SCHEMA_VERSION = 20
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -179,6 +179,61 @@ CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at);
 CREATE INDEX IF NOT EXISTS idx_projects_accessed ON projects(last_accessed_at);
 CREATE INDEX IF NOT EXISTS idx_project_spaces_space ON project_spaces(space_id);
 CREATE INDEX IF NOT EXISTS idx_project_spaces_project ON project_spaces(project_id);
+
+-- Phase 21: Field Event Stream
+CREATE TABLE IF NOT EXISTS field_events (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT NOT NULL UNIQUE,
+  timestamp INTEGER NOT NULL,
+  worktree_id TEXT,
+  project_id TEXT,
+  session_id TEXT,
+  type TEXT NOT NULL,
+  related_event_id TEXT,
+  payload_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_field_events_worktree_ts ON field_events(worktree_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_field_events_project_ts ON field_events(project_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_field_events_type_ts ON field_events(type, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_field_events_ts ON field_events(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_field_events_session_ts ON field_events(session_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_field_events_related ON field_events(related_event_id) WHERE related_event_id IS NOT NULL;
+
+-- Phase 22B.1: Episodic Memory (per-worktree rolling summary)
+CREATE TABLE IF NOT EXISTS field_episodic_memory (
+  worktree_id TEXT PRIMARY KEY,
+  summary_markdown TEXT NOT NULL,
+  compactor_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  compacted_at INTEGER NOT NULL,
+  source_event_count INTEGER NOT NULL,
+  source_since INTEGER NOT NULL,
+  source_until INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_field_episodic_memory_compacted ON field_episodic_memory(compacted_at DESC);
+
+-- Phase 24C: Session Checkpoint (per-worktree resume hints)
+-- See docs/prd/phase-24c-session-checkpoint.md
+CREATE TABLE IF NOT EXISTS field_session_checkpoints (
+  id TEXT PRIMARY KEY,
+  created_at INTEGER NOT NULL,
+  worktree_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  branch TEXT,
+  repo_head TEXT,
+  source TEXT NOT NULL CHECK (source IN ('abort', 'shutdown')),
+  summary TEXT NOT NULL,
+  current_goal TEXT,
+  next_action TEXT,
+  blocking_reason TEXT,
+  hot_files_json TEXT NOT NULL,
+  hot_file_digests_json TEXT,
+  packet_hash TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_field_session_checkpoints_worktree_created
+  ON field_session_checkpoints(worktree_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_field_session_checkpoints_worktree_hash
+  ON field_session_checkpoints(worktree_id, packet_hash);
 `
 
 export interface Migration {
@@ -551,6 +606,116 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_hub_tokens_prefix;
       DROP TABLE IF EXISTS hub_tokens;
       DROP TABLE IF EXISTS hub_users;
+    `
+  },
+  {
+    version: 18,
+    name: 'add_field_events',
+    up: `
+      -- Phase 21: Field Event Stream
+      -- Append-only structured log of user actions observed by the main process.
+      -- See docs/prd/phase-21-field-events.md
+      --
+      -- No FKs to worktrees/sessions/projects: events are historical and survive
+      -- subject deletion. project_id is denormalized for cheap grouping.
+      -- seq AUTOINCREMENT gives stable total order even within the same millisecond.
+      CREATE TABLE IF NOT EXISTS field_events (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        timestamp INTEGER NOT NULL,
+        worktree_id TEXT,
+        project_id TEXT,
+        session_id TEXT,
+        type TEXT NOT NULL,
+        related_event_id TEXT,
+        payload_json TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_field_events_worktree_ts
+        ON field_events(worktree_id, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_events_project_ts
+        ON field_events(project_id, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_events_type_ts
+        ON field_events(type, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_events_ts
+        ON field_events(timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_events_session_ts
+        ON field_events(session_id, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_events_related
+        ON field_events(related_event_id) WHERE related_event_id IS NOT NULL;
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_field_events_related;
+      DROP INDEX IF EXISTS idx_field_events_session_ts;
+      DROP INDEX IF EXISTS idx_field_events_ts;
+      DROP INDEX IF EXISTS idx_field_events_type_ts;
+      DROP INDEX IF EXISTS idx_field_events_project_ts;
+      DROP INDEX IF EXISTS idx_field_events_worktree_ts;
+      DROP TABLE IF EXISTS field_events;
+    `
+  },
+  {
+    version: 19,
+    name: 'add_field_episodic_memory',
+    up: `
+      -- Phase 22B.1: Episodic Memory (per-worktree rolling summary)
+      -- See docs/prd/phase-22b-episodic-memory.md
+      CREATE TABLE IF NOT EXISTS field_episodic_memory (
+        worktree_id TEXT PRIMARY KEY,
+        summary_markdown TEXT NOT NULL,
+        compactor_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        compacted_at INTEGER NOT NULL,
+        source_event_count INTEGER NOT NULL,
+        source_since INTEGER NOT NULL,
+        source_until INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_field_episodic_memory_compacted
+        ON field_episodic_memory(compacted_at DESC);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_field_episodic_memory_compacted;
+      DROP TABLE IF EXISTS field_episodic_memory;
+    `
+  },
+  {
+    version: 20,
+    name: 'add_field_session_checkpoints',
+    up: `
+      -- Phase 24C: Session Checkpoint
+      -- Per-worktree resume hints generated on abort/shutdown.
+      -- See docs/prd/phase-24c-session-checkpoint.md
+      --
+      -- No status/stale_reason columns on purpose: verifier is a pure
+      -- read-only function that computes staleness from branch/HEAD/digest
+      -- at lookup time. Stale rows are superseded naturally by the next
+      -- generate (verifier only reads the most recent row).
+      CREATE TABLE IF NOT EXISTS field_session_checkpoints (
+        id TEXT PRIMARY KEY,
+        created_at INTEGER NOT NULL,
+        worktree_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        branch TEXT,
+        repo_head TEXT,
+        source TEXT NOT NULL CHECK (source IN ('abort', 'shutdown')),
+        summary TEXT NOT NULL,
+        current_goal TEXT,
+        next_action TEXT,
+        blocking_reason TEXT,
+        hot_files_json TEXT NOT NULL,
+        hot_file_digests_json TEXT,
+        packet_hash TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_field_session_checkpoints_worktree_created
+        ON field_session_checkpoints(worktree_id, created_at DESC);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_field_session_checkpoints_worktree_hash
+        ON field_session_checkpoints(worktree_id, packet_hash);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_field_session_checkpoints_worktree_hash;
+      DROP INDEX IF EXISTS idx_field_session_checkpoints_worktree_created;
+      DROP TABLE IF EXISTS field_session_checkpoints;
     `
   }
 ]

@@ -2,6 +2,14 @@ import { ipcMain } from 'electron'
 import { getDatabase } from '../db'
 import { createLogger } from '../services/logger'
 import { telemetryService } from '../services/telemetry-service'
+import {
+  setFieldCollectionEnabledCache,
+  setMemoryInjectionEnabledCache,
+  setBashOutputCaptureEnabledCache,
+  FIELD_COLLECTION_SETTING_KEY,
+  MEMORY_INJECTION_SETTING_KEY,
+  BASH_OUTPUT_CAPTURE_SETTING_KEY
+} from '../field/privacy'
 import type {
   ProjectCreate,
   ProjectUpdate,
@@ -25,11 +33,37 @@ export function registerDatabaseHandlers(): void {
 
   ipcMain.handle('db:setting:set', (_event, key: string, value: string) => {
     getDatabase().setSetting(key, value)
+    // Phase 21: keep the privacy cache synchronized with the DB write, in the
+    // same call path, so no event slips through with a stale cached value.
+    if (key === FIELD_COLLECTION_SETTING_KEY) {
+      setFieldCollectionEnabledCache(value !== 'false')
+    }
+    // Phase 22C.1: same pattern for memory injection toggle.
+    if (key === MEMORY_INJECTION_SETTING_KEY) {
+      setMemoryInjectionEnabledCache(value !== 'false')
+    }
+    // Phase 21.5: same pattern for agent bash output capture toggle.
+    // Default OFF — must be literally 'true' to enable.
+    if (key === BASH_OUTPUT_CAPTURE_SETTING_KEY) {
+      setBashOutputCaptureEnabledCache(value === 'true')
+    }
     return true
   })
 
   ipcMain.handle('db:setting:delete', (_event, key: string) => {
     getDatabase().deleteSetting(key)
+    // Phase 21: deleting the setting reverts to the default (enabled).
+    if (key === FIELD_COLLECTION_SETTING_KEY) {
+      setFieldCollectionEnabledCache(true)
+    }
+    // Phase 22C.1: same.
+    if (key === MEMORY_INJECTION_SETTING_KEY) {
+      setMemoryInjectionEnabledCache(true)
+    }
+    // Phase 21.5: delete reverts bash output capture to default OFF.
+    if (key === BASH_OUTPUT_CAPTURE_SETTING_KEY) {
+      setBashOutputCaptureEnabledCache(false)
+    }
     return true
   })
 
