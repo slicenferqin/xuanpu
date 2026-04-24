@@ -22,7 +22,7 @@
  * cloudflared binary on disk.
  */
 
-import { spawn as nodeSpawn, type ChildProcessWithoutNullStreams } from 'child_process'
+import { spawn as nodeSpawn, spawnSync, type ChildProcessWithoutNullStreams } from 'child_process'
 import { EventEmitter } from 'events'
 import { existsSync } from 'fs'
 import path from 'path'
@@ -266,8 +266,32 @@ export function defaultResolveCloudflaredBinary(): string | null {
   for (const p of candidates) {
     if (existsSync(p)) return p
   }
-  // PATH fallback.
-  return null
+  // PATH fallback — last resort so devs can pre-install via homebrew
+  // (`brew install cloudflared`) and packaged builds that somehow shipped
+  // without the bundled binary still work if the user installed one.
+  return resolveOnPath(binName)
+}
+
+/**
+ * Look up `binName` on the user's $PATH. Uses `/usr/bin/which` on POSIX and
+ * `where.exe` on Windows. Returns null when not found.
+ *
+ * Why not iterate process.env.PATH ourselves? `which`/`where` already handle
+ * the per-shell quirks (PATHEXT on Windows, executable bits on POSIX) and
+ * work even when PATH was inherited from the GUI launchd context (which
+ * doesn't include /opt/homebrew/bin by default — there's nothing we can do
+ * about that, but `which` will at least give a definitive answer).
+ */
+function resolveOnPath(binName: string): string | null {
+  try {
+    const cmd = process.platform === 'win32' ? 'where' : '/usr/bin/which'
+    const result = spawnSync(cmd, [binName], { encoding: 'utf8' })
+    if (result.status !== 0) return null
+    const first = result.stdout.split(/\r?\n/).map((l) => l.trim()).find(Boolean)
+    return first && existsSync(first) ? first : null
+  } catch {
+    return null
+  }
 }
 
 export function detectPlatform(): string | null {

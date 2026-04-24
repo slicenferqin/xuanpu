@@ -31,6 +31,13 @@ import type { BrowserWindow, WebContents } from 'electron'
 import type { CanonicalAgentEvent } from '../../../shared/types/agent-protocol'
 import type { AgentRuntimeManager } from '../agent-runtime-manager'
 import type { AgentRuntimeAdapter } from '../agent-runtime-types'
+import type {
+  TimelineMessage,
+  StreamingPart,
+  ToolUseInfo
+} from '../../../shared/lib/timeline-types'
+import { getSessionTimeline } from '../session-timeline-service'
+import { stripInjectedContextEnvelope } from '../../../shared/lib/timeline-mappers'
 import { HubRegistry, type HubSubscriber } from './hub-registry'
 import {
   type ClientMsg,
@@ -65,6 +72,24 @@ export interface HubBridgeOptions {
   registry: HubRegistry
   runtimeManager: AgentRuntimeManager
   confirmer: PromptConfirmer
+  /**
+   * Gate for the desktop twice-confirm flow. When this returns `false`, a
+   * mobile `prompt` is forwarded to the runtime immediately without asking
+   * the desktop user to approve. Evaluated fresh on every incoming prompt,
+   * so toggling the setting in the UI takes effect for the next message.
+   * Defaults to `() => true` (always confirm — safest pre-existing behavior).
+   */
+  shouldConfirmPrompt?: () => boolean
+  /**
+   * Fallback routing resolver used when the bridge has no explicit
+   * `registerSessionRouting()` entry for an incoming `hiveSessionId`. Lets
+   * the Hub light up for any desktop-opened session without requiring every
+   * session creation site to call into the hub. Returning `null` keeps the
+   * old behavior (`SESSION_NOT_FOUND`).
+   */
+  routingResolver?: (
+    hiveSessionId: string
+  ) => { worktreePath: string; agentSessionId: string } | null
   /** Override for tests. */
   now?: () => number
   /** Defaults to 'claude-code' (M1 only supports Claude). */
@@ -143,17 +168,33 @@ export class HubBridge {
   private readonly registry: HubRegistry
   private readonly runtimeManager: AgentRuntimeManager
   private readonly confirmer: PromptConfirmer
+  private readonly shouldConfirmPrompt: () => boolean
+  private readonly routingResolver: (
+    hiveSessionId: string
+  ) => { worktreePath: string; agentSessionId: string } | null
   private readonly primaryRuntimeId: AgentRuntimeAdapter['id']
   private readonly now: () => number
   /** worktreePath per hive session — needed to call runtime methods. */
   private readonly worktreePaths = new Map<string, string>()
   /** agent-session-id per hive session. */
   private readonly agentSessionIds = new Map<string, string>()
+  /**
+   * Active streaming assistant message per hive session. Used by the bridge
+   * to coalesce many `message.part.updated` events into a single HubMessage
+   * bubble on the mobile UI. Cleared on `message.updated` / `session.idle`,
+   * so the NEXT assistant turn opens a new bubble.
+   */
+  private readonly streamingMsgs = new Map<
+    string,
+    { hubMsgId: string; partIdx: Map<string, number>; nextPartIdx: number }
+  >()
 
   constructor(opts: HubBridgeOptions) {
     this.registry = opts.registry
     this.runtimeManager = opts.runtimeManager
     this.confirmer = opts.confirmer
+    this.shouldConfirmPrompt = opts.shouldConfirmPrompt ?? (() => true)
+    this.routingResolver = opts.routingResolver ?? (() => null)
     this.primaryRuntimeId = opts.primaryRuntimeId ?? 'claude-code'
     this.now = opts.now ?? Date.now
   }
@@ -178,6 +219,28 @@ export class HubBridge {
     this.agentSessionIds.delete(hiveSessionId)
   }
 
+  /**
+   * Pull the last `limit` durable messages for a session out of SQLite and
+   * translate them into HubMessages so the mobile UI can show prior turns
+   * the moment a phone reconnects to a session. Falls back to `[]` on any
+   * error — the live stream still works.
+   */
+  getHistorySnapshot(hiveSessionId: string, limit = 10): HubMessage[] {
+    try {
+      const result = getSessionTimeline(hiveSessionId)
+      const tail = result.messages.slice(-limit)
+      return tail
+        .map((m, idx) => translateTimelineMessage(m, idx))
+        .filter((m): m is HubMessage => m !== null)
+    } catch (err) {
+      log.warn('getHistorySnapshot failed', {
+        hiveSessionId,
+        error: err instanceof Error ? err.message : String(err)
+      })
+      return []
+    }
+  }
+
   // ── outbound (runtime → mobile) ──────────────────────────────────────────
 
   /**
@@ -199,6 +262,15 @@ export class HubBridge {
     const deviceId = this.registry.localDeviceId
     const hiveSessionId = ev.sessionId
     const frames = this.translate(ev)
+    const subCount = this.registry.subscriberCount(deviceId, hiveSessionId)
+    log.info('bridge: outbound', {
+      evType: ev.type,
+      hiveSessionId,
+      deviceId,
+      frameCount: frames?.length ?? 0,
+      subscribers: subCount
+    })
+    if (!frames) return
     for (const partial of frames) {
       const seq = this.registry.nextSeq(deviceId, hiveSessionId)
       const frame = { ...partial, seq } as ServerMsg
@@ -219,6 +291,12 @@ export class HubBridge {
         const status = mapStatus(raw?.type)
         if (status === null) return []
         this.registry.setStatus(this.registry.localDeviceId, ev.sessionId, status)
+        // An assistant turn is "done" when the session goes idle. Clearing
+        // the streaming buffer here (and ONLY here) guarantees each turn
+        // stays coalesced into one bubble, while the next turn opens a
+        // fresh one. `message.updated` fires on every usage refresh from
+        // the Claude SDK so it is NOT a reliable turn boundary.
+        if (status === 'idle') this.streamingMsgs.delete(ev.sessionId)
         return [{ type: 'status', seq: 0, status }]
       }
       case 'permission.asked': {
@@ -250,13 +328,118 @@ export class HubBridge {
           }
         ]
       }
+      case 'message.part.updated': {
+        // Coalesce part updates into a single live "assistant" HubMessage per
+        // session — first event opens the bubble via `message/append`, every
+        // subsequent text delta becomes an `appendText` op, every tool update
+        // becomes `replacePart` (status flips from running → completed/error).
+        // Result on the mobile UI: one IM-style bubble that streams in place.
+        const d = ev.data as { part?: Record<string, unknown>; delta?: string }
+        const rawPart = d.part
+        if (!rawPart || typeof rawPart !== 'object') return []
+        const pType = (rawPart as { type?: unknown }).type
+        let partKey: string
+        let initialPart: HubPart
+        let textDelta: string | null = null
+        if (pType === 'text' || pType === 'reasoning') {
+          partKey = pType
+          textDelta =
+            typeof d.delta === 'string'
+              ? d.delta
+              : typeof (rawPart as { text?: unknown }).text === 'string'
+                ? ((rawPart as { text: string }).text)
+                : ''
+          if (!textDelta) return []
+          initialPart = { type: 'text', text: textDelta }
+        } else if (pType === 'tool') {
+          const tool = rawPart as {
+            callID?: string
+            tool?: string
+            state?: { input?: unknown; status?: string; output?: unknown; error?: unknown }
+          }
+          const callId = tool.callID ?? ev.eventId
+          partKey = `tool:${callId}`
+          initialPart = {
+            type: 'tool_use',
+            toolUseId: callId,
+            name: tool.tool ?? 'tool',
+            input: tool.state?.input,
+            pending:
+              tool.state?.status !== 'completed' && tool.state?.status !== 'error'
+          }
+        } else {
+          // Unknown part shape (e.g. compaction). Drop quietly.
+          return []
+        }
+
+        const sessionId = ev.sessionId
+        let stream = this.streamingMsgs.get(sessionId)
+
+        if (!stream) {
+          // Open a new assistant bubble seeded with this first part.
+          const hubMsgId = `mb-${sessionId}-${this.now()}-${Math.random()
+            .toString(36)
+            .slice(2, 6)}`
+          stream = {
+            hubMsgId,
+            partIdx: new Map([[partKey, 0]]),
+            nextPartIdx: 1
+          }
+          this.streamingMsgs.set(sessionId, stream)
+          const message: HubMessage = {
+            id: hubMsgId,
+            role: 'assistant',
+            ts: this.now(),
+            seq: 0,
+            parts: [initialPart]
+          }
+          return [{ type: 'message/append', seq: 0, message }]
+        }
+
+        const existingIdx = stream.partIdx.get(partKey)
+        if (existingIdx !== undefined) {
+          if (textDelta !== null) {
+            // Append the new chunk to the live text part — mobile UI grows
+            // the same bubble in place.
+            return [
+              {
+                type: 'message/update',
+                seq: 0,
+                messageId: stream.hubMsgId,
+                patch: { op: 'appendText', partIdx: existingIdx, value: textDelta }
+              }
+            ]
+          }
+          // Tool status update — replace the whole part (so pending → done
+          // and `input`/`output` get refreshed).
+          return [
+            {
+              type: 'message/update',
+              seq: 0,
+              messageId: stream.hubMsgId,
+              patch: { op: 'replacePart', partIdx: existingIdx, value: initialPart }
+            }
+          ]
+        }
+
+        // First time this partKey appears in the current bubble — append it.
+        stream.partIdx.set(partKey, stream.nextPartIdx)
+        stream.nextPartIdx += 1
+        return [
+          {
+            type: 'message/update',
+            seq: 0,
+            messageId: stream.hubMsgId,
+            patch: { op: 'appendPart', value: initialPart }
+          }
+        ]
+      }
       case 'message.updated':
-      case 'message.part.updated':
+      case 'session.idle':
       case 'session.materialized':
       case 'session.updated':
       case 'session.warning':
       case 'session.error':
-      case 'session.idle':
       case 'session.context_compacted':
       case 'session.compaction_started':
       case 'session.commands_available':
@@ -270,17 +453,10 @@ export class HubBridge {
       case 'command.approval_problem':
       case 'plan.ready':
       case 'plan.resolved': {
-        // Generic fall-through: wrap raw event in a HubMessage with one
-        // UnknownPart so the mobile UI can render it as "agent activity".
-        const part: HubPart = { type: 'unknown', raw: ev }
-        const message: HubMessage = {
-          id: ev.eventId,
-          role: 'assistant',
-          ts: this.now(),
-          seq: 0, // filled in by caller via frame.seq
-          parts: [part]
-        }
-        return [{ type: 'message/append', seq: 0, message }]
+        // Metadata / lifecycle events with no user-visible content. Status
+        // is already pushed via the dedicated `status` frame, so drop the
+        // rest to keep the mobile timeline readable.
+        return []
       }
     }
   }
@@ -311,30 +487,32 @@ export class HubBridge {
     switch (msg.type) {
       case 'prompt': {
         if (!routing) return
-        const confirmId = `confirm-${this.now()}-${Math.random().toString(36).slice(2, 8)}`
-        const timer: Promise<{ approved: boolean; reason?: string }> = new Promise(
-          (_, reject) =>
-            setTimeout(() => reject(new Error('CONFIRM_TIMEOUT')), CONFIRM_TIMEOUT_MS)
-        )
-        try {
-          const result = await Promise.race([
-            this.confirmer.confirm({
-              confirmId,
-              hiveSessionId,
-              preview: msg.text
-            }),
-            timer
-          ])
-          if (!result.approved) {
-            this.emitError(ws, 'BAD_REQUEST', result.reason ?? 'prompt rejected')
-            return
+        if (this.shouldConfirmPrompt()) {
+          const confirmId = `confirm-${this.now()}-${Math.random().toString(36).slice(2, 8)}`
+          const timer: Promise<{ approved: boolean; reason?: string }> = new Promise(
+            (_, reject) =>
+              setTimeout(() => reject(new Error('CONFIRM_TIMEOUT')), CONFIRM_TIMEOUT_MS)
+          )
+          try {
+            const result = await Promise.race([
+              this.confirmer.confirm({
+                confirmId,
+                hiveSessionId,
+                preview: msg.text
+              }),
+              timer
+            ])
+            if (!result.approved) {
+              this.emitError(ws, 'BAD_REQUEST', result.reason ?? 'prompt rejected')
+              return
+            }
+          } catch (err) {
+            if (err instanceof Error && err.message === 'CONFIRM_TIMEOUT') {
+              this.emitError(ws, 'CONFIRM_TIMEOUT', 'desktop confirmation timed out')
+              return
+            }
+            throw err
           }
-        } catch (err) {
-          if (err instanceof Error && err.message === 'CONFIRM_TIMEOUT') {
-            this.emitError(ws, 'CONFIRM_TIMEOUT', 'desktop confirmation timed out')
-            return
-          }
-          throw err
         }
         await runtime.prompt(routing.worktreePath, routing.agentSessionId, msg.text)
         return
@@ -385,8 +563,19 @@ export class HubBridge {
   ): { worktreePath: string; agentSessionId: string } | null {
     const worktreePath = this.worktreePaths.get(hiveSessionId)
     const agentSessionId = this.agentSessionIds.get(hiveSessionId)
-    if (!worktreePath || !agentSessionId) return null
-    return { worktreePath, agentSessionId }
+    if (worktreePath && agentSessionId) {
+      return { worktreePath, agentSessionId }
+    }
+    // Fallback: ask the runtime directly. Cache the answer so subsequent
+    // messages for the same session don't pay the lookup cost, and so that
+    // `forgetSession()` still works as the cleanup hook.
+    const resolved = this.routingResolver(hiveSessionId)
+    if (resolved) {
+      this.worktreePaths.set(hiveSessionId, resolved.worktreePath)
+      this.agentSessionIds.set(hiveSessionId, resolved.agentSessionId)
+      return resolved
+    }
+    return null
   }
 
   private emitError(ws: HubSubscriber, code: HubErrorCode, message?: string): void {
@@ -411,12 +600,108 @@ function mapStatus(raw: string | undefined): HubSessionStatus | null {
   }
 }
 
+// ─── Timeline → HubMessage translation ─────────────────────────────────────
+
+function translateStreamingPart(p: StreamingPart): HubPart | null {
+  switch (p.type) {
+    case 'text': {
+      const text = typeof p.text === 'string' ? p.text : ''
+      if (!text) return null
+      return { type: 'text', text }
+    }
+    case 'reasoning': {
+      // Mobile has no dedicated reasoning type — render as plain text so
+      // the user at least sees Claude's prior thinking in the bubble.
+      const text = typeof p.reasoning === 'string' ? p.reasoning : p.text ?? ''
+      if (!text) return null
+      return { type: 'text', text }
+    }
+    case 'tool_use': {
+      const t: ToolUseInfo | undefined = p.toolUse
+      if (!t) return null
+      return {
+        type: 'tool_use',
+        toolUseId: t.id,
+        name: t.name,
+        input: t.input,
+        pending: t.status === 'pending' || t.status === 'running'
+      }
+    }
+    // subtask / step_start / step_finish / compaction — skip in M1 so the
+    // mobile timeline stays readable. We can surface them later as chips.
+    default:
+      return null
+  }
+}
+
+// Mirror desktop chat UI: strip `<task-notification>…</task-notification>`
+// blocks from rendered text. Kept inline because content-sanitizer lives under
+// src/renderer which main can't import. Keep in sync with
+// src/renderer/src/lib/content-sanitizer.ts.
+const TASK_NOTIFICATION_RE = /<task-notification>\s*([\s\S]*?)\s*<\/task-notification>/gi
+function stripTaskNotifications(s: string): string {
+  return s.replace(TASK_NOTIFICATION_RE, '').trim()
+}
+
+function sanitizeText(role: 'user' | 'assistant' | 'system', text: string): string {
+  let out = text
+  if (role === 'user') out = stripInjectedContextEnvelope(out)
+  out = stripTaskNotifications(out)
+  return out
+}
+
+function translateTimelineMessage(msg: TimelineMessage, idx: number): HubMessage | null {
+  // Desktop UI hides system role entirely (AgentTimeline.tsx).
+  if (msg.role === 'system') return null
+  const role = msg.role === 'user' ? 'user' : 'assistant'
+
+  let parts: HubPart[] = []
+  if (msg.parts && msg.parts.length > 0) {
+    parts = msg.parts
+      .map(translateStreamingPart)
+      .filter((p): p is HubPart => p !== null)
+      .map((p) => {
+        if (p.type === 'text') {
+          const cleaned = sanitizeText(role, p.text)
+          return cleaned ? { ...p, text: cleaned } : null
+        }
+        return p
+      })
+      .filter((p): p is HubPart => p !== null)
+  }
+  // Fall back to the flattened content text when the message has no
+  // structured parts (e.g. legacy rows).
+  if (parts.length === 0 && typeof msg.content === 'string' && msg.content.trim() !== '') {
+    const cleaned = sanitizeText(role, msg.content)
+    if (cleaned) parts = [{ type: 'text', text: cleaned }]
+  }
+  if (parts.length === 0) return null
+  const ts = (() => {
+    const n = Date.parse(msg.timestamp)
+    return Number.isFinite(n) ? n : 0
+  })()
+  return {
+    id: msg.id,
+    role,
+    ts,
+    // seq monotonically orders history within the snapshot. Live frames
+    // continue from the registry's own counter; snapshot replaces state
+    // on the client so there's no collision risk.
+    seq: idx,
+    parts
+  }
+}
+
 // ─── Factory ────────────────────────────────────────────────────────────────
 
 export interface CreateHubBridgeDeps {
   registry: HubRegistry
   runtimeManager: AgentRuntimeManager
   confirmer: PromptConfirmer
+  shouldConfirmPrompt?: () => boolean
+  routingResolver?: (
+    hiveSessionId: string
+  ) => { worktreePath: string; agentSessionId: string } | null
 }
 
 export function createHubBridge(deps: CreateHubBridgeDeps): HubBridge {

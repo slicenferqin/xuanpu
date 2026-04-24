@@ -145,6 +145,62 @@ export class DatabaseService {
     this.ensureUsageAnalyticsTables()
     this.ensureFieldEventsTable()
     this.ensureEpisodicMemoryTable()
+    this.ensureHubTables()
+  }
+
+  /**
+   * Idempotently ensure the hub-mode tables exist.
+   *
+   * Migration v17 (`add_hub_tables`) is skipped on DBs whose `schema_version`
+   * was already ≥17 from an older branch where v17 meant something else
+   * (`add_field_events`). Without this repair the renderer crashes the moment
+   * it opens the "远程访问 (Hub)" settings panel because `getStatus()` queries
+   * `hub_users` / `hub_settings` directly. See src/main/services/hub/*.
+   */
+  private ensureHubTables(): void {
+    const db = this.getDb()
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS hub_users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS hub_tokens (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL,
+        hash TEXT NOT NULL,
+        prefix TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        last_used INTEGER,
+        last_device_id TEXT,
+        disabled INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_hub_tokens_prefix ON hub_tokens(prefix);
+
+      CREATE TABLE IF NOT EXISTS hub_cookie_sessions (
+        id TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES hub_users(id) ON DELETE CASCADE,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_hub_cookie_sessions_expires
+        ON hub_cookie_sessions(expires_at);
+
+      CREATE TABLE IF NOT EXISTS hub_devices (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        hostname TEXT,
+        last_seen INTEGER,
+        online INTEGER NOT NULL DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS hub_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    `)
   }
 
   /**

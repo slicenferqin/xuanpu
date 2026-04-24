@@ -121,7 +121,46 @@ export class HubController extends EventEmitter {
     this.bridge = createHubBridge({
       registry: this.registry,
       runtimeManager: opts.runtimeManager,
-      confirmer
+      confirmer,
+      // Read the live setting on each prompt so toggling the UI takes effect
+      // immediately. Default to true (require confirm) when the setting is
+      // missing or malformed — fail-safe.
+      shouldConfirmPrompt: () => {
+        try {
+          const db = getDatabase().getDb()
+          const row = db
+            .prepare('SELECT value FROM hub_settings WHERE key = ?')
+            .get('require_desktop_confirm') as { value: string } | undefined
+          // Stored as '1' (on) or '0' (off). Anything else (including missing
+          // row) is treated as on.
+          return row?.value !== '0'
+        } catch (err) {
+          log.warn('shouldConfirmPrompt: failed to read setting, defaulting to true', {
+            error: err instanceof Error ? err.message : String(err)
+          })
+          return true
+        }
+      },
+      // No callsite ever invokes registerSessionRouting() in M1 — the bridge
+      // would always answer SESSION_NOT_FOUND otherwise. Fall back to asking
+      // the runtime by hiveSessionId so any desktop-opened session is
+      // controllable from the mobile UI without extra plumbing.
+      routingResolver: (hiveSessionId) => {
+        try {
+          const impl = opts.runtimeManager.getImplementer('claude-code') as unknown as {
+            findRoutingByHive?: (
+              h: string
+            ) => { worktreePath: string; agentSessionId: string } | null
+          }
+          return impl.findRoutingByHive?.(hiveSessionId) ?? null
+        } catch (err) {
+          log.warn('routingResolver: lookup failed', {
+            hiveSessionId,
+            error: err instanceof Error ? err.message : String(err)
+          })
+          return null
+        }
+      }
     })
 
     this.wrappedWindow = wrapBrowserWindow(opts.mainWindow, this.bridge)
