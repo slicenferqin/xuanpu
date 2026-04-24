@@ -28,6 +28,7 @@ import {
   type EpisodicCompactor,
   type CompactionOutput
 } from './episodic-compactor'
+import { ClaudeHaikuCompactor } from './claude-haiku-compactor'
 import type { FieldEvent } from '../../shared/types'
 
 const log = createLogger({ component: 'EpisodicMemoryUpdater' })
@@ -80,6 +81,7 @@ export interface EpisodicUpdaterCounters {
   compactions_skipped_invalid: number
   compactions_failed: number
   compactions_skipped_privacy: number
+  compactions_fallback_used: number
   last_compaction_at: number
 }
 
@@ -93,6 +95,7 @@ class EpisodicMemoryUpdater {
   private unsubscribeEmit: (() => void) | null = null
   private isShuttingDown = false
   private compactor: EpisodicCompactor
+  private fallback: EpisodicCompactor | null
 
   private counters: EpisodicUpdaterCounters = {
     compactions_attempted: 0,
@@ -102,14 +105,26 @@ class EpisodicMemoryUpdater {
     compactions_skipped_invalid: 0,
     compactions_failed: 0,
     compactions_skipped_privacy: 0,
+    compactions_fallback_used: 0,
     last_compaction_at: 0
   }
 
   constructor(
-    compactor: EpisodicCompactor = new RuleBasedCompactor(),
-    private readonly debounceMs = DEBOUNCE_MS
+    compactor: EpisodicCompactor = new ClaudeHaikuCompactor(),
+    private readonly debounceMs = DEBOUNCE_MS,
+    fallback: EpisodicCompactor | null = null
   ) {
     this.compactor = compactor
+    // Default fallback: if the primary is the Haiku compactor, fall back to
+    // the deterministic rule-based compactor on LLM failure. Tests can pass
+    // an explicit fallback (or null) to override.
+    if (fallback !== undefined && fallback !== null) {
+      this.fallback = fallback
+    } else if (compactor.id === 'claude-haiku') {
+      this.fallback = new RuleBasedCompactor()
+    } else {
+      this.fallback = null
+    }
     this.start()
   }
 
@@ -202,8 +217,7 @@ class EpisodicMemoryUpdater {
     if (state.eventsSinceCompaction < MIN_EVENTS_BEFORE_TRIGGER) return
 
     const existing = getDatabase().getEpisodicMemory(event.worktreeId)
-    const tooSoon =
-      existing && Date.now() - existing.compactedAt < MIN_AGE_BEFORE_TRIGGER_MS
+    const tooSoon = existing && Date.now() - existing.compactedAt < MIN_AGE_BEFORE_TRIGGER_MS
     if (tooSoon) return
 
     this.schedule(event.worktreeId)
@@ -226,8 +240,7 @@ class EpisodicMemoryUpdater {
     for (const { worktree_id } of rows) {
       if (this.isShuttingDown) break
       const existing = getDatabase().getEpisodicMemory(worktree_id)
-      const isStale =
-        !existing || Date.now() - existing.compactedAt > STALE_THRESHOLD_MS
+      const isStale = !existing || Date.now() - existing.compactedAt > STALE_THRESHOLD_MS
       if (isStale) this.schedule(worktree_id)
     }
   }
@@ -276,22 +289,6 @@ class EpisodicMemoryUpdater {
     const worktree = db.getWorktree(worktreeId)
     if (!worktree) return null // silently skip unknown worktrees
 
-    // "Don't downgrade" check
-    const existing = db.getEpisodicMemory(worktreeId)
-    const currentPriority = COMPACTOR_PRIORITY[this.compactor.id] ?? 0
-    if (existing) {
-      const existingPriority = COMPACTOR_PRIORITY[existing.compactorId] ?? 0
-      if (existingPriority > currentPriority) {
-        log.debug('skip: existing summary has higher priority', {
-          worktreeId,
-          existing: existing.compactorId,
-          current: this.compactor.id
-        })
-        this.counters.compactions_skipped_downgrade++
-        return null
-      }
-    }
-
     // Ensure the latest events are persisted before we read them.
     try {
       await getFieldEventSink().flushNow()
@@ -311,70 +308,105 @@ class EpisodicMemoryUpdater {
       order: 'asc'
     })
 
-    const startedAt = Date.now()
-    let output: CompactionOutput
-    try {
-      output = await this.compactor.compact({
-        worktreeId,
-        worktreeName: worktree.name,
-        branchName: worktree.branch_name ?? null,
-        events,
-        since,
-        until
-      })
-    } catch (err) {
-      if (err instanceof InsufficientEventsError) {
-        this.counters.compactions_skipped_insufficient++
-        return null
+    // Build the chain: primary first, then fallback if present.
+    const chain: EpisodicCompactor[] = [this.compactor]
+    if (this.fallback) chain.push(this.fallback)
+
+    const existing = db.getEpisodicMemory(worktreeId)
+    const existingPriority = existing ? (COMPACTOR_PRIORITY[existing.compactorId] ?? 0) : -1
+
+    let primaryFailed = false
+    for (let i = 0; i < chain.length; i++) {
+      const c = chain[i]
+      const priority = COMPACTOR_PRIORITY[c.id] ?? 0
+
+      // "Don't downgrade" check — evaluated per-compactor so the fallback
+      // (lower priority) can still be skipped if a previous higher-priority
+      // summary exists.
+      if (existing && existingPriority > priority) {
+        log.debug('skip: existing summary has higher priority', {
+          worktreeId,
+          existing: existing.compactorId,
+          current: c.id
+        })
+        this.counters.compactions_skipped_downgrade++
+        continue
       }
-      this.counters.compactions_failed++
-      log.warn('compactor threw', {
+
+      const startedAt = Date.now()
+      let output: CompactionOutput
+      try {
+        output = await c.compact({
+          worktreeId,
+          worktreeName: worktree.name,
+          branchName: worktree.branch_name ?? null,
+          events,
+          since,
+          until
+        })
+      } catch (err) {
+        if (err instanceof InsufficientEventsError) {
+          // Insufficient events is a data-level skip that applies to the
+          // whole chain. No point trying the fallback on the same stream.
+          this.counters.compactions_skipped_insufficient++
+          return null
+        }
+        this.counters.compactions_failed++
+        log.warn('compactor threw; will try fallback if available', {
+          worktreeId,
+          compactor: c.id,
+          isPrimary: i === 0,
+          error: err instanceof Error ? err.message : String(err)
+        })
+        if (i === 0) primaryFailed = true
+        continue
+      }
+
+      if (!this.isValidOutput(output)) {
+        this.counters.compactions_skipped_invalid++
+        log.warn('compactor produced invalid output; will try fallback if available', {
+          worktreeId,
+          compactor: c.id
+        })
+        if (i === 0) primaryFailed = true
+        continue
+      }
+
+      const durationMs = Date.now() - startedAt
+
+      db.upsertEpisodicMemory({
         worktreeId,
-        compactor: this.compactor.id,
-        error: err instanceof Error ? err.message : String(err)
+        summaryMarkdown: output.markdown,
+        compactorId: output.compactorId,
+        version: output.version,
+        compactedAt: Date.now(),
+        sourceEventCount: events.length,
+        sourceSince: since,
+        sourceUntil: until
       })
-      return null
-    }
 
-    if (!this.isValidOutput(output)) {
-      this.counters.compactions_skipped_invalid++
-      log.warn('compactor produced invalid output; keeping existing summary', {
+      this.counters.compactions_written++
+      this.counters.last_compaction_at = Date.now()
+      if (primaryFailed && i > 0) this.counters.compactions_fallback_used++
+
+      log.info('Episodic compaction written', {
         worktreeId,
-        compactor: this.compactor.id
+        eventCount: events.length,
+        durationMs,
+        compactorId: output.compactorId,
+        version: output.version,
+        chars: output.markdown.length,
+        usedFallback: primaryFailed && i > 0
       })
-      return null
+
+      if (process.env.XUANPU_FIELD_DEBUG_BODIES === 'true') {
+        log.debug('Episodic compaction body', { body: redactSecrets(output.markdown) })
+      }
+
+      return output
     }
 
-    const durationMs = Date.now() - startedAt
-
-    db.upsertEpisodicMemory({
-      worktreeId,
-      summaryMarkdown: output.markdown,
-      compactorId: output.compactorId,
-      version: output.version,
-      compactedAt: Date.now(),
-      sourceEventCount: events.length,
-      sourceSince: since,
-      sourceUntil: until
-    })
-
-    this.counters.compactions_written++
-    this.counters.last_compaction_at = Date.now()
-
-    log.info('Episodic compaction written', {
-      worktreeId,
-      eventCount: events.length,
-      durationMs,
-      compactorId: output.compactorId,
-      version: output.version,
-      chars: output.markdown.length
-    })
-
-    if (process.env.XUANPU_FIELD_DEBUG_BODIES === 'true') {
-      log.debug('Episodic compaction body', { body: redactSecrets(output.markdown) })
-    }
-
-    return output
+    return null
   }
 
   private isValidOutput(output: CompactionOutput): boolean {
@@ -423,11 +455,14 @@ export function getEpisodicMemoryUpdater(): EpisodicMemoryUpdater {
 }
 
 /** Test helper: replace the singleton with a fresh instance (optionally with a mock compactor). */
-export function resetEpisodicMemoryUpdaterForTest(compactor?: EpisodicCompactor): EpisodicMemoryUpdater {
+export function resetEpisodicMemoryUpdaterForTest(
+  compactor?: EpisodicCompactor,
+  fallback: EpisodicCompactor | null = null
+): EpisodicMemoryUpdater {
   if (instance) {
     void instance.shutdown()
   }
-  instance = new EpisodicMemoryUpdater(compactor)
+  instance = new EpisodicMemoryUpdater(compactor, DEBOUNCE_MS, fallback)
   return instance
 }
 
