@@ -384,7 +384,10 @@ function SecurityCard({
   const [oldPassword, setOldPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
 
-  // When the tunnel is running, lock the desktop-confirm switch ON for safety.
+  // Tunnel-open nudges the switch ON by default for safety, but we don't
+  // hard-lock it — if the user is actually using remote control from their
+  // phone, forcing them to walk back to the desktop for every message
+  // defeats the purpose. Keep a visible warning instead.
   const tunnelOpen = status.tunnel.state === 'running' || status.tunnel.state === 'starting'
 
   const onSubmit = async (e: FormEvent): Promise<void> => {
@@ -411,14 +414,19 @@ function SecurityCard({
           <p className="text-sm font-medium">手机端 prompt 需桌面端二次确认</p>
           <p className="text-xs text-muted-foreground mt-1">
             收到手机端发起的 prompt 时，桌面端会弹出 Toast 让你批准。
-            {tunnelOpen && (
-              <span className="text-amber-500"> 公网开启时强制为开启。</span>
+            {tunnelOpen && !status.requireDesktopConfirm && (
+              <span className="text-amber-500">
+                {' '}公网已开启且二次确认关闭——任何拿到隧道 URL 并登录成功的人都能直接驱动 agent，务必配合鉴权模式（Cloudflare Access 或强密码）。
+              </span>
+            )}
+            {tunnelOpen && status.requireDesktopConfirm && (
+              <span className="text-amber-500"> 公网开启时建议保持开启。</span>
             )}
           </p>
         </div>
         <Switch
-          checked={status.requireDesktopConfirm || tunnelOpen}
-          disabled={loading || tunnelOpen}
+          checked={status.requireDesktopConfirm}
+          disabled={loading}
           onCheckedChange={(checked) => setRequireDesktopConfirm(checked)}
         />
       </div>

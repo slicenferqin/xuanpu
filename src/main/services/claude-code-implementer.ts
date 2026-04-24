@@ -3955,6 +3955,29 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
     return this.sessions.get(this.getSessionKey(worktreePath, claudeSessionId))
   }
 
+  /**
+   * Reverse-lookup helper: given a Hive session id (the renderer/UI's stable
+   * id, distinct from the Claude SDK's per-fork id), find the live in-memory
+   * session state and return the routing tuple consumers need to call
+   * `prompt(worktreePath, agentSessionId, ...)`. Used by the Hub bridge so a
+   * mobile client doesn't have to know the SDK id (which can rotate when the
+   * session forks). Returns null if no live session is currently materialized
+   * for this hive id (e.g. the desktop hasn't opened the session yet).
+   */
+  findRoutingByHive(
+    hiveSessionId: string
+  ): { worktreePath: string; agentSessionId: string } | null {
+    for (const session of this.sessions.values()) {
+      if (session.hiveSessionId === hiveSessionId) {
+        return {
+          worktreePath: session.worktreePath,
+          agentSessionId: session.claudeSessionId
+        }
+      }
+    }
+    return null
+  }
+
   protected sendToRenderer(channel: string, data: unknown): void {
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
       this.mainWindow.webContents.send(channel, data)

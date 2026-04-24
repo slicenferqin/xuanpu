@@ -747,7 +747,9 @@ app.whenReady().then(async () => {
     const databaseService = getDatabase()
 
     log.info('Registering Agent handlers (canonical)')
-    registerAgentHandlers(mainWindow, runtimeManager, databaseService)
+    // Pass wrappedWindow so registerAgentHandlers' setMainWindow() call does NOT
+    // overwrite the hub-bridge-proxied window that was set on line above.
+    registerAgentHandlers(hubController.wrappedWindow, runtimeManager, databaseService)
     log.info('Registering Hub handlers')
     registerHubHandlers(mainWindow, hubController)
     log.info('Registering Timeline handlers')

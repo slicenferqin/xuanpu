@@ -43,7 +43,7 @@
 
 import type { Database } from 'better-sqlite3'
 import http, { type IncomingMessage, type ServerResponse } from 'http'
-import type { Socket } from 'net'
+import { connect as netConnect, type Socket } from 'net'
 import { promises as fs } from 'fs'
 import path from 'path'
 import { WebSocketServer, type WebSocket } from 'ws'
@@ -66,6 +66,14 @@ const log = createLogger({ component: 'HubServer' })
 export const COOKIE_NAME = 'sh_session'
 export const COOKIE_TTL_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
 export const DEFAULT_HUB_PORT = 8317
+/**
+ * How many ports past `DEFAULT_HUB_PORT` we're allowed to try before giving
+ * up. Protects the host from a hub instance silently claiming a wildly
+ * different port after the user's preferred port is taken. 20 is arbitrary
+ * but large enough to dodge typical conflict clusters (e.g. several brew
+ * services defaulting to 8317–8320).
+ */
+const PORT_FALLBACK_ATTEMPTS = 20
 
 export type HubAuthMode = 'password' | 'cf_access' | 'hybrid'
 
@@ -243,6 +251,42 @@ function countUsers(db: Database): number {
   return row.n
 }
 
+/**
+ * Probe whether `port` is currently being listened on by anyone (us or
+ * another process). Used to detect dual-stack collisions where a v6 wildcard
+ * socket co-exists with a v4 loopback bind without throwing EADDRINUSE.
+ *
+ * Tries 127.0.0.1 first, then ::1. Resolves true if either accepts a TCP
+ * connection within the timeout. False positives are tolerable here — the
+ * cost is just walking to the next port — but false negatives let the bug
+ * back in, so we err on the side of "in use" if either probe succeeds.
+ */
+function isPortInUse(port: number, timeoutMs = 200): Promise<boolean> {
+  const probe = (host: string): Promise<boolean> =>
+    new Promise((resolve) => {
+      const socket = netConnect({ host, port })
+      const finish = (used: boolean): void => {
+        socket.removeAllListeners()
+        try {
+          socket.destroy()
+        } catch {
+          /* ignore */
+        }
+        resolve(used)
+      }
+      const timer = setTimeout(() => finish(false), timeoutMs)
+      socket.once('connect', () => {
+        clearTimeout(timer)
+        finish(true)
+      })
+      socket.once('error', () => {
+        clearTimeout(timer)
+        finish(false)
+      })
+    })
+  return Promise.all([probe('127.0.0.1'), probe('::1')]).then((rs) => rs.some(Boolean))
+}
+
 function findUserByName(db: Database, username: string): UserRow | null {
   const row = db.prepare('SELECT * FROM hub_users WHERE username = ?').get(username) as
     | UserRow
@@ -397,24 +441,66 @@ class HubServerImpl implements HubServer {
       this.handleUpgrade(req, socket as Socket, head, wss)
     })
 
-    // Try IPv4 loopback first; if EADDRNOTAVAIL fall back to IPv6 ::1.
-    try {
-      await this.listenOn(server, port, '127.0.0.1')
-      this.boundHost = '127.0.0.1'
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code
-      if (code === 'EADDRNOTAVAIL') {
-        await this.listenOn(server, port, '::1')
-        this.boundHost = '::1'
-      } else {
+    // Port conflict fallback: if the preferred port (default 8317) is already
+    // taken — e.g. by a brew-installed background agent — walk forward up to
+    // `PORT_FALLBACK_ATTEMPTS` ports and grab the first one that's free.
+    // Prefer IPv4 loopback; if the host has no IPv4 stack fall back to ::1
+    // for that single attempt. We persist the chosen port on `boundPort` so
+    // `/api/config`, cloudflared tunnel, and the renderer UI all agree.
+    const { host, port: boundPort } = await this.listenWithFallback(server, port)
+    this.boundHost = host
+    this.boundPort = boundPort
+    this.httpServer = server
+    this.wss = wss
+    log.info('hub-server listening', {
+      host: this.boundHost,
+      port: this.boundPort,
+      requestedPort: port,
+      fellBack: boundPort !== port
+    })
+    return this.status()
+  }
+
+  private async listenWithFallback(
+    server: http.Server,
+    startPort: number
+  ): Promise<{ host: string; port: number }> {
+    let lastErr: unknown = null
+    for (let i = 0; i < PORT_FALLBACK_ATTEMPTS; i++) {
+      const port = startPort + i
+      // Pre-flight probe: macOS happily lets us bind 127.0.0.1:N even when
+      // someone else is listening on `*:N` (IPv6 dual-stack). Both sockets
+      // succeed but client connects to 127.0.0.1 may be routed to either,
+      // depending on listen order. Detect the dual-stack collision by
+      // probing both 127.0.0.1 and ::1 — if either accepts a connection,
+      // walk to the next port. See: https://github.com/nodejs/node/issues/14338
+      if (await isPortInUse(port)) {
+        log.warn('hub-server: port already accepting connections, trying next', { port })
+        continue
+      }
+      try {
+        await this.listenOn(server, port, '127.0.0.1')
+        return { host: '127.0.0.1', port }
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code
+        if (code === 'EADDRNOTAVAIL') {
+          // No IPv4 stack. Retry once on ::1 and return regardless — this is
+          // a host-level problem, not a per-port one, so there's no point
+          // walking further.
+          await this.listenOn(server, port, '::1')
+          return { host: '::1', port }
+        }
+        if (code === 'EADDRINUSE') {
+          log.warn('hub-server: port busy, trying next', { port })
+          lastErr = err
+          continue
+        }
         throw err
       }
     }
-    this.boundPort = port
-    this.httpServer = server
-    this.wss = wss
-    log.info('hub-server listening', { host: this.boundHost, port })
-    return this.status()
+    throw lastErr instanceof Error
+      ? lastErr
+      : new Error(`no free port in [${startPort}..${startPort + PORT_FALLBACK_ATTEMPTS - 1}]`)
   }
 
   private listenOn(server: http.Server, port: number, host: string): Promise<void> {
@@ -482,6 +568,17 @@ class HubServerImpl implements HubServer {
     const url = req.url ?? '/'
     const method = (req.method ?? 'GET').toUpperCase()
     const pathname = url.split('?')[0]!
+
+    // ── CORS: inject Allow-Origin + Credentials on every response ──
+    const reqOrigin = req.headers.origin ?? ''
+    if (reqOrigin) {
+      const allowed = this.allowedOrigins()
+      const matchedOrigin = allowed.find((o) => o === reqOrigin)
+      if (matchedOrigin) {
+        res.setHeader('access-control-allow-origin', matchedOrigin)
+        res.setHeader('access-control-allow-credentials', 'true')
+      }
+    }
 
     // CORS / Origin check for state-changing requests. Setup bootstrap is the
     // one exception: when no admin exists we accept any origin so the very
@@ -847,18 +944,36 @@ class HubServerImpl implements HubServer {
     // Keep readyState live (the registry uses it to prune dead subs).
     Object.defineProperty(subscriber, 'readyState', { get: () => ws.readyState })
 
+    log.info('hub-server: ws attach', {
+      deviceId,
+      hiveSessionId,
+      localDeviceId: this.registry.localDeviceId,
+      deviceMatch: deviceId === this.registry.localDeviceId
+    })
     const snapshot = this.registry.subscribe(subscriber, deviceId, hiveSessionId)
+    // Pull the last 10 durable messages from SQLite so the phone sees prior
+    // turns immediately on entry — the registry's ring buffer only carries
+    // events emitted since the desktop app was started, which leaves cold
+    // sessions empty even when the SQLite transcript is full.
+    const history = bridge.getHistorySnapshot(hiveSessionId, 10)
     try {
       ws.send(
         JSON.stringify({
           type: 'session/snapshot',
           seq: snapshot.lastSeq,
           status: snapshot.status,
-          messages: [],
+          messages: history,
           lastSeq: snapshot.lastSeq
         })
       )
-      for (const f of snapshot.frames) ws.send(JSON.stringify(f))
+      // Only replay the in-memory ring buffer when there's no DB history.
+      // With history present, replaying ring buffer frames re-appends bubbles
+      // that are already in the snapshot (DB persisted + ring buffer emitted
+      // the same turn), producing duplicates on re-entry. Live frames emitted
+      // AFTER subscribe() still flow through broadcast normally.
+      if (history.length === 0) {
+        for (const f of snapshot.frames) ws.send(JSON.stringify(f))
+      }
     } catch {
       /* ignore */
     }
