@@ -20,7 +20,9 @@ import { Textarea } from '@/components/ui/textarea'
 import { useHubStore } from '@/stores/useHubStore'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
-import { Copy, Globe, ShieldCheck, KeyRound, Wifi, WifiOff } from 'lucide-react'
+import { Copy, Globe, ShieldCheck, KeyRound, QrCode, Wifi, WifiOff } from 'lucide-react'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { QRCodeSVG } from 'qrcode.react'
 
 const AUTH_MODE_OPTIONS: Array<{
   value: HubAuthMode
@@ -193,6 +195,7 @@ function HubSwitchCard({
                 {url}
               </code>
               <CopyButton value={url} />
+              <QrButton value={url} label="同 Wi-Fi 下扫码" />
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">
@@ -249,6 +252,7 @@ function TunnelCard({
                 {tunnelUrl}
               </code>
               <CopyButton value={tunnelUrl} />
+              <QrButton value={tunnelUrl} label="任意网络扫码" />
             </div>
           )}
           <p className="text-xs text-amber-500 mt-3">
@@ -513,5 +517,30 @@ function CopyButton({ value }: { value: string }): React.JSX.Element {
     >
       <Copy className={cn('h-3.5 w-3.5', copied && 'text-green-500')} />
     </Button>
+  )
+}
+
+function QrButton({ value, label }: { value: string; label?: string }): React.JSX.Element {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button type="button" size="icon" variant="ghost" title="扫码访问">
+          <QrCode className="h-3.5 w-3.5" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-auto p-3">
+        <div className="flex flex-col items-center gap-2">
+          <div className="rounded-md bg-white p-3">
+            <QRCodeSVG value={value} size={192} level="M" includeMargin={false} />
+          </div>
+          <p className="max-w-[12rem] break-all text-center text-[11px] text-muted-foreground font-mono">
+            {value}
+          </p>
+          {label ? (
+            <p className="text-[11px] text-muted-foreground">{label}</p>
+          ) : null}
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }
