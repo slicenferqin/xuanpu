@@ -252,47 +252,61 @@ beforeEach(() => {
     configurable: true
   })
 
-  // Mock OpenCode ops used by SessionView subscription/effects
+  // SessionView now talks to the SDK-agnostic `window.agentOps`. Keep
+  // `window.opencodeOps` pointed at the exact same mock object so the older
+  // assertions in this suite still observe the calls.
+  const mockAgentOps = {
+    connect: vi.fn().mockResolvedValue({ success: false }),
+    reconnect: vi.fn().mockResolvedValue({ success: true }),
+    prompt: vi.fn().mockResolvedValue({ success: true }),
+    command: vi.fn().mockResolvedValue({ success: true }),
+    fork: vi.fn().mockResolvedValue({ success: true, sessionId: 'opc-fork-1' }),
+    sessionInfo: vi
+      .fn()
+      .mockResolvedValue({ success: true, revertMessageID: null, revertDiff: null }),
+    undo: vi.fn().mockResolvedValue({ success: true }),
+    redo: vi.fn().mockResolvedValue({ success: true }),
+    disconnect: vi.fn().mockResolvedValue({ success: true }),
+    abort: vi.fn().mockResolvedValue({ success: true }),
+    getMessages: vi
+      .fn()
+      .mockResolvedValue({ success: true, messages: mockDefaultOpenCodeTranscript }),
+    getTimeline: vi.fn().mockResolvedValue({ messages: [] }),
+    listModels: vi.fn().mockResolvedValue({ success: true, providers: [] }),
+    setModel: vi.fn().mockResolvedValue({ success: true }),
+    modelInfo: vi.fn().mockResolvedValue({ success: true }),
+    questionReply: vi.fn().mockResolvedValue({ success: true }),
+    questionReject: vi.fn().mockResolvedValue({ success: true }),
+    permissionReply: vi.fn().mockResolvedValue({ success: true }),
+    permissionList: vi.fn().mockResolvedValue({ success: true, permissions: [] }),
+    commandApprovalReply: vi.fn().mockResolvedValue({ success: true }),
+    planApprove: vi.fn().mockResolvedValue({ success: true }),
+    planReject: vi.fn().mockResolvedValue({ success: true }),
+    commands: vi.fn().mockResolvedValue({ success: true, commands: [] }),
+    capabilities: vi.fn().mockResolvedValue({
+      success: true,
+      capabilities: {
+        supportsUndo: true,
+        supportsRedo: true,
+        supportsCommands: true,
+        supportsPermissionRequests: true,
+        supportsQuestionPrompts: true,
+        supportsModelSelection: true,
+        supportsReconnect: true,
+        supportsPartialStreaming: true
+      }
+    }),
+    onStream: vi.fn().mockImplementation(() => () => {})
+  }
+
+  Object.defineProperty(window, 'agentOps', {
+    value: mockAgentOps,
+    writable: true,
+    configurable: true
+  })
+
   Object.defineProperty(window, 'opencodeOps', {
-    value: {
-      connect: vi.fn().mockResolvedValue({ success: false }),
-      reconnect: vi.fn().mockResolvedValue({ success: true }),
-      prompt: vi.fn().mockResolvedValue({ success: true }),
-      command: vi.fn().mockResolvedValue({ success: true }),
-      fork: vi.fn().mockResolvedValue({ success: true, sessionId: 'opc-fork-1' }),
-      sessionInfo: vi
-        .fn()
-        .mockResolvedValue({ success: true, revertMessageID: null, revertDiff: null }),
-      undo: vi.fn().mockResolvedValue({ success: true }),
-      redo: vi.fn().mockResolvedValue({ success: true }),
-      disconnect: vi.fn().mockResolvedValue({ success: true }),
-      abort: vi.fn().mockResolvedValue({ success: true }),
-      getMessages: vi
-        .fn()
-        .mockResolvedValue({ success: true, messages: mockDefaultOpenCodeTranscript }),
-      listModels: vi.fn().mockResolvedValue({ success: true, providers: [] }),
-      setModel: vi.fn().mockResolvedValue({ success: true }),
-      modelInfo: vi.fn().mockResolvedValue({ success: true }),
-      questionReply: vi.fn().mockResolvedValue({ success: true }),
-      questionReject: vi.fn().mockResolvedValue({ success: true }),
-      permissionReply: vi.fn().mockResolvedValue({ success: true }),
-      permissionList: vi.fn().mockResolvedValue({ success: true, permissions: [] }),
-      commands: vi.fn().mockResolvedValue({ success: true, commands: [] }),
-      capabilities: vi.fn().mockResolvedValue({
-        success: true,
-        capabilities: {
-          supportsUndo: true,
-          supportsRedo: true,
-          supportsCommands: true,
-          supportsPermissionRequests: true,
-          supportsQuestionPrompts: true,
-          supportsModelSelection: true,
-          supportsReconnect: true,
-          supportsPartialStreaming: true
-        }
-      }),
-      onStream: vi.fn().mockImplementation(() => () => {})
-    },
+    value: mockAgentOps,
     writable: true,
     configurable: true
   })
