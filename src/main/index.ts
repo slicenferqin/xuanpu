@@ -54,6 +54,8 @@ import {
 } from './services/full-disk-access'
 import { telemetryService } from './services/telemetry-service'
 import { ensureForkDataDir } from './services/fork-data-migration'
+import { getFieldEventSink } from './field/sink'
+import { getEpisodicMemoryUpdater } from './field/episodic-updater'
 import { APP_BUNDLE_ID, APP_CLI_NAME, APP_PRODUCT_NAME } from '@shared/app-identity'
 
 const log = createLogger({ component: 'Main' })
@@ -673,6 +675,13 @@ app.whenReady().then(async () => {
   // Initialize database
   log.info('Initializing database')
   getDatabase()
+
+  // Phase 22B: eager-init field event sink + episodic memory updater so the
+  // updater registers its event-bus listener before the first field event
+  // arrives. (Without this, the lazy singletons are never instantiated and
+  // compaction never runs.)
+  getFieldEventSink()
+  getEpisodicMemoryUpdater()
 
   // Initialize telemetry (must come after DB init since it reads/writes settings)
   telemetryService.init()
