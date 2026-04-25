@@ -92,6 +92,23 @@ describe('TunnelService: happy path', () => {
     child.stdout.emit('data', Buffer.from('https://foo-bar-baz.trycloudflare.com\n'))
     expect(svc.status.state).toBe('running')
   })
+
+  it('uses the provided hub host when the server is bound on IPv6 loopback', () => {
+    const child = new FakeChild()
+    const spawn = vi.fn(() => child) as unknown as typeof import('child_process').spawn
+    const svc = new TunnelService({
+      resolveBinary: () => '/fake/cloudflared',
+      spawn
+    })
+
+    svc.start(8317, '::1')
+
+    expect(spawn).toHaveBeenCalledWith(
+      '/fake/cloudflared',
+      ['tunnel', '--no-autoupdate', '--url', 'http://[::1]:8317'],
+      expect.objectContaining({ stdio: ['ignore', 'pipe', 'pipe'] })
+    )
+  })
 })
 
 describe('TunnelService: missing binary', () => {

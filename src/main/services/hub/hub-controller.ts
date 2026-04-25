@@ -204,11 +204,11 @@ export class HubController extends EventEmitter {
 
   startTunnel(): TunnelStatus {
     const status = this.server.status()
-    if (!status.running || status.port === null) {
+    if (!status.running || status.port === null || status.host === null) {
       const err: TunnelStatus = { state: 'error', message: 'hub server not running' }
       return err
     }
-    return this.tunnel.start(status.port)
+    return this.tunnel.start(status.port, status.host)
   }
 
   async stopTunnel(): Promise<void> {

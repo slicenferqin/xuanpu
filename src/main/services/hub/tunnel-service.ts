@@ -1,5 +1,5 @@
 /**
- * tunnel-service: manages a `cloudflared tunnel --url http://127.0.0.1:<port>`
+ * tunnel-service: manages a `cloudflared tunnel --url http://<host>:<port>`
  * child process and surfaces the quick-tunnel URL it prints.
  *
  * Quick tunnels are anonymous; they don't require a Cloudflare account. The
@@ -74,6 +74,7 @@ export class TunnelService extends EventEmitter {
   private _status: TunnelStatus = { state: 'stopped' }
   private proc: ChildProcessWithoutNullStreams | null = null
   private localPort = 0
+  private localHost = '127.0.0.1'
   private enabled = false
   private restartCount = 0
   private restartTimer: ReturnType<typeof setTimeout> | null = null
@@ -96,11 +97,12 @@ export class TunnelService extends EventEmitter {
    * Start the tunnel. If already starting/running, returns the current
    * status unchanged.
    */
-  start(localPort: number): TunnelStatus {
+  start(localPort: number, localHost = '127.0.0.1'): TunnelStatus {
     if (this._status.state === 'starting' || this._status.state === 'running') {
       return this._status
     }
     this.localPort = localPort
+    this.localHost = localHost
     this.enabled = true
     this.restartCount = 0
     this.spawnOnce()
@@ -153,9 +155,10 @@ export class TunnelService extends EventEmitter {
       this.enabled = false
       return
     }
-    const args = ['tunnel', '--no-autoupdate', '--url', `http://127.0.0.1:${this.localPort}`]
+    const originHost = this.localHost.includes(':') ? `[${this.localHost}]` : this.localHost
+    const args = ['tunnel', '--no-autoupdate', '--url', `http://${originHost}:${this.localPort}`]
     this.setStatus({ state: 'starting' })
-    log.info('spawning cloudflared', { bin, port: this.localPort })
+    log.info('spawning cloudflared', { bin, host: this.localHost, port: this.localPort })
 
     let child: ChildProcessWithoutNullStreams
     try {
