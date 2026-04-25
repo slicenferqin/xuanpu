@@ -1,6 +1,6 @@
 {
   "name": "xuanpu",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "description": "Xuanpu Workbench - an AI-native workbench for builders",
   "main": "./out/main/index.js",
   "author": "slicenferqin",

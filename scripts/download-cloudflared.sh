@@ -36,7 +36,12 @@ download() {
 
   mkdir -p "${dst_dir}"
   echo "[get]  ${platform} <- ${upstream}"
-  curl -fL --retry 3 --retry-delay 2 -o "${dst_file}" "${BASE_URL}/${upstream}"
+  # --retry-all-errors so transient 5xx (e.g. GitHub release-asset CDN
+  # 502s, which broke the v1.4.3 build twice) trigger a retry instead
+  # of failing the whole release. Requires curl 7.71+ — fine on
+  # GitHub-hosted runners.
+  curl -fL --retry 6 --retry-delay 4 --retry-all-errors --connect-timeout 30 \
+    -o "${dst_file}" "${BASE_URL}/${upstream}"
   chmod +x "${dst_file}" || true
 }
 
