@@ -894,6 +894,28 @@ class HubServerImpl implements HubServer {
 
   // ─── upgrade / WS ─────────────────────────────────────────────────────────
 
+  /**
+   * Write a short HTTP rejection response and tear the socket down. Both
+   * `socket.write` and `socket.destroy` can race with a peer that's already
+   * gone (mobile network drops, user closed the tab) and emit EPIPE on a
+   * write to a closed pipe; without a try/catch the error reaches Node's
+   * default handler and produces an "Uncaught Exception" dialog.
+   */
+  private rejectUpgrade(socket: Socket, status: string): void {
+    try {
+      if (socket.writable) {
+        socket.write(`HTTP/1.1 ${status}\r\n\r\n`)
+      }
+    } catch {
+      /* peer already gone — nothing to send */
+    }
+    try {
+      socket.destroy()
+    } catch {
+      /* idempotent */
+    }
+  }
+
   private handleUpgrade(
     req: IncomingMessage,
     socket: Socket,
@@ -903,27 +925,23 @@ class HubServerImpl implements HubServer {
     const url = req.url ?? ''
     const m = url.match(/^\/ws\/ui\/([^/?]+)\/([^/?]+)/)
     if (!m) {
-      socket.write('HTTP/1.1 404 Not Found\r\n\r\n')
-      socket.destroy()
+      this.rejectUpgrade(socket, '404 Not Found')
       return
     }
     if (!isOriginAllowed(req.headers, this.allowedOrigins())) {
-      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
-      socket.destroy()
+      this.rejectUpgrade(socket, '403 Forbidden')
       return
     }
     const user = resolveAuth(this.db, req, this.now())
     if (!user) {
-      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
-      socket.destroy()
+      this.rejectUpgrade(socket, '401 Unauthorized')
       return
     }
     const deviceId = decodeURIComponent(m[1]!)
     const hiveSessionId = decodeURIComponent(m[2]!)
     const bridge = this.bridge
     if (!bridge) {
-      socket.write('HTTP/1.1 503 Service Unavailable\r\n\r\n')
-      socket.destroy()
+      this.rejectUpgrade(socket, '503 Service Unavailable')
       return
     }
     wss.handleUpgrade(req, socket, head, (ws) => {

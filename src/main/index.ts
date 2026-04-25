@@ -64,6 +64,53 @@ const appStartTime = Date.now()
 
 app.setName(APP_PRODUCT_NAME)
 
+// ─── Global process error handlers ─────────────────────────────────────────
+// EPIPE on a child-process stdin or a closed socket is essentially always
+// benign: the peer is gone, the data we were writing has nowhere to go. Same
+// for ECONNRESET on outbound sockets. Without these handlers, those races
+// reach Electron's default uncaughtException handler and surface the user-
+// facing "Uncaught Exception" dialog. We log them and continue running.
+//
+// Anything else: log it loudly and rethrow so we don't accidentally swallow
+// real bugs.
+function isBenignIoError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  const code = (err as NodeJS.ErrnoException).code
+  if (code === 'EPIPE' || code === 'ECONNRESET' || code === 'ECANCELED') return true
+  // Some node versions stringify the code into the message instead.
+  const msg = err.message ?? ''
+  return /\bEPIPE\b|\bECONNRESET\b/.test(msg)
+}
+
+process.on('uncaughtException', (err) => {
+  if (isBenignIoError(err)) {
+    log.warn('suppressed benign uncaught I/O error', {
+      code: (err as NodeJS.ErrnoException).code,
+      message: err.message,
+      stack: err.stack
+    })
+    return
+  }
+  log.error('uncaught exception', { message: err.message, stack: err.stack })
+  // Rethrow on next tick so Electron's default crash handling still runs.
+  setImmediate(() => {
+    throw err
+  })
+})
+
+process.on('unhandledRejection', (reason) => {
+  if (isBenignIoError(reason)) {
+    log.warn('suppressed benign unhandled rejection', {
+      message: reason instanceof Error ? reason.message : String(reason)
+    })
+    return
+  }
+  log.error('unhandled rejection', {
+    reason: reason instanceof Error ? reason.message : String(reason),
+    stack: reason instanceof Error ? reason.stack : undefined
+  })
+})
+
 // Parse CLI flags
 const cliArgs = process.argv.slice(2)
 const isLogMode = cliArgs.includes('--log')
