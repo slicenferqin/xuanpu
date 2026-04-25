@@ -121,7 +121,7 @@ describe('hub-bridge: outbound translation', () => {
     expect(registry.getSession('d', 's1')?.status).toBe('busy')
   })
 
-  it('wraps unmodelled events as message/append with an UnknownPart', () => {
+  it('drops metadata-only message.updated events', () => {
     const ws = makeWs()
     registry.subscribe(ws, 'd', 's1')
     bridge.onIpcEvent(
@@ -134,11 +134,7 @@ describe('hub-bridge: outbound translation', () => {
         })
       ]
     )
-    expect(ws.sent).toHaveLength(1)
-    const frame = ws.sent[0] as { type: string; seq: number; message: { parts: unknown[] } }
-    expect(frame.type).toBe('message/append')
-    expect(frame.seq).toBe(1)
-    expect(frame.message.parts[0]).toMatchObject({ type: 'unknown' })
+    expect(ws.sent).toHaveLength(0)
   })
 
   it('translates events from non-primary runtimes (codex/opencode) too', () => {
