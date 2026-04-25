@@ -97,6 +97,15 @@ jobs:
             echo "ghostty.node exists from native build"
           fi
 
+      # cloudflared binaries are NOT committed (they're 270MB across all 6
+      # platforms). electron-builder.yml mac/win/linux.extraResources
+      # references resources/cloudflared/<platform>/cloudflared, so they
+      # must exist on disk before packaging. Without this step the public-
+      # tunnel feature ships broken — exactly what hit v1.4.0.
+      - name: Download cloudflared binaries
+        shell: bash
+        run: bash scripts/download-cloudflared.sh
+
       # ── Package — each job builds ONE arch only ──
       - name: Package (${{ matrix.platform }} ${{ matrix.arch }})
         run: pnpm exec electron-builder ${{ matrix.eb_flags }} --publish always

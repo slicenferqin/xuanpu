@@ -28,7 +28,8 @@ import {
   registerUsageHandlers,
   registerTimelineHandlers,
   registerSkillHandlers,
-  registerHubHandlers
+  registerHubHandlers,
+  registerFieldHandlers
 } from './ipc'
 import { buildMenu, updateMenuState } from './menu'
 import type { MenuState } from './menu'
@@ -744,6 +745,10 @@ app.whenReady().then(async () => {
   registerConnectionHandlers()
   registerUsageHandlers()
   registerSkillHandlers()
+  // Phase 21/22 Field IPC: getLastInjection / getEpisodicMemory /
+  // getSemanticMemory / getCheckpoint + the renderer-side reportXxx events
+  // that the FieldContextDebug panel and others depend on.
+  registerFieldHandlers()
 
   // Telemetry IPC
   ipcMain.handle(

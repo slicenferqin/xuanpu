@@ -31,8 +31,12 @@
 
 玄圃的目标就是把这些事情收拢到一个统一工作台里。
 
+> **📖 v1.4.0 节点**：玄圃刚刚完成从"加了 Hub 的 Electron 工作台"到"为 Agent 提供现场"的关键转折。
+> 详见：[**从 1.3 到 1.4：玄圃对 AI 原生工作台的思考与推进**](./docs/essays/2026-04-25-from-1-3-to-1-4-ai-native-workbench.md)
+
 ## 当前能力
-当前主线已经具备一套比较完整的本地 AI 开发工作流：
+
+**工作台基础**：
 
 - 项目 / worktree / space 管理
 - Claude Code、OpenCode、Codex 三类本地 Agent 接入
@@ -43,20 +47,26 @@
 - headless 模式，基于 GraphQL + WebSocket 复用同一套本地数据库和服务
 - 中文界面、本地化文案、首次启动环境检查与 Agent 引导
 
-这意味着它已经不只是一个“方便看文件的 Electron 壳”，而是一套可以实际承载日常构建任务的桌面工作台。
+**v1.4 现场感知**（[详细说明](./docs/essays/2026-04-25-from-1-3-to-1-4-ai-native-workbench.md)）：
 
-## 为什么不是传统 IDE
-玄圃刻意不把自己定义成传统 `IDE`，原因很直接：
+- **现场事件流**：每条 bash 命令、文件读写、terminal 输出、agent 工具调用都被结构化沉淀到 SQLite，按 worktree 分片
+- **分层记忆**：Working / Episodic（Claude Haiku 真摘要）/ Semantic（用户写的 `memory.md`）三层，跨 agent 共享
+- **现场注入**：每条 prompt 自动前置 Field Context（worktree、当前焦点、最近活动、上次 abort 时正在做什么），不需要你重复"翻译"
+- **会话 Checkpoint**：abort、关电脑、崩溃后下次启动自动续上现场
+- **Hub 远程移动端**：桌面开服务，手机扫码就接管会话；同一份现场跨设备
+- **新版 Session UI（v2）**：统一 timeline、三态 Composer、Agent Rail、Field Context Debug 面板
 
-- 你真正想推进的是“功能 / 任务 / 目标”，不是单个文件
-- 一个真实任务通常会跨代码、文档、脚本、终端、评审、多个仓库
-- AI 时代里，`session`、`approval`、`context`、`worktree isolation` 都应该是界面一等公民
+这意味着它已经不只是一个"方便看文件的 Electron 壳"，而是一套能让 Agent 真正感知现场的桌面工作台。
 
-所以玄圃更适合被理解成：
+## 玄圃不是 IDE，是"agent 的现场提供者"
 
-- `AI-native workbench`
-- `future workspace for builders`
-- `以任务推进为中心，而不是以文件编辑为中心`
+打开 Cursor、Claude Code、Codex、Amp，本质都是同一种交互：用户的意图 → 翻译成自然语言 → 打字进输入框 → 模型回复。
+
+**问题不是模型不够聪明，是模型看不见"现场"** —— 你在哪个 worktree、哪个文件、刚才跑了什么命令、上一小时在做什么、上次 abort 时正在干嘛。这些信息对人类协作者天然可见，对 AI 完全不可见。
+
+玄圃做的事情就是把这一层视野从用户大脑搬到 agent 的 prompt 里。它的差异化不在 UI（虽然也重写了），不在 agent 模型（不自研），而在**能让任何 agent 在玄圃里都比在自己原生环境里更强 —— 因为它们第一次获得了现场**。
+
+完整论述见：[VISION](./docs/VISION.md) 和 [v1.4.0 节点回顾](./docs/essays/2026-04-25-from-1-3-to-1-4-ai-native-workbench.md)。
 
 ## 安装
 当前建议的使用方式：
@@ -127,12 +137,17 @@ pnpm dev
 另外还保留了一套 `headless` 服务入口，使桌面端和自动化/远程控制共用同一套本地核心能力。
 
 ## 当前优先方向
-当前主线的优先级很明确：
 
-- 持续打磨中文工作流和桌面端交互
-- 完成品牌切换、图标和视觉资产替换
-- 稳定发布链路和安装体验
-- 逐步把“项目中心”升级为“工作台中心”
+v1.4.0 把"现场"打通了第一公里。1.4.x 的核心是**让记忆变得可见可编辑**：
+
+- **1.4.1 Pinned Facts**：用户能在 GUI 里直接钉住"这个项目用 pnpm"这种永久事实
+- **1.4.2 Memory 面板**：把 4-tab Field Context Debug 升级为完整的 Memory 面板，能看见 + 编辑 + 重置 + 重新生成
+- **1.4.3 成本可见**：本月压缩消耗了多少 token / ¥X，明明白白告诉用户
+- **1.4.4 跨 agent 注入质量验证**：实测 Codex / OpenCode / Amp 收到 Field Context prefix 是真用还是当垃圾忽略
+
+更远的第二圈（VISION §3.2）是 **XFP（Xuanpu Field Protocol）** —— 让任何 agent 厂商能用同一套协议获取现场，把"在玄圃里 agent 比在原生环境里更强"做成标准。
+
+完整路线图：[docs/plans/2026-04-25-memory-product-direction.md](./docs/plans/2026-04-25-memory-product-direction.md)
 
 如果你现在打开仓库，会看到一些仍在演进中的部分，这是正常状态。玄圃正在从早期 fork 产物，过渡到独立产品主线。
 
