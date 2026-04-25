@@ -118,15 +118,185 @@ jobs:
         run: pnpm run build:mobile
 
       # ── Package — each job builds ONE arch only ──
+      # NOTE: --publish never is intentional. We publish in a separate step
+      # AFTER the post-package verify below, so a missing cloudflared / mobile
+      # asset never reaches the GitHub release page. See v1.4.0/v1.4.1
+      # post-mortems above.
       - name: Package (${{ matrix.platform }} ${{ matrix.arch }})
-        run: pnpm exec electron-builder ${{ matrix.eb_flags }} --publish always
+        run: pnpm exec electron-builder ${{ matrix.eb_flags }} --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── Verify ──
-      - name: Verify build output
+      # ── Verify packaging completeness ──
+      # Post-package assertion: makes sure every artifact carries the
+      # bits that broke v1.4.0 / v1.4.1 (cloudflared binary + mobile UI
+      # dist + native .node addons). Fails the workflow before publish
+      # if anything is missing, so we never ship an empty-tunnel /
+      # 404-mobile-page release again.
+      - name: Verify packaging completeness (macOS)
+        if: matrix.platform == 'mac'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== dist contents ==="
+          ls -lh dist/ || true
+
+          # Locate the .app — electron-builder names the dir mac-<arch>
+          # for non-default arch and `mac` for arm64 native, depending on
+          # version. Glob to be safe.
+          APP_PATH=$(find dist -maxdepth 3 -type d -name '*.app' | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::No .app bundle found under dist/"
+            exit 1
+          fi
+          RES="$APP_PATH/Contents/Resources"
+          echo "Checking $RES"
+
+          fail=0
+          check_file() {
+            if [ ! -f "$1" ]; then
+              echo "::error::missing file: $1"
+              fail=1
+            else
+              echo "ok: $1 ($(stat -f%z "$1" 2>/dev/null || stat -c%s "$1") bytes)"
+            fi
+          }
+
+          # cloudflared — only the matching arch is packed in
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            check_file "$RES/cloudflared/darwin-arm64/cloudflared"
+          else
+            check_file "$RES/cloudflared/darwin-amd64/cloudflared"
+          fi
+
+          # mobile UI shipped to Resources/mobile-ui
+          check_file "$RES/mobile-ui/index.html"
+
+          # asar + unpacked native addons
+          check_file "$RES/app.asar"
+          if [ ! -d "$RES/app.asar.unpacked" ]; then
+            echo "::error::missing app.asar.unpacked"
+            fail=1
+          fi
+          # native .node addons must be extracted
+          if ! find "$RES/app.asar.unpacked" -name '*.node' | grep -q .; then
+            echo "::error::no .node files extracted under app.asar.unpacked"
+            fail=1
+          fi
+
+          # ghostty placeholder (or real binary) referenced by extraResources
+          check_file "$RES/native/ghostty.node"
+
+          # cloudflared binary must be non-empty (the v1.4.0 bug was a 0-byte file)
+          CF_BIN="$RES/cloudflared/darwin-${{ matrix.arch == 'arm64' && 'arm64' || 'amd64' }}/cloudflared"
+          if [ -f "$CF_BIN" ] && [ ! -s "$CF_BIN" ]; then
+            echo "::error::cloudflared binary is empty: $CF_BIN"
+            fail=1
+          fi
+
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::Packaging verification failed — refusing to publish"
+            exit 1
+          fi
+          echo "Packaging verification passed."
+
+      - name: Verify packaging completeness (Windows)
+        if: matrix.platform == 'win'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== dist contents ==="
+          ls -lh dist/ || true
+
+          # Locate the unpacked dir — usually win-unpacked or win-arm64-unpacked
+          UNPACKED=$(find dist -maxdepth 2 -type d -name '*unpacked*' | head -n 1)
+          if [ -z "$UNPACKED" ]; then
+            echo "::error::No *-unpacked directory found under dist/"
+            exit 1
+          fi
+          RES="$UNPACKED/resources"
+          echo "Checking $RES"
+
+          fail=0
+          check_file() {
+            if [ ! -f "$1" ]; then
+              echo "::error::missing file: $1"
+              fail=1
+            else
+              echo "ok: $1"
+            fi
+          }
+
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            check_file "$RES/cloudflared/windows-arm64/cloudflared.exe"
+          else
+            check_file "$RES/cloudflared/windows-amd64/cloudflared.exe"
+          fi
+
+          check_file "$RES/mobile-ui/index.html"
+          check_file "$RES/app.asar"
+
+          if [ ! -d "$RES/app.asar.unpacked" ]; then
+            echo "::error::missing app.asar.unpacked"
+            fail=1
+          fi
+          if ! find "$RES/app.asar.unpacked" -name '*.node' | grep -q .; then
+            echo "::error::no .node files extracted under app.asar.unpacked"
+            fail=1
+          fi
+
+          # Setup installer / zip artifact must exist
+          if ! ls dist/Xuanpu-Setup-*.exe >/dev/null 2>&1 && ! ls dist/Xuanpu-*-${{ matrix.arch }}-win.zip >/dev/null 2>&1; then
+            echo "::error::no Windows installer or zip found in dist/"
+            fail=1
+          fi
+
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::Packaging verification failed — refusing to publish"
+            exit 1
+          fi
+          echo "Packaging verification passed."
+
+      - name: List dist (always)
         if: always()
         shell: bash
         run: |
           echo "=== dist contents ==="
           ls -lh dist/ 2>/dev/null || echo "dist/ not found"
+
+      # ── Publish (after verify) ──
+      # Only runs if all previous steps succeeded — verify acts as a gate.
+      # We upload the artifacts that electron-builder produced under dist/,
+      # plus the auto-update metadata YAML files (latest-mac.yml /
+      # latest.yml) so the in-app updater keeps working.
+      - name: Publish to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          # Create the release if it doesn't exist yet (first matrix job to land wins).
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --draft --title "$TAG" --notes "Automated release for $TAG"
+          fi
+          # Collect platform-relevant artifacts.
+          shopt -s nullglob
+          files=()
+          if [ "${{ matrix.platform }}" = "mac" ]; then
+            files+=(dist/Xuanpu-*-${{ matrix.arch }}-mac.dmg dist/Xuanpu-*-${{ matrix.arch }}-mac.zip dist/latest-mac.yml dist/latest-mac-${{ matrix.arch }}.yml)
+          else
+            files+=(dist/Xuanpu-Setup-*.exe dist/Xuanpu-*-${{ matrix.arch }}-win.zip dist/latest.yml dist/latest-${{ matrix.arch }}.yml)
+          fi
+          # Filter to existing files only.
+          existing=()
+          for f in "${files[@]}"; do
+            [ -f "$f" ] && existing+=("$f")
+          done
+          if [ ${#existing[@]} -eq 0 ]; then
+            echo "::error::No artifacts to upload for ${{ matrix.platform }} ${{ matrix.arch }}"
+            exit 1
+          fi
+          echo "Uploading: ${existing[*]}"
+          gh release upload "$TAG" "${existing[@]}" --clobber
