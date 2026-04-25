@@ -106,6 +106,17 @@ jobs:
         shell: bash
         run: bash scripts/download-cloudflared.sh
 
+      # Mobile UI (#44) — built by the standalone Vite project under
+      # mobile/. The output (mobile/dist/) is referenced by
+      # extraResources `from: mobile/dist, to: mobile-ui` and served by
+      # hub-server.tryServeStatic at runtime. Local build:mac/build:win
+      # scripts run this automatically; CI forgot. Without this step
+      # the Hub server returns {"error":{"code":"NOT_FOUND","message":"/"}}
+      # when a user opens the URL in a browser — exactly what hit v1.4.0
+      # and v1.4.1.
+      - name: Build mobile UI
+        run: pnpm run build:mobile
+
       # ── Package — each job builds ONE arch only ──
       - name: Package (${{ matrix.platform }} ${{ matrix.arch }})
         run: pnpm exec electron-builder ${{ matrix.eb_flags }} --publish always
