@@ -29,6 +29,19 @@ export interface FullDiskAccessStatus {
   granted: boolean
 }
 
+// In-process cache. The probe reads ~/Library/Safari/Bookmarks.plist and
+// CloudTabs.db, which on macOS 14+ surfaces the user-facing
+// "<App> wants to access data from other apps" dialog every single time.
+// Re-probing on every Settings → Privacy mount caused that popup to spam
+// the user. We now cache the result and only re-probe when the renderer
+// explicitly asks (force=true), e.g. behind a "Check again" button.
+//
+// granted=true is sticky for the whole app lifetime — the user can revoke
+// in System Settings, but until they do, the answer won't change.
+// granted=false stays cached until the user clicks "Check again", at which
+// point we re-probe (which will surface the prompt one more time).
+let cachedStatus: FullDiskAccessStatus | null = null
+
 function isPermissionDeniedError(error: unknown): boolean {
   const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase()
   return (
@@ -39,7 +52,7 @@ function isPermissionDeniedError(error: unknown): boolean {
   )
 }
 
-export function checkFullDiskAccess(): FullDiskAccessStatus {
+function probeFullDiskAccess(): FullDiskAccessStatus {
   if (process.platform !== 'darwin') {
     return { supported: false, granted: false }
   }
@@ -74,6 +87,19 @@ export function checkFullDiskAccess(): FullDiskAccessStatus {
   }
 
   return { supported: true, granted: false }
+}
+
+/**
+ * Return the Full Disk Access status. Uses a cached result by default to
+ * avoid re-prompting the user. Pass `force: true` to bypass the cache —
+ * intended only for explicit "Check again" actions in the UI.
+ */
+export function checkFullDiskAccess(opts: { force?: boolean } = {}): FullDiskAccessStatus {
+  if (cachedStatus && !opts.force) {
+    return cachedStatus
+  }
+  cachedStatus = probeFullDiskAccess()
+  return cachedStatus
 }
 
 export async function openFullDiskAccessSettings(): Promise<{ success: boolean; error?: string }> {

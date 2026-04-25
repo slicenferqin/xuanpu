@@ -500,7 +500,7 @@ declare global {
       setKeepAwakeEnabled: (enabled: boolean) => Promise<{ success: boolean }>
       setSessionQueuedState: (sessionId: string, queued: boolean) => Promise<{ success: boolean }>
       runOnboardingDoctor: () => Promise<OnboardingDoctorResult>
-      checkFullDiskAccess: () => Promise<{ supported: boolean; granted: boolean }>
+      checkFullDiskAccess: (force?: boolean) => Promise<{ supported: boolean; granted: boolean }>
       openFullDiskAccessSettings: () => Promise<{ success: boolean; error?: string }>
       openCommandInTerminal: (
         command: string,

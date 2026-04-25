@@ -95,23 +95,31 @@ export function SettingsPrivacy(): React.JSX.Element {
     }
   }, [])
 
-  const refreshFdaStatus = useCallback(async (): Promise<void> => {
-    if (platform !== 'darwin') return
+  const refreshFdaStatus = useCallback(
+    async (force = false): Promise<void> => {
+      if (platform !== 'darwin') return
 
-    setFdaChecking(true)
-    try {
-      const result = await window.systemOps.checkFullDiskAccess()
-      setFdaStatus(result)
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('settings.privacy.fda.checkFailed'))
-    } finally {
-      setFdaChecking(false)
-    }
-  }, [platform, t])
+      setFdaChecking(true)
+      try {
+        const result = await window.systemOps.checkFullDiskAccess(force)
+        setFdaStatus(result)
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : t('settings.privacy.fda.checkFailed'))
+      } finally {
+        setFdaChecking(false)
+      }
+    },
+    [platform, t]
+  )
 
+  // On mount we read the *cached* status only (no force), so we never
+  // surface the macOS "App wants to access data from other apps" prompt
+  // unless the user explicitly clicks "Check again". The first ever probe
+  // (per app launch) still fires once when the cache is empty — that's
+  // acceptable; subsequent mounts are silent.
   useEffect(() => {
     if (platform === 'darwin') {
-      void refreshFdaStatus()
+      void refreshFdaStatus(false)
     }
   }, [platform, refreshFdaStatus])
 
@@ -231,7 +239,7 @@ export function SettingsPrivacy(): React.JSX.Element {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => void refreshFdaStatus()}>
+            <Button type="button" variant="outline" size="sm" onClick={() => void refreshFdaStatus(true)}>
               {t('settings.privacy.fda.checkAgain')}
             </Button>
             <Button type="button" size="sm" onClick={() => void handleOpenFdaSettings()}>

@@ -520,8 +520,8 @@ function registerSystemHandlers(): void {
     return { success: true }
   })
 
-  ipcMain.handle('system:checkFullDiskAccess', () => {
-    return checkFullDiskAccess()
+  ipcMain.handle('system:checkFullDiskAccess', (_event, force?: boolean) => {
+    return checkFullDiskAccess({ force: !!force })
   })
 
   ipcMain.handle('system:openFullDiskAccessSettings', () => {

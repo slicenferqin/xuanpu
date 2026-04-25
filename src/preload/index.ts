@@ -454,8 +454,8 @@ const systemOps = {
   runOnboardingDoctor: (): Promise<OnboardingDoctorResult> =>
     ipcRenderer.invoke('system:runOnboardingDoctor'),
 
-  checkFullDiskAccess: (): Promise<{ supported: boolean; granted: boolean }> =>
-    ipcRenderer.invoke('system:checkFullDiskAccess'),
+  checkFullDiskAccess: (force?: boolean): Promise<{ supported: boolean; granted: boolean }> =>
+    ipcRenderer.invoke('system:checkFullDiskAccess', force ?? false),
 
   openFullDiskAccessSettings: (): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('system:openFullDiskAccessSettings'),
