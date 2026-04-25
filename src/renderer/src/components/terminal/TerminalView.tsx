@@ -12,6 +12,8 @@ import '@/styles/xterm.css'
 
 interface TerminalViewProps {
   terminalId: string
+  /** Real worktree id (Phase 21 field events need this distinct from terminalId). */
+  worktreeId?: string
   cwd: string
   isVisible?: boolean
 }
@@ -34,7 +36,7 @@ function createBackend(type: TerminalBackendType): ITerminalBackend {
 }
 
 export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(function TerminalView(
-  { terminalId, cwd, isVisible = true },
+  { terminalId, worktreeId, cwd, isVisible = true },
   ref
 ) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -199,6 +201,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
         container,
         {
           terminalId,
+          worktreeId,
           cwd,
           fontFamily: terminalFontFamily || config.fontFamily,
           fontSize: config.fontSize,
@@ -216,7 +219,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
 
       backendRef.current = backend
     },
-    [terminalId, cwd, destroyTerminal, terminalFontFamily]
+    [terminalId, worktreeId, cwd, destroyTerminal, terminalFontFamily]
   )
 
   // Handle restart — destroy old PTY and re-create terminal

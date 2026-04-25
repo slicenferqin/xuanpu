@@ -143,6 +143,64 @@ export class DatabaseService {
     // skew between worktree builds.
     this.ensureConnectionTables()
     this.ensureUsageAnalyticsTables()
+    this.ensureFieldEventsTable()
+    this.ensureEpisodicMemoryTable()
+    this.ensureHubTables()
+  }
+
+  /**
+   * Idempotently ensure the hub-mode tables exist.
+   *
+   * Migration v17 (`add_hub_tables`) is skipped on DBs whose `schema_version`
+   * was already ≥17 from an older branch where v17 meant something else
+   * (`add_field_events`). Without this repair the renderer crashes the moment
+   * it opens the "远程访问 (Hub)" settings panel because `getStatus()` queries
+   * `hub_users` / `hub_settings` directly. See src/main/services/hub/*.
+   */
+  private ensureHubTables(): void {
+    const db = this.getDb()
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS hub_users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS hub_tokens (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL,
+        hash TEXT NOT NULL,
+        prefix TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        last_used INTEGER,
+        last_device_id TEXT,
+        disabled INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_hub_tokens_prefix ON hub_tokens(prefix);
+
+      CREATE TABLE IF NOT EXISTS hub_cookie_sessions (
+        id TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES hub_users(id) ON DELETE CASCADE,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_hub_cookie_sessions_expires
+        ON hub_cookie_sessions(expires_at);
+
+      CREATE TABLE IF NOT EXISTS hub_devices (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        hostname TEXT,
+        last_seen INTEGER,
+        online INTEGER NOT NULL DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS hub_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    `)
   }
 
   /**
@@ -285,6 +343,153 @@ export class DatabaseService {
       CREATE INDEX IF NOT EXISTS idx_usage_sync_state_status
         ON usage_sync_state(status, last_synced_at);
     `)
+  }
+
+  /**
+   * Idempotently ensure the field_events table and its indexes exist.
+   * Phase 21 — see docs/prd/phase-21-field-events.md
+   */
+  private ensureFieldEventsTable(): void {
+    const db = this.getDb()
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS field_events (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        timestamp INTEGER NOT NULL,
+        worktree_id TEXT,
+        project_id TEXT,
+        session_id TEXT,
+        type TEXT NOT NULL,
+        related_event_id TEXT,
+        payload_json TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_field_events_worktree_ts
+        ON field_events(worktree_id, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_events_project_ts
+        ON field_events(project_id, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_events_type_ts
+        ON field_events(type, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_events_ts
+        ON field_events(timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_events_session_ts
+        ON field_events(session_id, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_events_related
+        ON field_events(related_event_id) WHERE related_event_id IS NOT NULL;
+    `)
+  }
+
+  /**
+   * Idempotently ensure the field_episodic_memory table exists.
+   * Phase 22B.1 — see docs/prd/phase-22b-episodic-memory.md
+   */
+  private ensureEpisodicMemoryTable(): void {
+    const db = this.getDb()
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS field_episodic_memory (
+        worktree_id TEXT PRIMARY KEY,
+        summary_markdown TEXT NOT NULL,
+        compactor_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        compacted_at INTEGER NOT NULL,
+        source_event_count INTEGER NOT NULL,
+        source_since INTEGER NOT NULL,
+        source_until INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_field_episodic_memory_compacted
+        ON field_episodic_memory(compacted_at DESC);
+    `)
+  }
+
+  // -------------------------------------------------------------------------
+  // Episodic Memory CRUD (Phase 22B.1)
+  // -------------------------------------------------------------------------
+
+  upsertEpisodicMemory(entry: {
+    worktreeId: string
+    summaryMarkdown: string
+    compactorId: string
+    version: number
+    compactedAt: number
+    sourceEventCount: number
+    sourceSince: number
+    sourceUntil: number
+  }): void {
+    const db = this.getDb()
+    db.prepare(
+      `INSERT OR REPLACE INTO field_episodic_memory
+        (worktree_id, summary_markdown, compactor_id, version, compacted_at,
+         source_event_count, source_since, source_until)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      entry.worktreeId,
+      entry.summaryMarkdown,
+      entry.compactorId,
+      entry.version,
+      entry.compactedAt,
+      entry.sourceEventCount,
+      entry.sourceSince,
+      entry.sourceUntil
+    )
+  }
+
+  getEpisodicMemory(worktreeId: string): {
+    worktreeId: string
+    summaryMarkdown: string
+    compactorId: string
+    version: number
+    compactedAt: number
+    sourceEventCount: number
+    sourceSince: number
+    sourceUntil: number
+  } | null {
+    const db = this.getDb()
+    const row = db
+      .prepare(
+        `SELECT worktree_id, summary_markdown, compactor_id, version, compacted_at,
+                source_event_count, source_since, source_until
+         FROM field_episodic_memory WHERE worktree_id = ?`
+      )
+      .get(worktreeId) as
+      | {
+          worktree_id: string
+          summary_markdown: string
+          compactor_id: string
+          version: number
+          compacted_at: number
+          source_event_count: number
+          source_since: number
+          source_until: number
+        }
+      | undefined
+    if (!row) return null
+    return {
+      worktreeId: row.worktree_id,
+      summaryMarkdown: row.summary_markdown,
+      compactorId: row.compactor_id,
+      version: row.version,
+      compactedAt: row.compacted_at,
+      sourceEventCount: row.source_event_count,
+      sourceSince: row.source_since,
+      sourceUntil: row.source_until
+    }
+  }
+
+  deleteEpisodicMemory(worktreeId: string): boolean {
+    const db = this.getDb()
+    const result = db
+      .prepare('DELETE FROM field_episodic_memory WHERE worktree_id = ?')
+      .run(worktreeId)
+    return result.changes > 0
+  }
+
+  /**
+   * Expose the underlying better-sqlite3 handle for modules that need to
+   * prepare their own statements (e.g. FieldEventSink batch inserts).
+   * Use sparingly — most callers should go through DatabaseService methods.
+   */
+  getDbHandle(): Database.Database {
+    return this.getDb()
   }
 
   // Settings operations

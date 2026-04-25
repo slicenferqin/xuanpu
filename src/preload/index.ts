@@ -454,8 +454,8 @@ const systemOps = {
   runOnboardingDoctor: (): Promise<OnboardingDoctorResult> =>
     ipcRenderer.invoke('system:runOnboardingDoctor'),
 
-  checkFullDiskAccess: (): Promise<{ supported: boolean; granted: boolean }> =>
-    ipcRenderer.invoke('system:checkFullDiskAccess'),
+  checkFullDiskAccess: (force?: boolean): Promise<{ supported: boolean; granted: boolean }> =>
+    ipcRenderer.invoke('system:checkFullDiskAccess', force ?? false),
 
   openFullDiskAccessSettings: (): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('system:openFullDiskAccessSettings'),
@@ -1905,6 +1905,122 @@ const analyticsOps = {
   isEnabled: () => ipcRenderer.invoke('telemetry:isEnabled') as Promise<boolean>
 }
 
+// Phase 21: Field Event Stream — narrow renderer-side reporter.
+// Only `worktree.switch` is reportable from the renderer; all other event
+// types are emitted from the main process. See docs/prd/phase-21-field-events.md §5.
+const fieldOps = {
+  reportWorktreeSwitch: (input: import('../shared/types/field-event').WorktreeSwitchInput) =>
+    ipcRenderer.send('field:reportWorktreeSwitch', input),
+  reportFileOpen: (input: import('../shared/types/field-event').FileOpenInput) =>
+    ipcRenderer.send('field:reportFileOpen', input),
+  reportFileFocus: (input: import('../shared/types/field-event').FileFocusInput) =>
+    ipcRenderer.send('field:reportFileFocus', input),
+  reportFileSelection: (input: import('../shared/types/field-event').FileSelectionInput) =>
+    ipcRenderer.send('field:reportFileSelection', input),
+  /** Phase 22A debug: fetch the last Field Context injected for a session. */
+  getLastInjection: (sessionId: string) =>
+    ipcRenderer.invoke('field:getLastInjection', sessionId) as Promise<{
+      preview: string
+      timestamp: number
+      approxTokens: number
+    } | null>,
+  /** Phase 22B.1 debug: fetch the episodic memory summary for a worktree. */
+  getEpisodicMemory: (worktreeId: string) =>
+    ipcRenderer.invoke('field:getEpisodicMemory', worktreeId) as Promise<{
+      worktreeId: string
+      summaryMarkdown: string
+      compactorId: string
+      version: number
+      compactedAt: number
+      sourceEventCount: number
+      sourceSince: number
+      sourceUntil: number
+    } | null>,
+  /** Phase 22C.1 debug: fetch project + user memory.md files for a worktree. */
+  getSemanticMemory: (worktreeId: string) =>
+    ipcRenderer.invoke('field:getSemanticMemory', worktreeId) as Promise<{
+      project: { path: string; mtimeMs: number; size: number; markdown: string | null }
+      user: { path: string; mtimeMs: number; size: number; markdown: string | null }
+      lastReadAt: number
+    } | null>,
+  /** Phase 24C debug: fetch latest checkpoint (raw row + verifier-evaluated block). */
+  getCheckpoint: (worktreeId: string) =>
+    ipcRenderer.invoke('field:getCheckpoint', worktreeId) as Promise<{
+      verified: {
+        createdAt: number
+        ageMinutes: number
+        source: 'abort' | 'shutdown'
+        summary: string
+        currentGoal: string | null
+        nextAction: string | null
+        blockingReason: string | null
+        hotFiles: string[]
+        warnings: string[]
+      } | null
+      raw: {
+        id: string
+        createdAt: number
+        worktreeId: string
+        sessionId: string
+        branch: string | null
+        repoHead: string | null
+        source: 'abort' | 'shutdown'
+        summary: string
+        currentGoal: string | null
+        nextAction: string | null
+        blockingReason: string | null
+        hotFiles: string[]
+        hotFileDigests: Record<string, string | null> | null
+        packetHash: string
+      } | null
+    } | null>
+}
+
+// Hub mode (#34): mobile / remote-control over Claude Code sessions.
+// All channels prefix `hub:`; events are pushed via webContents.send.
+const hubOps = {
+  getStatus: () => ipcRenderer.invoke('hub:getStatus'),
+  start: () => ipcRenderer.invoke('hub:start'),
+  stop: () => ipcRenderer.invoke('hub:stop'),
+  startTunnel: () => ipcRenderer.invoke('hub:tunnel:start'),
+  stopTunnel: () => ipcRenderer.invoke('hub:tunnel:stop'),
+  setAuthMode: (mode: 'password' | 'cf_access' | 'hybrid') =>
+    ipcRenderer.invoke('hub:setAuthMode', mode),
+  getCfAccessEmails: () => ipcRenderer.invoke('hub:getCfAccessEmails'),
+  setCfAccessEmails: (emails: string[]) => ipcRenderer.invoke('hub:setCfAccessEmails', emails),
+  setRequireDesktopConfirm: (value: boolean) =>
+    ipcRenderer.invoke('hub:setRequireDesktopConfirm', value),
+  createUser: (args: { setupKey: string; username: string; password: string }) =>
+    ipcRenderer.invoke('hub:createUser', args),
+  changePassword: (args: { username: string; oldPassword: string; newPassword: string }) =>
+    ipcRenderer.invoke('hub:changePassword', args),
+  pendingConfirmations: () => ipcRenderer.invoke('hub:pendingConfirmations'),
+  respondConfirmation: (args: { confirmId: string; approve: boolean; reason?: string }) =>
+    ipcRenderer.invoke('hub:respondConfirmation', args),
+  listTokens: () => ipcRenderer.invoke('hub:listTokens'),
+  createToken: (name: string) => ipcRenderer.invoke('hub:createToken', { name }),
+  revokeToken: (id: number) => ipcRenderer.invoke('hub:revokeToken', { id }),
+  onStatusChanged: (callback: (status: unknown) => void): (() => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, status: unknown): void => callback(status)
+    ipcRenderer.on('hub:status-changed', handler)
+    return () => {
+      ipcRenderer.removeListener('hub:status-changed', handler)
+    }
+  },
+  onConfirmationRequested: (
+    callback: (req: { confirmId: string; hiveSessionId: string; preview: string }) => void
+  ): (() => void) => {
+    const handler = (
+      _e: Electron.IpcRendererEvent,
+      req: { confirmId: string; hiveSessionId: string; preview: string }
+    ): void => callback(req)
+    ipcRenderer.on('hub:confirmation-requested', handler)
+    return () => {
+      ipcRenderer.removeListener('hub:confirmation-requested', handler)
+    }
+  }
+}
+
 // Use `contextBridge` APIs to expose Electron APIs to
 // renderer only if context isolation is enabled, otherwise
 // just add to the DOM global.
@@ -1928,6 +2044,8 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('usageAnalyticsOps', usageAnalyticsOps)
     contextBridge.exposeInMainWorld('analyticsOps', analyticsOps)
     contextBridge.exposeInMainWorld('skillOps', skillOps)
+    contextBridge.exposeInMainWorld('fieldOps', fieldOps)
+    contextBridge.exposeInMainWorld('hubOps', hubOps)
   } catch (error) {
     console.error(error)
   }
@@ -1968,4 +2086,8 @@ if (process.contextIsolated) {
   window.analyticsOps = analyticsOps
   // @ts-expect-error (define in dts)
   window.skillOps = skillOps
+  // @ts-expect-error (define in dts)
+  window.fieldOps = fieldOps
+  // @ts-expect-error (define in dts)
+  window.hubOps = hubOps
 }

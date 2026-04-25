@@ -137,11 +137,21 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
   },
 
   openFile: (path: string, name: string, worktreeId: string) => {
+    const prevActive = get().activeFilePath
+    const wasAlreadyOpen = get().openFiles.has(path)
     set((state) => {
       const newFiles = new Map(state.openFiles)
       newFiles.set(path, { type: 'file', path, name, worktreeId })
       return { openFiles: newFiles, activeFilePath: path, activeDiff: null }
     })
+    // Phase 21: report file.open (first time this path is opened) and
+    // file.focus (activation change). Both are fire-and-forget.
+    if (!wasAlreadyOpen) {
+      window.fieldOps?.reportFileOpen({ worktreeId, path, name })
+    }
+    if (prevActive !== path) {
+      window.fieldOps?.reportFileFocus({ worktreeId, path, name, fromPath: prevActive })
+    }
   },
 
   closeFile: (path: string) => {
@@ -161,7 +171,21 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
   },
 
   setActiveFile: (path: string | null) => {
+    const prevActive = get().activeFilePath
     set({ activeFilePath: path, activeDiff: null })
+    // Phase 21: report file.focus when activation actually changes and the
+    // new active tab is a file tab (not a diff, context editor, or null).
+    if (path && prevActive !== path) {
+      const tab = get().openFiles.get(path)
+      if (tab?.type === 'file') {
+        window.fieldOps?.reportFileFocus({
+          worktreeId: tab.worktreeId,
+          path: tab.path,
+          name: tab.name,
+          fromPath: prevActive
+        })
+      }
+    }
   },
 
   closeAllFiles: () => {

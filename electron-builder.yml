@@ -6,12 +6,26 @@ directories:
 files:
   - out/**/*
   - resources/**/*
+  # cloudflared is copied into each platform's Resources/ via per-OS
+  # extraResources below — excluding it here stops ~195MB of non-target
+  # binaries (Linux + Windows) from leaking into app.asar on a macOS build.
+  - '!resources/cloudflared/**/*'
 
 # Cross-platform extra resources — copied, not packed into ASAR, so the skill
 # service can enumerate them at runtime with plain fs APIs.
+# NOTE: cloudflared binaries are NOT listed here — they're split into per-OS
+# extraResources under `mac:` / `win:` / `linux:` below so a macOS DMG doesn't
+# carry Windows + Linux binaries (and vice versa). See tunnel-service.ts for
+# the matching resolveBinary() path.
 extraResources:
   - from: resources/built-in-skills
     to: built-in-skills
+    filter:
+      - '**/*'
+  # Mobile UI (#44) — built by `pnpm build:mobile`. The hub-server resolves
+  # this to resources/mobile-ui at runtime via hub-controller.defaultMobileDistRoot.
+  - from: mobile/dist
+    to: mobile-ui
     filter:
       - '**/*'
 
@@ -29,7 +43,19 @@ mac:
   extraResources:
     - from: src/native/build/Release/ghostty.node
       to: native/ghostty.node
+    # cloudflared — only ship macOS binaries (both archs, ~72MB) in a macOS
+    # DMG. See tunnel-service.detectPlatform() for the naming convention.
+    - from: resources/cloudflared/darwin-amd64
+      to: cloudflared/darwin-amd64
+      filter: ['**/*']
+    - from: resources/cloudflared/darwin-arm64
+      to: cloudflared/darwin-arm64
+      filter: ['**/*']
   category: public.app-category.developer-tools
+  # Hub mode needs the Local Network prompt + server entitlement so the
+  # loopback HTTP/WS server and cloudflared child process can open sockets.
+  extendInfo:
+    NSLocalNetworkUsageDescription: 玄圃需要在本机网络上运行 Hub 服务，以便手机远程访问您的会话。
   # Signing & notarization disabled until Apple Developer certificate is set up.
   # To enable: set CSC_LINK, CSC_KEY_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD,
   # APPLE_TEAM_ID in GitHub Secrets, then uncomment the lines below.
@@ -54,6 +80,13 @@ dmg:
 win:
   icon: resources/icon.ico
   artifactName: 'Xuanpu-${version}-${arch}-win.${ext}'
+  extraResources:
+    - from: resources/cloudflared/windows-amd64
+      to: cloudflared/windows-amd64
+      filter: ['**/*']
+    - from: resources/cloudflared/windows-arm64
+      to: cloudflared/windows-arm64
+      filter: ['**/*']
   # NOTE: arch controlled by CLI flags (--x64 or --arm64) in release workflow.
   target:
     - nsis
@@ -70,6 +103,13 @@ nsis:
 linux:
   icon: resources/icon.png
   category: Development
+  extraResources:
+    - from: resources/cloudflared/linux-amd64
+      to: cloudflared/linux-amd64
+      filter: ['**/*']
+    - from: resources/cloudflared/linux-arm64
+      to: cloudflared/linux-arm64
+      filter: ['**/*']
 
 # ── Auto-update ───────────────────────────────────────
 publish:

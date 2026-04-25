@@ -500,7 +500,7 @@ declare global {
       setKeepAwakeEnabled: (enabled: boolean) => Promise<{ success: boolean }>
       setSessionQueuedState: (sessionId: string, queued: boolean) => Promise<{ success: boolean }>
       runOnboardingDoctor: () => Promise<OnboardingDoctorResult>
-      checkFullDiskAccess: () => Promise<{ supported: boolean; granted: boolean }>
+      checkFullDiskAccess: (force?: boolean) => Promise<{ supported: boolean; granted: boolean }>
       openFullDiskAccessSettings: () => Promise<{ success: boolean; error?: string }>
       openCommandInTerminal: (
         command: string,
@@ -1323,6 +1323,77 @@ declare global {
       setEnabled: (enabled: boolean) => Promise<void>
       isEnabled: () => Promise<boolean>
     }
+    fieldOps: {
+      reportWorktreeSwitch: (
+        input: import('../shared/types/field-event').WorktreeSwitchInput
+      ) => void
+      reportFileOpen: (input: import('../shared/types/field-event').FileOpenInput) => void
+      reportFileFocus: (input: import('../shared/types/field-event').FileFocusInput) => void
+      reportFileSelection: (
+        input: import('../shared/types/field-event').FileSelectionInput
+      ) => void
+      /** Phase 22A debug: fetch the last Field Context injected for a session. */
+      getLastInjection: (
+        sessionId: string
+      ) => Promise<{
+        preview: string
+        timestamp: number
+        approxTokens: number
+      } | null>
+      /** Phase 22B.1 debug: fetch the episodic memory summary for a worktree. */
+      getEpisodicMemory: (
+        worktreeId: string
+      ) => Promise<{
+        worktreeId: string
+        summaryMarkdown: string
+        compactorId: string
+        version: number
+        compactedAt: number
+        sourceEventCount: number
+        sourceSince: number
+        sourceUntil: number
+      } | null>
+      /** Phase 22C.1 debug: fetch project + user memory.md files for a worktree. */
+      getSemanticMemory: (
+        worktreeId: string
+      ) => Promise<{
+        project: { path: string; mtimeMs: number; size: number; markdown: string | null }
+        user: { path: string; mtimeMs: number; size: number; markdown: string | null }
+        lastReadAt: number
+      } | null>
+      /** Phase 24C debug: fetch latest checkpoint (raw row + verifier-evaluated block). */
+      getCheckpoint: (
+        worktreeId: string
+      ) => Promise<{
+        verified: {
+          createdAt: number
+          ageMinutes: number
+          source: 'abort' | 'shutdown'
+          summary: string
+          currentGoal: string | null
+          nextAction: string | null
+          blockingReason: string | null
+          hotFiles: string[]
+          warnings: string[]
+        } | null
+        raw: {
+          id: string
+          createdAt: number
+          worktreeId: string
+          sessionId: string
+          branch: string | null
+          repoHead: string | null
+          source: 'abort' | 'shutdown'
+          summary: string
+          currentGoal: string | null
+          nextAction: string | null
+          blockingReason: string | null
+          hotFiles: string[]
+          hotFileDigests: Record<string, string | null> | null
+          packetHash: string
+        } | null
+      } | null>
+    }
     skillOps: {
       listHubs: () => Promise<{
         success: boolean
@@ -1375,6 +1446,79 @@ declare global {
         availability: import('../shared/types/skill').ProviderAvailability
       }>
     }
+
+    hubOps: {
+      getStatus: () => Promise<HubStatusSnapshot>
+      start: () => Promise<{ success: boolean; status?: HubStatusSnapshot; error?: string }>
+      stop: () => Promise<{ success: boolean; status?: HubStatusSnapshot; error?: string }>
+      startTunnel: () => Promise<{ success: boolean; tunnel: HubTunnelStatus }>
+      stopTunnel: () => Promise<{ success: boolean }>
+      setAuthMode: (mode: HubAuthMode) => Promise<{ success: boolean }>
+      getCfAccessEmails: () => Promise<{ emails: string[] }>
+      setCfAccessEmails: (emails: string[]) => Promise<{ success: boolean }>
+      setRequireDesktopConfirm: (value: boolean) => Promise<{ success: boolean }>
+      createUser: (args: {
+        setupKey: string
+        username: string
+        password: string
+      }) => Promise<{ success: boolean; error?: string }>
+      changePassword: (args: {
+        username: string
+        oldPassword: string
+        newPassword: string
+      }) => Promise<{ success: boolean; error?: string }>
+      pendingConfirmations: () => Promise<{ confirmations: HubPendingConfirmation[] }>
+      respondConfirmation: (args: {
+        confirmId: string
+        approve: boolean
+        reason?: string
+      }) => Promise<{ success: boolean }>
+      listTokens: () => Promise<{ tokens: HubTokenRow[] }>
+      createToken: (
+        name: string
+      ) => Promise<
+        { success: true; name: string; token: string; prefix: string } | { success: false; error: string }
+      >
+      revokeToken: (id: number) => Promise<{ success: boolean }>
+      onStatusChanged: (cb: (status: HubStatusSnapshot) => void) => () => void
+      onConfirmationRequested: (cb: (req: HubPendingConfirmation) => void) => () => void
+    }
+  }
+
+  type HubAuthMode = 'password' | 'cf_access' | 'hybrid'
+
+  type HubTunnelStatus =
+    | { state: 'stopped' }
+    | { state: 'starting' }
+    | { state: 'running'; url: string }
+    | { state: 'error'; message: string }
+
+  interface HubStatusSnapshot {
+    enabled: boolean
+    port: number | null
+    host: string | null
+    authMode: HubAuthMode
+    requireDesktopConfirm: boolean
+    tunnel: HubTunnelStatus
+    hasAdmin: boolean
+    setupKey: string | null
+  }
+
+  interface HubPendingConfirmation {
+    confirmId: string
+    hiveSessionId: string
+    preview: string
+    createdAt: number
+  }
+
+  interface HubTokenRow {
+    id: number
+    name: string
+    prefix: string
+    createdAt: number
+    lastUsed: number | null
+    lastDeviceId: string | null
+    disabled: boolean
   }
 
   interface GitDiffStatFile {

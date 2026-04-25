@@ -400,8 +400,9 @@ export function SettingsGeneral(): React.JSX.Element {
           <div className="space-y-0.5">
             <label className="text-sm font-medium">新版 Session UI</label>
             <p className="text-xs text-muted-foreground">
-              启用重构后的 SessionShell（统一 timeline、三态 Composer、Agent
-              Rail）。关闭后回退到旧版 SessionView。
+              1.4.0 起默认启用：重构后的 SessionShell（统一 timeline、三态
+              Composer、Agent Rail），集成 Field Context /
+              记忆系统可视化。关闭后回退到旧版 SessionView。
             </p>
           </div>
           <button

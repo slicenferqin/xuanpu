@@ -7,6 +7,12 @@ export type TerminalBackendType = 'xterm' | 'ghostty'
 
 export interface TerminalOpts {
   terminalId: string
+  /**
+   * Real worktree id this terminal belongs to. Distinct from `terminalId` because
+   * a single worktree can host multiple terminal tabs (bt-*). Phase 21 field events
+   * must be keyed by worktreeId — see src/main/ipc/terminal-handlers.ts.
+   */
+  worktreeId?: string
   cwd: string
   fontFamily?: string
   fontSize?: number

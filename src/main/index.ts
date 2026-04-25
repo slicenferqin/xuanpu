@@ -27,7 +27,8 @@ import {
   registerConnectionHandlers,
   registerUsageHandlers,
   registerTimelineHandlers,
-  registerSkillHandlers
+  registerSkillHandlers,
+  registerHubHandlers
 } from './ipc'
 import { buildMenu, updateMenuState } from './menu'
 import type { MenuState } from './menu'
@@ -44,6 +45,7 @@ import { ClaudeCodeImplementer } from './services/claude-code-implementer'
 import { CodexImplementer } from './services/codex-implementer'
 import { openCodeService } from './services/opencode-service'
 import { AgentRuntimeManager } from './services/agent-runtime-manager'
+import { createHubController } from './services/hub/hub-controller'
 import { resolveClaudeBinaryPath } from './services/claude-binary-resolver'
 import { powerSaveBlockerService } from './services/power-save-blocker'
 import {
@@ -52,6 +54,8 @@ import {
 } from './services/full-disk-access'
 import { telemetryService } from './services/telemetry-service'
 import { ensureForkDataDir } from './services/fork-data-migration'
+import { getFieldEventSink } from './field/sink'
+import { getEpisodicMemoryUpdater } from './field/episodic-updater'
 import { APP_BUNDLE_ID, APP_CLI_NAME, APP_PRODUCT_NAME } from '@shared/app-identity'
 
 const log = createLogger({ component: 'Main' })
@@ -59,6 +63,53 @@ const log = createLogger({ component: 'Main' })
 const appStartTime = Date.now()
 
 app.setName(APP_PRODUCT_NAME)
+
+// ─── Global process error handlers ─────────────────────────────────────────
+// EPIPE on a child-process stdin or a closed socket is essentially always
+// benign: the peer is gone, the data we were writing has nowhere to go. Same
+// for ECONNRESET on outbound sockets. Without these handlers, those races
+// reach Electron's default uncaughtException handler and surface the user-
+// facing "Uncaught Exception" dialog. We log them and continue running.
+//
+// Anything else: log it loudly and rethrow so we don't accidentally swallow
+// real bugs.
+function isBenignIoError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  const code = (err as NodeJS.ErrnoException).code
+  if (code === 'EPIPE' || code === 'ECONNRESET' || code === 'ECANCELED') return true
+  // Some node versions stringify the code into the message instead.
+  const msg = err.message ?? ''
+  return /\bEPIPE\b|\bECONNRESET\b/.test(msg)
+}
+
+process.on('uncaughtException', (err) => {
+  if (isBenignIoError(err)) {
+    log.warn('suppressed benign uncaught I/O error', {
+      code: (err as NodeJS.ErrnoException).code,
+      message: err.message,
+      stack: err.stack
+    })
+    return
+  }
+  log.error('uncaught exception', { message: err.message, stack: err.stack })
+  // Rethrow on next tick so Electron's default crash handling still runs.
+  setImmediate(() => {
+    throw err
+  })
+})
+
+process.on('unhandledRejection', (reason) => {
+  if (isBenignIoError(reason)) {
+    log.warn('suppressed benign unhandled rejection', {
+      message: reason instanceof Error ? reason.message : String(reason)
+    })
+    return
+  }
+  log.error('unhandled rejection', {
+    reason: reason instanceof Error ? reason.message : String(reason),
+    stack: reason instanceof Error ? reason.stack : undefined
+  })
+})
 
 // Parse CLI flags
 const cliArgs = process.argv.slice(2)
@@ -469,8 +520,8 @@ function registerSystemHandlers(): void {
     return { success: true }
   })
 
-  ipcMain.handle('system:checkFullDiskAccess', () => {
-    return checkFullDiskAccess()
+  ipcMain.handle('system:checkFullDiskAccess', (_event, force?: boolean) => {
+    return checkFullDiskAccess({ force: !!force })
   })
 
   ipcMain.handle('system:openFullDiskAccessSettings', () => {
@@ -672,6 +723,13 @@ app.whenReady().then(async () => {
   log.info('Initializing database')
   getDatabase()
 
+  // Phase 22B: eager-init field event sink + episodic memory updater so the
+  // updater registers its event-bus listener before the first field event
+  // arrives. (Without this, the lazy singletons are never instantiated and
+  // compaction never runs.)
+  getFieldEventSink()
+  getEpisodicMemoryUpdater()
+
   // Initialize telemetry (must come after DB init since it reads/writes settings)
   telemetryService.init()
 
@@ -732,13 +790,24 @@ app.whenReady().then(async () => {
 
     // Create the canonical runtime manager
     const runtimeManager = new AgentRuntimeManager([openCodeService, claudeImpl, codexImpl])
-    runtimeManager.setMainWindow(mainWindow)
+
+    // Hub mode (#34): wrap mainWindow so agent IPC events fan out to mobile
+    // clients. The wrapped window is what runtime implementers call
+    // .webContents.send() on; the unwrapped window is still used by
+    // notificationService etc.
+    const hubController = createHubController({ runtimeManager, mainWindow })
+
+    runtimeManager.setMainWindow(hubController.wrappedWindow)
     agentRuntimeManager = runtimeManager
 
     const databaseService = getDatabase()
 
     log.info('Registering Agent handlers (canonical)')
-    registerAgentHandlers(mainWindow, runtimeManager, databaseService)
+    // Pass wrappedWindow so registerAgentHandlers' setMainWindow() call does NOT
+    // overwrite the hub-bridge-proxied window that was set on line above.
+    registerAgentHandlers(hubController.wrappedWindow, runtimeManager, databaseService)
+    log.info('Registering Hub handlers')
+    registerHubHandlers(mainWindow, hubController)
     log.info('Registering Timeline handlers')
     registerTimelineHandlers(runtimeManager)
     log.info('Registering FileTree handlers')
@@ -787,6 +856,39 @@ app.on('window-all-closed', () => {
 
 // Cleanup when app is about to quit
 app.on('will-quit', async () => {
+  // Phase 24C: capture session checkpoints BEFORE the sink shuts down, so
+  // generators can still query recent events. Hard 2s timeout per PRD —
+  // shutdown safety > completeness.
+  try {
+    const { recordCheckpointsOnShutdown } = await import('./field/checkpoint-hooks')
+    await Promise.race([
+      recordCheckpointsOnShutdown(),
+      new Promise<void>((resolve) => setTimeout(resolve, 2000))
+    ])
+  } catch (err) {
+    log.warn('checkpoint shutdown failed', {
+      error: err instanceof Error ? err.message : String(err)
+    })
+  }
+  // Phase 22B.1: shut down the episodic memory updater first (before the sink),
+  // so it stops scheduling new compactions that would race with sink flush.
+  try {
+    await getEpisodicMemoryUpdater().shutdown()
+  } catch (err) {
+    log.warn('episodic memory updater shutdown failed', {
+      error: err instanceof Error ? err.message : String(err)
+    })
+  }
+  // Phase 21: ensure the field event sink has flushed before we close the DB.
+  // The sink's own `before-quit` hook normally handles this, but we call
+  // shutdown() defensively here too — it's idempotent.
+  try {
+    await getFieldEventSink().shutdown()
+  } catch (err) {
+    log.warn('field event sink shutdown failed', {
+      error: err instanceof Error ? err.message : String(err)
+    })
+  }
   // Cleanup updater timers
   updaterService.cleanup()
   // Cleanup terminal PTYs
@@ -801,6 +903,16 @@ app.on('will-quit', async () => {
   await cleanupBranchWatchers()
   // Cleanup canonical agent handlers
   await cleanupAgentHandlers(agentRuntimeManager ?? undefined)
+  // Cleanup hub controller (stops server + tunnel)
+  try {
+    const { getHubController } = await import('./services/hub/hub-controller')
+    const ctrl = getHubController()
+    if (ctrl) await ctrl.stop()
+  } catch (err) {
+    log.warn('hub cleanup failed', {
+      error: err instanceof Error ? err.message : String(err)
+    })
+  }
   // Flush telemetry before closing database
   telemetryService.track('app_session_ended', {
     session_duration_ms: Date.now() - appStartTime

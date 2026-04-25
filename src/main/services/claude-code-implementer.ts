@@ -1068,6 +1068,17 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
                       isError: !!tr.is_error,
                       hasOutput: !!output
                     })
+
+                    // Phase 21.5: emit agent.* field event when a tool_use
+                    // completes. Wrapped in try/catch — instrumentation
+                    // failure must never break the merge.
+                    try {
+                      this.emitAgentToolField(session, tu, tr, output)
+                    } catch (err) {
+                      log.debug('Phase 21.5 emit failed; continuing', {
+                        error: err instanceof Error ? err.message : String(err)
+                      })
+                    }
                   }
                 }
               }
@@ -3944,6 +3955,29 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
     return this.sessions.get(this.getSessionKey(worktreePath, claudeSessionId))
   }
 
+  /**
+   * Reverse-lookup helper: given a Hive session id (the renderer/UI's stable
+   * id, distinct from the Claude SDK's per-fork id), find the live in-memory
+   * session state and return the routing tuple consumers need to call
+   * `prompt(worktreePath, agentSessionId, ...)`. Used by the Hub bridge so a
+   * mobile client doesn't have to know the SDK id (which can rotate when the
+   * session forks). Returns null if no live session is currently materialized
+   * for this hive id (e.g. the desktop hasn't opened the session yet).
+   */
+  findRoutingByHive(
+    hiveSessionId: string
+  ): { worktreePath: string; agentSessionId: string } | null {
+    for (const session of this.sessions.values()) {
+      if (session.hiveSessionId === hiveSessionId) {
+        return {
+          worktreePath: session.worktreePath,
+          agentSessionId: session.claudeSessionId
+        }
+      }
+    }
+    return null
+  }
+
   protected sendToRenderer(channel: string, data: unknown): void {
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
       this.mainWindow.webContents.send(channel, data)
@@ -4082,5 +4116,54 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         }
       }
     }
+  }
+
+  /**
+   * Phase 21.5: emit an agent.* field event when a tool_use → tool_result
+   * cycle completes. The shape of `tu` (toolUse) is the merged in-flight
+   * draft: `{ id, name, input, output, error, status, startTime, ... }`.
+   *
+   * Sub-agent calls are already filtered upstream (isSubagentMessage check
+   * in the tool_result merge block).
+   */
+  private emitAgentToolField(
+    session: ClaudeSessionState,
+    tu: Record<string, unknown>,
+    tr: { tool_use_id?: string; is_error?: boolean },
+    output: string | undefined
+  ): void {
+    if (!this.dbService) return
+    const worktreeRow = this.dbService.getWorktreeByPath(session.worktreePath)
+    if (!worktreeRow) return
+
+    const toolName = (tu.name as string) ?? 'unknown'
+    const toolUseId = (tu.id as string) ?? tr.tool_use_id ?? ''
+    const input = (tu.input as Record<string, unknown> | undefined) ?? {}
+    const startTime = (tu.startTime as number | undefined) ?? null
+    const durationMs = startTime ? Date.now() - startTime : undefined
+
+    // Lazy import to keep the module-level dep graph small.
+    void import('../field/emit-agent-tool').then(({ emitAgentToolEvent }) => {
+      emitAgentToolEvent({
+        worktreeId: worktreeRow.id,
+        projectId: worktreeRow.project_id ?? null,
+        sessionId: session.hiveSessionId,
+        worktreePath: session.worktreePath,
+        toolName,
+        toolUseId,
+        // Sub-agent already filtered at the message level; stays null.
+        parentToolUseId: null,
+        input,
+        output: {
+          text: tr.is_error ? undefined : output,
+          error: tr.is_error ? output : undefined,
+          // TODO Phase 21.5+: parse structured exit_code from Bash
+          // tool_result when the SDK exposes it. For now we use is_error
+          // as a 0/1 signal.
+          exitCode: tr.is_error ? 1 : undefined,
+          durationMs
+        }
+      })
+    })
   }
 }
