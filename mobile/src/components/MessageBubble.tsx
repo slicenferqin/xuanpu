@@ -2,7 +2,11 @@
  * MessageBubble: renders a HubMessage with role-specific styling.
  *
  *   user      → right-aligned neutral bubble
- *   assistant → left-aligned transparent, with MiniMarkdown + ToolUse chips
+ *   assistant → left-aligned transparent, with MiniMarkdown + ToolUse chips.
+ *               Within an assistant turn we render tool/diff/unknown parts
+ *               FIRST and text parts AFTER, regardless of arrival order, so
+ *               the conversation reads "what the agent did → what it concluded"
+ *               instead of "thinking → tool → conclusion" interleaved.
  *   system    → centered faint text
  *
  * ToolUse and Unknown parts are collapsed by default (just show name + a
@@ -35,10 +39,24 @@ export function MessageBubble({ message }: { message: HubMessage }): React.JSX.E
       </div>
     )
   }
+  // Assistant: split parts into tool/action group vs text group, render
+  // actions on top. We keep the original index in `key` so React doesn't
+  // re-mount tool cards (and lose their open/closed local state) when a
+  // streaming text delta arrives later in the same bubble.
+  const actionParts: Array<{ part: HubPart; idx: number }> = []
+  const textParts: Array<{ part: HubPart; idx: number }> = []
+  message.parts.forEach((part, idx) => {
+    if (part.type === 'text') textParts.push({ part, idx })
+    else actionParts.push({ part, idx })
+  })
+
   return (
     <div className="space-y-2">
-      {message.parts.map((p, i) => (
-        <PartView key={i} part={p} role="assistant" />
+      {actionParts.map(({ part, idx }) => (
+        <PartView key={idx} part={part} role="assistant" />
+      ))}
+      {textParts.map(({ part, idx }) => (
+        <PartView key={idx} part={part} role="assistant" />
       ))}
     </div>
   )

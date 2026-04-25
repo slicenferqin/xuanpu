@@ -150,6 +150,8 @@ function reducer(state: State, action: Action): State {
         messages: f.messages,
         permission: null,
         question: null,
+        plan: null,
+        commandApproval: null,
         error: null
       }
     case 'message/append':

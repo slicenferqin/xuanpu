@@ -369,7 +369,16 @@ export class HubController extends EventEmitter {
     }
 
     try {
-      await impl.reconnect(worktreePath, agentSessionId, hiveSessionId)
+      const result = await impl.reconnect(worktreePath, agentSessionId, hiveSessionId)
+      if (!result?.success) {
+        log.warn('lazyMaterialize: reconnect returned unsuccessful result', {
+          hiveSessionId,
+          runtimeId,
+          worktreePath,
+          agentSessionId
+        })
+        return null
+      }
     } catch (err) {
       log.warn('lazyMaterialize: reconnect failed', {
         hiveSessionId,
