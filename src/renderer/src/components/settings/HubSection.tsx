@@ -245,7 +245,7 @@ function TunnelCard({
       )}
       {status.enabled && (
         <>
-          <TunnelStatusLine status={status.tunnel} />
+          <TunnelStatusLine tunnel={status.tunnel} host={status.host} port={status.port} />
           {tunnelUrl && (
             <div className="flex items-center gap-2 mt-3">
               <code className="flex-1 px-3 py-2 bg-muted rounded text-sm font-mono break-all">
@@ -265,20 +265,71 @@ function TunnelCard({
   )
 }
 
-function TunnelStatusLine({ status }: { status: HubTunnelStatus }): React.JSX.Element {
-  switch (status.state) {
+function getTunnelErrorDetails(
+  status: Extract<HubTunnelStatus, { state: 'error' }>,
+  host: string | null,
+  port: number | null
+): { summary: string; hint: string } {
+  const origin = host && port ? `http://${host.includes(':') ? `[${host}]` : host}:${port}` : null
+  const message = status.message
+
+  if (message.includes('binary not found')) {
+    return {
+      summary: '未找到 cloudflared 可执行文件',
+      hint: '当前系统里没有可用的 cloudflared，需先安装或确认应用已正确打包该二进制。'
+    }
+  }
+
+  if (message.includes('hub server not running')) {
+    return {
+      summary: '本机 Hub 服务尚未启动',
+      hint: '请先打开上方“本机服务”，再开启公网访问。'
+    }
+  }
+
+  if (message.includes('cloudflared exited')) {
+    return {
+      summary: 'Cloudflare 隧道已启动，但无法稳定连到本地 Hub',
+      hint: origin
+        ? `Cloudflare 尝试连接本地 origin ${origin} 失败或连接后异常退出。请确认本机服务仍在运行；如果刚升级版本，先关闭再重新开启公网访问。`
+        : 'Cloudflare 隧道启动后无法稳定连到本地 Hub。请确认本机服务仍在运行，并尝试关闭后重新开启公网访问。'
+    }
+  }
+
+  return {
+    summary: 'Cloudflare 隧道启动失败',
+    hint: origin
+      ? `请检查本地 origin ${origin} 是否可访问，并重试开启公网访问。`
+      : '请检查本机 Hub 服务是否可用，并重试开启公网访问。'
+  }
+}
+
+function TunnelStatusLine({
+  tunnel,
+  host,
+  port
+}: {
+  tunnel: HubTunnelStatus
+  host: string | null
+  port: number | null
+}): React.JSX.Element {
+  switch (tunnel.state) {
     case 'stopped':
       return <p className="text-sm text-muted-foreground">未开启</p>
     case 'starting':
       return <p className="text-sm text-amber-500">正在连接 Cloudflare …</p>
     case 'running':
       return <p className="text-sm text-green-500">已连接</p>
-    case 'error':
+    case 'error': {
+      const details = getTunnelErrorDetails(tunnel, host, port)
       return (
-        <p className="text-sm text-red-500">
-          错误：{status.message}
-        </p>
+        <div className="mt-1 rounded-xl border border-red-500/25 bg-red-500/8 px-3.5 py-3 text-sm">
+          <p className="font-medium text-red-500">{details.summary}</p>
+          <p className="mt-1 leading-6 text-red-500/90">{details.hint}</p>
+          <p className="mt-2 text-xs text-red-500/75">原始错误：{tunnel.message}</p>
+        </div>
       )
+    }
   }
 }
 
