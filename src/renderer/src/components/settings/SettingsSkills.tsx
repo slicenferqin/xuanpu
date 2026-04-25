@@ -425,7 +425,7 @@ export function SettingsSkills(): React.JSX.Element {
           </div>
         )}
 
-        <div className="flex flex-1 min-h-0 gap-6 overflow-hidden">
+        <div className="mx-auto grid w-full max-w-[calc(18rem+1.5rem+52rem)] flex-1 min-h-0 grid-cols-[18rem_minmax(0,52rem)] gap-6 overflow-hidden">
           <aside className="w-72 shrink-0 flex flex-col gap-3 min-h-0">
             <div className="relative shrink-0">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -655,7 +655,7 @@ export function SettingsSkills(): React.JSX.Element {
             </div>
           </aside>
 
-          <section className="flex-1 flex flex-col min-w-0 rounded-2xl border border-border/70 bg-background overflow-hidden shadow-sm">
+          <section className="w-full min-w-0 flex flex-col rounded-2xl border border-border/70 bg-background overflow-hidden shadow-sm">
             {!currentSkill ? (
               <div className="flex-1 flex flex-col items-center justify-center gap-4 text-muted-foreground">
                 <div className="p-6 rounded-3xl bg-muted/20">
@@ -668,10 +668,10 @@ export function SettingsSkills(): React.JSX.Element {
             ) : (
               <>
                 <header className="border-b border-border/50 bg-muted/5 p-6 pb-5 space-y-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex items-center gap-3">
-                        <h4 className="text-2xl font-bold tracking-tight truncate">
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
+                    <div className="min-w-0 w-full space-y-1">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+                        <h4 className="min-w-0 break-words text-2xl font-bold tracking-tight">
                           {currentSkill.frontmatter.name || currentSkill.id}
                         </h4>
                         {currentSkill.frontmatter.version && (
@@ -681,7 +681,7 @@ export function SettingsSkills(): React.JSX.Element {
                         )}
                       </div>
                       {currentSkill.frontmatter.description && (
-                        <p className="text-sm text-muted-foreground leading-relaxed max-w-2xl">
+                        <p className="w-full break-words text-sm leading-relaxed text-muted-foreground">
                           {currentSkill.frontmatter.description}
                         </p>
                       )}
