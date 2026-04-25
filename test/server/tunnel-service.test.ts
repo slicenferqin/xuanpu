@@ -70,7 +70,7 @@ describe('TunnelService: happy path', () => {
     expect(spawn).toHaveBeenCalledOnce()
     expect(spawn).toHaveBeenCalledWith(
       '/fake/cloudflared',
-      ['tunnel', '--no-autoupdate', '--url', 'http://127.0.0.1:8317'],
+      ['tunnel', '--no-autoupdate', '--protocol', 'http2', '--url', 'http://127.0.0.1:8317'],
       expect.objectContaining({ stdio: ['ignore', 'pipe', 'pipe'] })
     )
 
@@ -105,7 +105,7 @@ describe('TunnelService: happy path', () => {
 
     expect(spawn).toHaveBeenCalledWith(
       '/fake/cloudflared',
-      ['tunnel', '--no-autoupdate', '--url', 'http://[::1]:8317'],
+      ['tunnel', '--no-autoupdate', '--protocol', 'http2', '--url', 'http://[::1]:8317'],
       expect.objectContaining({ stdio: ['ignore', 'pipe', 'pipe'] })
     )
   })

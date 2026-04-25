@@ -156,7 +156,19 @@ export class TunnelService extends EventEmitter {
       return
     }
     const originHost = this.localHost.includes(':') ? `[${this.localHost}]` : this.localHost
-    const args = ['tunnel', '--no-autoupdate', '--url', `http://${originHost}:${this.localPort}`]
+    // Force http2 instead of the default quic. cloudflared's quic transport uses
+    // UDP/7844, which is silently dropped by many proxies/VPNs (notably the
+    // tun-routed setups common on CN networks) — the connector then prints a
+    // trycloudflare URL but never establishes an edge session, so visitors get
+    // Cloudflare error 1033. http2 rides on TCP/443 and works wherever HTTPS does.
+    const args = [
+      'tunnel',
+      '--no-autoupdate',
+      '--protocol',
+      'http2',
+      '--url',
+      `http://${originHost}:${this.localPort}`
+    ]
     this.setStatus({ state: 'starting' })
     log.info('spawning cloudflared', { bin, host: this.localHost, port: this.localPort })
 

@@ -10,7 +10,6 @@ export type HubErrorCode =
   | 'AUTH_REQUIRED'
   | 'DEVICE_OFFLINE'
   | 'SESSION_NOT_FOUND'
-  | 'CONFIRM_TIMEOUT'
   | 'NEED_FULL_RELOAD'
   | 'RATE_LIMITED'
   | 'BAD_REQUEST'
@@ -24,6 +23,8 @@ export type HubPart =
       name: string
       input?: unknown
       pending?: boolean
+      output?: unknown
+      isError?: boolean
     }
   | {
       type: 'tool_result'
@@ -79,10 +80,26 @@ export type ServerMsg =
     }
   | { type: 'status'; seq: number; status: HubSessionStatus }
   | {
-      type: 'confirmation/request'
+      type: 'system/notice'
       seq: number
-      confirmId: string
-      preview: string
+      level: 'info' | 'warn' | 'error'
+      category: string
+      text: string
+      data?: unknown
+    }
+  | {
+      type: 'plan/request'
+      seq: number
+      requestId: string
+      planText: string
+    }
+  | {
+      type: 'command_approval/request'
+      seq: number
+      requestId: string
+      command: string
+      cwd?: string
+      reason?: string
     }
   | { type: 'error'; seq?: number; code: HubErrorCode; message?: string }
 
@@ -97,3 +114,15 @@ export type ClientMsg =
     }
   | { type: 'question/respond'; requestId: string; answers: string[][] }
   | { type: 'resume'; lastSeq: number }
+  | {
+      type: 'plan/respond'
+      requestId: string
+      decision: 'approve' | 'reject'
+      feedback?: string
+    }
+  | {
+      type: 'command_approval/respond'
+      requestId: string
+      decision: 'approve_once' | 'approve_always' | 'reject'
+      message?: string
+    }

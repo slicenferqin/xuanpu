@@ -259,6 +259,8 @@ export function SettingsSkills(): React.JSX.Element {
       : t('settings.skills.scope.noWorktree')
 
   const onProviderTab = (p: SkillProvider): void => {
+    if (!providerAvailability[p]) return
+
     // If switching providers and the current scope kind isn't supported by
     // the new provider (OpenCode + project today), drop back to user scope.
     const supports = SUPPORTED_SCOPES_BY_PROVIDER[p]
@@ -404,6 +406,8 @@ export function SettingsSkills(): React.JSX.Element {
                 active={scope.provider === p}
                 label={PROVIDER_LABELS[p]}
                 detected={providerAvailability[p]}
+                disabled={!providerAvailability[p]}
+                disabledReason={t('settings.skills.install.providerNotInstalled')}
                 onClick={() => onProviderTab(p)}
               />
             ))}
@@ -842,33 +846,47 @@ function ProviderTab({
   active,
   label,
   detected,
+  disabled,
+  disabledReason,
   onClick
 }: {
   active: boolean
   label: string
   detected: boolean
+  disabled?: boolean
+  disabledReason?: string
   onClick: () => void
 }): React.JSX.Element {
   const selectedClass =
     'scale-[1.02] border-2 border-primary/60 bg-primary/14 text-primary shadow-[0_12px_28px_-16px_rgba(59,130,246,0.62)] ring-1 ring-primary/40'
   const idleClass =
     'border-border/65 bg-background/30 text-foreground/70 hover:border-border/90 hover:bg-background/45 hover:text-foreground'
+  const disabledClass =
+    'cursor-not-allowed border-border/55 bg-background/18 text-foreground/40 opacity-65 shadow-none hover:border-border/55 hover:bg-background/18 hover:text-foreground/40'
 
   return (
     <button
+      disabled={disabled}
       onClick={onClick}
+      title={disabled ? disabledReason || label : label}
       className={cn(
         'relative flex items-center gap-2 rounded-lg border px-3 py-1.5 text-[13px] font-semibold transition-all',
-        active ? selectedClass : idleClass
+        disabled ? disabledClass : active ? selectedClass : idleClass
       )}
     >
-      {active && (
+      {active && !disabled && (
         <span className="absolute left-0 top-1.5 h-[calc(100%-12px)] w-1 rounded-r-full bg-primary" />
       )}
       <span
         className={cn(
           'h-1.5 w-1.5 rounded-full transition-colors',
-          detected ? (active ? 'bg-primary' : 'bg-emerald-500') : 'bg-foreground/25'
+          disabled
+            ? 'bg-foreground/20'
+            : detected
+              ? active
+                ? 'bg-primary'
+                : 'bg-emerald-500'
+              : 'bg-foreground/25'
         )}
       />
       {label}

@@ -10,28 +10,25 @@
  *   ctrl.startTunnel()       // spawn cloudflared
  *   ctrl.stopTunnel()
  *   ctrl.getStatus()         // snapshot for the renderer
- *   ctrl.respondConfirmation(confirmId, true)
  *   ctrl.on('status', cb)    // emits whenever hub/tunnel state changes
- *   ctrl.on('confirmation', cb)  // mobile-originated prompt awaiting approval
  *
- * The PromptConfirmer plumbed into HubBridge is backed by a Map of pending
- * confirmations. The desktop UI pulls them via `pendingConfirmations()` (or
- * subscribes to the `confirmation` event) and resolves them via
- * `respondConfirmation()`. CONFIRM_TIMEOUT_MS in HubBridge guarantees
- * stragglers never leak.
+ * Mobile-originated prompts are forwarded straight to the runtime — the
+ * earlier desktop-confirm gate has been removed in favor of an IM-style
+ * flow. Authentication on the hub websocket is the only barrier.
  */
 
 import { EventEmitter } from 'events'
 import { existsSync } from 'fs'
 import path from 'path'
+import { randomUUID } from 'crypto'
 import { app, type BrowserWindow } from 'electron'
 import { getDatabase } from '../../db/database'
 import type { AgentRuntimeManager } from '../agent-runtime-manager'
+import { getClaudeTranscriptPath } from '../claude-transcript-reader'
 import {
   createHubBridge,
   wrapBrowserWindow,
-  type HubBridge,
-  type PromptConfirmer
+  type HubBridge
 } from './hub-bridge'
 import { HubRegistry } from './hub-registry'
 import {
@@ -39,7 +36,6 @@ import {
   DEFAULT_HUB_PORT,
   setHubAuthMode,
   setHubCfAccessEmails,
-  setHubRequireDesktopConfirm,
   setHubTunnelUrl,
   type HubAuthMode,
   type HubServer,
@@ -65,19 +61,11 @@ export interface HubControllerOptions {
   defaultPort?: number
 }
 
-export interface PendingConfirmation {
-  confirmId: string
-  hiveSessionId: string
-  preview: string
-  createdAt: number
-}
-
 export interface HubStatusSnapshot {
   enabled: boolean
   port: number | null
   host: string | null
   authMode: HubAuthMode
-  requireDesktopConfirm: boolean
   tunnel: TunnelStatus
   hasAdmin: boolean
   /** Only set when no admin exists yet. */
@@ -92,10 +80,6 @@ export class HubController extends EventEmitter {
   /** Wrapped window — pass this to runtimeManager.setMainWindow() in main. */
   readonly wrappedWindow: BrowserWindow
   private readonly defaultPort: number
-  private readonly pending = new Map<
-    string,
-    { meta: PendingConfirmation; resolve: (v: { approved: boolean; reason?: string }) => void }
-  >()
   private currentTunnel: TunnelStatus = { state: 'stopped' }
 
   constructor(opts: HubControllerOptions) {
@@ -104,55 +88,36 @@ export class HubController extends EventEmitter {
 
     this.registry = new HubRegistry()
 
-    const confirmer: PromptConfirmer = {
-      confirm: (req) =>
-        new Promise((resolve) => {
-          const meta: PendingConfirmation = {
-            confirmId: req.confirmId,
-            hiveSessionId: req.hiveSessionId,
-            preview: req.preview,
-            createdAt: Date.now()
-          }
-          this.pending.set(req.confirmId, { meta, resolve })
-          this.emit('confirmation', meta)
-        })
-    }
-
     this.bridge = createHubBridge({
       registry: this.registry,
       runtimeManager: opts.runtimeManager,
-      confirmer,
-      // Read the live setting on each prompt so toggling the UI takes effect
-      // immediately. Default to true (require confirm) when the setting is
-      // missing or malformed — fail-safe.
-      shouldConfirmPrompt: () => {
-        try {
-          const db = getDatabase().getDb()
-          const row = db
-            .prepare('SELECT value FROM hub_settings WHERE key = ?')
-            .get('require_desktop_confirm') as { value: string } | undefined
-          // Stored as '1' (on) or '0' (off). Anything else (including missing
-          // row) is treated as on.
-          return row?.value !== '0'
-        } catch (err) {
-          log.warn('shouldConfirmPrompt: failed to read setting, defaulting to true', {
-            error: err instanceof Error ? err.message : String(err)
-          })
-          return true
-        }
-      },
       // No callsite ever invokes registerSessionRouting() in M1 — the bridge
-      // would always answer SESSION_NOT_FOUND otherwise. Fall back to asking
-      // the runtime by hiveSessionId so any desktop-opened session is
-      // controllable from the mobile UI without extra plumbing.
-      routingResolver: (hiveSessionId) => {
+      // would always answer SESSION_NOT_FOUND otherwise. Resolution order:
+      // (1) try every implementer's in-memory `findRoutingByHive` for a
+      //     desktop-opened session, (2) if all miss, read DB sessions row to
+      //     pick the right runtime by `agent_sdk` and lazy-materialize via
+      //     reconnect(). Returning the runtime id alongside the routing tuple
+      //     lets the bridge dispatch inbound prompts to the correct runtime
+      //     instead of always defaulting to claude-code.
+      routingResolver: async (hiveSessionId) => {
+        const runtimeIds = ['claude-code', 'codex', 'opencode'] as const
         try {
-          const impl = opts.runtimeManager.getImplementer('claude-code') as unknown as {
-            findRoutingByHive?: (
-              h: string
-            ) => { worktreePath: string; agentSessionId: string } | null
+          // (1) in-memory scan across runtimes
+          for (const rid of runtimeIds) {
+            const impl = this.tryGetImplementer(opts.runtimeManager, rid)
+            const live = (
+              impl as unknown as {
+                findRoutingByHive?: (
+                  h: string
+                ) => { worktreePath: string; agentSessionId: string } | null
+              }
+            )?.findRoutingByHive?.(hiveSessionId)
+            if (live) {
+              return { ...live, runtimeId: rid }
+            }
           }
-          return impl.findRoutingByHive?.(hiveSessionId) ?? null
+          // (2) DB lookup → pick implementer by agent_sdk → reconnect
+          return await this.lazyMaterialize(opts.runtimeManager, hiveSessionId)
         } catch (err) {
           log.warn('routingResolver: lookup failed', {
             hiveSessionId,
@@ -228,14 +193,12 @@ export class HubController extends EventEmitter {
       return row?.value ?? null
     }
     const authMode = (setting('auth_mode') as HubAuthMode | null) ?? 'password'
-    const requireDesktopConfirm = setting('require_desktop_confirm') !== '0'
     const serverStatus = this.server.status()
     return {
       enabled: serverStatus.running,
       port: serverStatus.port,
       host: serverStatus.host,
       authMode,
-      requireDesktopConfirm,
       tunnel: this.currentTunnel,
       hasAdmin,
       setupKey
@@ -251,11 +214,6 @@ export class HubController extends EventEmitter {
 
   setCfAccessEmails(emails: readonly string[]): void {
     setHubCfAccessEmails(getDatabase().getDb(), emails)
-    this.emit('status', this.getStatus())
-  }
-
-  setRequireDesktopConfirm(value: boolean): void {
-    setHubRequireDesktopConfirm(getDatabase().getDb(), value)
     this.emit('status', this.getStatus())
   }
 
@@ -310,19 +268,7 @@ export class HubController extends EventEmitter {
     return { success: true }
   }
 
-  // ─── pending confirmations ────────────────────────────────────────────────
-
-  pendingConfirmations(): PendingConfirmation[] {
-    return Array.from(this.pending.values()).map((e) => e.meta)
-  }
-
-  respondConfirmation(confirmId: string, approve: boolean, reason?: string): boolean {
-    const entry = this.pending.get(confirmId)
-    if (!entry) return false
-    this.pending.delete(confirmId)
-    entry.resolve({ approved: approve, reason })
-    return true
-  }
+  // ─── routing ──────────────────────────────────────────────────────────────
 
   /** Forget a session's routing — call when a session is destroyed. */
   forgetSession(hiveSessionId: string): void {
@@ -336,6 +282,105 @@ export class HubController extends EventEmitter {
     agentSessionId: string
   ): void {
     this.bridge.registerSessionRouting(hiveSessionId, worktreePath, agentSessionId)
+  }
+
+  // ─── lazy materialization helpers ─────────────────────────────────────────
+
+  private tryGetImplementer(
+    mgr: AgentRuntimeManager,
+    runtimeId: 'claude-code' | 'codex' | 'opencode'
+  ): unknown {
+    try {
+      return mgr.getImplementer(runtimeId)
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Look up `hiveSessionId` in SQLite, pick the implementer named in
+   * `sessions.agent_sdk`, and call `reconnect()` so the bridge can route
+   * inbound messages immediately. Returns null when no DB row exists, the
+   * worktree is missing, the implementer doesn't exist, or reconnect throws.
+   *
+   * For claude-code we additionally probe the on-disk transcript: if the
+   * stored `opencode_session_id` (which doubles as the claude SDK id) has no
+   * transcript file, claude's `--resume` would crash with "No conversation
+   * found", so we synthesize a `pending::` placeholder instead — the next
+   * prompt will start a fresh claude session under the same hiveSessionId.
+   */
+  private async lazyMaterialize(
+    mgr: AgentRuntimeManager,
+    hiveSessionId: string
+  ): Promise<{
+    worktreePath: string
+    agentSessionId: string
+    runtimeId: 'claude-code' | 'codex' | 'opencode'
+  } | null> {
+    const db = getDatabase()
+    const session = db.getSession(hiveSessionId)
+    if (!session || !session.worktree_id) return null
+    const wt = db.getWorktree(session.worktree_id)
+    if (!wt) return null
+    const worktreePath = wt.path
+    const rawSdk = (session as unknown as { agent_sdk?: string }).agent_sdk
+    const runtimeId =
+      rawSdk === 'claude-code' || rawSdk === 'codex' || rawSdk === 'opencode'
+        ? rawSdk
+        : 'claude-code'
+
+    const impl = this.tryGetImplementer(mgr, runtimeId) as {
+      reconnect?: (
+        worktreePath: string,
+        agentSessionId: string,
+        hiveSessionId: string
+      ) => Promise<unknown>
+    } | null
+    if (!impl?.reconnect) {
+      log.warn('lazyMaterialize: implementer missing reconnect', {
+        hiveSessionId,
+        runtimeId
+      })
+      return null
+    }
+
+    let agentSessionId =
+      session.opencode_session_id && session.opencode_session_id.length > 0
+        ? session.opencode_session_id
+        : `pending::synth-${randomUUID()}`
+
+    if (runtimeId === 'claude-code' && !agentSessionId.startsWith('pending::')) {
+      // Claude requires the transcript JSONL on disk for `--resume`.
+      // Synthesize a pending id when it's missing so the next prompt starts
+      // fresh instead of crashing with "No conversation found".
+      try {
+        const path = getClaudeTranscriptPath(worktreePath, agentSessionId)
+        if (!existsSync(path)) {
+          log.info('lazyMaterialize: claude transcript missing, falling back to fresh', {
+            hiveSessionId,
+            agentSessionId,
+            transcriptPath: path
+          })
+          agentSessionId = `pending::synth-${randomUUID()}`
+        }
+      } catch {
+        agentSessionId = `pending::synth-${randomUUID()}`
+      }
+    }
+
+    try {
+      await impl.reconnect(worktreePath, agentSessionId, hiveSessionId)
+    } catch (err) {
+      log.warn('lazyMaterialize: reconnect failed', {
+        hiveSessionId,
+        runtimeId,
+        worktreePath,
+        agentSessionId,
+        error: err instanceof Error ? err.message : String(err)
+      })
+      return null
+    }
+    return { worktreePath, agentSessionId, runtimeId }
   }
 }
 

@@ -1456,7 +1456,6 @@ declare global {
       setAuthMode: (mode: HubAuthMode) => Promise<{ success: boolean }>
       getCfAccessEmails: () => Promise<{ emails: string[] }>
       setCfAccessEmails: (emails: string[]) => Promise<{ success: boolean }>
-      setRequireDesktopConfirm: (value: boolean) => Promise<{ success: boolean }>
       createUser: (args: {
         setupKey: string
         username: string
@@ -1467,12 +1466,6 @@ declare global {
         oldPassword: string
         newPassword: string
       }) => Promise<{ success: boolean; error?: string }>
-      pendingConfirmations: () => Promise<{ confirmations: HubPendingConfirmation[] }>
-      respondConfirmation: (args: {
-        confirmId: string
-        approve: boolean
-        reason?: string
-      }) => Promise<{ success: boolean }>
       listTokens: () => Promise<{ tokens: HubTokenRow[] }>
       createToken: (
         name: string
@@ -1481,7 +1474,6 @@ declare global {
       >
       revokeToken: (id: number) => Promise<{ success: boolean }>
       onStatusChanged: (cb: (status: HubStatusSnapshot) => void) => () => void
-      onConfirmationRequested: (cb: (req: HubPendingConfirmation) => void) => () => void
     }
   }
 
@@ -1498,17 +1490,9 @@ declare global {
     port: number | null
     host: string | null
     authMode: HubAuthMode
-    requireDesktopConfirm: boolean
     tunnel: HubTunnelStatus
     hasAdmin: boolean
     setupKey: string | null
-  }
-
-  interface HubPendingConfirmation {
-    confirmId: string
-    hiveSessionId: string
-    preview: string
-    createdAt: number
   }
 
   interface HubTokenRow {

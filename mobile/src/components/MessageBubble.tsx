@@ -12,6 +12,7 @@
 import { useState } from 'react'
 import type { HubMessage, HubPart } from '../types/hub'
 import { MiniMarkdown } from './MiniMarkdown'
+import { ToolCard } from './ToolCards'
 
 export function MessageBubble({ message }: { message: HubMessage }): React.JSX.Element {
   if (message.role === 'user') {
@@ -58,7 +59,15 @@ function PartView({
         <MiniMarkdown text={part.text} />
       )
     case 'tool_use':
-      return <ToolUseChip name={part.name} input={part.input} pending={!!part.pending} />
+      return (
+        <ToolCard
+          name={part.name}
+          input={part.input}
+          output={part.output}
+          pending={!!part.pending}
+          isError={part.isError}
+        />
+      )
     case 'tool_result':
       return <ToolResultChip output={part.output} isError={!!part.isError} />
     case 'diff':
@@ -66,37 +75,6 @@ function PartView({
     case 'unknown':
       return <UnknownChip raw={part.raw} />
   }
-}
-
-function ToolUseChip({
-  name,
-  input,
-  pending
-}: {
-  name: string
-  input?: unknown
-  pending: boolean
-}): React.JSX.Element {
-  const [open, setOpen] = useState(false)
-  return (
-    <button
-      onClick={() => setOpen((v) => !v)}
-      className="w-full text-left px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 active:bg-zinc-800"
-    >
-      <div className="flex items-center gap-2">
-        <span className="text-xs uppercase tracking-wider text-zinc-500">tool</span>
-        <span className="text-sm font-mono">{name}</span>
-        {pending && (
-          <span className="ml-auto text-xs text-amber-400">运行中…</span>
-        )}
-      </div>
-      {open && input !== undefined && (
-        <pre className="mt-2 text-xs font-mono text-zinc-300 whitespace-pre-wrap break-words">
-          {safeStringify(input)}
-        </pre>
-      )}
-    </button>
-  )
 }
 
 function ToolResultChip({

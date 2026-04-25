@@ -1988,15 +1988,10 @@ const hubOps = {
     ipcRenderer.invoke('hub:setAuthMode', mode),
   getCfAccessEmails: () => ipcRenderer.invoke('hub:getCfAccessEmails'),
   setCfAccessEmails: (emails: string[]) => ipcRenderer.invoke('hub:setCfAccessEmails', emails),
-  setRequireDesktopConfirm: (value: boolean) =>
-    ipcRenderer.invoke('hub:setRequireDesktopConfirm', value),
   createUser: (args: { setupKey: string; username: string; password: string }) =>
     ipcRenderer.invoke('hub:createUser', args),
   changePassword: (args: { username: string; oldPassword: string; newPassword: string }) =>
     ipcRenderer.invoke('hub:changePassword', args),
-  pendingConfirmations: () => ipcRenderer.invoke('hub:pendingConfirmations'),
-  respondConfirmation: (args: { confirmId: string; approve: boolean; reason?: string }) =>
-    ipcRenderer.invoke('hub:respondConfirmation', args),
   listTokens: () => ipcRenderer.invoke('hub:listTokens'),
   createToken: (name: string) => ipcRenderer.invoke('hub:createToken', { name }),
   revokeToken: (id: number) => ipcRenderer.invoke('hub:revokeToken', { id }),
@@ -2005,18 +2000,6 @@ const hubOps = {
     ipcRenderer.on('hub:status-changed', handler)
     return () => {
       ipcRenderer.removeListener('hub:status-changed', handler)
-    }
-  },
-  onConfirmationRequested: (
-    callback: (req: { confirmId: string; hiveSessionId: string; preview: string }) => void
-  ): (() => void) => {
-    const handler = (
-      _e: Electron.IpcRendererEvent,
-      req: { confirmId: string; hiveSessionId: string; preview: string }
-    ): void => callback(req)
-    ipcRenderer.on('hub:confirmation-requested', handler)
-    return () => {
-      ipcRenderer.removeListener('hub:confirmation-requested', handler)
     }
   }
 }

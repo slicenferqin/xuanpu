@@ -5,7 +5,11 @@ import { useAutoScrollToBottom } from '../hooks/useAutoScrollToBottom'
 import { MessageBubble } from '../components/MessageBubble'
 import { PermissionCard } from '../components/PermissionCard'
 import { QuestionCard } from '../components/QuestionCard'
+import { PlanCard } from '../components/PlanCard'
+import { CommandApprovalCard } from '../components/CommandApprovalCard'
+import { NoticeStrip } from '../components/NoticeStrip'
 import { PromptComposer } from '../components/PromptComposer'
+import { ErrorBoundary } from '../components/ErrorBoundary'
 
 export function SessionDetail(): React.JSX.Element {
   const { deviceId, hiveId } = useParams<{ deviceId: string; hiveId: string }>()
@@ -24,7 +28,7 @@ function SessionDetailInner({
 }): React.JSX.Element {
   const stream = useSessionStream(deviceId, hiveId)
   const { scrollRef, atBottom, jumpToBottom, bump } = useAutoScrollToBottom()
-  const { messages, connection, status, permission, question, error } = stream.state
+  const { messages, connection, status, permission, question, plan, commandApproval, notices, error } = stream.state
 
   // Bump auto-scroll whenever the message list or running state changes.
   useEffect(() => {
@@ -65,6 +69,12 @@ function SessionDetailInner({
         </div>
       )}
 
+      <NoticeStrip
+        notices={notices}
+        onDismiss={stream.dismissNotice}
+        onClearAll={stream.clearAllNotices}
+      />
+
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto px-3 py-4 space-y-3"
@@ -76,11 +86,31 @@ function SessionDetailInner({
           </p>
         )}
         {messages.map((m) => (
-          <MessageBubble key={m.id} message={m} />
+          <ErrorBoundary key={m.id}>
+            <MessageBubble message={m} />
+          </ErrorBoundary>
         ))}
 
-        {permission && <PermissionCard stream={stream} />}
-        {question && <QuestionCard stream={stream} />}
+        {plan && (
+          <ErrorBoundary>
+            <PlanCard stream={stream} />
+          </ErrorBoundary>
+        )}
+        {commandApproval && (
+          <ErrorBoundary>
+            <CommandApprovalCard stream={stream} />
+          </ErrorBoundary>
+        )}
+        {permission && (
+          <ErrorBoundary>
+            <PermissionCard stream={stream} />
+          </ErrorBoundary>
+        )}
+        {question && (
+          <ErrorBoundary>
+            <QuestionCard stream={stream} />
+          </ErrorBoundary>
+        )}
 
         {error && error.code !== 'INTERNAL' && (
           <div className="p-3 rounded-lg bg-red-950/40 border border-red-900/50">

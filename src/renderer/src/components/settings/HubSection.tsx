@@ -427,23 +427,15 @@ function AuthModeCard({
 // ─── Security ──────────────────────────────────────────────────────────────
 
 function SecurityCard({
-  status,
   loading
 }: {
   status: HubStatusSnapshot
   loading: boolean
 }): React.JSX.Element {
-  const setRequireDesktopConfirm = useHubStore((s) => s.setRequireDesktopConfirm)
   const changePassword = useHubStore((s) => s.changePassword)
   const [username, setUsername] = useState('')
   const [oldPassword, setOldPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
-
-  // Tunnel-open nudges the switch ON by default for safety, but we don't
-  // hard-lock it — if the user is actually using remote control from their
-  // phone, forcing them to walk back to the desktop for every message
-  // defeats the purpose. Keep a visible warning instead.
-  const tunnelOpen = status.tunnel.state === 'running' || status.tunnel.state === 'starting'
 
   const onSubmit = async (e: FormEvent): Promise<void> => {
     e.preventDefault()
@@ -464,30 +456,6 @@ function SecurityCard({
 
   return (
     <Card title="安全" icon={<ShieldCheck className="h-4 w-4" />}>
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-sm font-medium">手机端 prompt 需桌面端二次确认</p>
-          <p className="text-xs text-muted-foreground mt-1">
-            收到手机端发起的 prompt 时，桌面端会弹出 Toast 让你批准。
-            {tunnelOpen && !status.requireDesktopConfirm && (
-              <span className="text-amber-500">
-                {' '}公网已开启且二次确认关闭——任何拿到隧道 URL 并登录成功的人都能直接驱动 agent，务必配合鉴权模式（Cloudflare Access 或强密码）。
-              </span>
-            )}
-            {tunnelOpen && status.requireDesktopConfirm && (
-              <span className="text-amber-500"> 公网开启时建议保持开启。</span>
-            )}
-          </p>
-        </div>
-        <Switch
-          checked={status.requireDesktopConfirm}
-          disabled={loading}
-          onCheckedChange={(checked) => setRequireDesktopConfirm(checked)}
-        />
-      </div>
-
-      <div className="border-t border-border my-4" />
-
       <p className="text-sm font-medium mb-2">修改密码</p>
       <form onSubmit={onSubmit} className="space-y-2">
         <Input

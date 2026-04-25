@@ -8,7 +8,6 @@ export function PromptComposer({
 }): React.JSX.Element {
   const [draft, setDraft] = useState('')
   const taRef = useRef<HTMLTextAreaElement>(null)
-  const awaiting = stream.state.awaitingConfirmation
   const busy = stream.state.status === 'busy'
   const connected = stream.state.connection === 'open'
 
@@ -20,7 +19,7 @@ export function PromptComposer({
     ta.style.height = Math.min(ta.scrollHeight, 200) + 'px'
   }, [draft])
 
-  const canSend = connected && !awaiting && !busy && draft.trim().length > 0
+  const canSend = connected && !busy && draft.trim().length > 0
 
   const onSend = (): void => {
     if (!canSend) return
@@ -38,19 +37,6 @@ export function PromptComposer({
 
   return (
     <div className="border-t border-zinc-900 bg-zinc-950/95 backdrop-blur safe-pad-bottom">
-      {awaiting && (
-        <div className="px-4 py-2 bg-amber-950/30 border-b border-amber-900/50 text-xs text-amber-300 flex items-center gap-2">
-          <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-          等待桌面端确认…
-          <button
-            onClick={() => stream.interrupt()}
-            className="ml-auto text-amber-200 underline"
-          >
-            取消
-          </button>
-        </div>
-      )}
-
       <div className="flex items-end gap-2 p-2">
         <textarea
           ref={taRef}

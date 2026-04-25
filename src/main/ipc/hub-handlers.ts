@@ -5,16 +5,11 @@
  * by `src/main/index.ts`. Events pushed back to the renderer:
  *
  *   hub:status-changed        HubStatusSnapshot
- *   hub:confirmation-requested PendingConfirmation
  */
 
 import { ipcMain, type BrowserWindow } from 'electron'
 import { createLogger } from '../services/logger'
-import type {
-  HubController,
-  HubStatusSnapshot,
-  PendingConfirmation
-} from '../services/hub/hub-controller'
+import type { HubController, HubStatusSnapshot } from '../services/hub/hub-controller'
 import type { HubAuthMode } from '../services/hub/hub-server'
 import { genToken, hashToken, tokenPrefix } from '../services/hub/hub-auth'
 import { getDatabase } from '../db/database'
@@ -29,17 +24,13 @@ export const HUB_CHANNELS = {
   tunnelStop: 'hub:tunnel:stop',
   setAuthMode: 'hub:setAuthMode',
   setCfAccessEmails: 'hub:setCfAccessEmails',
-  setRequireDesktopConfirm: 'hub:setRequireDesktopConfirm',
   createUser: 'hub:createUser',
   changePassword: 'hub:changePassword',
   listTokens: 'hub:listTokens',
   createToken: 'hub:createToken',
   revokeToken: 'hub:revokeToken',
-  pendingConfirmations: 'hub:pendingConfirmations',
-  respondConfirmation: 'hub:respondConfirmation',
   getCfAccessEmails: 'hub:getCfAccessEmails',
-  eventStatusChanged: 'hub:status-changed',
-  eventConfirmationRequested: 'hub:confirmation-requested'
+  eventStatusChanged: 'hub:status-changed'
 } as const
 
 export function registerHubHandlers(
@@ -52,9 +43,6 @@ export function registerHubHandlers(
 
   controller.on('status', (s: HubStatusSnapshot) => {
     send(HUB_CHANNELS.eventStatusChanged, s)
-  })
-  controller.on('confirmation', (c: PendingConfirmation) => {
-    send(HUB_CHANNELS.eventConfirmationRequested, c)
   })
 
   ipcMain.handle(HUB_CHANNELS.getStatus, () => controller.getStatus())
@@ -127,14 +115,6 @@ export function registerHubHandlers(
   })
 
   ipcMain.handle(
-    HUB_CHANNELS.setRequireDesktopConfirm,
-    (_e, value: boolean) => {
-      controller.setRequireDesktopConfirm(value)
-      return { success: true }
-    }
-  )
-
-  ipcMain.handle(
     HUB_CHANNELS.createUser,
     async (
       _e,
@@ -148,17 +128,6 @@ export function registerHubHandlers(
       _e,
       args: { username: string; oldPassword: string; newPassword: string }
     ) => controller.changePassword(args)
-  )
-
-  ipcMain.handle(HUB_CHANNELS.pendingConfirmations, () => ({
-    confirmations: controller.pendingConfirmations()
-  }))
-
-  ipcMain.handle(
-    HUB_CHANNELS.respondConfirmation,
-    (_e, args: { confirmId: string; approve: boolean; reason?: string }) => ({
-      success: controller.respondConfirmation(args.confirmId, args.approve, args.reason)
-    })
   )
 
   // ── tokens (M2-scoped; implemented now so the UI can hide behind a flag) ──
