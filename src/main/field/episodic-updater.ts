@@ -29,6 +29,7 @@ import {
   type CompactionOutput
 } from './episodic-compactor'
 import { ClaudeHaikuCompactor } from './claude-haiku-compactor'
+import { resolveClaudeBinaryPath } from '../services/claude-binary-resolver'
 import type { FieldEvent } from '../../shared/types'
 
 const log = createLogger({ component: 'EpisodicMemoryUpdater' })
@@ -457,26 +458,29 @@ let instance: EpisodicMemoryUpdater | null = null
  * RuleBased on every compaction. To avoid that, we probe the binary at first
  * resolution and choose RuleBased directly when it's missing.
  *
- * Failure of the probe itself (e.g. fs error reading $PATH) is treated as
- * "Claude probably present" so we don't accidentally downgrade installed
- * users — the chain will still fall back to RuleBased on real LLM error.
+ * When a binary IS found we thread its absolute path into the compactor.
+ * Without this, the Claude Agent SDK falls back to spawning a bare `claude`
+ * via PATH — which fails inside packaged macOS GUI apps because they don't
+ * inherit the user's shell PATH (claude → exit 1, every compaction). The
+ * main process already runs loadShellEnv() at startup so this resolver
+ * usually returns a valid path here.
  */
 function resolvePrimaryCompactor(): EpisodicCompactor {
+  let binaryPath: string | null = null
   try {
-    // Lazy-required to keep this module tree-shake-safe in tests.
-    const { resolveClaudeBinaryPath } = require('../services/claude-binary-resolver') as {
-      resolveClaudeBinaryPath: () => string | null
-    }
-    if (!resolveClaudeBinaryPath()) {
-      log.info('No Claude binary detected; using RuleBasedCompactor as primary')
-      return new RuleBasedCompactor()
-    }
+    binaryPath = resolveClaudeBinaryPath()
   } catch (err) {
-    log.warn('claude binary probe failed; defaulting to ClaudeHaikuCompactor', {
+    log.warn('claude binary probe failed; defaulting to ClaudeHaikuCompactor without explicit path', {
       error: err instanceof Error ? err.message : String(err)
     })
+    return new ClaudeHaikuCompactor()
   }
-  return new ClaudeHaikuCompactor()
+  if (!binaryPath) {
+    log.info('No Claude binary detected; using RuleBasedCompactor as primary')
+    return new RuleBasedCompactor()
+  }
+  log.info('Using ClaudeHaikuCompactor as primary', { claudeBinaryPath: binaryPath })
+  return new ClaudeHaikuCompactor({ claudeBinaryPath: binaryPath })
 }
 
 export function getEpisodicMemoryUpdater(): EpisodicMemoryUpdater {
