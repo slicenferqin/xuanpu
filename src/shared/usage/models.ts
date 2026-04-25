@@ -1,6 +1,7 @@
 import { normalizePricingModelKey } from './pricing'
 
 const KNOWN_CODEX_MODELS = [
+  'gpt-5.5',
   'gpt-5.4',
   'gpt-5.3-codex',
   'gpt-5.3-codex-spark',
@@ -29,6 +30,7 @@ const MODEL_DISPLAY_NAMES: Record<string, string> = {
   'claude-sonnet-4.5': 'Sonnet 4.5',
   'claude-haiku-4-5': 'Haiku 4.5',
   'claude-haiku-4.5': 'Haiku 4.5',
+  'gpt-5.5': 'GPT-5.5',
   'gpt-5.4': 'GPT-5.4',
   'gpt-5.3-codex': 'GPT-5.3 Codex',
   'gpt-5.3-codex-spark': 'GPT-5.3 Codex Spark',

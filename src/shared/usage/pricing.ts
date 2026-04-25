@@ -31,6 +31,7 @@ const MODEL_PRICING: Record<string, UsagePricing> = {
   'claude-sonnet-4.6': { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 },
   'claude-haiku-4-5': { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1 },
   'claude-haiku-4.5': { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1 },
+  'gpt-5.5': { input: 5, output: 30, cacheWrite: 0, cacheRead: 0.5 },
   'gpt-5.4': { input: 2.5, output: 15, cacheWrite: 0, cacheRead: 0.25 },
   'gpt-5.3-codex': { input: 2, output: 16, cacheWrite: 0, cacheRead: 0.2 },
   'gpt-5.3-codex-spark': { input: 1.5, output: 12, cacheWrite: 0, cacheRead: 0.15 },
@@ -84,6 +85,7 @@ export function resolvePricingModelKey(model: string, providerID?: string | null
   }
 
   const knownCodexModels = [
+    'gpt-5.5',
     'gpt-5.4',
     'gpt-5.3-codex',
     'gpt-5.3-codex-spark',
