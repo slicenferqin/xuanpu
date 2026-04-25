@@ -197,7 +197,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   keepAwakeEnabled: false,
   uiZoomLevel: 0,
   uiFontScale: 1,
-  sessionUiV2Enabled: false
+  sessionUiV2Enabled: true
 }
 
 interface SettingsState extends AppSettings {
