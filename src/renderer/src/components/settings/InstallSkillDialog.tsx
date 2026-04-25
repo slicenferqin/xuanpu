@@ -31,6 +31,45 @@ import type { Skill, SkillProvider, SkillScope } from '@shared/types/skill'
 
 type ScopeKind = SkillScope['kind']
 
+function getUserScopeHint(provider: SkillProvider): string {
+  switch (provider) {
+    case 'claude-code':
+      return '~/.claude/skills'
+    case 'codex':
+      return '~/.codex/skills'
+    case 'opencode':
+      return '~/.config/opencode/skills'
+  }
+}
+
+function getProjectScopeSubpath(provider: SkillProvider): string | null {
+  switch (provider) {
+    case 'claude-code':
+      return '.claude/skills'
+    case 'codex':
+      return '.codex/skills'
+    case 'opencode':
+      return null
+  }
+}
+
+function formatProviderPathHints(
+  providers: SkillProvider[],
+  kind: 'user' | 'project' | 'worktree'
+): string {
+  const hints = providers.flatMap((provider) => {
+    if (kind === 'user') {
+      return `${PROVIDER_LABELS[provider]}: ${getUserScopeHint(provider)}`
+    }
+
+    const subpath = getProjectScopeSubpath(provider)
+    if (!subpath) return []
+    return `${PROVIDER_LABELS[provider]}: ${subpath}`
+  })
+
+  return hints.join('  |  ')
+}
+
 interface Props {
   /** The skill the user clicked "Install" on. `null` hides the dialog. */
   skill: Skill | null
@@ -45,6 +84,15 @@ const INSTALL_CMD: Record<SkillProvider, string> = {
   codex: 'npm i -g @openai/codex',
   opencode: 'npm i -g opencode-ai'
 }
+
+const SELECTED_OPTION_CLASS =
+  'scale-[1.02] border-2 border-primary/60 bg-primary/14 text-primary shadow-[0_12px_28px_-16px_rgba(59,130,246,0.62)] ring-1 ring-primary/40'
+const IDLE_OPTION_CLASS =
+  'border-border/65 bg-muted/55 text-foreground/72 hover:border-border/90 hover:bg-muted/75 hover:text-foreground'
+const SELECTED_CHIP_CLASS =
+  'scale-[1.02] border-2 border-primary/60 bg-primary/14 text-primary shadow-[0_10px_24px_-14px_rgba(59,130,246,0.58)] ring-1 ring-primary/40'
+const IDLE_CHIP_CLASS =
+  'border-border/65 bg-muted/55 text-foreground/72 hover:border-border/90 hover:bg-muted/75 hover:text-foreground'
 
 /**
  * InstallSkillDialog — collects the (providers × scope) install target in one
@@ -95,6 +143,24 @@ export function InstallSkillDialog({ skill, hubId, open, onOpenChange }: Props):
     const wt = allWorktrees.find((w) => w.id === worktreeId)
     return wt?.path
   }, [scopeKind, projectId, worktreeId, projects, allWorktrees])
+
+  const selectedProvidersForHint = selectedProviders.length > 0 ? selectedProviders : ['claude-code']
+  const supportedProjectProviders = selectedProvidersForHint.filter((provider) =>
+    Boolean(getProjectScopeSubpath(provider))
+  )
+  const userScopeHint = formatProviderPathHints(selectedProvidersForHint, 'user')
+  const projectScopeHint =
+    supportedProjectProviders.length > 0
+      ? t('settings.skills.install.projectPathHint', {
+          path: formatProviderPathHints(supportedProjectProviders, 'project')
+        })
+      : t('settings.skills.install.providerUnsupportedScope')
+  const worktreeScopeHint =
+    supportedProjectProviders.length > 0
+      ? t('settings.skills.install.worktreePathHint', {
+          path: formatProviderPathHints(supportedProjectProviders, 'worktree')
+        })
+      : t('settings.skills.install.providerUnsupportedScope')
 
   // Gray out providers that don't support this scope level (OpenCode+project
   // today). We still keep unavailable-CLI checkboxes disabled with a distinct
@@ -166,15 +232,20 @@ export function InstallSkillDialog({ skill, hubId, open, onOpenChange }: Props):
                   const cliAvailable = availability[p]
                   const scopeOk = scopeSupported(p)
                   const disabled = !cliAvailable || !scopeOk
+                  const selected = providers[p] && !disabled
                   const row = (
                     <label
                       key={p}
                       className={cn(
-                        'flex items-center gap-3 rounded-lg border border-border/70 bg-muted/70 px-3 py-2 text-sm shadow-sm',
+                        'relative flex items-center gap-3 rounded-lg border px-3 py-2 text-sm transition-all',
+                        selected ? SELECTED_OPTION_CLASS : IDLE_OPTION_CLASS,
                         disabled && 'opacity-50 cursor-not-allowed',
-                        !disabled && 'cursor-pointer hover:bg-muted/90'
+                        !disabled && 'cursor-pointer'
                       )}
                     >
+                      {selected && (
+                        <span className="absolute left-0 top-1.5 h-[calc(100%-12px)] w-1 rounded-r-full bg-primary" />
+                      )}
                       <Checkbox
                         checked={providers[p]}
                         disabled={disabled}
@@ -182,7 +253,14 @@ export function InstallSkillDialog({ skill, hubId, open, onOpenChange }: Props):
                           setProviders((prev) => ({ ...prev, [p]: Boolean(v) }))
                         }
                       />
-                      <span className="flex-1 text-[14px] font-semibold">{PROVIDER_LABELS[p]}</span>
+                      <span
+                        className={cn(
+                          'flex-1 text-[14px] font-semibold transition-colors',
+                          selected ? 'text-primary' : 'text-current'
+                        )}
+                      >
+                        {PROVIDER_LABELS[p]}
+                      </span>
                       {!cliAvailable && (
                         <span className="text-[13px] font-medium text-foreground/58">
                           {t('settings.skills.install.providerNotInstalled')}
@@ -194,7 +272,12 @@ export function InstallSkillDialog({ skill, hubId, open, onOpenChange }: Props):
                         </span>
                       )}
                       {cliAvailable && scopeOk && (
-                        <Check className="h-3.5 w-3.5 text-foreground/65" />
+                        <Check
+                          className={cn(
+                            'h-3.5 w-3.5 transition-colors',
+                            selected ? 'text-primary' : 'text-foreground/65'
+                          )}
+                        />
                       )}
                     </label>
                   )
@@ -228,26 +311,32 @@ export function InstallSkillDialog({ skill, hubId, open, onOpenChange }: Props):
                       type="button"
                       onClick={() => setScopeKind(k)}
                       className={cn(
-                        'flex items-center gap-3 rounded-lg border px-3 py-2 text-left text-sm transition-colors',
-                        active
-                          ? 'border-primary bg-primary/10'
-                          : 'border-border/70 bg-muted/70 hover:bg-muted/90'
+                        'relative flex items-center gap-3 rounded-lg border px-3 py-2 text-left text-sm transition-all',
+                        active ? SELECTED_OPTION_CLASS : IDLE_OPTION_CLASS
                       )}
                     >
+                      {active && (
+                        <span className="absolute left-0 top-1.5 h-[calc(100%-12px)] w-1 rounded-r-full bg-primary" />
+                      )}
                       <div
                         className={cn(
-                          'h-3.5 w-3.5 rounded-full border',
+                          'h-3.5 w-3.5 rounded-full border transition-colors',
                           active ? 'border-primary bg-primary' : 'border-muted-foreground/40'
                         )}
                       />
                       <span className="flex-1">
-                        <div className="text-[14px] font-semibold capitalize">
+                        <div
+                          className={cn(
+                            'text-[14px] font-semibold capitalize transition-colors',
+                            active ? 'text-primary' : 'text-current'
+                          )}
+                        >
                           {t(`settings.skills.scope.${k}` as const)}
                         </div>
                         <div className="text-[13px] font-medium leading-5 text-foreground/60">
-                          {k === 'user' && t('settings.skills.scope.userHint')}
-                          {k === 'project' && t('settings.skills.install.projectPickHint')}
-                          {k === 'worktree' && t('settings.skills.install.worktreePickHint')}
+                          {k === 'user' && userScopeHint}
+                          {k === 'project' && projectScopeHint}
+                          {k === 'worktree' && worktreeScopeHint}
                         </div>
                       </span>
                     </button>
@@ -265,12 +354,10 @@ export function InstallSkillDialog({ skill, hubId, open, onOpenChange }: Props):
                             type="button"
                             onClick={() => setProjectId(p.id)}
                             className={cn(
-                              'rounded-md border px-2.5 py-1 text-[13px] font-medium',
-                              projectId === p.id
-                                ? 'border-primary bg-primary/10 text-primary'
-                                : 'border-border/70 bg-muted/70 hover:bg-muted/90'
-                              )}
-                            >
+                              'rounded-md border px-2.5 py-1 text-[13px] font-medium transition-all',
+                              projectId === p.id ? SELECTED_CHIP_CLASS : IDLE_CHIP_CLASS
+                            )}
+                          >
                             {p.name}
                           </button>
                         ))}
@@ -289,12 +376,10 @@ export function InstallSkillDialog({ skill, hubId, open, onOpenChange }: Props):
                                 setWorktreeId(null)
                               }}
                               className={cn(
-                              'rounded-md border px-2.5 py-1 text-[13px] font-medium',
-                                projectId === p.id
-                                  ? 'border-primary bg-primary/10 text-primary'
-                                  : 'border-border/70 bg-muted/70 hover:bg-muted/90'
-                                )}
-                              >
+                                'rounded-md border px-2.5 py-1 text-[13px] font-medium transition-all',
+                                projectId === p.id ? SELECTED_CHIP_CLASS : IDLE_CHIP_CLASS
+                              )}
+                            >
                               {p.name}
                             </button>
                           ))}
@@ -312,10 +397,8 @@ export function InstallSkillDialog({ skill, hubId, open, onOpenChange }: Props):
                                 type="button"
                                 onClick={() => setWorktreeId(w.id)}
                                 className={cn(
-                                  'rounded-md border px-2.5 py-1 text-[13px] font-medium',
-                                  worktreeId === w.id
-                                    ? 'border-primary bg-primary/10 text-primary'
-                                    : 'border-border/60 bg-muted/20 hover:bg-muted/40'
+                                  'rounded-md border px-2.5 py-1 text-[13px] font-medium transition-all',
+                                  worktreeId === w.id ? SELECTED_CHIP_CLASS : IDLE_CHIP_CLASS
                                 )}
                               >
                                 {w.name}

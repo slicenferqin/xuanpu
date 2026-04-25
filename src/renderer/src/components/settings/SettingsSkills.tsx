@@ -41,6 +41,32 @@ import { InstallSkillDialog } from './InstallSkillDialog'
 type ScopeKind = SkillScope['kind']
 type TabType = 'installed' | 'browse'
 
+function getUserScopeHint(provider: SkillProvider): string {
+  switch (provider) {
+    case 'claude-code':
+      return '~/.claude/skills'
+    case 'codex':
+      return '~/.codex/skills'
+    case 'opencode':
+      return '~/.config/opencode/skills'
+  }
+}
+
+function getProjectScopeSubpath(provider: SkillProvider): string | null {
+  switch (provider) {
+    case 'claude-code':
+      return '.claude/skills'
+    case 'codex':
+      return '.codex/skills'
+    case 'opencode':
+      return null
+  }
+}
+
+function joinScopePath(basePath: string, subpath: string): string {
+  return `${basePath.replace(/[\\/]+$/, '')}/${subpath}`
+}
+
 export function SettingsSkills(): React.JSX.Element {
   const { t } = useI18n()
   const {
@@ -151,16 +177,14 @@ export function SettingsSkills(): React.JSX.Element {
   /**
    * Pre-load all *user-scope* installed lists for every provider so the
    * skill cards can show "installed in CC/CX/OC" chips without per-card
-   * IPC chatter. Project/worktree scope chips fall back to the current
-   * `scope`'s installed list.
+   * IPC chatter. We probe every provider, even before availability settles,
+   * so installed skills on disk can promote a provider to "available".
    */
   useEffect(() => {
     for (const p of ALL_PROVIDERS) {
-      if (providerAvailability[p]) {
-        loadInstalled({ provider: p, kind: 'user' })
-      }
+      loadInstalled({ provider: p, kind: 'user' })
     }
-  }, [providerAvailability, loadInstalled])
+  }, [loadInstalled])
 
   // Reset selection when switching tabs or scope
   useEffect(() => {
@@ -224,6 +248,15 @@ export function SettingsSkills(): React.JSX.Element {
         ),
     [installedByScope]
   )
+
+  const scopeSubpath = getProjectScopeSubpath(scope.provider)
+  const userScopeHint = getUserScopeHint(scope.provider)
+  const projectScopeHint =
+    projectPath && scopeSubpath ? joinScopePath(projectPath, scopeSubpath) : t('settings.skills.scope.noProject')
+  const worktreeScopeHint =
+    worktreePath && scopeSubpath
+      ? joinScopePath(worktreePath, scopeSubpath)
+      : t('settings.skills.scope.noWorktree')
 
   const onProviderTab = (p: SkillProvider): void => {
     // If switching providers and the current scope kind isn't supported by
@@ -401,10 +434,10 @@ export function SettingsSkills(): React.JSX.Element {
                     label={t(`settings.skills.scope.${kind}` as const)}
                     sub={
                       kind === 'user'
-                        ? t('settings.skills.scope.userHint')
+                        ? userScopeHint
                         : kind === 'project'
-                          ? projectPath || t('settings.skills.scope.noProject')
-                          : worktreePath || t('settings.skills.scope.noWorktree')
+                          ? projectScopeHint
+                          : worktreeScopeHint
                     }
                     disabled={!supported || noPath}
                     disabledReason={
@@ -784,17 +817,22 @@ function TabButton({
   icon: React.ReactNode
   children: React.ReactNode
 }): React.JSX.Element {
+  const activeClass =
+    'scale-[1.02] border border-primary/55 bg-primary/14 text-primary shadow-[0_12px_28px_-16px_rgba(59,130,246,0.62)] ring-1 ring-primary/40'
+  const idleClass = 'text-foreground/68 hover:bg-background/40 hover:text-foreground'
+
   return (
     <button
       onClick={onClick}
       className={cn(
-        'flex items-center gap-2 rounded-lg px-4 py-1.5 text-[14px] font-semibold transition-all',
-        active
-          ? 'bg-background text-foreground shadow-sm ring-1 ring-border/20'
-          : 'text-foreground/68 hover:text-foreground hover:bg-background/40'
+        'relative flex items-center gap-2 rounded-lg px-4 py-1.5 text-[14px] font-semibold transition-all',
+        active ? activeClass : idleClass
       )}
     >
-      {icon}
+      {active && (
+        <span className="absolute left-0 top-1.5 h-[calc(100%-12px)] w-1 rounded-r-full bg-primary" />
+      )}
+      <span className={cn('transition-colors', active ? 'text-primary' : 'text-current')}>{icon}</span>
       {children}
     </button>
   )
@@ -811,20 +849,26 @@ function ProviderTab({
   detected: boolean
   onClick: () => void
 }): React.JSX.Element {
+  const selectedClass =
+    'scale-[1.02] border-2 border-primary/60 bg-primary/14 text-primary shadow-[0_12px_28px_-16px_rgba(59,130,246,0.62)] ring-1 ring-primary/40'
+  const idleClass =
+    'border-border/65 bg-background/30 text-foreground/70 hover:border-border/90 hover:bg-background/45 hover:text-foreground'
+
   return (
     <button
       onClick={onClick}
       className={cn(
-        'flex items-center gap-2 rounded-lg border px-3 py-1.5 text-[13px] font-semibold transition-all',
-        active
-          ? 'bg-background border-primary text-foreground shadow-sm ring-1 ring-primary/20'
-          : 'bg-background/40 border-border/70 text-foreground/70 hover:border-border hover:bg-background/60 hover:text-foreground'
+        'relative flex items-center gap-2 rounded-lg border px-3 py-1.5 text-[13px] font-semibold transition-all',
+        active ? selectedClass : idleClass
       )}
     >
+      {active && (
+        <span className="absolute left-0 top-1.5 h-[calc(100%-12px)] w-1 rounded-r-full bg-primary" />
+      )}
       <span
         className={cn(
-          'h-1.5 w-1.5 rounded-full',
-          detected ? 'bg-emerald-500' : 'bg-foreground/25'
+          'h-1.5 w-1.5 rounded-full transition-colors',
+          detected ? (active ? 'bg-primary' : 'bg-emerald-500') : 'bg-foreground/25'
         )}
       />
       {label}
@@ -847,19 +891,25 @@ function ScopePill({
   disabledReason?: string
   onClick: () => void
 }): React.JSX.Element {
+  const selectedClass =
+    'scale-[1.02] border-2 border-primary/60 bg-primary/14 text-primary shadow-[0_12px_28px_-16px_rgba(59,130,246,0.62)] ring-1 ring-primary/40'
+  const idleClass =
+    'border-border/65 bg-background/30 text-foreground/70 hover:border-border/90 hover:bg-background/45 hover:text-foreground'
+
   return (
     <button
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        'flex flex-col items-start px-4 py-2 rounded-xl border transition-all text-left group relative',
-        active
-          ? 'bg-background border-primary text-foreground shadow-sm ring-1 ring-primary/20'
-          : 'bg-background/40 border-border/70 text-foreground/70 hover:border-border hover:bg-background/60 hover:text-foreground',
+        'group relative flex flex-col items-start rounded-xl border px-4 py-2 text-left transition-all',
+        active ? selectedClass : idleClass,
         disabled && 'opacity-40 cursor-not-allowed'
       )}
       title={disabledReason || sub}
     >
+      {active && (
+        <span className="absolute left-0 top-2 h-[calc(100%-16px)] w-1 rounded-r-full bg-primary" />
+      )}
       <span className="text-[13px] font-semibold leading-none">{label}</span>
       <span className="mt-1 max-w-[140px] truncate text-[11px] font-medium text-current/80">
         {sub}

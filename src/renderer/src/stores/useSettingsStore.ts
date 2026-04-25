@@ -30,7 +30,19 @@ export { applyFontScale } from '@/lib/font-size'
 // Types
 // ==========================================
 
-export type EditorOption = 'vscode' | 'cursor' | 'sublime' | 'webstorm' | 'zed' | 'custom'
+export type EditorOption =
+  | 'vscode'
+  | 'cursor'
+  | 'trae'
+  | 'windsurf'
+  | 'antigravity'
+  | 'idea'
+  | 'webstorm'
+  | 'pycharm'
+  | 'goland'
+  | 'sublime'
+  | 'zed'
+  | 'custom'
 export type TerminalOption =
   | 'terminal'
   | 'iterm'

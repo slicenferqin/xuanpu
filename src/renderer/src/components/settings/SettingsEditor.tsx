@@ -13,19 +13,45 @@ interface DetectedEditor {
   available: boolean
 }
 
+interface EditorGroup {
+  title: string
+  options: Array<{ id: EditorOption; label: string }>
+}
+
 export function SettingsEditor(): React.JSX.Element {
   const { defaultEditor, customEditorCommand, updateSetting } = useSettingsStore()
   const [detectedEditors, setDetectedEditors] = useState<DetectedEditor[]>([])
   const [isDetecting, setIsDetecting] = useState(true)
   const { t } = useI18n()
 
-  const editorOptions: { id: EditorOption; label: string }[] = [
-    { id: 'vscode', label: 'Visual Studio Code' },
-    { id: 'cursor', label: 'Cursor' },
-    { id: 'sublime', label: 'Sublime Text' },
-    { id: 'webstorm', label: 'WebStorm' },
-    { id: 'zed', label: 'Zed' },
-    { id: 'custom', label: t('settings.editor.customCommand.optionLabel') }
+  const editorGroups: EditorGroup[] = [
+    {
+      title: t('settings.editor.groups.ai'),
+      options: [
+        { id: 'cursor', label: 'Cursor' },
+        { id: 'trae', label: 'Trae' },
+        { id: 'windsurf', label: 'Windsurf' },
+        { id: 'antigravity', label: 'Antigravity' }
+      ]
+    },
+    {
+      title: t('settings.editor.groups.jetbrains'),
+      options: [
+        { id: 'idea', label: 'IntelliJ IDEA' },
+        { id: 'webstorm', label: 'WebStorm' },
+        { id: 'pycharm', label: 'PyCharm' },
+        { id: 'goland', label: 'GoLand' }
+      ]
+    },
+    {
+      title: t('settings.editor.groups.general'),
+      options: [
+        { id: 'vscode', label: 'Visual Studio Code' },
+        { id: 'sublime', label: 'Sublime Text' },
+        { id: 'zed', label: 'Zed' },
+        { id: 'custom', label: t('settings.editor.customCommand.optionLabel') }
+      ]
+    }
   ]
 
   useEffect(() => {
@@ -69,35 +95,44 @@ export function SettingsEditor(): React.JSX.Element {
           {t('settings.editor.detecting')}
         </div>
       ) : (
-        <div className="space-y-1">
-          {editorOptions.map((opt) => {
-            const available = isAvailable(opt.id)
-            return (
-              <button
-                key={opt.id}
-                onClick={() => updateSetting('defaultEditor', opt.id)}
-                disabled={!available && opt.id !== 'custom'}
-                className={cn(
-                  'w-full flex items-center justify-between px-3 py-2.5 rounded-md text-sm transition-colors text-left',
-                  defaultEditor === opt.id
-                    ? 'bg-primary/10 border border-primary/30'
-                    : 'hover:bg-accent/50 border border-transparent',
-                  !available && opt.id !== 'custom' && 'opacity-50 cursor-not-allowed'
-                )}
-                data-testid={`editor-${opt.id}`}
-              >
-                <div className="flex items-center gap-2">
-                  <span>{opt.label}</span>
-                  {!available && opt.id !== 'custom' && (
-                    <span className="text-xs text-muted-foreground">
-                      {t('settings.editor.notFound')}
-                    </span>
-                  )}
-                </div>
-                {defaultEditor === opt.id && <Check className="h-4 w-4 text-primary" />}
-              </button>
-            )
-          })}
+        <div className="space-y-4">
+          {editorGroups.map((group) => (
+            <div key={group.title} className="space-y-1.5">
+              <div className="px-1 text-[12px] font-semibold uppercase tracking-[0.12em] text-foreground/50">
+                {group.title}
+              </div>
+              <div className="space-y-1">
+                {group.options.map((opt) => {
+                  const available = isAvailable(opt.id)
+                  return (
+                    <button
+                      key={opt.id}
+                      onClick={() => updateSetting('defaultEditor', opt.id)}
+                      disabled={!available && opt.id !== 'custom'}
+                      className={cn(
+                        'w-full flex items-center justify-between px-3 py-2.5 rounded-md text-sm transition-colors text-left',
+                        defaultEditor === opt.id
+                          ? 'bg-primary/10 border border-primary/30'
+                          : 'hover:bg-accent/50 border border-transparent',
+                        !available && opt.id !== 'custom' && 'opacity-50 cursor-not-allowed'
+                      )}
+                      data-testid={`editor-${opt.id}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span>{opt.label}</span>
+                        {!available && opt.id !== 'custom' && (
+                          <span className="text-xs text-muted-foreground">
+                            {t('settings.editor.notFound')}
+                          </span>
+                        )}
+                      </div>
+                      {defaultEditor === opt.id && <Check className="h-4 w-4 text-primary" />}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

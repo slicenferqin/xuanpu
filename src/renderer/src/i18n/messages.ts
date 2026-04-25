@@ -120,6 +120,11 @@ export const messages: Record<AppLocale, MessageTree> = {
         description: 'Choose which editor to use for "Open in Editor" actions',
         detecting: 'Detecting installed editors...',
         notFound: '(not found)',
+        groups: {
+          ai: 'AI Editors',
+          jetbrains: 'JetBrains',
+          general: 'General'
+        },
         customCommand: {
           label: 'Custom Editor Command',
           description: 'The command will be called with the worktree path as an argument.',
@@ -499,6 +504,8 @@ export const messages: Record<AppLocale, MessageTree> = {
           scopeLabel: 'Scope',
           projectPickHint: 'Install for one project',
           worktreePickHint: 'Install for one worktree',
+          projectPathHint: 'Installs into {path} inside the selected project',
+          worktreePathHint: 'Installs into {path} inside the selected worktree',
           noProjects: 'No projects yet',
           noWorktrees: 'No worktrees in this project',
           overwriteIfExists: 'Overwrite if already installed',
@@ -2411,6 +2418,11 @@ export const messages: Record<AppLocale, MessageTree> = {
         description: '选择 “Open in Editor” 操作默认打开的编辑器',
         detecting: '正在检测已安装的编辑器...',
         notFound: '（未找到）',
+        groups: {
+          ai: 'AI 编辑器',
+          jetbrains: 'JetBrains',
+          general: '通用编辑器'
+        },
         customCommand: {
           label: '自定义编辑器命令',
           description: '调用该命令时会把 worktree 路径作为参数传入。',
@@ -2782,6 +2794,8 @@ export const messages: Record<AppLocale, MessageTree> = {
           scopeLabel: '范围',
           projectPickHint: '安装到单个项目',
           worktreePickHint: '安装到单个 Worktree',
+          projectPathHint: '会安装到所选项目下的 {path}',
+          worktreePathHint: '会安装到所选 Worktree 下的 {path}',
           noProjects: '暂无项目',
           noWorktrees: '此项目下暂无 Worktree',
           overwriteIfExists: '已存在则覆盖',

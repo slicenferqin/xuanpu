@@ -10,19 +10,46 @@ import { APP_SETTINGS_DB_KEY } from '@shared/types/settings'
 
 const log = createLogger({ component: 'SettingsHandlers' })
 
+const MAC_EDITOR_APP_NAMES: Partial<Record<string, string[]>> = {
+  vscode: ['Visual Studio Code'],
+  cursor: ['Cursor'],
+  trae: ['Trae', 'Trae CN'],
+  windsurf: ['Windsurf'],
+  antigravity: ['Antigravity', 'Antigravity Desktop'],
+  idea: ['IntelliJ IDEA', 'IntelliJ IDEA Ultimate', 'IntelliJ IDEA CE'],
+  webstorm: ['WebStorm'],
+  pycharm: ['PyCharm', 'PyCharm Professional', 'PyCharm CE'],
+  goland: ['GoLand'],
+  sublime: ['Sublime Text'],
+  zed: ['Zed']
+}
+
 function resolveEditorCommand(
   editorId: string,
   customCommand?: string
-): { command: string } | { error: string } {
+): { command: string; args?: string[] } | { error: string } {
   if (editorId === 'custom' && customCommand) {
     return { command: customCommand }
   }
+
   const editors = detectEditors()
   const editor = editors.find((e) => e.id === editorId)
-  if (!editor?.available) {
-    return { error: `Editor ${editorId} not found` }
+
+  if (editor?.available) {
+    if (platform() === 'darwin' && editor.command.endsWith('.app')) {
+      return { command: 'open', args: ['-a', editor.command] }
+    }
+    return { command: editor.command }
   }
-  return { command: editor.command }
+
+  if (platform() === 'darwin') {
+    const appNames = MAC_EDITOR_APP_NAMES[editorId]
+    if (appNames && appNames.length > 0) {
+      return { command: 'open', args: ['-a', appNames[0]] }
+    }
+  }
+
+  return { error: `Editor ${editorId} not found` }
 }
 
 /**
@@ -52,7 +79,7 @@ export function openPathWithPreferredEditor(
     return Promise.resolve({ success: false, error: resolved.error })
   }
   try {
-    spawn(resolved.command, [path], { detached: true, stdio: 'ignore' })
+    spawn(resolved.command, [...(resolved.args ?? []), path], { detached: true, stdio: 'ignore' })
     return Promise.resolve({ success: true })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
@@ -107,7 +134,10 @@ export function registerSettingsHandlers(): void {
           return { success: false, error: resolved.error }
         }
 
-        spawn(resolved.command, [worktreePath], { detached: true, stdio: 'ignore' })
+        spawn(resolved.command, [...(resolved.args ?? []), worktreePath], {
+          detached: true,
+          stdio: 'ignore'
+        })
         telemetryService.track('worktree_opened_in_editor')
         return { success: true }
       } catch (error) {
