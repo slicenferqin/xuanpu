@@ -14,43 +14,59 @@
 </div>
 
 ## What Is Xuanpu
-Xuanpu is an AI-native workbench for builders. It is not trying to be a traditional IDE with an AI sidebar. It treats the real units of modern work as first-class:
+Xuanpu is an AI-native workbench for builders. It is not "an editor with an AI sidebar" or "a terminal with a new theme." It puts the real first-class units of modern work back on the desktop:
 
-- `Workspace`
-- `Worktree`
-- `Session`
-- `Connections`
-- `Changes`
-- `Outputs`
+- `Workspace` — your projects, repos, linked repos, and the boundaries of your context
+- `Worktree` — the isolated execution surface for parallel tasks
+- `Session` — the thread an agent actually works in, not a one-shot Q&A
+- `Connections` — context shared across worktrees and across repos
+- `Changes` — files, diffs, command output, execution traces, approvals, questions
 
-If you regularly juggle multiple tasks, branches, repos, and agents, you already know the pain:
+If you regularly juggle multiple features, branches, repos, and agents at once, you already know the pain:
 
-- too many terminals and tabs
-- unclear agent state
-- polluted branches
-- fragmented context across repos
-- scattered approvals, diffs, questions, and outputs
+- too many terminals and tabs — no idea which agent is doing what
+- multiple tasks share one branch and pollute each other
+- jumping between front-end / back-end / multiple repos shreds the context you held in your head
+- agent generation, edits, questions, and approvals are scattered across different tools
 
-Xuanpu exists to pull that workflow back into one coherent desktop workbench.
+Xuanpu's goal is to pull that workflow back into one coherent desktop workbench.
 
-## What It Can Do Today
-- Project, worktree, and space management
-- Native session flows for Claude Code, OpenCode, and Codex
-- Streaming transcripts, approvals, question prompts, and task tracking
-- File tree, git status, inline diff, Monaco diff, and image diff
-- Embedded terminal, setup/run scripts, and execution state
-- Worktree connections for cross-branch and cross-repo context sharing
-- Headless mode backed by the same local database and services
-- Chinese-first UI and onboarding flow
+> **📖 v1.4.0 milestone**: Xuanpu just finished its turning point — from "an Electron workbench with Hub bolted on" to "a field provider for agents."
+> Read more (Chinese): [**From 1.3 to 1.4: Xuanpu's thinking on the AI-native workbench**](./docs/essays/2026-04-25-from-1-3-to-1-4-ai-native-workbench.md)
 
-## Why It Is Not Positioned As a Traditional IDE
-Xuanpu is centered on task progression rather than file editing:
+## Current Capabilities
 
-- what you move forward is a goal, not a single file
-- one task usually spans code, docs, scripts, reviews, and multiple repos
-- in the AI era, sessions, approvals, context, and worktree isolation deserve first-class UI
+**Workbench foundation**:
 
-That is why `AI-native workbench` is a more accurate category than `IDE`.
+- project / worktree / space management
+- native session flows for Claude Code, OpenCode, and Codex
+- streaming transcripts, permission approvals, question prompts, task tracking
+- file tree, git status, inline diff, Monaco diff, image diff
+- embedded terminal, setup / run script entry points, command run state
+- worktree connections for cross-branch and cross-repo context sharing
+- headless mode — same local DB and services exposed via GraphQL + WebSocket
+- Chinese-first UI, localized copy, first-launch environment check and agent onboarding
+
+**v1.4 field awareness** ([details, Chinese](./docs/essays/2026-04-25-from-1-3-to-1-4-ai-native-workbench.md)):
+
+- **Field event stream** — every bash command, file read/write, terminal output, and agent tool call is structured into SQLite, sharded by worktree
+- **Layered memory** — Working / Episodic (real summaries from Claude Haiku) / Semantic (your `memory.md`), shared across agents
+- **Field injection** — every prompt is automatically prefixed with Field Context (worktree, current focus, recent activity, what you were doing when you last hit abort), so you don't have to "translate" yourself again
+- **Session checkpoints** — abort, sleep, or crash, the next launch picks the field back up
+- **Hub remote / mobile** — desktop runs the service, your phone scans the QR code and takes over the session; the same field follows you across devices
+- **New Session UI (v2)** — unified timeline, three-state Composer, Agent Rail, Field Context Debug panel
+
+This means it's no longer just "a convenient Electron shell for browsing files" — it's a desktop workbench that actually lets agents see the field they're operating in.
+
+## Xuanpu Is Not an IDE — It's a Field Provider for Agents
+
+Open Cursor, Claude Code, Codex, or Amp and at heart it's the same interaction: user intent → translate to natural language → type into a box → model replies.
+
+**The problem isn't that the model isn't smart enough — it's that the model can't see the field.** Which worktree you're in, which file is open, what command you just ran, what you've been doing the last hour, what you were doing when you last hit abort. All of this is naturally visible to a human collaborator and completely invisible to the AI.
+
+What Xuanpu does is move that visibility layer out of the user's head and into the agent's prompt. Its differentiation isn't in the UI (we did rewrite it), and not in the agent model (we don't train one) — it's that **any agent inside Xuanpu becomes more capable than in its native environment, because for the first time it gets a field**.
+
+Full reasoning: [VISION](./docs/VISION.md) and the [v1.4.0 retrospective](./docs/essays/2026-04-25-from-1-3-to-1-4-ai-native-workbench.md) (Chinese).
 
 ## Install
 ### Releases
@@ -84,6 +100,15 @@ pnpm dev
 - `Windows`: supported — all core features work; Ghostty terminal is macOS-only
 - `Linux`: planned target, still evolving
 
+## Quick Start
+1. Add a local git repo as a project
+2. Create a dedicated worktree for the current task
+3. Start an agent session inside that worktree
+4. Browse files, diffs, run output, and changes on the right
+5. When you need it, pull related worktrees / repos in via connections
+
+If you live on the keyboard, the command palette, session switcher, sidebar toggles, and terminal/file pane interplay should feel natural.
+
 <p>
   <a href="https://github.com/slicenferqin/xuanpu/releases"><img src="https://img.shields.io/github/downloads/slicenferqin/xuanpu/total?style=flat-square&label=total%20downloads&color=blue" alt="Total Downloads" /></a>
   <a href="https://github.com/slicenferqin/xuanpu/releases/latest"><img src="https://img.shields.io/github/downloads/slicenferqin/xuanpu/latest/total?style=flat-square&label=latest%20release&color=brightgreen" alt="Latest Release Downloads" /></a>
@@ -92,7 +117,7 @@ pnpm dev
 📊 [View full download analytics →](https://greedeks.github.io/Pulse/?username=slicenferqin&repo=xuanpu)
 
 ## Repo Status
-Current stack:
+This repo is the desktop main line. Current stack:
 
 - Electron 33
 - React 19
@@ -101,15 +126,32 @@ Current stack:
 - Zustand 5
 - SQLite / better-sqlite3
 
-Architecture:
+Architecture (three layers):
 
-- `src/main/`: Electron main process, database, services, IPC
-- `src/preload/`: typed bridge
-- `src/renderer/`: React UI
-- `src/server/`: headless / remote GraphQL entry
+- `src/main/` — main process, database, services, IPC
+- `src/preload/` — typed bridge
+- `src/renderer/` — React UI
+
+A `headless` service entry is also kept, so the desktop app and automation / remote control share the same local core.
+
+## Current Priorities
+
+v1.4.0 cracked the first mile of "field." The 1.4.x line is about **making memory visible and editable**:
+
+- **1.4.3 release / onboarding hardening** — CI post-package verify, first-run onboarding card, README.en.md sync, Edit/Write diff preview, Composer image large preview
+- **1.4.4 Codex experience overhaul** — make Codex inside Xuanpu actually feel native
+- **1.4.5 Memory panel** — promote the 4-tab Field Context Debug into a real Memory panel: see + edit + reset + regenerate
+- **1.4.6 Cost visibility** — token / ¥ spend on compaction, surfaced clearly per month
+- **1.4.x cross-agent injection quality** — empirically verify Codex / OpenCode / Amp are *using* the Field Context prefix, not silently dropping it
+
+The next ring (VISION §3.2) is **XFP (Xuanpu Field Protocol)** — let any agent vendor obtain the field through a shared protocol, so "agents are stronger inside Xuanpu" becomes a standard, not a moat.
+
+Full roadmap (Chinese): [docs/plans/2026-04-25-memory-product-direction.md](./docs/plans/2026-04-25-memory-product-direction.md)
+
+If you open the repo today you'll see parts that are still in motion — that's expected. Xuanpu is transitioning from an early fork into a standalone product line.
 
 ## Origins
-Xuanpu started as a fork / evolution of [Hive](https://github.com/slicenferqin/xuanpu). A meaningful part of the original engineering foundation and product inspiration came from Hive, and that credit should remain visible.
+Xuanpu started as a fork / evolution of [Hive](https://github.com/slicenferqin/xuanpu). A meaningful part of the original engineering foundation, workbench structure, and product inspiration came from Hive. This product line has since diverged toward Chinese-first workflow, desktop-native interaction, and an independent brand, but credit to the original should stay visible.
 
 ## Contributing
 Contributions are especially valuable in these areas:
