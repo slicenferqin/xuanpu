@@ -64,8 +64,22 @@ vi.mock('@/lib/toast', () => ({
 vi.mock('../../../src/renderer/src/stores/useSettingsStore', () => ({
   useSettingsStore: {
     getState: () => ({
+      defaultAgentSdk: 'opencode',
       selectedModel: null,
+      selectedModelByProvider: {},
+      getModelForMode: vi.fn().mockReturnValue(null),
       updateSetting: vi.fn()
+    })
+  },
+  resolveModelForSdk: vi.fn().mockReturnValue(null)
+}))
+
+vi.mock('../../../src/renderer/src/stores/useWorktreeStore', () => ({
+  useWorktreeStore: {
+    getState: () => ({
+      worktreesByProject: new Map(),
+      updateWorktreeLastAgentSdk: vi.fn(),
+      updateWorktreeModel: vi.fn()
     })
   }
 }))
