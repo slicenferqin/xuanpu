@@ -447,9 +447,41 @@ function redactSecrets(s: string): string {
 
 let instance: EpisodicMemoryUpdater | null = null
 
+/**
+ * Resolve which compactor to use as the *primary* in production.
+ *
+ * Phase 22B.2 ships ClaudeHaikuCompactor as the default primary — but that
+ * requires a Claude binary on the user's machine. If the user has no Claude
+ * Code installed (Codex-only / OpenCode-only / Amp-only), running Haiku would
+ * spawn-fail and waste up to 60s (2 attempts × 30s) before falling back to
+ * RuleBased on every compaction. To avoid that, we probe the binary at first
+ * resolution and choose RuleBased directly when it's missing.
+ *
+ * Failure of the probe itself (e.g. fs error reading $PATH) is treated as
+ * "Claude probably present" so we don't accidentally downgrade installed
+ * users — the chain will still fall back to RuleBased on real LLM error.
+ */
+function resolvePrimaryCompactor(): EpisodicCompactor {
+  try {
+    // Lazy-required to keep this module tree-shake-safe in tests.
+    const { resolveClaudeBinaryPath } = require('../services/claude-binary-resolver') as {
+      resolveClaudeBinaryPath: () => string | null
+    }
+    if (!resolveClaudeBinaryPath()) {
+      log.info('No Claude binary detected; using RuleBasedCompactor as primary')
+      return new RuleBasedCompactor()
+    }
+  } catch (err) {
+    log.warn('claude binary probe failed; defaulting to ClaudeHaikuCompactor', {
+      error: err instanceof Error ? err.message : String(err)
+    })
+  }
+  return new ClaudeHaikuCompactor()
+}
+
 export function getEpisodicMemoryUpdater(): EpisodicMemoryUpdater {
   if (!instance) {
-    instance = new EpisodicMemoryUpdater()
+    instance = new EpisodicMemoryUpdater(resolvePrimaryCompactor())
   }
   return instance
 }
