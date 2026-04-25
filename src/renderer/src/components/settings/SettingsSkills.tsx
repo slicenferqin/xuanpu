@@ -330,14 +330,16 @@ export function SettingsSkills(): React.JSX.Element {
     <div className="flex h-full flex-col gap-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h3 className="text-base font-medium mb-1 flex items-center gap-2">
+          <h3 className="mb-1 flex items-center gap-2 text-[17px] font-semibold">
             <BookOpen className="h-4 w-4" />
             {t('settings.skills.title')}
           </h3>
-          <p className="text-sm text-muted-foreground">{t('settings.skills.description')}</p>
+          <p className="text-[14px] font-medium leading-6 text-foreground/72">
+            {t('settings.skills.description')}
+          </p>
         </div>
 
-        <div className="flex items-center gap-1 bg-muted/30 p-1 rounded-xl border border-border/50">
+        <div className="flex items-center gap-1 rounded-xl border border-border/70 bg-muted/80 p-1 shadow-sm">
           <TabButton
             active={activeTab === 'installed'}
             onClick={() => setActiveTab('installed')}
@@ -358,8 +360,8 @@ export function SettingsSkills(): React.JSX.Element {
       <div className="flex flex-1 flex-col gap-4 min-h-0">
         {/* Provider tabs (CC/CX/OC) — picks which provider's installed list
             and chip we look at. Install dialog handles cross-provider fan-out. */}
-        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-border/70 bg-muted/20 p-3 shrink-0">
-          <span className="text-xs font-semibold text-muted-foreground/80 px-1">
+        <div className="flex shrink-0 flex-wrap items-center gap-3 rounded-2xl border border-border/75 bg-muted/75 p-3 shadow-sm">
+          <span className="px-1 text-[13px] font-semibold text-foreground/65">
             {t('settings.skills.install.providerLabel')}
           </span>
           <div className="flex gap-1.5">
@@ -375,14 +377,14 @@ export function SettingsSkills(): React.JSX.Element {
           </div>
 
           <div className="ml-auto flex items-center gap-3">
-            <span className="text-xs font-semibold text-muted-foreground/80 px-1">
+            <span className="px-1 text-[13px] font-semibold text-foreground/65">
               {t('settings.skills.scope.title')}
             </span>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Info className="h-3.5 w-3.5 text-muted-foreground/50 cursor-help" />
+                <Info className="h-3.5 w-3.5 cursor-help text-foreground/45" />
               </TooltipTrigger>
-              <TooltipContent className="max-w-xs text-xs">
+              <TooltipContent className="max-w-xs text-[13px] leading-5">
                 {t('settings.skills.scope.selectContextHint')}
               </TooltipContent>
             </Tooltip>
@@ -426,21 +428,21 @@ export function SettingsSkills(): React.JSX.Element {
         )}
 
         <div className="mx-auto grid w-full max-w-[calc(18rem+1.5rem+52rem)] flex-1 min-h-0 grid-cols-[18rem_minmax(0,52rem)] gap-6 overflow-hidden">
-          <aside className="w-72 shrink-0 flex flex-col gap-3 min-h-0">
+          <aside className="flex min-h-0 w-72 shrink-0 flex-col gap-3">
             <div className="relative shrink-0">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-foreground/50" />
               <Input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t('settings.skills.search.placeholder')}
-                className="pl-9 h-9 text-sm rounded-xl bg-muted/20 border-border/70"
+                className="h-9 rounded-xl border-border/80 bg-card pl-9 text-sm shadow-sm"
               />
             </div>
 
             {activeTab === 'browse' && (
-              <div className="flex flex-col gap-2 rounded-2xl border border-border/70 bg-muted/20 p-2 overflow-hidden shrink-0">
+              <div className="flex shrink-0 flex-col gap-2 overflow-hidden rounded-2xl border border-border/75 bg-card p-2 shadow-sm">
                 <div className="flex items-center justify-between px-2 py-1">
-                  <span className="text-[10px] uppercase font-semibold tracking-wider text-muted-foreground/70">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60">
                     {t('settings.skills.hubs.title')}
                   </span>
                   <div className="flex items-center gap-1">
@@ -466,7 +468,7 @@ export function SettingsSkills(): React.JSX.Element {
 
                 <Popover open={hubPopoverOpen} onOpenChange={setHubPopoverOpen}>
                   <PopoverTrigger asChild>
-                    <button className="flex items-center justify-between w-full px-3 py-2 text-sm font-medium rounded-xl bg-background border border-border/70 hover:bg-accent/30 transition-colors group">
+                    <button className="group flex w-full items-center justify-between rounded-xl border border-border/75 bg-muted/60 px-3 py-2 text-[14px] font-semibold transition-colors hover:bg-muted/90">
                       <div className="flex items-center gap-2 truncate">
                         {currentHub?.kind === 'bundled' ? (
                           <Package className="h-4 w-4" />
@@ -521,9 +523,9 @@ export function SettingsSkills(): React.JSX.Element {
                 </Popover>
 
                 {addHubOpen && (
-                  <div className="mt-1 p-3 rounded-xl border border-border/70 bg-background/50 space-y-3">
+                  <div className="mt-1 space-y-3 rounded-xl border border-border/75 bg-muted/55 p-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold">
+                      <span className="text-[13px] font-semibold">
                         {t('settings.skills.hubs.addTitle')}
                       </span>
                       <X
@@ -536,24 +538,24 @@ export function SettingsSkills(): React.JSX.Element {
                         value={newRepo}
                         onChange={(e) => setNewRepo(e.target.value)}
                         placeholder={t('settings.skills.hubs.repoPlaceholder')}
-                        className="h-8 text-xs rounded-lg"
+                        className="h-8 rounded-lg text-[13px]"
                       />
                       <Input
                         value={newRef}
                         onChange={(e) => setNewRef(e.target.value)}
                         placeholder={t('settings.skills.hubs.refPlaceholder')}
-                        className="h-8 text-xs rounded-lg"
+                        className="h-8 rounded-lg text-[13px]"
                       />
                       <Input
                         value={newName}
                         onChange={(e) => setNewName(e.target.value)}
                         placeholder={t('settings.skills.hubs.namePlaceholder')}
-                        className="h-8 text-xs rounded-lg"
+                        className="h-8 rounded-lg text-[13px]"
                       />
                       <div className="flex gap-2 pt-1">
                         <Button
                           size="sm"
-                          className="flex-1 h-7 rounded-lg text-xs"
+                          className="flex-1 h-7 rounded-lg text-[13px] font-medium"
                           onClick={handleAddHub}
                           disabled={!newRepo.trim()}
                         >
@@ -566,20 +568,20 @@ export function SettingsSkills(): React.JSX.Element {
               </div>
             )}
 
-            <div className="flex-1 overflow-hidden flex flex-col rounded-2xl border border-border/70 bg-muted/10">
-              <div className="px-4 py-2 text-[10px] uppercase font-bold tracking-widest text-muted-foreground/60 border-b border-border/50">
+            <div className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-sm">
+              <div className="border-b border-border px-4 py-2 text-[11px] font-bold uppercase tracking-widest text-foreground/55">
                 {activeTab === 'installed'
                   ? t('settings.skills.list.installedSkills', { count: displayedSkills.length })
                   : t('settings.skills.list.hubSkills', { count: displayedSkills.length })}
               </div>
               <div className="flex-1 overflow-y-auto p-1.5 custom-scrollbar">
                 {loading && activeTab === 'browse' && skillsInCurrentHub.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-20 gap-2 text-muted-foreground/60">
+                  <div className="flex h-20 flex-col items-center justify-center gap-2 text-foreground/58">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    <span className="text-xs">{t('settings.skills.list.loading')}</span>
+                    <span className="text-[13px] font-medium">{t('settings.skills.list.loading')}</span>
                   </div>
                 ) : displayedSkills.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-48 px-4 text-center gap-3 text-muted-foreground/60">
+                  <div className="flex h-48 flex-col items-center justify-center gap-3 px-4 text-center text-foreground/58">
                     <div className="p-3 rounded-full bg-muted/30">
                       {activeTab === 'installed' ? (
                         <Layers className="h-8 w-8 opacity-20" />
@@ -587,7 +589,7 @@ export function SettingsSkills(): React.JSX.Element {
                         <ShoppingBag className="h-8 w-8 opacity-20" />
                       )}
                     </div>
-                    <span className="text-xs font-medium">
+                    <span className="text-[13px] font-medium">
                       {activeTab === 'installed'
                         ? t('settings.skills.list.noneInstalled')
                         : t('settings.skills.list.empty')}
@@ -595,7 +597,7 @@ export function SettingsSkills(): React.JSX.Element {
                     {activeTab === 'browse' &&
                       currentHub?.kind === 'remote' &&
                       skillsInCurrentHub.length === 0 && (
-                        <p className="text-[10px] leading-relaxed opacity-70">
+                        <p className="text-[12px] font-medium leading-relaxed text-foreground/52">
                           {t('settings.skills.list.refreshToLoad')}
                         </p>
                       )}
@@ -611,17 +613,17 @@ export function SettingsSkills(): React.JSX.Element {
                           className={cn(
                             'w-full text-left px-3 py-2.5 rounded-xl transition-all border',
                             selectedSkillId === s.id
-                              ? 'bg-background border-primary/20 shadow-sm'
-                              : 'border-transparent hover:bg-background/50 hover:border-border/50'
+                              ? 'border-primary/30 bg-card shadow-sm'
+                              : 'border-transparent hover:border-border hover:bg-card'
                           )}
                         >
                           <div className="flex items-center justify-between gap-2">
                             <span
                               className={cn(
-                                'truncate text-sm transition-colors',
+                                'truncate text-[16px] tracking-[0.01em] transition-colors',
                                 selectedSkillId === s.id
                                   ? 'font-semibold text-foreground'
-                                  : 'font-medium text-muted-foreground'
+                                  : 'font-semibold text-foreground/92'
                               )}
                             >
                               {s.frontmatter.name || s.id}
@@ -633,7 +635,7 @@ export function SettingsSkills(): React.JSX.Element {
                                   <span
                                     key={p}
                                     title={`${PROVIDER_LABELS[p]} (user)`}
-                                    className="text-[9px] font-bold uppercase tracking-tight rounded px-1 py-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                                    className="rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-tight text-foreground/72"
                                   >
                                     {p === 'claude-code' ? 'CC' : p === 'codex' ? 'CX' : 'OC'}
                                   </span>
@@ -642,7 +644,7 @@ export function SettingsSkills(): React.JSX.Element {
                             )}
                           </div>
                           {s.frontmatter.description && (
-                            <div className="text-[11px] text-muted-foreground/80 truncate mt-1">
+                            <div className="mt-1 truncate text-[13px] font-medium leading-5 text-foreground/72">
                               {s.frontmatter.description}
                             </div>
                           )}
@@ -655,19 +657,19 @@ export function SettingsSkills(): React.JSX.Element {
             </div>
           </aside>
 
-          <section className="w-full min-w-0 flex flex-col rounded-2xl border border-border/70 bg-background overflow-hidden shadow-sm">
+          <section className="flex w-full min-w-0 flex-col overflow-hidden rounded-2xl border border-border/75 bg-card shadow-sm">
             {!currentSkill ? (
-              <div className="flex-1 flex flex-col items-center justify-center gap-4 text-muted-foreground">
+              <div className="flex flex-1 flex-col items-center justify-center gap-4 text-foreground/62">
                 <div className="p-6 rounded-3xl bg-muted/20">
                   <BookOpen className="h-16 w-16 opacity-10" />
                 </div>
-                <span className="text-sm font-medium">
+                <span className="text-[14px] font-semibold">
                   {t('settings.skills.detail.selectHint')}
                 </span>
               </div>
             ) : (
               <>
-                <header className="border-b border-border/50 bg-muted/5 p-6 pb-5 space-y-4">
+                <header className="space-y-4 border-b border-border/60 bg-muted/55 p-6 pb-5">
                   <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
                     <div className="min-w-0 w-full space-y-1">
                       <div className="flex min-w-0 flex-wrap items-center gap-2.5">
@@ -675,13 +677,13 @@ export function SettingsSkills(): React.JSX.Element {
                           {currentSkill.frontmatter.name || currentSkill.id}
                         </h4>
                         {currentSkill.frontmatter.version && (
-                          <span className="px-2 py-0.5 rounded-full bg-muted text-[10px] font-bold text-muted-foreground border">
+                          <span className="rounded-full border bg-muted px-2 py-0.5 text-[11px] font-bold text-muted-foreground">
                             v{currentSkill.frontmatter.version}
                           </span>
                         )}
                       </div>
                       {currentSkill.frontmatter.description && (
-                        <p className="w-full break-words text-sm leading-relaxed text-muted-foreground">
+                        <p className="w-full break-words text-[14px] font-medium leading-7 text-foreground/68">
                           {currentSkill.frontmatter.description}
                         </p>
                       )}
@@ -689,14 +691,14 @@ export function SettingsSkills(): React.JSX.Element {
                         {currentSkill.frontmatter.tags?.map((tag) => (
                           <span
                             key={tag}
-                            className="inline-flex items-center gap-1 rounded-lg bg-accent/50 px-2.5 py-1 text-[11px] font-medium text-accent-foreground border border-border/50"
+                            className="inline-flex items-center gap-1 rounded-lg border border-border/50 bg-accent/50 px-2.5 py-1 text-[12px] font-semibold text-accent-foreground"
                           >
                             <Tag className="h-3 w-3" />
                             {tag}
                           </span>
                         ))}
                         {installedIdsInCurrentScope.has(currentSkill.id) && (
-                          <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                          <span className="inline-flex items-center gap-1 rounded-lg border border-border bg-muted px-2.5 py-1 text-[12px] font-semibold text-foreground/76">
                             <Check className="h-3 w-3" />
                             {PROVIDER_LABELS[scope.provider]} · {scope.kind}
                           </span>
@@ -733,7 +735,7 @@ export function SettingsSkills(): React.JSX.Element {
                         size="sm"
                         disabled={busy || !currentHub}
                         onClick={() => setInstallDialogOpen(true)}
-                        className="rounded-xl px-4 h-9 font-semibold shadow-md"
+                        className="h-9 rounded-xl px-4 font-semibold shadow-sm"
                       >
                         {t('settings.skills.install.openDialog')}
                       </Button>
@@ -741,16 +743,16 @@ export function SettingsSkills(): React.JSX.Element {
                   </div>
                 </header>
 
-                <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                <div className="custom-scrollbar flex-1 overflow-y-auto bg-card p-8">
                   {markdownLoading ? (
-                    <div className="flex flex-col items-center justify-center h-40 gap-3 text-muted-foreground/60">
+                    <div className="flex h-40 flex-col items-center justify-center gap-3 text-foreground/58">
                       <Loader2 className="h-6 w-6 animate-spin" />
-                      <span className="text-sm font-medium">
+                      <span className="text-[14px] font-semibold">
                         {t('settings.skills.detail.loadingMarkdown')}
                       </span>
                     </div>
                   ) : (
-                    <div className="prose prose-sm dark:prose-invert max-w-none prose-p:leading-relaxed prose-headings:tracking-tight">
+                    <div className="prose prose-sm dark:prose-invert max-w-none prose-headings:tracking-tight prose-p:max-w-none [&_h1]:text-[28px] [&_h1]:font-bold [&_h1]:leading-tight [&_h2]:text-[22px] [&_h2]:font-bold [&_h2]:leading-tight [&_h3]:text-[18px] [&_h3]:font-semibold [&_h3]:leading-snug [&_p]:text-[15px] [&_p]:font-medium [&_p]:leading-8 [&_p]:text-foreground/84 [&_li]:text-[14px] [&_li]:font-medium [&_li]:leading-7 [&_li]:text-foreground/80 [&_ul]:space-y-2 [&_ol]:space-y-2 [&_blockquote]:border-l-3 [&_blockquote]:border-foreground/18 [&_blockquote]:bg-muted/35 [&_blockquote]:px-4 [&_blockquote]:py-3 [&_blockquote]:text-[14px] [&_blockquote]:font-medium [&_blockquote]:not-italic [&_blockquote]:leading-7 [&_blockquote]:text-foreground/72 [&_table]:text-[14px] [&_th]:text-[13px] [&_td]:text-[14px] [&_code]:font-semibold [&_code]:text-[13px] [&_a]:font-semibold [&_strong]:font-semibold">
                       <MarkdownRenderer content={skillMarkdown} />
                     </div>
                   )}
@@ -786,10 +788,10 @@ function TabButton({
     <button
       onClick={onClick}
       className={cn(
-        'flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-medium transition-all',
+        'flex items-center gap-2 rounded-lg px-4 py-1.5 text-[14px] font-semibold transition-all',
         active
           ? 'bg-background text-foreground shadow-sm ring-1 ring-border/20'
-          : 'text-muted-foreground hover:text-foreground hover:bg-background/40'
+          : 'text-foreground/68 hover:text-foreground hover:bg-background/40'
       )}
     >
       {icon}
@@ -813,16 +815,16 @@ function ProviderTab({
     <button
       onClick={onClick}
       className={cn(
-        'flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border',
+        'flex items-center gap-2 rounded-lg border px-3 py-1.5 text-[13px] font-semibold transition-all',
         active
           ? 'bg-background border-primary text-foreground shadow-sm ring-1 ring-primary/20'
-          : 'bg-background/40 border-border/70 text-muted-foreground hover:border-border hover:bg-background/60'
+          : 'bg-background/40 border-border/70 text-foreground/70 hover:border-border hover:bg-background/60 hover:text-foreground'
       )}
     >
       <span
         className={cn(
           'h-1.5 w-1.5 rounded-full',
-          detected ? 'bg-emerald-500' : 'bg-muted-foreground/30'
+          detected ? 'bg-emerald-500' : 'bg-foreground/25'
         )}
       />
       {label}
@@ -853,13 +855,15 @@ function ScopePill({
         'flex flex-col items-start px-4 py-2 rounded-xl border transition-all text-left group relative',
         active
           ? 'bg-background border-primary text-foreground shadow-sm ring-1 ring-primary/20'
-          : 'bg-background/40 border-border/70 text-muted-foreground hover:border-border hover:bg-background/60',
+          : 'bg-background/40 border-border/70 text-foreground/70 hover:border-border hover:bg-background/60 hover:text-foreground',
         disabled && 'opacity-40 cursor-not-allowed'
       )}
       title={disabledReason || sub}
     >
-      <span className="text-xs font-bold leading-none">{label}</span>
-      <span className="text-[10px] font-medium opacity-60 max-w-[140px] truncate mt-1">{sub}</span>
+      <span className="text-[13px] font-semibold leading-none">{label}</span>
+      <span className="mt-1 max-w-[140px] truncate text-[11px] font-medium text-current/80">
+        {sub}
+      </span>
     </button>
   )
 }

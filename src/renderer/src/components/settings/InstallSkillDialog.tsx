@@ -146,16 +146,18 @@ export function InstallSkillDialog({ skill, hubId, open, onOpenChange }: Props):
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md border-border/80 bg-card text-card-foreground shadow-2xl">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{t('settings.skills.install.dialogSubtitle')}</DialogDescription>
+          <DialogDescription className="text-[14px] font-medium leading-6 text-foreground/70">
+            {t('settings.skills.install.dialogSubtitle')}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-5 py-2">
           {/* Provider checkboxes */}
           <section className="flex flex-col gap-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <h3 className="text-[13px] font-semibold uppercase tracking-wide text-foreground/62">
               {t('settings.skills.install.providerLabel')}
             </h3>
             <TooltipProvider>
@@ -168,9 +170,9 @@ export function InstallSkillDialog({ skill, hubId, open, onOpenChange }: Props):
                     <label
                       key={p}
                       className={cn(
-                        'flex items-center gap-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-sm',
+                        'flex items-center gap-3 rounded-lg border border-border/70 bg-muted/70 px-3 py-2 text-sm shadow-sm',
                         disabled && 'opacity-50 cursor-not-allowed',
-                        !disabled && 'cursor-pointer hover:bg-muted/40'
+                        !disabled && 'cursor-pointer hover:bg-muted/90'
                       )}
                     >
                       <Checkbox
@@ -180,19 +182,19 @@ export function InstallSkillDialog({ skill, hubId, open, onOpenChange }: Props):
                           setProviders((prev) => ({ ...prev, [p]: Boolean(v) }))
                         }
                       />
-                      <span className="flex-1 font-medium">{PROVIDER_LABELS[p]}</span>
+                      <span className="flex-1 text-[14px] font-semibold">{PROVIDER_LABELS[p]}</span>
                       {!cliAvailable && (
-                        <span className="text-xs text-muted-foreground">
+                        <span className="text-[13px] font-medium text-foreground/58">
                           {t('settings.skills.install.providerNotInstalled')}
                         </span>
                       )}
                       {cliAvailable && !scopeOk && (
-                        <span className="text-xs text-amber-500">
+                        <span className="text-[13px] font-medium text-foreground/62">
                           {t('settings.skills.install.providerUnsupportedScope')}
                         </span>
                       )}
                       {cliAvailable && scopeOk && (
-                        <Check className="h-3.5 w-3.5 text-emerald-500" />
+                        <Check className="h-3.5 w-3.5 text-foreground/65" />
                       )}
                     </label>
                   )
@@ -200,7 +202,7 @@ export function InstallSkillDialog({ skill, hubId, open, onOpenChange }: Props):
                     return (
                       <Tooltip key={p} delayDuration={200}>
                         <TooltipTrigger asChild>{row}</TooltipTrigger>
-                        <TooltipContent side="right" className="max-w-xs font-mono text-xs">
+                        <TooltipContent side="right" className="max-w-xs font-mono text-[13px]">
                           {INSTALL_CMD[p]}
                         </TooltipContent>
                       </Tooltip>
@@ -214,7 +216,7 @@ export function InstallSkillDialog({ skill, hubId, open, onOpenChange }: Props):
 
           {/* Scope selector */}
           <section className="flex flex-col gap-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <h3 className="text-[13px] font-semibold uppercase tracking-wide text-foreground/62">
               {t('settings.skills.install.scopeLabel')}
             </h3>
             <div className="flex flex-col gap-1.5">
@@ -229,7 +231,7 @@ export function InstallSkillDialog({ skill, hubId, open, onOpenChange }: Props):
                         'flex items-center gap-3 rounded-lg border px-3 py-2 text-left text-sm transition-colors',
                         active
                           ? 'border-primary bg-primary/10'
-                          : 'border-border/60 bg-muted/20 hover:bg-muted/40'
+                          : 'border-border/70 bg-muted/70 hover:bg-muted/90'
                       )}
                     >
                       <div
@@ -239,10 +241,10 @@ export function InstallSkillDialog({ skill, hubId, open, onOpenChange }: Props):
                         )}
                       />
                       <span className="flex-1">
-                        <div className="font-medium capitalize">
+                        <div className="text-[14px] font-semibold capitalize">
                           {t(`settings.skills.scope.${k}` as const)}
                         </div>
-                        <div className="text-xs text-muted-foreground">
+                        <div className="text-[13px] font-medium leading-5 text-foreground/60">
                           {k === 'user' && t('settings.skills.scope.userHint')}
                           {k === 'project' && t('settings.skills.install.projectPickHint')}
                           {k === 'worktree' && t('settings.skills.install.worktreePickHint')}
@@ -253,7 +255,7 @@ export function InstallSkillDialog({ skill, hubId, open, onOpenChange }: Props):
                     {k === 'project' && active && (
                       <div className="ml-6 flex flex-wrap gap-1.5">
                         {projects.length === 0 && (
-                          <span className="text-xs text-muted-foreground">
+                          <span className="text-[13px] font-medium text-foreground/56">
                             {t('settings.skills.install.noProjects')}
                           </span>
                         )}
@@ -263,12 +265,12 @@ export function InstallSkillDialog({ skill, hubId, open, onOpenChange }: Props):
                             type="button"
                             onClick={() => setProjectId(p.id)}
                             className={cn(
-                              'rounded-md border px-2.5 py-1 text-xs',
+                              'rounded-md border px-2.5 py-1 text-[13px] font-medium',
                               projectId === p.id
                                 ? 'border-primary bg-primary/10 text-primary'
-                                : 'border-border/60 bg-muted/20 hover:bg-muted/40'
-                            )}
-                          >
+                                : 'border-border/70 bg-muted/70 hover:bg-muted/90'
+                              )}
+                            >
                             {p.name}
                           </button>
                         ))}
@@ -287,12 +289,12 @@ export function InstallSkillDialog({ skill, hubId, open, onOpenChange }: Props):
                                 setWorktreeId(null)
                               }}
                               className={cn(
-                                'rounded-md border px-2.5 py-1 text-xs',
+                              'rounded-md border px-2.5 py-1 text-[13px] font-medium',
                                 projectId === p.id
                                   ? 'border-primary bg-primary/10 text-primary'
-                                  : 'border-border/60 bg-muted/20 hover:bg-muted/40'
-                              )}
-                            >
+                                  : 'border-border/70 bg-muted/70 hover:bg-muted/90'
+                                )}
+                              >
                               {p.name}
                             </button>
                           ))}
@@ -300,7 +302,7 @@ export function InstallSkillDialog({ skill, hubId, open, onOpenChange }: Props):
                         {projectId && (
                           <div className="flex flex-wrap gap-1.5">
                             {allWorktrees.length === 0 && (
-                              <span className="text-xs text-muted-foreground">
+                              <span className="text-[13px] font-medium text-foreground/56">
                                 {t('settings.skills.install.noWorktrees')}
                               </span>
                             )}
@@ -310,7 +312,7 @@ export function InstallSkillDialog({ skill, hubId, open, onOpenChange }: Props):
                                 type="button"
                                 onClick={() => setWorktreeId(w.id)}
                                 className={cn(
-                                  'rounded-md border px-2.5 py-1 text-xs',
+                                  'rounded-md border px-2.5 py-1 text-[13px] font-medium',
                                   worktreeId === w.id
                                     ? 'border-primary bg-primary/10 text-primary'
                                     : 'border-border/60 bg-muted/20 hover:bg-muted/40'
@@ -329,7 +331,7 @@ export function InstallSkillDialog({ skill, hubId, open, onOpenChange }: Props):
             </div>
           </section>
 
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <label className="flex items-center gap-2 text-[13px] font-medium text-foreground/64">
             <Checkbox
               checked={overwrite}
               onCheckedChange={(v) => setOverwrite(Boolean(v))}
