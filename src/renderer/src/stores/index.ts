@@ -62,3 +62,4 @@ export {
 } from './useSessionRuntimeStore'
 export { useSkillStore } from './useSkillStore'
 export { useHubStore } from './useHubStore'
+export { useModelProfileStore } from './useModelProfileStore'

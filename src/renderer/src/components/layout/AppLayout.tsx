@@ -37,6 +37,7 @@ import { useConnectionWatcher } from '@/hooks/useConnectionWatcher'
 import { useAutoUpdate } from '@/hooks/useAutoUpdate'
 import { useKeepAwake } from '@/hooks/useKeepAwake'
 import { useHubConfirmationToasts } from '@/hooks/useHubConfirmationToasts'
+import { useModelProfileSync } from '@/hooks/useModelProfileSync'
 import { ErrorBoundary, ErrorFallback } from '@/components/error'
 import { ProjectSettingsDialog } from '@/components/projects/ProjectSettingsDialog'
 import { useProjectStore } from '@/stores/useProjectStore'
@@ -96,6 +97,8 @@ export function AppLayout({ children }: AppLayoutProps): React.JSX.Element {
   useKeepAwake()
   // Hub mode: pop sonner toasts when mobile clients request prompt approval
   useHubConfirmationToasts()
+  // Notify when model profile changes are synced to settings.local.json
+  useModelProfileSync()
 
   // Drag-and-drop from Finder
   const activeSessionId = useSessionStore((s) => s.activeSessionId)

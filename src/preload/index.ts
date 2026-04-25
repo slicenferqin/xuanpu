@@ -76,6 +76,7 @@ const db = {
         status?: 'active' | 'archived'
         last_accessed_at?: string
         last_agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | null
+        model_profile_id?: string | null
       }
     ) => ipcRenderer.invoke('db:worktree:update', id, data),
     delete: (id: string) => ipcRenderer.invoke('db:worktree:delete', id),
@@ -1631,6 +1632,20 @@ const settingsOps = {
     return () => {
       ipcRenderer.removeListener('settings:updated', handler)
     }
+  },
+
+  // Listen for model profile changes (profile assigned/edited/deleted)
+  onModelProfileChanged: (
+    callback: (data: { worktreeIds: string[] }) => void
+  ): (() => void) => {
+    const handler = (
+      _event: unknown,
+      data: { worktreeIds: string[] }
+    ): void => callback(data)
+    ipcRenderer.on('model-profile:changed', handler)
+    return () => {
+      ipcRenderer.removeListener('model-profile:changed', handler)
+    }
   }
 }
 
@@ -1882,7 +1897,9 @@ const connectionOps = {
     ipcRenderer.invoke('connection:rename', { connectionId, customName }),
   setPinned: (connectionId: string, pinned: boolean) =>
     ipcRenderer.invoke('connection:setPinned', { connectionId, pinned }),
-  getPinned: () => ipcRenderer.invoke('connection:getPinned')
+  getPinned: () => ipcRenderer.invoke('connection:getPinned'),
+  updateModelProfile: (connectionId: string, modelProfileId: string | null) =>
+    ipcRenderer.invoke('connection:updateModelProfile', { connectionId, modelProfileId })
 }
 
 const usageOps = {
@@ -2021,6 +2038,42 @@ const hubOps = {
   }
 }
 
+const modelProfileOps = {
+  list: () => ipcRenderer.invoke('model-profile:list'),
+  get: (id: string) => ipcRenderer.invoke('model-profile:get', id),
+  create: (data: {
+    name: string
+    provider: string
+    api_key?: string | null
+    base_url?: string | null
+    model_id?: string | null
+    openai_api_key?: string | null
+    openai_base_url?: string | null
+    codex_config_toml?: string | null
+    settings_json?: string
+    is_default?: boolean
+  }) => ipcRenderer.invoke('model-profile:create', data),
+  update: (
+    id: string,
+    data: {
+      name?: string
+      provider?: string
+      api_key?: string | null
+      base_url?: string | null
+      model_id?: string | null
+      openai_api_key?: string | null
+      openai_base_url?: string | null
+      codex_config_toml?: string | null
+      settings_json?: string
+      is_default?: boolean
+    }
+  ) => ipcRenderer.invoke('model-profile:update', id, data),
+  delete: (id: string) => ipcRenderer.invoke('model-profile:delete', id),
+  setDefault: (id: string) => ipcRenderer.invoke('model-profile:set-default', id),
+  resolve: (worktreeId?: string, projectId?: string, connectionId?: string) =>
+    ipcRenderer.invoke('model-profile:resolve', worktreeId, projectId, connectionId)
+}
+
 // Use `contextBridge` APIs to expose Electron APIs to
 // renderer only if context isolation is enabled, otherwise
 // just add to the DOM global.
@@ -2046,6 +2099,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('skillOps', skillOps)
     contextBridge.exposeInMainWorld('fieldOps', fieldOps)
     contextBridge.exposeInMainWorld('hubOps', hubOps)
+    contextBridge.exposeInMainWorld('modelProfileOps', modelProfileOps)
   } catch (error) {
     console.error(error)
   }
@@ -2090,4 +2144,6 @@ if (process.contextIsolated) {
   window.fieldOps = fieldOps
   // @ts-expect-error (define in dts)
   window.hubOps = hubOps
+  // @ts-expect-error (define in dts)
+  window.modelProfileOps = modelProfileOps
 }

@@ -1,9 +1,11 @@
 export interface Connection {
   id: string
   name: string
+  custom_name: string | null
   status: 'active' | 'archived'
   path: string
   color: string | null
+  model_profile_id: string | null
   created_at: string
   updated_at: string
 }

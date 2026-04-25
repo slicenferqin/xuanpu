@@ -1,6 +1,7 @@
-import { ipcMain } from 'electron'
+import { ipcMain, BrowserWindow } from 'electron'
 import { getDatabase } from '../db'
 import { createLogger } from '../services/logger'
+import { syncProfileToClaudeSettings } from '../services/model-profile-sync'
 import { telemetryService } from '../services/telemetry-service'
 import {
   setFieldCollectionEnabledCache,
@@ -10,6 +11,7 @@ import {
   MEMORY_INJECTION_SETTING_KEY,
   BASH_OUTPUT_CAPTURE_SETTING_KEY
 } from '../field/privacy'
+import type { CodexImplementer } from '../services/codex-implementer'
 import type {
   ProjectCreate,
   ProjectUpdate,
@@ -23,6 +25,20 @@ import type {
 } from '../db'
 
 const log = createLogger({ component: 'DatabaseHandlers' })
+
+let codexImpl: CodexImplementer | null = null
+
+export function setCodexImplementerForDbHandlers(impl: CodexImplementer): void {
+  codexImpl = impl
+}
+
+/** Send an event to the renderer process (safe if no windows exist yet) */
+function notifyRenderer(channel: string, data: unknown): void {
+  const windows = BrowserWindow.getAllWindows()
+  if (windows.length > 0) {
+    windows[0].webContents.send(channel, data)
+  }
+}
 
 export function registerDatabaseHandlers(): void {
   log.info('Registering database handlers')
@@ -102,7 +118,29 @@ export function registerDatabaseHandlers(): void {
   })
 
   ipcMain.handle('db:project:update', (_event, id: string, data: ProjectUpdate) => {
-    return getDatabase().updateProject(id, data)
+    const db = getDatabase()
+    const result = db.updateProject(id, data)
+
+    // When model_profile_id changes, sync to all active worktrees of this project
+    if (data.model_profile_id !== undefined) {
+      try {
+        const worktrees = db.getActiveWorktreesByProject(id)
+        const worktreeIds = worktrees.map(wt => wt.id)
+        for (const wt of worktrees) {
+          const profile = db.resolveModelProfile(wt.id, id)
+          syncProfileToClaudeSettings(wt.path, profile)
+        }
+        notifyRenderer('model-profile:changed', { worktreeIds })
+        if (codexImpl) codexImpl.onModelProfileChanged(worktreeIds)
+      } catch (err) {
+        log.warn('Failed to sync model profile to worktrees on project update', {
+          projectId: id,
+          error: err instanceof Error ? err.message : String(err)
+        })
+      }
+    }
+
+    return result
   })
 
   ipcMain.handle('db:project:delete', (_event, id: string) => {
@@ -145,7 +183,25 @@ export function registerDatabaseHandlers(): void {
   })
 
   ipcMain.handle('db:worktree:update', (_event, id: string, data: WorktreeUpdate) => {
-    return getDatabase().updateWorktree(id, data)
+    const db = getDatabase()
+    const result = db.updateWorktree(id, data)
+
+    // When model_profile_id changes, sync to this worktree's .claude/settings.local.json
+    if (data.model_profile_id !== undefined && result) {
+      try {
+        const profile = db.resolveModelProfile(id, result.project_id)
+        syncProfileToClaudeSettings(result.path, profile)
+        notifyRenderer('model-profile:changed', { worktreeIds: [id] })
+        if (codexImpl) codexImpl.onModelProfileChanged([id])
+      } catch (err) {
+        log.warn('Failed to sync model profile on worktree update', {
+          worktreeId: id,
+          error: err instanceof Error ? err.message : String(err)
+        })
+      }
+    }
+
+    return result
   })
 
   ipcMain.handle('db:worktree:delete', (_event, id: string) => {

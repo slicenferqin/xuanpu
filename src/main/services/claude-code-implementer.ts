@@ -8,6 +8,7 @@ import { asObject, asString } from './codex-utils'
 import { notificationService } from './notification-service'
 import { loadClaudeSDK } from './claude-sdk-loader'
 import { maybeWithClaudeProjectMemory } from './claude-project-memory-loader'
+import { syncProfileToClaudeSettings } from './model-profile-sync'
 import type { AgentSdkCapabilities, AgentSdkImplementer } from './agent-runtime-types'
 import type { AgentRuntimeAdapter } from './agent-runtime-types'
 import { CLAUDE_CODE_CAPABILITIES } from './agent-runtime-types'
@@ -25,6 +26,7 @@ import { getActiveAppHomeDir } from '@shared/app-identity'
 import { beginSessionRun, emitAgentEvent } from '@shared/lib/normalize-agent-event'
 import { resolveRuntimeModelId } from '@shared/usage/models'
 import { calculateUsageCost, resolvePricingModelKey } from '@shared/usage/pricing'
+import type { ModelProfile } from '@shared/types/model-profile'
 
 const log = createLogger({ component: 'ClaudeCodeImplementer' })
 
@@ -601,9 +603,11 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       // 'plan' mode uses SDK-native plan mode (ExitPlanMode blocking tool)
       // 'build' mode uses 'default' so canUseTool handles AskUserQuestion
       let sdkPermissionMode: PermissionMode = 'default'
+      let dbSession: { mode?: string; worktree_id?: string | null; project_id?: string } | null =
+        null
       if (this.dbService) {
         try {
-          const dbSession = this.dbService.getSession(session.hiveSessionId)
+          dbSession = this.dbService.getSession(session.hiveSessionId) as typeof dbSession
           if (dbSession?.mode === 'plan') {
             sdkPermissionMode = 'plan'
           }
@@ -612,8 +616,49 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         }
       }
 
+      // Resolve model profile: worktree → project → global default
+      let resolvedProfile: ModelProfile | null = null
+      if (this.dbService && dbSession) {
+        try {
+          resolvedProfile = this.dbService.resolveModelProfile(
+            dbSession.worktree_id ?? undefined,
+            dbSession.project_id
+          )
+        } catch {
+          // Fall through — no profile override
+        }
+      }
+      if (resolvedProfile) {
+        log.info('Using model profile', {
+          profileId: resolvedProfile.id,
+          profileName: resolvedProfile.name,
+          hasApiKey: !!resolvedProfile.api_key,
+          baseUrl: resolvedProfile.base_url ?? '(default)',
+          modelId: resolvedProfile.model_id
+        })
+      } else {
+        log.info('No model profile resolved', {
+          hasDbService: !!this.dbService,
+          hasDbSession: !!dbSession,
+          worktreeId: dbSession?.worktree_id ?? null,
+          projectId: dbSession?.project_id ?? null
+        })
+      }
+
+      // Write resolved profile to <worktreePath>/.claude/settings.local.json
+      // so the Claude CLI picks it up natively via settingSources: ['local']
+      try {
+        syncProfileToClaudeSettings(session.worktreePath, resolvedProfile)
+      } catch (err) {
+        log.warn('Failed to sync model profile to .claude/settings.local.json', {
+          worktreePath: session.worktreePath,
+          error: err instanceof Error ? err.message : String(err)
+        })
+      }
+
       // Resolve effort level from variant selection (default per model)
-      const resolvedModel = modelOverride?.modelID ?? this.selectedModel
+      const resolvedModel =
+        modelOverride?.modelID ?? this.selectedModel ?? resolvedProfile?.model_id ?? undefined
       const modelDef = CLAUDE_MODELS.find((m) => m.id === resolvedModel)
       const effortLevel = (modelOverride?.variant ??
         this.selectedVariant ??
@@ -658,7 +703,9 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         debugFile: join(getActiveAppHomeDir(app.getPath('home')), 'logs', 'claude-debug.log'),
         env: {
           ...process.env,
-          CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING: '1'
+          CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING: '1',
+          ...(resolvedProfile?.api_key ? { ANTHROPIC_API_KEY: resolvedProfile.api_key } : {}),
+          ...(resolvedProfile?.base_url ? { ANTHROPIC_BASE_URL: resolvedProfile.base_url } : {})
         },
         stderr: (data: string) => {
           session.stderrBuffer.push(data)
@@ -713,7 +760,9 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         forkSession: !!options.forkSession,
         resumeSessionAt: options.resumeSessionAt ?? null,
         cwd: options.cwd,
-        hasFileAttachments: !!contentBlocks
+        hasFileAttachments: !!contentBlocks,
+        anthropicBaseUrl: options.env?.ANTHROPIC_BASE_URL ?? '(system default)',
+        hasApiKeyOverride: !!resolvedProfile?.api_key
       })
 
       // When file attachments are present, use AsyncIterable<SDKUserMessage> prompt path
