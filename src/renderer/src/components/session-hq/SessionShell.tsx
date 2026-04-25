@@ -1442,12 +1442,18 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           commandsVersion={commandsVersion}
         />
 
-        {/* Phase 22A debug: collapsible view of the last Field Context injection. */}
-        <FieldContextDebug
-          sessionId={droidSessionId}
-          fallbackSessionIds={[sessionId]}
-          worktreeId={worktreeId}
-        />
+        {/* Phase 22A debug: collapsible view of the last Field Context injection.
+            Anchored to the very bottom of the relative content area so it
+            survives `overflow-hidden` and sits below the floating ComposerBar
+            (which is `absolute bottom-16`). Higher z-index than the timeline
+            so users can always click to expand. */}
+        <div className="absolute bottom-0 left-0 right-0 z-30">
+          <FieldContextDebug
+            sessionId={droidSessionId}
+            fallbackSessionIds={[sessionId]}
+            worktreeId={worktreeId}
+          />
+        </div>
 
         <ForkFromMessageConfirmDialog
           open={pendingForkMessageId !== null}
