@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron'
+import { ipcMain, BrowserWindow } from 'electron'
 import { spawn } from 'child_process'
 import { existsSync } from 'fs'
 import { platform } from 'os'
@@ -13,6 +13,7 @@ import {
   removeConnectionMemberOp,
   removeWorktreeFromAllConnectionsOp
 } from '../services/connection-ops'
+import { syncProfileToClaudeSettings } from '../services/model-profile-sync'
 import { getDatabase } from '../db'
 import type { ConnectionWithMembers } from '../db/types'
 
@@ -234,6 +235,53 @@ export function registerConnectionHandlers(): void {
     ): Promise<{ success: boolean; error?: string }> => {
       const db = getDatabase()
       return removeWorktreeFromAllConnectionsOp(db, worktreeId)
+    }
+  )
+
+  // Update model profile for a connection
+  ipcMain.handle(
+    'connection:updateModelProfile',
+    async (
+      _event,
+      {
+        connectionId,
+        modelProfileId
+      }: { connectionId: string; modelProfileId: string | null }
+    ): Promise<{ success: boolean; error?: string }> => {
+      try {
+        const db = getDatabase()
+        db.updateConnection(connectionId, { model_profile_id: modelProfileId })
+
+        // Re-sync all member worktrees that inherit from connection
+        const connection = db.getConnection(connectionId)
+        if (connection) {
+          const worktreeIds: string[] = []
+          for (const member of connection.members) {
+            const profile = db.resolveModelProfile(
+              member.worktree_id,
+              member.project_id,
+              connectionId
+            )
+            syncProfileToClaudeSettings(member.worktree_path, profile)
+            worktreeIds.push(member.worktree_id)
+          }
+          if (worktreeIds.length > 0) {
+            const windows = BrowserWindow.getAllWindows()
+            if (windows.length > 0) {
+              windows[0].webContents.send('model-profile:changed', { worktreeIds })
+            }
+          }
+        }
+
+        return { success: true }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        log.error(
+          'Update connection model profile failed',
+          error instanceof Error ? error : new Error(message)
+        )
+        return { success: false, error: message }
+      }
     }
   )
 }

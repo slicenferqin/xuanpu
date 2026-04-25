@@ -7,6 +7,7 @@ interface Connection {
   path: string
   color: string | null // JSON-serialised ConnectionColorQuad
   pinned: number // 0 = not pinned, 1 = pinned
+  model_profile_id: string | null
   created_at: string
   updated_at: string
 }
@@ -64,6 +65,7 @@ interface Worktree {
   attachments: string // JSON array of Attachment objects
   pinned: number // 0 = not pinned, 1 = pinned
   context: string | null
+  model_profile_id: string | null
   github_pr_number: number | null
   github_pr_url: string | null
   created_at: string
@@ -274,6 +276,7 @@ declare global {
             last_message_at?: number | null
             last_accessed_at?: string
             last_agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | null
+            model_profile_id?: string | null
           }
         ) => Promise<Worktree | null>
         delete: (id: string) => Promise<boolean>
@@ -811,6 +814,9 @@ declare global {
         error?: string
       }>
       onSettingsUpdated: (callback: (data: unknown) => void) => () => void
+      onModelProfileChanged: (
+        callback: (data: { worktreeIds: string[] }) => void
+      ) => () => void
     }
     scriptOps: {
       runSetup: (
@@ -1304,6 +1310,10 @@ declare global {
         pinned: boolean
       ) => Promise<{ success: boolean; error?: string }>
       getPinned: () => Promise<ConnectionWithMembers[]>
+      updateModelProfile: (
+        connectionId: string,
+        modelProfileId: string | null
+      ) => Promise<{ success: boolean; error?: string }>
     }
     usageOps: {
       fetch: () => Promise<import('../shared/types/usage').UsageResult>
@@ -1482,6 +1492,116 @@ declare global {
       revokeToken: (id: number) => Promise<{ success: boolean }>
       onStatusChanged: (cb: (status: HubStatusSnapshot) => void) => () => void
       onConfirmationRequested: (cb: (req: HubPendingConfirmation) => void) => () => void
+    }
+    modelProfileOps: {
+      list: () => Promise<
+        Array<{
+          id: string
+          name: string
+          provider: string
+          api_key: string | null
+          base_url: string | null
+          model_id: string | null
+          openai_api_key: string | null
+          openai_base_url: string | null
+          codex_config_toml: string | null
+          settings_json: string
+          is_default: boolean
+          created_at: string
+          updated_at: string
+        }>
+      >
+      get: (id: string) => Promise<{
+        id: string
+        name: string
+        provider: string
+        api_key: string | null
+        base_url: string | null
+        model_id: string | null
+        openai_api_key: string | null
+        openai_base_url: string | null
+        codex_config_toml: string | null
+        settings_json: string
+        is_default: boolean
+        created_at: string
+        updated_at: string
+      } | null>
+      create: (data: {
+        name: string
+        provider: string
+        api_key?: string | null
+        base_url?: string | null
+        model_id?: string | null
+        openai_api_key?: string | null
+        openai_base_url?: string | null
+        codex_config_toml?: string | null
+        settings_json?: string
+        is_default?: boolean
+      }) => Promise<{
+        id: string
+        name: string
+        provider: string
+        api_key: string | null
+        base_url: string | null
+        model_id: string | null
+        openai_api_key: string | null
+        openai_base_url: string | null
+        codex_config_toml: string | null
+        settings_json: string
+        is_default: boolean
+        created_at: string
+        updated_at: string
+      }>
+      update: (
+        id: string,
+        data: {
+          name?: string
+          provider?: string
+          api_key?: string | null
+          base_url?: string | null
+          model_id?: string | null
+          openai_api_key?: string | null
+          openai_base_url?: string | null
+          codex_config_toml?: string | null
+          settings_json?: string
+          is_default?: boolean
+        }
+      ) => Promise<{
+        id: string
+        name: string
+        provider: string
+        api_key: string | null
+        base_url: string | null
+        model_id: string | null
+        openai_api_key: string | null
+        openai_base_url: string | null
+        codex_config_toml: string | null
+        settings_json: string
+        is_default: boolean
+        created_at: string
+        updated_at: string
+      }>
+      delete: (id: string) => Promise<void>
+      setDefault: (id: string) => Promise<void>
+      resolve: (
+        worktreeId?: string,
+        projectId?: string,
+        connectionId?: string
+      ) => Promise<{
+        id: string
+        name: string
+        provider: string
+        api_key: string | null
+        base_url: string | null
+        model_id: string | null
+        openai_api_key: string | null
+        openai_base_url: string | null
+        codex_config_toml: string | null
+        settings_json: string
+        is_default: boolean
+        created_at: string
+        updated_at: string
+      } | null>
     }
   }
 

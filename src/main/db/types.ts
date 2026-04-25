@@ -35,6 +35,7 @@ export interface ProjectUpdate {
   run_script?: string | null
   archive_script?: string | null
   auto_assign_port?: boolean
+  model_profile_id?: string | null
   last_accessed_at?: string
 }
 
@@ -81,6 +82,7 @@ export interface WorktreeUpdate {
   last_model_variant?: string | null
   last_agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | null
   pinned?: number
+  model_profile_id?: string | null
   github_pr_number?: number | null
   github_pr_url?: string | null
   last_accessed_at?: string
@@ -337,6 +339,7 @@ export interface Connection {
   color: string | null // JSON-serialised ConnectionColorQuad
   status: 'active' | 'archived'
   pinned: number // 0 = not pinned, 1 = pinned
+  model_profile_id: string | null
   created_at: string
   updated_at: string
 }
@@ -346,6 +349,7 @@ export interface ConnectionCreate {
   path: string
   color?: string | null
   custom_name?: string | null
+  model_profile_id?: string | null
 }
 
 export interface ConnectionUpdate {
@@ -355,6 +359,7 @@ export interface ConnectionUpdate {
   color?: string | null
   status?: 'active' | 'archived'
   pinned?: number
+  model_profile_id?: string | null
 }
 
 export interface ConnectionMember {

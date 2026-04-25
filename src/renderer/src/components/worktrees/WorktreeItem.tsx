@@ -17,6 +17,7 @@ import {
   Plus,
   Pin,
   PinOff,
+  Settings,
   Unlink,
   FileText
 } from 'lucide-react'
@@ -60,6 +61,7 @@ import { toast } from '@/lib/toast'
 import { formatRelativeTime } from '@/lib/format-utils'
 import { ArchiveConfirmDialog } from './ArchiveConfirmDialog'
 import { AddAttachmentDialog } from './AddAttachmentDialog'
+import { WorktreeSettingsDialog } from './WorktreeSettingsDialog'
 import { useFileViewerStore } from '@/stores/useFileViewerStore'
 import { useI18n } from '@/i18n/useI18n'
 
@@ -75,6 +77,7 @@ interface Worktree {
   created_at: string
   last_accessed_at: string
   attachments: string // JSON array
+  model_profile_id: string | null
 }
 
 interface WorktreeItemProps {
@@ -181,6 +184,7 @@ export function WorktreeItem({
   const vimModeEnabled = useSettingsStore((s) => s.vimModeEnabled)
   const { t } = useI18n()
 
+  // Model profile state
   const handleTogglePin = useCallback(async (): Promise<void> => {
     if (isPinned) {
       await unpinWorktree(worktree.id)
@@ -253,6 +257,7 @@ export function WorktreeItem({
 
   // Attachment state
   const [addAttachmentOpen, setAddAttachmentOpen] = useState(false)
+  const [worktreeSettingsOpen, setWorktreeSettingsOpen] = useState(false)
   const [attachments, setAttachments] = useState<
     Array<{ id: string; type: 'jira' | 'figma'; url: string; label: string; created_at: string }>
   >([])
@@ -762,6 +767,10 @@ export function WorktreeItem({
                 <FileText className="h-4 w-4 mr-2" />
                 {t('pinned.menu.editContext')}
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setWorktreeSettingsOpen(true)}>
+                <Settings className="h-4 w-4 mr-2" />
+                {t('pinned.menu.worktreeSettings')}
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleOpenInTerminal}>
                 <Terminal className="h-4 w-4 mr-2" />
@@ -889,6 +898,10 @@ export function WorktreeItem({
           <FileText className="h-4 w-4 mr-2" />
           {t('pinned.menu.editContext')}
         </ContextMenuItem>
+        <ContextMenuItem onClick={() => setWorktreeSettingsOpen(true)}>
+          <Settings className="h-4 w-4 mr-2" />
+          {t('pinned.menu.worktreeSettings')}
+        </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onClick={handleOpenInTerminal}>
           <Terminal className="h-4 w-4 mr-2" />
@@ -964,6 +977,12 @@ export function WorktreeItem({
           </>
         )}
       </ContextMenuContent>
+
+      <WorktreeSettingsDialog
+        worktree={worktree}
+        open={worktreeSettingsOpen}
+        onOpenChange={setWorktreeSettingsOpen}
+      />
 
       <AddAttachmentDialog
         open={addAttachmentOpen}

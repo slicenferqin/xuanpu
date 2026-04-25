@@ -38,6 +38,7 @@ import type {
   ConnectionMemberCreate,
   ConnectionWithMembers
 } from './types'
+import type { ModelProfile, ModelProfileCreate, ModelProfileUpdate } from '@shared/types/model-profile'
 
 export class DatabaseService {
   private db: Database.Database | null = null
@@ -146,6 +147,7 @@ export class DatabaseService {
     this.ensureFieldEventsTable()
     this.ensureEpisodicMemoryTable()
     this.ensureHubTables()
+    this.ensureModelProfileTables()
   }
 
   /**
@@ -266,6 +268,7 @@ export class DatabaseService {
     this.safeAddColumn('worktrees', 'last_agent_sdk', 'TEXT DEFAULT NULL')
     this.safeAddColumn('sessions', 'first_message_at', 'INTEGER DEFAULT NULL')
     this.safeAddColumn('connections', 'pinned', 'INTEGER NOT NULL DEFAULT 0')
+    this.safeAddColumn('connections', 'model_profile_id', 'TEXT DEFAULT NULL')
 
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_sessions_connection ON sessions(connection_id);
@@ -492,6 +495,32 @@ export class DatabaseService {
     return this.getDb()
   }
 
+  private ensureModelProfileTables(): void {
+    const db = this.getDb()
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS model_profiles (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        provider TEXT NOT NULL DEFAULT 'claude',
+        api_key TEXT,
+        base_url TEXT,
+        model_id TEXT,
+        settings_json TEXT DEFAULT '{}',
+        is_default INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_model_profiles_default ON model_profiles(is_default);
+    `)
+
+    this.safeAddColumn('projects', 'model_profile_id', 'TEXT')
+    this.safeAddColumn('worktrees', 'model_profile_id', 'TEXT')
+    this.safeAddColumn('model_profiles', 'openai_api_key', 'TEXT')
+    this.safeAddColumn('model_profiles', 'openai_base_url', 'TEXT')
+    this.safeAddColumn('model_profiles', 'codex_config_toml', 'TEXT')
+  }
+
   // Settings operations
   getSetting(key: string): string | null {
     const db = this.getDb()
@@ -514,6 +543,209 @@ export class DatabaseService {
   getAllSettings(): Setting[] {
     const db = this.getDb()
     return db.prepare('SELECT key, value FROM settings').all() as Setting[]
+  }
+
+  // Model Profile operations
+
+  getModelProfiles(): ModelProfile[] {
+    const db = this.getDb()
+    const rows = db
+      .prepare('SELECT * FROM model_profiles ORDER BY is_default DESC, created_at ASC')
+      .all() as Array<ModelProfile & { is_default: number }>
+    return rows.map((row) => ({
+      ...row,
+      is_default: Boolean(row.is_default)
+    }))
+  }
+
+  getModelProfile(id: string): ModelProfile | null {
+    const db = this.getDb()
+    const row = db.prepare('SELECT * FROM model_profiles WHERE id = ?').get(id) as
+      | (ModelProfile & { is_default: number })
+      | undefined
+    if (!row) return null
+    return { ...row, is_default: Boolean(row.is_default) }
+  }
+
+  createModelProfile(data: ModelProfileCreate): ModelProfile {
+    const db = this.getDb()
+    const now = new Date().toISOString()
+
+    const profile: ModelProfile = {
+      id: randomUUID(),
+      name: data.name,
+      provider: data.provider,
+      api_key: data.api_key ?? null,
+      base_url: data.base_url ?? null,
+      model_id: data.model_id ?? null,
+      openai_api_key: data.openai_api_key ?? null,
+      openai_base_url: data.openai_base_url ?? null,
+      codex_config_toml: data.codex_config_toml ?? null,
+      settings_json: data.settings_json ?? '{}',
+      is_default: data.is_default ?? false,
+      created_at: now,
+      updated_at: now
+    }
+
+    if (profile.is_default) {
+      db.prepare('UPDATE model_profiles SET is_default = 0 WHERE is_default = 1').run()
+    }
+
+    db.prepare(
+      `INSERT INTO model_profiles (id, name, provider, api_key, base_url, model_id, openai_api_key, openai_base_url, codex_config_toml, settings_json, is_default, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      profile.id,
+      profile.name,
+      profile.provider,
+      profile.api_key,
+      profile.base_url,
+      profile.model_id,
+      profile.openai_api_key,
+      profile.openai_base_url,
+      profile.codex_config_toml,
+      profile.settings_json,
+      profile.is_default ? 1 : 0,
+      profile.created_at,
+      profile.updated_at
+    )
+
+    return profile
+  }
+
+  updateModelProfile(id: string, data: ModelProfileUpdate): ModelProfile | null {
+    const db = this.getDb()
+    const existing = this.getModelProfile(id)
+    if (!existing) return null
+
+    const updates: string[] = []
+    const values: (string | number | null)[] = []
+
+    if (data.name !== undefined) {
+      updates.push('name = ?')
+      values.push(data.name)
+    }
+    if (data.provider !== undefined) {
+      updates.push('provider = ?')
+      values.push(data.provider)
+    }
+    if (data.api_key !== undefined) {
+      updates.push('api_key = ?')
+      values.push(data.api_key)
+    }
+    if (data.base_url !== undefined) {
+      updates.push('base_url = ?')
+      values.push(data.base_url)
+    }
+    if (data.model_id !== undefined) {
+      updates.push('model_id = ?')
+      values.push(data.model_id)
+    }
+    if (data.openai_api_key !== undefined) {
+      updates.push('openai_api_key = ?')
+      values.push(data.openai_api_key)
+    }
+    if (data.openai_base_url !== undefined) {
+      updates.push('openai_base_url = ?')
+      values.push(data.openai_base_url)
+    }
+    if (data.codex_config_toml !== undefined) {
+      updates.push('codex_config_toml = ?')
+      values.push(data.codex_config_toml)
+    }
+    if (data.settings_json !== undefined) {
+      updates.push('settings_json = ?')
+      values.push(data.settings_json)
+    }
+    if (data.is_default !== undefined) {
+      if (data.is_default) {
+        db.prepare('UPDATE model_profiles SET is_default = 0 WHERE is_default = 1').run()
+      }
+      updates.push('is_default = ?')
+      values.push(data.is_default ? 1 : 0)
+    }
+
+    if (updates.length === 0) return existing
+
+    updates.push('updated_at = ?')
+    values.push(new Date().toISOString())
+
+    values.push(id)
+    db.prepare(`UPDATE model_profiles SET ${updates.join(', ')} WHERE id = ?`).run(...values)
+
+    return this.getModelProfile(id)
+  }
+
+  deleteModelProfile(id: string): boolean {
+    const db = this.getDb()
+    // Nullify references in projects, worktrees, and connections
+    db.prepare('UPDATE projects SET model_profile_id = NULL WHERE model_profile_id = ?').run(id)
+    db.prepare('UPDATE worktrees SET model_profile_id = NULL WHERE model_profile_id = ?').run(id)
+    db.prepare('UPDATE connections SET model_profile_id = NULL WHERE model_profile_id = ?').run(id)
+    const result = db.prepare('DELETE FROM model_profiles WHERE id = ?').run(id)
+    return result.changes > 0
+  }
+
+  setDefaultModelProfile(id: string): void {
+    const db = this.getDb()
+    const tx = db.transaction(() => {
+      db.prepare('UPDATE model_profiles SET is_default = 0 WHERE is_default = 1').run()
+      db.prepare('UPDATE model_profiles SET is_default = 1, updated_at = ? WHERE id = ?').run(
+        new Date().toISOString(),
+        id
+      )
+    })
+    tx()
+  }
+
+  getDefaultModelProfile(): ModelProfile | null {
+    const db = this.getDb()
+    const row = db.prepare('SELECT * FROM model_profiles WHERE is_default = 1').get() as
+      | (ModelProfile & { is_default: number })
+      | undefined
+    if (!row) return null
+    return { ...row, is_default: Boolean(row.is_default) }
+  }
+
+  resolveModelProfile(
+    worktreeId?: string,
+    projectId?: string,
+    connectionId?: string
+  ): ModelProfile | null {
+    const db = this.getDb()
+
+    // 1. Check worktree's profile
+    if (worktreeId) {
+      const row = db
+        .prepare('SELECT model_profile_id FROM worktrees WHERE id = ?')
+        .get(worktreeId) as { model_profile_id: string | null } | undefined
+      if (row?.model_profile_id) {
+        const profile = this.getModelProfile(row.model_profile_id)
+        if (profile) return profile
+      }
+    }
+    // 2. Check connection's profile
+    if (connectionId) {
+      const row = db
+        .prepare('SELECT model_profile_id FROM connections WHERE id = ?')
+        .get(connectionId) as { model_profile_id: string | null } | undefined
+      if (row?.model_profile_id) {
+        const profile = this.getModelProfile(row.model_profile_id)
+        if (profile) return profile
+      }
+    }
+    // 3. Check project's profile
+    if (projectId) {
+      const row = db
+        .prepare('SELECT model_profile_id FROM projects WHERE id = ?')
+        .get(projectId) as { model_profile_id: string | null } | undefined
+      if (row?.model_profile_id) {
+        const profile = this.getModelProfile(row.model_profile_id)
+        if (profile) return profile
+      }
+    }
+    // 4. Fall back to global default
+    return this.getDefaultModelProfile()
   }
 
   // Project operations
@@ -668,6 +900,10 @@ export class DatabaseService {
     if (data.auto_assign_port !== undefined) {
       updates.push('auto_assign_port = ?')
       values.push(data.auto_assign_port ? 1 : 0)
+    }
+    if (data.model_profile_id !== undefined) {
+      updates.push('model_profile_id = ?')
+      values.push(data.model_profile_id)
     }
     if (data.last_accessed_at !== undefined) {
       updates.push('last_accessed_at = ?')
@@ -852,6 +1088,10 @@ export class DatabaseService {
     if (data.pinned !== undefined) {
       updates.push('pinned = ?')
       values.push(data.pinned)
+    }
+    if (data.model_profile_id !== undefined) {
+      updates.push('model_profile_id = ?')
+      values.push(data.model_profile_id)
     }
     if (data.last_accessed_at !== undefined) {
       updates.push('last_accessed_at = ?')
@@ -1848,20 +2088,22 @@ export class DatabaseService {
       path: data.path,
       color: data.color ?? null,
       pinned: 0,
+      model_profile_id: data.model_profile_id ?? null,
       status: 'active',
       created_at: now,
       updated_at: now
     }
 
     db.prepare(
-      `INSERT INTO connections (id, name, custom_name, path, color, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO connections (id, name, custom_name, path, color, model_profile_id, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       connection.id,
       connection.name,
       connection.custom_name,
       connection.path,
       connection.color,
+      connection.model_profile_id,
       connection.status,
       connection.created_at,
       connection.updated_at
@@ -1947,6 +2189,10 @@ export class DatabaseService {
     if (data.pinned !== undefined) {
       updates.push('pinned = ?')
       values.push(data.pinned)
+    }
+    if (data.model_profile_id !== undefined) {
+      updates.push('model_profile_id = ?')
+      values.push(data.model_profile_id ?? null)
     }
 
     values.push(id)

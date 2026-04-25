@@ -154,7 +154,41 @@ export const messages: Record<AppLocale, MessageTree> = {
           label: '/ask Command Default',
           description: 'Model used when you run the /ask command for quick questions'
         },
-        useGlobal: 'Use global'
+        useGlobal: 'Use global',
+        profiles: {
+          title: 'Model Profiles',
+          description:
+            'Create named configurations with custom API keys and endpoints. Assign them to projects or worktrees.',
+          add: 'Add Profile',
+          edit: 'Edit Profile',
+          create: 'Create Profile',
+          delete: 'Delete',
+          deleteConfirm:
+            'Delete this profile? Projects and worktrees using it will fall back to the global default.',
+          setDefault: 'Set as Default',
+          removeDefault: 'Remove Default',
+          default: 'Default',
+          name: 'Name',
+          namePlaceholder: 'e.g. Personal, Company',
+          provider: 'Provider',
+          apiKey: 'API Key',
+          apiKeyPlaceholder: 'sk-ant-...',
+          baseUrl: 'Base URL',
+          baseUrlPlaceholder: 'https://api.anthropic.com (optional)',
+          openaiApiKey: 'OpenAI API Key',
+          openaiApiKeyPlaceholder: 'sk-...',
+          openaiBaseUrl: 'OpenAI Base URL',
+          openaiBaseUrlPlaceholder: 'https://api.openai.com/v1 (optional)',
+          codexConfigToml: 'Config (config.toml)',
+          codexConfigTomlHint: 'Paste your ~/.codex/config.toml content. API key is injected via OPENAI_API_KEY.',
+          modelId: 'Default Model',
+          modelIdPlaceholder: 'e.g. claude-sonnet-4-20250514 (optional)',
+          advancedSettings: 'Advanced Settings (JSON)',
+          noProfiles: 'No profiles configured. Add one to get started.',
+          useGlobalDefault: 'Use Global Default',
+          useProjectDefault: 'Use Project Default',
+          none: 'None'
+        }
       },
       terminal: {
         embedded: {
@@ -2106,7 +2140,32 @@ export const messages: Record<AppLocale, MessageTree> = {
         save: 'Save',
         saving: 'Saving...',
         saveSuccess: 'Project settings saved',
-        saveError: 'Failed to save project settings'
+        saveError: 'Failed to save project settings',
+        modelProfile: 'Model Profile',
+        modelProfileDescription: 'Select a model profile for this project'
+      },
+      worktreeSettings: {
+        title: 'Workspace Settings',
+        modelProfile: 'Model Profile',
+        modelProfileDescription: 'Override the model profile for this workspace. Falls back to the project profile or global default.',
+        save: 'Save',
+        saving: 'Saving...',
+        cancel: 'Cancel',
+        saveSuccess: 'Workspace settings saved',
+        saveError: 'Failed to save workspace settings',
+        profileSynced: 'Model profile updated — next message will use new settings'
+      },
+      connectionSettings: {
+        title: '{name} Settings',
+        connectionProfile: 'Model Profile',
+        useGlobalDefault: 'Use global default',
+        memberWorktrees: 'Member Worktrees',
+        inherit: 'Inherit from connection',
+        cancel: 'Cancel',
+        save: 'Save',
+        saving: 'Saving...',
+        worktreeUpdateError: 'Failed to update {name}',
+        saveSuccess: 'Connection settings saved'
       },
       branchPicker: {
         title: 'New Workspace',
@@ -2213,6 +2272,9 @@ export const messages: Record<AppLocale, MessageTree> = {
         detach: 'Detach',
         addAttachment: 'Add Attachment',
         editContext: 'Edit Context',
+        worktreeSettings: 'Workspace Settings',
+        modelProfile: 'Model Profile',
+        useProjectDefault: 'Use Project Default',
         openInTerminal: 'Open in Terminal',
         openInEditor: 'Open in Editor',
         openInFileManager: 'Open in {manager}',
@@ -2229,6 +2291,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         removeWorktree: 'Remove Worktree',
         detachedHead: 'Detached HEAD',
         connectionWorktrees: 'Connection Worktrees',
+        connectionSettings: 'Connection Settings',
         rename: 'Rename',
         delete: 'Delete'
       },
@@ -2445,7 +2508,39 @@ export const messages: Record<AppLocale, MessageTree> = {
           label: '/ask 命令默认模型',
           description: '执行 /ask 命令进行快速提问时使用的模型'
         },
-        useGlobal: '使用全局默认'
+        useGlobal: '使用全局默认',
+        profiles: {
+          title: '模型配置',
+          description: '创建带有自定义 API Key 和端点的命名配置，可分配到项目或 Worktree。',
+          add: '添加配置',
+          edit: '编辑配置',
+          create: '创建配置',
+          delete: '删除',
+          deleteConfirm: '删除此配置？使用它的项目和 Worktree 将回退到全局默认配置。',
+          setDefault: '设为默认',
+          removeDefault: '取消默认',
+          default: '默认',
+          name: '名称',
+          namePlaceholder: '如：个人、公司',
+          provider: '提供商',
+          apiKey: 'API Key',
+          apiKeyPlaceholder: 'sk-ant-...',
+          baseUrl: 'Base URL',
+          baseUrlPlaceholder: 'https://api.anthropic.com（可选）',
+          openaiApiKey: 'OpenAI API Key',
+          openaiApiKeyPlaceholder: 'sk-...',
+          openaiBaseUrl: 'OpenAI Base URL',
+          openaiBaseUrlPlaceholder: 'https://api.openai.com/v1（可选）',
+          codexConfigToml: '配置 (config.toml)',
+          codexConfigTomlHint: '粘贴 ~/.codex/config.toml 内容，API key 通过 OPENAI_API_KEY 注入',
+          modelId: '默认模型',
+          modelIdPlaceholder: '如：claude-sonnet-4-20250514（可选）',
+          advancedSettings: '高级设置（JSON）',
+          noProfiles: '暂无配置，添加一个开始使用。',
+          useGlobalDefault: '使用全局默认',
+          useProjectDefault: '使用项目默认',
+          none: '无'
+        }
       },
       terminal: {
         embedded: {
@@ -4381,7 +4476,32 @@ export const messages: Record<AppLocale, MessageTree> = {
         save: '保存',
         saving: '保存中...',
         saveSuccess: '项目设置已保存',
-        saveError: '保存项目设置失败'
+        saveError: '保存项目设置失败',
+        modelProfile: '模型配置',
+        modelProfileDescription: '为此项目选择模型配置'
+      },
+      worktreeSettings: {
+        title: '工作区设置',
+        modelProfile: '模型配置',
+        modelProfileDescription: '为此工作区覆盖模型配置。未设置时回退到项目配置或全局默认配置。',
+        save: '保存',
+        saving: '保存中...',
+        cancel: '取消',
+        saveSuccess: '工作区设置已保存',
+        saveError: '保存工作区设置失败',
+        profileSynced: '模型配置已更新 — 下一条消息将使用新设置'
+      },
+      connectionSettings: {
+        title: '{name} 设置',
+        connectionProfile: '模型配置',
+        useGlobalDefault: '使用全局默认',
+        memberWorktrees: '成员 Worktree',
+        inherit: '继承连接设置',
+        cancel: '取消',
+        save: '保存',
+        saving: '保存中...',
+        worktreeUpdateError: '更新 {name} 失败',
+        saveSuccess: '连接设置已保存'
       },
       branchPicker: {
         title: '新建工作区',
@@ -4488,6 +4608,9 @@ export const messages: Record<AppLocale, MessageTree> = {
         detach: '解除关联',
         addAttachment: '添加附件',
         editContext: '编辑上下文',
+        worktreeSettings: '工作区设置',
+        modelProfile: '模型配置',
+        useProjectDefault: '使用项目默认',
         openInTerminal: '在终端中打开',
         openInEditor: '在编辑器中打开',
         openInFileManager: '在 {manager} 中打开',
@@ -4504,6 +4627,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         removeWorktree: '移除 worktree',
         detachedHead: 'Detached HEAD',
         connectionWorktrees: '连接中的 Worktree',
+        connectionSettings: '连接设置',
         rename: '重命名',
         delete: '删除'
       },

@@ -81,6 +81,7 @@ interface Worktree {
   last_accessed_at: string
   github_pr_number: number | null
   github_pr_url: string | null
+  model_profile_id: string | null
 }
 
 interface WorktreeState {

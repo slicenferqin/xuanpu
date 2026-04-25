@@ -20,6 +20,11 @@ import type { DatabaseService } from '../db/database'
 import { autoRenameWorktreeBranch } from './git-service'
 import { beginSessionRun, emitAgentEvent } from '@shared/lib/normalize-agent-event'
 import { notificationService } from './notification-service'
+import type { ModelProfile } from '@shared/types/model-profile'
+import { mkdirSync, writeFileSync, copyFileSync, existsSync } from 'fs'
+import { join } from 'path'
+import { homedir } from 'os'
+import { getActiveAppHomeDir } from '@shared/app-identity'
 
 const log = createLogger({ component: 'CodexImplementer' })
 
@@ -36,6 +41,7 @@ export interface CodexSessionState {
   revertDiff: string | null
   titleGenerated: boolean
   titleGenerationStarted: boolean
+  pendingEnvRefresh?: boolean
 }
 
 interface CodexLiveToolPart {
@@ -177,6 +183,81 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         kind,
         error
       })
+    }
+  }
+
+  /**
+   * Write profile's config.toml to a per-worktree CODEX_HOME directory.
+   * Returns the CODEX_HOME path, or undefined if no config.toml is set.
+   */
+  private prepareCodexHome(profile: ModelProfile, worktreeId: string): string | undefined {
+    if (!profile.codex_config_toml) return undefined
+
+    const codexHome = join(getActiveAppHomeDir(), 'codex-homes', worktreeId)
+    mkdirSync(codexHome, { recursive: true })
+
+    // Write config.toml from profile
+    writeFileSync(join(codexHome, 'config.toml'), profile.codex_config_toml, 'utf-8')
+
+    // Copy auth.json from global ~/.codex/ if it exists
+    const globalAuth = join(homedir(), '.codex', 'auth.json')
+    if (existsSync(globalAuth)) {
+      try { copyFileSync(globalAuth, join(codexHome, 'auth.json')) } catch { /* non-critical */ }
+    }
+
+    log.info('Codex: prepared CODEX_HOME with config.toml', { codexHome, worktreeId })
+    return codexHome
+  }
+
+  /**
+   * Resolve model profile for a Codex session → env vars + optional CODEX_HOME.
+   */
+  private resolveProfileConfig(hiveSessionId: string): {
+    env: Record<string, string>
+    codexHomePath?: string
+  } {
+    if (!this.dbService) return { env: {} }
+
+    try {
+      const dbSession = this.dbService.getSession(hiveSessionId)
+      if (!dbSession) return { env: {} }
+
+      const profile: ModelProfile | null = this.dbService.resolveModelProfile(
+        dbSession.worktree_id ?? undefined,
+        dbSession.project_id
+      )
+      if (!profile) return { env: {} }
+
+      const env: Record<string, string> = {}
+
+      if (profile.openai_api_key) {
+        env.OPENAI_API_KEY = profile.openai_api_key
+      }
+      if (profile.openai_base_url) {
+        env.OPENAI_BASE_URL = profile.openai_base_url
+      }
+
+      // Prepare per-worktree CODEX_HOME with config.toml
+      const codexHomePath = dbSession.worktree_id
+        ? this.prepareCodexHome(profile, dbSession.worktree_id)
+        : undefined
+
+      if (Object.keys(env).length > 0 || codexHomePath) {
+        log.info('Codex: resolved model profile config', {
+          profileId: profile.id,
+          profileName: profile.name,
+          envKeys: Object.keys(env),
+          hasCodexHome: !!codexHomePath
+        })
+      }
+
+      return { env, codexHomePath }
+    } catch (err) {
+      log.warn('Codex: failed to resolve model profile', {
+        hiveSessionId,
+        error: err instanceof Error ? err.message : String(err)
+      })
+      return { env: {} }
     }
   }
 
@@ -387,10 +468,14 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     // Ensure the manager event listener is attached for HITL flows
     this.attachManagerListener()
 
+    const { env: profileEnv, codexHomePath } = this.resolveProfileConfig(hiveSessionId)
+
     const providerSession = await this.manager.startSession({
       cwd: worktreePath,
       model: resolvedModel,
-      codexLaunchSpec: await this.resolveLaunchSpec()
+      codexLaunchSpec: await this.resolveLaunchSpec(),
+      env: profileEnv,
+      codexHomePath
     })
 
     const threadId = providerSession.threadId
@@ -456,11 +541,15 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       this.attachManagerListener()
 
       const resolvedModel = resolveCodexModelSlug(this.selectedModel)
+      const { env: profileEnv, codexHomePath } = this.resolveProfileConfig(hiveSessionId)
+
       const providerSession = await this.manager.startSession({
         cwd: worktreePath,
         model: resolvedModel,
         resumeThreadId: agentSessionId,
-        codexLaunchSpec: await this.resolveLaunchSpec()
+        codexLaunchSpec: await this.resolveLaunchSpec(),
+        env: profileEnv,
+        codexHomePath
       })
 
       const threadId = providerSession.threadId
@@ -520,6 +609,75 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     this.cleanupPendingForThread(agentSessionId)
 
     log.info('Disconnected', { worktreePath, agentSessionId })
+  }
+
+  // ── Model profile change handling ──────────────────────────────
+
+  /**
+   * Called by IPC handlers when a model profile changes.
+   * Idle sessions restart immediately; busy sessions defer until idle.
+   */
+  onModelProfileChanged(worktreeIds: string[]): void {
+    const affected = new Set(worktreeIds)
+
+    for (const session of this.sessions.values()) {
+      // Match by worktree_id from the DB session
+      const wtId = this.getWorktreeIdForSession(session)
+      if (!affected.has(wtId)) continue
+
+      if (session.status === 'running') {
+        session.pendingEnvRefresh = true
+        log.info('Codex: session busy, deferring env refresh', {
+          hiveSessionId: session.hiveSessionId,
+          threadId: session.threadId
+        })
+      } else {
+        this.refreshSessionEnv(session).catch((err) => {
+          log.warn('Codex: failed to refresh session env', {
+            hiveSessionId: session.hiveSessionId,
+            error: err instanceof Error ? err.message : String(err)
+          })
+        })
+      }
+    }
+  }
+
+  private getWorktreeIdForSession(session: CodexSessionState): string {
+    if (!this.dbService) return ''
+    try {
+      const dbSession = this.dbService.getSession(session.hiveSessionId)
+      return dbSession?.worktree_id ?? ''
+    } catch {
+      return ''
+    }
+  }
+
+  /**
+   * Kill current codex app-server and restart with fresh env via thread resume.
+   */
+  private async refreshSessionEnv(session: CodexSessionState): Promise<void> {
+    session.pendingEnvRefresh = false
+
+    const { worktreePath, threadId, hiveSessionId } = session
+    log.info('Codex: refreshing session env', { hiveSessionId, threadId })
+
+    // Stop old process
+    this.manager.stopSession(threadId)
+    const key = this.getSessionKey(worktreePath, threadId)
+    this.sessions.delete(key)
+    this.cleanupPendingForThread(threadId)
+
+    // Reconnect with fresh env (resume the thread)
+    try {
+      await this.reconnect(worktreePath, threadId, hiveSessionId)
+      log.info('Codex: session env refreshed', { hiveSessionId, threadId })
+    } catch (err) {
+      log.warn('Codex: reconnect after env refresh failed', {
+        hiveSessionId,
+        threadId,
+        error: err instanceof Error ? err.message : String(err)
+      })
+    }
   }
 
   async cleanup(): Promise<void> {
@@ -829,6 +987,11 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       session.status = turnFailed ? 'error' : 'ready'
       this.emitStatus(session.hiveSessionId, 'idle')
 
+      // If a profile change happened while busy, refresh now
+      if (session.pendingEnvRefresh) {
+        this.refreshSessionEnv(session).catch(() => {})
+      }
+
       log.info('Prompt: completed', {
         worktreePath,
         agentSessionId,
@@ -851,6 +1014,10 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         data: { error: errorMessage }
       })
       this.emitStatus(session.hiveSessionId, 'idle')
+
+      if (session.pendingEnvRefresh) {
+        this.refreshSessionEnv(session).catch(() => {})
+      }
     } finally {
       this.manager.removeListener('event', handleEvent)
     }
@@ -930,6 +1097,11 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     session.status = 'ready'
     session.liveAssistantDraft = null
     this.emitStatus(session.hiveSessionId, 'idle')
+
+    if (session.pendingEnvRefresh) {
+      this.refreshSessionEnv(session).catch(() => {})
+    }
+
     return true
   }
 
