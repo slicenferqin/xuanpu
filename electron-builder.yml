@@ -6,19 +6,20 @@ directories:
 files:
   - out/**/*
   - resources/**/*
+  # cloudflared is copied into each platform's Resources/ via per-OS
+  # extraResources below — excluding it here stops ~195MB of non-target
+  # binaries (Linux + Windows) from leaking into app.asar on a macOS build.
+  - '!resources/cloudflared/**/*'
 
 # Cross-platform extra resources — copied, not packed into ASAR, so the skill
 # service can enumerate them at runtime with plain fs APIs.
+# NOTE: cloudflared binaries are NOT listed here — they're split into per-OS
+# extraResources under `mac:` / `win:` / `linux:` below so a macOS DMG doesn't
+# carry Windows + Linux binaries (and vice versa). See tunnel-service.ts for
+# the matching resolveBinary() path.
 extraResources:
   - from: resources/built-in-skills
     to: built-in-skills
-    filter:
-      - '**/*'
-  # cloudflared binaries for the Hub public-tunnel feature. Each platform
-  # subdirectory is picked up at runtime by tunnel-service.resolveBinary().
-  # Run scripts/download-cloudflared.sh before packaging.
-  - from: resources/cloudflared
-    to: cloudflared
     filter:
       - '**/*'
   # Mobile UI (#44) — built by `pnpm build:mobile`. The hub-server resolves
@@ -42,6 +43,14 @@ mac:
   extraResources:
     - from: src/native/build/Release/ghostty.node
       to: native/ghostty.node
+    # cloudflared — only ship macOS binaries (both archs, ~72MB) in a macOS
+    # DMG. See tunnel-service.detectPlatform() for the naming convention.
+    - from: resources/cloudflared/darwin-amd64
+      to: cloudflared/darwin-amd64
+      filter: ['**/*']
+    - from: resources/cloudflared/darwin-arm64
+      to: cloudflared/darwin-arm64
+      filter: ['**/*']
   category: public.app-category.developer-tools
   # Hub mode needs the Local Network prompt + server entitlement so the
   # loopback HTTP/WS server and cloudflared child process can open sockets.
@@ -71,6 +80,13 @@ dmg:
 win:
   icon: resources/icon.ico
   artifactName: 'Xuanpu-${version}-${arch}-win.${ext}'
+  extraResources:
+    - from: resources/cloudflared/windows-amd64
+      to: cloudflared/windows-amd64
+      filter: ['**/*']
+    - from: resources/cloudflared/windows-arm64
+      to: cloudflared/windows-arm64
+      filter: ['**/*']
   # NOTE: arch controlled by CLI flags (--x64 or --arm64) in release workflow.
   target:
     - nsis
@@ -87,6 +103,13 @@ nsis:
 linux:
   icon: resources/icon.png
   category: Development
+  extraResources:
+    - from: resources/cloudflared/linux-amd64
+      to: cloudflared/linux-amd64
+      filter: ['**/*']
+    - from: resources/cloudflared/linux-arm64
+      to: cloudflared/linux-arm64
+      filter: ['**/*']
 
 # ── Auto-update ───────────────────────────────────────
 publish:
