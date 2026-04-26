@@ -239,6 +239,133 @@ describe('hub-bridge: outbound translation', () => {
       })
     ])
   })
+
+  it('emits ToolResultPart on tool completion (output appended as sibling part)', () => {
+    const ws = makeWs()
+    registry.subscribe(ws, 'd', 's1')
+
+    // 1) running tool — opens bubble, no result yet
+    bridge.onIpcEvent(AGENT_STREAM_CHANNEL, [
+      envelope({
+        type: 'message.part.updated',
+        sessionId: 's1',
+        data: {
+          part: {
+            type: 'tool',
+            callID: 'call-A',
+            tool: 'Bash',
+            state: { status: 'running', input: { command: 'ls' } }
+          }
+        }
+      })
+    ])
+    expect(ws.sent).toHaveLength(1)
+    const open = ws.sent[0] as { type: string; message: { parts: unknown[] } }
+    expect(open.type).toBe('message/append')
+    expect(open.message.parts).toHaveLength(1)
+    expect(open.message.parts[0]).toMatchObject({ type: 'tool_use', pending: true })
+
+    // 2) completed tool — replacePart (pending → done) AND appendPart for tool_result
+    ws.sent.length = 0
+    bridge.onIpcEvent(AGENT_STREAM_CHANNEL, [
+      envelope({
+        type: 'message.part.updated',
+        sessionId: 's1',
+        data: {
+          part: {
+            type: 'tool',
+            callID: 'call-A',
+            tool: 'Bash',
+            state: {
+              status: 'completed',
+              input: { command: 'ls' },
+              output: 'file-a\nfile-b\n'
+            }
+          }
+        }
+      })
+    ])
+    expect(ws.sent).toHaveLength(2)
+    const replace = ws.sent[0] as { patch?: { op?: string; value?: { pending?: boolean } } }
+    expect(replace.patch?.op).toBe('replacePart')
+    expect(replace.patch?.value?.pending).toBe(false)
+    const result = ws.sent[1] as {
+      patch?: { op?: string; value?: { type?: string; output?: unknown; isError?: boolean } }
+    }
+    expect(result.patch?.op).toBe('appendPart')
+    expect(result.patch?.value?.type).toBe('tool_result')
+    expect(result.patch?.value?.output).toBe('file-a\nfile-b\n')
+    expect(result.patch?.value?.isError).toBe(false)
+  })
+
+  it('emits ToolResultPart with isError=true on error status', () => {
+    const ws = makeWs()
+    registry.subscribe(ws, 'd', 's1')
+    bridge.onIpcEvent(AGENT_STREAM_CHANNEL, [
+      envelope({
+        type: 'message.part.updated',
+        sessionId: 's1',
+        data: {
+          part: {
+            type: 'tool',
+            callID: 'call-B',
+            tool: 'Bash',
+            state: { status: 'running', input: { command: 'fail' } }
+          }
+        }
+      })
+    ])
+    bridge.onIpcEvent(AGENT_STREAM_CHANNEL, [
+      envelope({
+        type: 'message.part.updated',
+        sessionId: 's1',
+        data: {
+          part: {
+            type: 'tool',
+            callID: 'call-B',
+            tool: 'Bash',
+            state: {
+              status: 'error',
+              input: { command: 'fail' },
+              error: 'permission denied',
+              output: 'permission denied'
+            }
+          }
+        }
+      })
+    ])
+    const lastFrame = ws.sent[ws.sent.length - 1] as {
+      patch?: { value?: { type?: string; isError?: boolean; output?: unknown } }
+    }
+    expect(lastFrame.patch?.value?.type).toBe('tool_result')
+    expect(lastFrame.patch?.value?.isError).toBe(true)
+  })
+
+  it('truncates large tool output to 4 KB', () => {
+    const ws = makeWs()
+    registry.subscribe(ws, 'd', 's1')
+    const huge = 'x'.repeat(10000)
+    bridge.onIpcEvent(AGENT_STREAM_CHANNEL, [
+      envelope({
+        type: 'message.part.updated',
+        sessionId: 's1',
+        data: {
+          part: {
+            type: 'tool',
+            callID: 'big',
+            tool: 'Bash',
+            state: { status: 'completed', input: { command: 'echo' }, output: huge }
+          }
+        }
+      })
+    ])
+    const resultFrame = ws.sent.find((f) => {
+      const fr = f as { patch?: { value?: { type?: string } } }
+      return fr.patch?.value?.type === 'tool_result'
+    }) as { patch: { value: { output: string } } }
+    expect(resultFrame.patch.value.output.length).toBeLessThan(4500)
+    expect(resultFrame.patch.value.output).toContain('truncated')
+  })
 })
 
 describe('hub-bridge: inbound client messages', () => {
@@ -438,7 +565,7 @@ describe('hub-bridge: P1 information fidelity (system notices + tool output)', (
     expect(notices).toHaveLength(2)
   })
 
-  it('emits a finished tool with output set on the tool_use part', () => {
+  it('emits a finished tool followed by a tool_result sibling part', () => {
     const registry = new HubRegistry({ localDeviceId: 'd' })
     const bridge = new HubBridge({
       registry,
@@ -462,16 +589,27 @@ describe('hub-bridge: P1 information fidelity (system notices + tool output)', (
       })
     ])
 
+    // PR42 split tool output into a separate tool_result sibling part — the
+    // initial frame appends a tool_use (pending: false) and a follow-up
+    // appendPart frame carries the tool_result with the output / isError.
     const append = ws.sent[0] as {
       type: string
-      message: { parts: Array<{ type: string; output?: unknown; pending?: boolean; isError?: boolean }> }
+      message: { parts: Array<{ type: string; pending?: boolean }> }
     }
     expect(append.type).toBe('message/append')
     const tool = append.message.parts[0]!
     expect(tool.type).toBe('tool_use')
     expect(tool.pending).toBe(false)
-    expect(tool.isError).toBe(false)
-    expect(tool.output).toBe('a\nb\n')
+
+    const resultFrame = ws.sent
+      .slice(1)
+      .find((f) => {
+        const fr = f as { patch?: { value?: { type?: string } } }
+        return fr.patch?.value?.type === 'tool_result'
+      }) as { patch: { value: { type: string; output: unknown; isError: boolean } } } | undefined
+    expect(resultFrame).toBeDefined()
+    expect(resultFrame!.patch.value.output).toBe('a\nb\n')
+    expect(resultFrame!.patch.value.isError).toBe(false)
   })
 })
 

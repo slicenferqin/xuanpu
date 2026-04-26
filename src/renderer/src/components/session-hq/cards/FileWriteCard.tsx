@@ -35,7 +35,72 @@ function isWriteTool(name: string | undefined): boolean {
   return n === 'write' || n === 'writefile' || n === 'write_file'
 }
 
+interface CodexChange {
+  path: string
+  kind?: { type?: string }
+  diff?: string
+}
+
+/**
+ * Codex emits fileChange items as `input.changes[]` with a unified diff
+ * string per change. claude-code emits `input.old_string` / `new_string`
+ * for Edit. This helper detects which shape we have.
+ */
+function getCodexChanges(toolUse: ToolUseInfo): CodexChange[] | null {
+  const changes = toolUse.input?.changes
+  if (!Array.isArray(changes) || changes.length === 0) return null
+  const out: CodexChange[] = []
+  for (const c of changes) {
+    if (c && typeof c === 'object') {
+      const obj = c as Record<string, unknown>
+      const path = typeof obj.path === 'string' ? obj.path : ''
+      if (!path) continue
+      out.push({
+        path,
+        kind: typeof obj.kind === 'object' ? (obj.kind as { type?: string }) : undefined,
+        diff: typeof obj.diff === 'string' ? obj.diff : undefined
+      })
+    }
+  }
+  return out.length > 0 ? out : null
+}
+
+/** Parse a unified-diff hunk body into DiffLine[]. Strips the @@ header. */
+function parseUnifiedDiff(diff: string): DiffLine[] {
+  const lines: DiffLine[] = []
+  for (const raw of diff.split('\n')) {
+    if (raw.startsWith('@@')) continue
+    if (raw.startsWith('---') || raw.startsWith('+++')) continue
+    if (raw.startsWith('+')) lines.push({ kind: 'add', text: raw.slice(1) })
+    else if (raw.startsWith('-')) lines.push({ kind: 'remove', text: raw.slice(1) })
+    else lines.push({ kind: 'context', text: raw.startsWith(' ') ? raw.slice(1) : raw })
+  }
+  // Trim trailing empty line that often appears after a final newline.
+  while (lines.length > 0 && lines[lines.length - 1].text === '') lines.pop()
+  return lines
+}
+
+function countDiffChanges(lines: DiffLine[]): { added: number; removed: number } {
+  let added = 0
+  let removed = 0
+  for (const l of lines) {
+    if (l.kind === 'add') added++
+    else if (l.kind === 'remove') removed++
+  }
+  return { added, removed }
+}
+
 function computeLineDiff(toolUse: ToolUseInfo): { added: number; removed: number } | null {
+  // Codex shape (preferred — has the real unified diff)
+  const codexChanges = getCodexChanges(toolUse)
+  if (codexChanges && codexChanges[0]?.diff) {
+    return countDiffChanges(parseUnifiedDiff(codexChanges[0].diff))
+  }
+  const inlineDiff = toolUse.input?.diff
+  if (typeof inlineDiff === 'string' && inlineDiff.length > 0) {
+    return countDiffChanges(parseUnifiedDiff(inlineDiff))
+  }
+
   const input = toolUse.input ?? {}
 
   if (isEditTool(toolUse.name)) {
@@ -85,6 +150,17 @@ function buildWritePreview(content: string): DiffLine[] {
 }
 
 function buildPreviewLines(toolUse: ToolUseInfo): DiffLine[] | null {
+  // Codex shape: changes[].diff (unified)
+  const codexChanges = getCodexChanges(toolUse)
+  if (codexChanges && codexChanges[0]?.diff) {
+    return parseUnifiedDiff(codexChanges[0].diff)
+  }
+  // Single-file convenience: input.diff (also unified)
+  const inlineDiff = toolUse.input?.diff
+  if (typeof inlineDiff === 'string' && inlineDiff.length > 0) {
+    return parseUnifiedDiff(inlineDiff)
+  }
+
   const input = toolUse.input ?? {}
   if (isEditTool(toolUse.name)) {
     const oldStr = (input.old_string as string) ?? ''
@@ -146,13 +222,25 @@ function DiffPreview({ lines }: DiffPreviewProps): React.JSX.Element {
 }
 
 export function FileWriteCard({ toolUse }: FileWriteCardProps): React.JSX.Element {
-  const filePath = (toolUse.input?.file_path as string) ?? (toolUse.input?.path as string) ?? ''
-  const isEdit = toolUse.name === 'Edit' || toolUse.name === 'edit'
+  const codexChanges = getCodexChanges(toolUse)
+  const filePath =
+    (toolUse.input?.file_path as string) ??
+    (toolUse.input?.path as string) ??
+    codexChanges?.[0]?.path ??
+    ''
+  // Codex emits 'Edit' for both pure edits and full rewrites; treat as Edit.
+  const isEdit =
+    toolUse.name === 'Edit' ||
+    toolUse.name === 'edit' ||
+    isEditTool(toolUse.name) ||
+    codexChanges !== null
   const isRunning = toolUse.status === 'running' || toolUse.status === 'pending'
   const isError = toolUse.status === 'error'
+  const isSuccess = toolUse.status === 'success' || toolUse.status === 'completed'
   const diff = computeLineDiff(toolUse)
   const previewLines = useMemo(() => buildPreviewLines(toolUse), [toolUse])
   const hasPreview = previewLines !== null && previewLines.length > 0
+  const multiFile = codexChanges && codexChanges.length > 1
 
   return (
     <ActionCard
@@ -163,15 +251,16 @@ export function FileWriteCard({ toolUse }: FileWriteCardProps): React.JSX.Elemen
           </span>
           <span className="font-mono text-xs text-blue-500 bg-blue-500/10 px-1.5 py-0.5 rounded truncate">
             {filePath}
+            {multiFile ? ` +${codexChanges.length - 1}` : ''}
           </span>
         </div>
       }
       headerRight={
         <div className="flex items-center gap-1.5">
           {isRunning && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
-          {toolUse.status === 'success' && <Check className="h-3.5 w-3.5 text-celadon" />}
+          {isSuccess && <Check className="h-3.5 w-3.5 text-celadon" />}
           {isError && <X className="h-3.5 w-3.5 text-red-500" />}
-          {diff && toolUse.status === 'success' && (
+          {diff && isSuccess && (
             <div className="flex gap-1.5 font-mono text-xs font-semibold">
               {diff.added > 0 && <span className="text-celadon">+{diff.added}</span>}
               {diff.removed > 0 && <span className="text-red-400">-{diff.removed}</span>}

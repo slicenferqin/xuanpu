@@ -19,6 +19,7 @@ function MnemonicLabel({ letter, label }: { letter: string; label: string }): Re
 interface PlanReadyImplementFabProps {
   onImplement: () => void
   onHandoff: () => void
+  onReject?: () => void
   visible: boolean
   onSuperpowers?: () => void
   onSuperpowersLocal?: () => void
@@ -29,6 +30,7 @@ interface PlanReadyImplementFabProps {
 export function PlanReadyImplementFab({
   onImplement,
   onHandoff,
+  onReject,
   visible,
   onSuperpowers,
   onSuperpowersLocal,
@@ -67,6 +69,24 @@ export function PlanReadyImplementFab({
           t('planReadyFab.labels.handoff')
         )}
       </button>
+      {onReject && (
+        <button
+          onClick={onReject}
+          className={cn(
+            'h-8 rounded-full px-3',
+            'text-xs font-medium',
+            'border border-red-500/40 text-red-600 bg-background hover:bg-red-500/10',
+            'shadow-md transition-colors duration-200',
+            'cursor-pointer',
+            'dark:text-red-400 dark:hover:bg-red-500/20',
+            visible ? 'opacity-100' : 'opacity-0'
+          )}
+          aria-label="Reject plan"
+          data-testid="plan-ready-reject-fab"
+        >
+          {showMnemonic ? <MnemonicLabel letter="r" label="拒绝" /> : '拒绝'}
+        </button>
+      )}
       {superpowersAvailable && !isConnectionSession && onSuperpowersLocal && (
         <button
           onClick={onSuperpowersLocal}

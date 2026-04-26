@@ -1,12 +1,18 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+/**
+ * Unit tests for codex-event-mapper. Complements the fixture-driven tests in
+ * codex-event-mapper-fixtures.test.ts: this file exercises individual code
+ * paths in isolation; the fixture file covers end-to-end real-traffic shapes.
+ */
 import { describe, it, expect } from 'vitest'
 import {
   mapCodexEventToStreamEvents,
-  contentStreamKindFromMethod
+  contentStreamKindFromMethod,
+  createCodexMapperState,
+  normalizeCodexPlanUpdateTodos,
+  buildCodexUpdatePlanCallId
 } from '../../../src/main/services/codex-event-mapper'
 import type { CodexManagerEvent } from '../../../src/main/services/codex-app-server-manager'
-
-// ── Helpers ──────────────────────────────────────────────────────
 
 function makeEvent(overrides: Partial<CodexManagerEvent>): CodexManagerEvent {
   return {
@@ -20,753 +26,641 @@ function makeEvent(overrides: Partial<CodexManagerEvent>): CodexManagerEvent {
   }
 }
 
-const HIVE_SESSION = 'hive-session-abc'
+const HIVE = 'hive-test'
 
-describe('mapCodexEventToStreamEvents', () => {
-  // ── Content deltas ──────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────
+// contentStreamKindFromMethod
+// ────────────────────────────────────────────────────────────────────
+describe('contentStreamKindFromMethod', () => {
+  it('classifies item/agentMessage/delta as assistant', () => {
+    expect(contentStreamKindFromMethod('item/agentMessage/delta')).toBe('assistant')
+  })
+  it('classifies item/reasoning/textDelta as reasoning', () => {
+    expect(contentStreamKindFromMethod('item/reasoning/textDelta')).toBe('reasoning')
+  })
+  it('classifies item/reasoning/summaryTextDelta as reasoning_summary', () => {
+    expect(contentStreamKindFromMethod('item/reasoning/summaryTextDelta')).toBe('reasoning_summary')
+  })
+  it('does NOT classify command/file output deltas (they go to tool parts)', () => {
+    expect(contentStreamKindFromMethod('item/commandExecution/outputDelta')).toBeNull()
+    expect(contentStreamKindFromMethod('item/fileChange/outputDelta')).toBeNull()
+  })
+  it('returns null for unknown methods', () => {
+    expect(contentStreamKindFromMethod('content.delta')).toBeNull()
+    expect(contentStreamKindFromMethod('turn/started')).toBeNull()
+  })
+})
 
-  describe('contentStreamKindFromMethod', () => {
-    it('classifies item/agentMessage/delta as assistant', () => {
-      expect(contentStreamKindFromMethod('item/agentMessage/delta')).toBe('assistant')
-    })
-
-    it('classifies item/reasoning/textDelta as reasoning', () => {
-      expect(contentStreamKindFromMethod('item/reasoning/textDelta')).toBe('reasoning')
-    })
-
-    it('classifies item/reasoning/summaryTextDelta as reasoning_summary', () => {
-      expect(contentStreamKindFromMethod('item/reasoning/summaryTextDelta')).toBe(
-        'reasoning_summary'
-      )
-    })
-
-    it('classifies item/commandExecution/outputDelta as command_output', () => {
-      expect(contentStreamKindFromMethod('item/commandExecution/outputDelta')).toBe(
-        'command_output'
-      )
-    })
-
-    it('classifies item/fileChange/outputDelta as file_change_output', () => {
-      expect(contentStreamKindFromMethod('item/fileChange/outputDelta')).toBe('file_change_output')
-    })
-
-    it('classifies item/plan/delta as assistant', () => {
-      expect(contentStreamKindFromMethod('item/plan/delta')).toBe('assistant')
-    })
-
-    it('returns null for unknown methods', () => {
-      expect(contentStreamKindFromMethod('content.delta')).toBeNull()
-      expect(contentStreamKindFromMethod('turn/started')).toBeNull()
-    })
+// ────────────────────────────────────────────────────────────────────
+// content streaming deltas
+// ────────────────────────────────────────────────────────────────────
+describe('content streaming deltas', () => {
+  it('maps agentMessage delta (textDelta on event) to text part', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({ method: 'item/agentMessage/delta', textDelta: 'Hello' }),
+      HIVE
+    )
+    expect(result).toHaveLength(1)
+    expect((result[0].data as any).part).toEqual({ type: 'text', text: 'Hello' })
   })
 
-  describe('content streaming deltas (actual Codex methods)', () => {
-    it('maps item/agentMessage/delta with string delta payload', () => {
-      const event = makeEvent({
-        method: 'item/agentMessage/delta',
-        payload: { delta: 'Hello world' }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect(result[0]).toEqual({
-        type: 'message.part.updated',
-        sessionId: HIVE_SESSION,
-        data: {
-          part: { type: 'text', text: 'Hello world' },
-          delta: 'Hello world'
-        }
-      })
-    })
-
-    it('maps item/agentMessage/delta with textDelta on event', () => {
-      const event = makeEvent({
-        method: 'item/agentMessage/delta',
-        textDelta: 'direct text'
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect(result[0].data).toEqual({
-        part: { type: 'text', text: 'direct text' },
-        delta: 'direct text'
-      })
-    })
-
-    it('maps item/reasoning/textDelta to reasoning type', () => {
-      const event = makeEvent({
-        method: 'item/reasoning/textDelta',
-        payload: { text: 'Let me think...' }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect(result[0]).toEqual({
-        type: 'message.part.updated',
-        sessionId: HIVE_SESSION,
-        data: {
-          part: { type: 'reasoning', text: 'Let me think...' },
-          delta: 'Let me think...'
-        }
-      })
-    })
-
-    it('maps item/reasoning/summaryTextDelta to reasoning type', () => {
-      const event = makeEvent({
-        method: 'item/reasoning/summaryTextDelta',
-        payload: { text: 'Summary of reasoning' }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect(result[0].data).toEqual({
-        part: { type: 'reasoning', text: 'Summary of reasoning' },
-        delta: 'Summary of reasoning'
-      })
-    })
-
-    it('maps item/commandExecution/outputDelta to text type', () => {
-      const event = makeEvent({
-        method: 'item/commandExecution/outputDelta',
-        payload: { text: 'command output line' }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect(result[0].data).toEqual({
-        part: { type: 'text', text: 'command output line' },
-        delta: 'command output line'
-      })
-    })
-
-    it('maps item/fileChange/outputDelta to text type', () => {
-      const event = makeEvent({
-        method: 'item/fileChange/outputDelta',
-        payload: { text: 'file change diff' }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect(result[0].data).toEqual({
-        part: { type: 'text', text: 'file change diff' },
-        delta: 'file change diff'
-      })
-    })
-
-    it('maps item/plan/delta to text type', () => {
-      const event = makeEvent({
-        method: 'item/plan/delta',
-        payload: { text: 'plan step 1' }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect(result[0].data).toEqual({
-        part: { type: 'text', text: 'plan step 1' },
-        delta: 'plan step 1'
-      })
-    })
-
-    it('returns empty array for delta with no text', () => {
-      const event = makeEvent({
-        method: 'item/agentMessage/delta',
-        payload: {}
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(0)
-    })
-
-    it('also handles structured delta object (backward compat)', () => {
-      const event = makeEvent({
-        method: 'item/agentMessage/delta',
-        payload: {
-          delta: { type: 'text', text: 'structured delta' }
-        }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect(result[0].data).toEqual({
-        part: { type: 'text', text: 'structured delta' },
-        delta: 'structured delta'
-      })
-    })
-
-    it('maps assistantText at payload level', () => {
-      const event = makeEvent({
-        method: 'item/agentMessage/delta',
-        payload: { assistantText: 'payload assistant text' }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect(result[0].data).toEqual({
-        part: { type: 'text', text: 'payload assistant text' },
-        delta: 'payload assistant text'
-      })
-    })
-
-    it('maps reasoningText at payload level', () => {
-      const event = makeEvent({
-        method: 'item/reasoning/textDelta',
-        payload: { reasoningText: 'payload reasoning text' }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect(result[0].data).toEqual({
-        part: { type: 'reasoning', text: 'payload reasoning text' },
-        delta: 'payload reasoning text'
-      })
-    })
+  it('maps agentMessage delta (string in payload.delta) to text part', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({ method: 'item/agentMessage/delta', payload: { delta: 'World' } }),
+      HIVE
+    )
+    expect((result[0].data as any).part.text).toBe('World')
   })
 
-  // ── Turn started ────────────────────────────────────────────
-
-  describe('turn/plan/updated', () => {
-    it('maps plan updates into a synthetic update_plan tool event', () => {
-      const event = makeEvent({
-        method: 'turn/plan/updated',
-        turnId: 'turn-plan-1',
-        payload: {
-          items: [
-            { id: 'a', content: 'Inspect logs', status: 'completed' },
-            { id: 'b', content: 'Patch timeout', status: 'in_progress' }
-          ]
-        }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect(result[0]).toEqual({
-        type: 'message.part.updated',
-        sessionId: HIVE_SESSION,
-        data: {
-          part: {
-            type: 'tool',
-            callID: 'turn-plan-1:update_plan',
-            tool: 'update_plan',
-            state: {
-              status: 'completed',
-              input: {
-                todos: [
-                  {
-                    id: 'a',
-                    content: 'Inspect logs',
-                    status: 'completed',
-                    priority: 'medium'
-                  },
-                  {
-                    id: 'b',
-                    content: 'Patch timeout',
-                    status: 'in_progress',
-                    priority: 'medium'
-                  }
-                ]
-              }
-            }
-          }
-        }
-      })
-    })
+  it('returns empty for delta with no text', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({ method: 'item/agentMessage/delta', payload: {} }),
+      HIVE
+    )
+    expect(result).toEqual([])
   })
 
-  describe('turn/started', () => {
-    it('maps to session.status busy', () => {
-      const event = makeEvent({ method: 'turn/started' })
+  it('maps reasoning/summaryTextDelta to reasoning part', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({ method: 'item/reasoning/summaryTextDelta', payload: { delta: 'thinking…' } }),
+      HIVE
+    )
+    expect((result[0].data as any).part).toEqual({ type: 'reasoning', text: 'thinking…' })
+  })
+})
 
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect(result[0]).toEqual({
-        type: 'session.status',
-        sessionId: HIVE_SESSION,
-        data: { status: { type: 'busy' } },
-        statusPayload: { type: 'busy' }
-      })
-    })
+// ────────────────────────────────────────────────────────────────────
+// turn lifecycle
+// ────────────────────────────────────────────────────────────────────
+describe('turn lifecycle', () => {
+  it('turn/started → busy', () => {
+    const result = mapCodexEventToStreamEvents(makeEvent({ method: 'turn/started' }), HIVE)
+    expect(result[0].type).toBe('session.status')
+    expect(result[0].statusPayload?.type).toBe('busy')
   })
 
-  // ── Turn completed ──────────────────────────────────────────
+  it('turn/completed (success) → idle', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({ method: 'turn/completed', payload: { turn: { status: 'completed' } } }),
+      HIVE
+    )
+    const last = result[result.length - 1]
+    expect(last.type).toBe('session.status')
+    expect(last.statusPayload?.type).toBe('idle')
+  })
 
-  describe('turn/completed', () => {
-    it('maps successful completion to idle status', () => {
-      const event = makeEvent({
+  it('turn/completed (failed) → session.error + idle', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
         method: 'turn/completed',
-        payload: { turn: { status: 'completed' } }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      // Should have at least the idle status event
-      const statusEvents = result.filter((e) => e.type === 'session.status')
-      expect(statusEvents).toHaveLength(1)
-      expect(statusEvents[0].statusPayload).toEqual({ type: 'idle' })
-    })
-
-    it('maps failed turn to session.error + idle', () => {
-      const event = makeEvent({
-        method: 'turn/completed',
-        payload: { turn: { status: 'failed', error: 'Rate limit exceeded' } }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      const errorEvents = result.filter((e) => e.type === 'session.error')
-      expect(errorEvents).toHaveLength(1)
-      expect(errorEvents[0].data).toEqual({ error: 'Rate limit exceeded' })
-
-      const statusEvents = result.filter((e) => e.type === 'session.status')
-      expect(statusEvents).toHaveLength(1)
-      expect(statusEvents[0].statusPayload).toEqual({ type: 'idle' })
-    })
-
-    it('includes usage info in message.updated when present', () => {
-      const event = makeEvent({
-        method: 'turn/completed',
-        payload: {
-          turn: {
-            status: 'completed',
-            usage: { inputTokens: 100, outputTokens: 50 },
-            cost: 0.003
-          }
-        }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      const usageEvents = result.filter((e) => e.type === 'message.updated')
-      expect(usageEvents).toHaveLength(1)
-      expect((usageEvents[0].data as any).usage).toEqual({
-        inputTokens: 100,
-        outputTokens: 50
-      })
-      expect((usageEvents[0].data as any).cost).toBe(0.003)
-    })
-
-    it('handles turn/completed with no turn object (fallback status)', () => {
-      const event = makeEvent({
-        method: 'turn/completed',
-        payload: {}
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      // Defaults to 'completed' status → just idle
-      const statusEvents = result.filter((e) => e.type === 'session.status')
-      expect(statusEvents).toHaveLength(1)
-      expect(statusEvents[0].statusPayload).toEqual({ type: 'idle' })
-
-      // No error events for default completion
-      const errorEvents = result.filter((e) => e.type === 'session.error')
-      expect(errorEvents).toHaveLength(0)
-    })
+        payload: { turn: { status: 'failed', error: 'boom' } }
+      }),
+      HIVE
+    )
+    expect(result.some((e) => e.type === 'session.error')).toBe(true)
+    expect(result[result.length - 1].statusPayload?.type).toBe('idle')
   })
 
-  // ── Item started ────────────────────────────────────────────
+  it('turn/completed with usage → message.updated', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
+        method: 'turn/completed',
+        payload: { turn: { status: 'completed', usage: { totalTokens: 100 } } }
+      }),
+      HIVE
+    )
+    const upd = result.find((e) => e.type === 'message.updated')
+    expect(upd).toBeDefined()
+    expect((upd!.data as any).usage).toEqual({ totalTokens: 100 })
+  })
+})
 
-  describe('item.started / item/started', () => {
-    it('maps item.started to tool_use part', () => {
-      const event = makeEvent({
-        method: 'item.started',
-        payload: {
-          item: { id: 'item-1', toolName: 'shell', type: 'commandExecution' }
-        }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect(result[0]).toEqual({
-        type: 'message.part.updated',
-        sessionId: HIVE_SESSION,
-        data: {
-          part: {
-            type: 'tool',
-            callID: 'item-1',
-            tool: 'shell',
-            state: { status: 'running' }
-          }
-        }
-      })
-    })
-
-    it('maps item/started (slash variant)', () => {
-      const event = makeEvent({
+// ────────────────────────────────────────────────────────────────────
+// item lifecycle — tool parts
+// ────────────────────────────────────────────────────────────────────
+describe('item lifecycle → tool parts', () => {
+  it('item/started commandExecution (no actions) → Bash tool part', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
         method: 'item/started',
         payload: {
-          item: { id: 'item-2', name: 'file_edit', type: 'fileChange' }
+          item: {
+            type: 'commandExecution',
+            id: 'call-1',
+            command: 'git status',
+            cwd: '/tmp',
+            status: 'inProgress'
+          }
         }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect((result[0].data as any).part.tool).toBe('file_edit')
-      expect((result[0].data as any).part.callID).toBe('item-2')
+      }),
+      HIVE
+    )
+    const part = (result[0].data as any).part
+    expect(part).toMatchObject({
+      type: 'tool',
+      callID: 'call-1',
+      tool: 'Bash'
     })
+    expect(part.state.status).toBe('running')
+    expect(part.state.input.command).toBe('git status')
   })
 
-  // ── Item updated ────────────────────────────────────────────
-
-  describe('item.updated / item/updated', () => {
-    it('maps item.updated to tool_use with status', () => {
-      const event = makeEvent({
-        method: 'item.updated',
-        payload: {
-          item: { id: 'item-3', toolName: 'shell', type: 'commandExecution', status: 'running' }
-        }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect((result[0].data as any).part.type).toBe('tool')
-      expect((result[0].data as any).part.state.status).toBe('running')
-    })
-  })
-
-  // ── Item completed ──────────────────────────────────────────
-
-  describe('item.completed / item/completed', () => {
-    it('maps item.completed to tool_result', () => {
-      const event = makeEvent({
-        method: 'item.completed',
+  it('item/started commandExecution with single read action → Read', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
+        method: 'item/started',
         payload: {
           item: {
-            id: 'item-4',
-            toolName: 'shell',
             type: 'commandExecution',
-            status: 'completed',
-            output: 'file created'
+            id: 'call-2',
+            command: 'cat README.md',
+            commandActions: [
+              { type: 'read', name: 'README.md', path: '/abs/README.md' }
+            ],
+            status: 'inProgress'
           }
         }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect(result[0]).toEqual({
-        type: 'message.part.updated',
-        sessionId: HIVE_SESSION,
-        data: {
-          part: {
-            type: 'tool',
-            callID: 'item-4',
-            tool: 'shell',
-            state: {
-              status: 'completed',
-              output: 'file created'
-            }
-          }
-        }
-      })
+      }),
+      HIVE
+    )
+    const part = (result[0].data as any).part
+    expect(part.tool).toBe('Read')
+    expect(part.state.input).toEqual({
+      file_path: '/abs/README.md',
+      displayName: 'README.md'
     })
+  })
 
-    it('defaults status to completed', () => {
-      const event = makeEvent({
+  it('item/started commandExecution with single search action → Grep', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
+        method: 'item/started',
+        payload: {
+          item: {
+            type: 'commandExecution',
+            id: 'call-3',
+            command: "rg foo",
+            commandActions: [{ type: 'search', query: 'foo', path: '/abs' }],
+            status: 'inProgress'
+          }
+        }
+      }),
+      HIVE
+    )
+    const part = (result[0].data as any).part
+    expect(part.tool).toBe('Grep')
+    expect(part.state.input).toEqual({ pattern: 'foo', path: '/abs' })
+  })
+
+  it('item/started commandExecution with multi-action → stays Bash', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
+        method: 'item/started',
+        payload: {
+          item: {
+            type: 'commandExecution',
+            id: 'call-4',
+            command: 'rg pat && cat f',
+            commandActions: [
+              { type: 'search', query: 'pat' },
+              { type: 'read', path: 'f' }
+            ],
+            status: 'inProgress'
+          }
+        }
+      }),
+      HIVE
+    )
+    expect((result[0].data as any).part.tool).toBe('Bash')
+  })
+
+  it('item/completed commandExecution → completed status with output', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
         method: 'item/completed',
         payload: {
-          item: { id: 'item-5', name: 'file_read', type: 'fileChange' }
+          item: {
+            type: 'commandExecution',
+            id: 'call-5',
+            command: 'echo hi',
+            status: 'completed',
+            aggregatedOutput: 'hi\n',
+            exitCode: 0
+          }
         }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect((result[0].data as any).part.state.status).toBe('completed')
-    })
+      }),
+      HIVE
+    )
+    const part = (result[0].data as any).part
+    expect(part.state.status).toBe('completed')
+    expect(part.state.output).toBe('hi\n')
+    expect(part.state.metadata.exitCode).toBe(0)
   })
 
-  // ── Task lifecycle ──────────────────────────────────────────
-
-  describe('task events', () => {
-    it('maps task.started', () => {
-      const event = makeEvent({
-        method: 'task.started',
+  it('item/started fileChange → Edit with changes[]', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
+        method: 'item/started',
         payload: {
-          task: { id: 'task-1', status: 'running', message: 'Starting analysis' }
+          item: {
+            type: 'fileChange',
+            id: 'call-6',
+            changes: [
+              { path: '/p/README.md', kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-a\n+b\n' }
+            ],
+            status: 'inProgress'
+          }
         }
-      })
+      }),
+      HIVE
+    )
+    const part = (result[0].data as any).part
+    expect(part.tool).toBe('Edit')
+    expect(part.state.input.changes).toHaveLength(1)
+    expect(part.state.input.file_path).toBe('/p/README.md')
+    expect(part.state.input.diff).toContain('-a')
+  })
 
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
+  it('item/started agentMessage / reasoning / userMessage → no tool part', () => {
+    for (const itemType of ['agentMessage', 'reasoning', 'userMessage']) {
+      const result = mapCodexEventToStreamEvents(
+        makeEvent({
+          method: 'item/started',
+          payload: { item: { type: itemType, id: 'x' } }
+        }),
+        HIVE
+      )
+      expect(result).toEqual([])
+    }
+  })
 
-      expect(result).toHaveLength(1)
-      expect(result[0].data).toEqual({
-        type: 'task',
-        taskId: 'task-1',
-        status: 'running',
-        message: 'Starting analysis'
-      })
-    })
+  it('item/started unknown type → Unknown tool part (visibility)', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
+        method: 'item/started',
+        payload: { item: { type: 'futureThing', id: 'fut-1' } }
+      }),
+      HIVE
+    )
+    const part = (result[0].data as any).part
+    expect(part.tool).toBe('Unknown')
+    expect(part.toolDisplay).toBe('futureThing')
+  })
 
-    it('maps task.progress with progress value', () => {
-      const event = makeEvent({
-        method: 'task.progress',
+  it('item/started mcpToolCall → McpTool with mcpServer + toolDisplay', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
+        method: 'item/started',
         payload: {
-          task: { id: 'task-2', status: 'running', progress: 0.5 }
+          item: {
+            type: 'mcpToolCall',
+            id: 'mcp-1',
+            server: 'codex',
+            tool: 'list_resources',
+            arguments: { foo: 'bar' },
+            status: 'inProgress'
+          }
         }
-      })
+      }),
+      HIVE
+    )
+    const part = (result[0].data as any).part
+    expect(part.tool).toBe('McpTool')
+    expect(part.mcpServer).toBe('codex')
+    expect(part.toolDisplay).toBe('list_resources')
+    expect(part.state.input).toEqual({ arguments: { foo: 'bar' } })
+  })
+})
 
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect((result[0].data as any).progress).toBe(0.5)
-    })
-
-    it('maps task/completed (slash variant)', () => {
-      const event = makeEvent({
-        method: 'task/completed',
+// ────────────────────────────────────────────────────────────────────
+// commandExecution outputDelta — buffered into tool part state.output
+// ────────────────────────────────────────────────────────────────────
+describe('commandExecution outputDelta', () => {
+  it('emits a tool part with accumulated output', () => {
+    const state = createCodexMapperState()
+    // First start the command so state is tracked
+    mapCodexEventToStreamEvents(
+      makeEvent({
+        method: 'item/started',
         payload: {
-          task: { id: 'task-3', status: 'completed' }
+          item: { type: 'commandExecution', id: 'c-1', command: 'x', status: 'inProgress' }
         }
-      })
+      }),
+      HIVE,
+      state
+    )
+    const r1 = mapCodexEventToStreamEvents(
+      makeEvent({
+        method: 'item/commandExecution/outputDelta',
+        itemId: 'c-1',
+        payload: { itemId: 'c-1', delta: 'hello ' }
+      }),
+      HIVE,
+      state
+    )
+    expect((r1[0].data as any).part.state.output).toBe('hello ')
 
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect((result[0].data as any).status).toBe('completed')
-    })
+    const r2 = mapCodexEventToStreamEvents(
+      makeEvent({
+        method: 'item/commandExecution/outputDelta',
+        itemId: 'c-1',
+        payload: { itemId: 'c-1', delta: 'world' }
+      }),
+      HIVE,
+      state
+    )
+    // Buffer accumulated, not just current delta
+    expect((r2[0].data as any).part.state.output).toBe('hello world')
   })
 
-  // ── Session state changed ───────────────────────────────────
-
-  describe('session.state.changed', () => {
-    it('maps error state to session.error', () => {
-      const event = makeEvent({
-        method: 'session.state.changed',
-        payload: { state: 'error', reason: 'API key invalid' }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect(result[0]).toEqual({
-        type: 'session.error',
-        sessionId: HIVE_SESSION,
-        data: { error: 'API key invalid' }
-      })
-    })
-
-    it('maps running state to busy', () => {
-      const event = makeEvent({
-        method: 'session.state.changed',
-        payload: { state: 'running' }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect(result[0].statusPayload).toEqual({ type: 'busy' })
-    })
-
-    it('maps ready state to idle', () => {
-      const event = makeEvent({
-        method: 'session.state.changed',
-        payload: { state: 'ready' }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect(result[0].statusPayload).toEqual({ type: 'idle' })
-    })
-
-    it('returns empty for unknown state', () => {
-      const event = makeEvent({
-        method: 'session.state.changed',
-        payload: { state: 'connecting' }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(0)
-    })
-
-    it('handles session/state/changed (slash variant)', () => {
-      const event = makeEvent({
-        method: 'session/state/changed',
-        payload: { state: 'error', error: 'Connection lost' }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect(result[0].type).toBe('session.error')
-      expect((result[0].data as any).error).toBe('Connection lost')
-    })
+  it('drops delta with no callID or no payload', () => {
+    expect(
+      mapCodexEventToStreamEvents(
+        makeEvent({ method: 'item/commandExecution/outputDelta', payload: {} }),
+        HIVE
+      )
+    ).toEqual([])
   })
+})
 
-  // ── Runtime error ───────────────────────────────────────────
-
-  describe('runtime.error', () => {
-    it('maps runtime.error to session.error', () => {
-      const event = makeEvent({
-        method: 'runtime.error',
-        payload: { message: 'OOM killed' }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect(result[0]).toEqual({
-        type: 'session.error',
-        sessionId: HIVE_SESSION,
-        data: { error: 'OOM killed' }
-      })
-    })
-
-    it('maps runtime/error (slash variant)', () => {
-      const event = makeEvent({
-        method: 'runtime/error',
-        payload: { error: 'Sandbox violation' }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect((result[0].data as any).error).toBe('Sandbox violation')
-    })
-
-    it('falls back to event.message', () => {
-      const event = makeEvent({
-        method: 'runtime.error',
-        message: 'fallback error message'
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect((result[0].data as any).error).toBe('fallback error message')
-    })
+// ────────────────────────────────────────────────────────────────────
+// fileChange outputDelta — dropped (just "Success." text)
+// ────────────────────────────────────────────────────────────────────
+describe('fileChange outputDelta', () => {
+  it('drops fileChange outputDelta entirely', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
+        method: 'item/fileChange/outputDelta',
+        payload: { delta: 'Success.\n' }
+      }),
+      HIVE
+    )
+    expect(result).toEqual([])
   })
+})
 
-  // ── Manager-level error events ──────────────────────────────
-
-  describe('error kind events', () => {
-    it('maps process/error to session.error', () => {
-      const event = makeEvent({
-        kind: 'error',
-        method: 'process/error',
-        message: 'codex process crashed'
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect(result[0].type).toBe('session.error')
-      expect((result[0].data as any).error).toBe('codex process crashed')
-    })
-
-    it('uses "Unknown error" for process/error events without message', () => {
-      const event = makeEvent({
-        kind: 'error',
-        method: 'process/error'
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(1)
-      expect((result[0].data as any).error).toBe('Unknown error')
-    })
-
-    it('silently drops non-fatal error events (e.g. protocol errors)', () => {
-      const event = makeEvent({
-        kind: 'error',
-        method: 'protocol/parseError',
-        message: 'Received invalid JSON'
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(0)
-    })
-  })
-
-  // ── Stderr output (downgraded to notification) ──────────────
-
-  describe('process/stderr events', () => {
-    it('silently drops stderr notification events', () => {
-      const event = makeEvent({
-        kind: 'notification',
-        method: 'process/stderr',
-        message: 'codex stderr output'
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(0)
-    })
-  })
-
-  // ── Unrecognized events ─────────────────────────────────────
-
-  describe('unrecognized events', () => {
-    it('returns empty array for unknown notification methods', () => {
-      const event = makeEvent({
-        kind: 'notification',
-        method: 'some.unknown.event'
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(0)
-    })
-
-    it('returns empty array for session lifecycle events', () => {
-      const event = makeEvent({
-        kind: 'session',
-        method: 'session/ready'
-      })
-
-      const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
-
-      expect(result).toHaveLength(0)
-    })
-  })
-
-  // ── Session ID passthrough ──────────────────────────────────
-
-  describe('session ID passthrough', () => {
-    it('uses the provided hiveSessionId in all events', () => {
-      const event = makeEvent({
-        method: 'item/agentMessage/delta',
-        payload: { delta: 'x' }
-      })
-
-      const result = mapCodexEventToStreamEvents(event, 'custom-session-id')
-
-      expect(result[0].sessionId).toBe('custom-session-id')
-    })
-  })
-
-  it('normalizes command arrays into input.command for commandExecution items', () => {
-    const event = makeEvent({
-      method: 'item.started',
-      payload: {
-        item: {
-          id: 'item-cmd-1',
-          toolName: 'shell',
-          type: 'commandExecution',
-          command: ['/bin/zsh', '-lc', 'pnpm test']
+// ────────────────────────────────────────────────────────────────────
+// turn/plan/updated → TodoWrite synthesis
+// ────────────────────────────────────────────────────────────────────
+describe('turn/plan/updated', () => {
+  it('synthesizes a TodoWrite tool part with stable callID', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
+        method: 'turn/plan/updated',
+        turnId: 'turn-1',
+        payload: {
+          turnId: 'turn-1',
+          plan: [
+            { step: 'first', status: 'inProgress' },
+            { step: 'second', status: 'pending' }
+          ]
         }
-      }
+      }),
+      HIVE
+    )
+    const part = (result[0].data as any).part
+    expect(part.tool).toBe('TodoWrite')
+    expect(part.callID).toBe('update_plan-turn-1')
+    expect(part.state.status).toBe('completed')
+    expect(part.state.input.todos).toHaveLength(2)
+    expect(part.state.input.todos[0].step).toBe('first')
+    expect(part.state.input.todos[0].status).toBe('in_progress')
+  })
+
+  it('preserves explanation when present', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
+        method: 'turn/plan/updated',
+        turnId: 't-2',
+        payload: { turnId: 't-2', plan: [], explanation: 'reason' }
+      }),
+      HIVE
+    )
+    expect((result[0].data as any).part.state.input.explanation).toBe('reason')
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────
+// turn/diff/updated → session.turn_diff
+// ────────────────────────────────────────────────────────────────────
+describe('turn/diff/updated', () => {
+  it('emits session.turn_diff with diff text', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
+        method: 'turn/diff/updated',
+        payload: { turnId: 't-3', diff: 'diff --git a/x b/x\n' }
+      }),
+      HIVE
+    )
+    expect(result[0].type).toBe('session.turn_diff')
+    expect((result[0].data as any).turnId).toBe('t-3')
+    expect((result[0].data as any).diff).toContain('diff --git')
+  })
+
+  it('drops if diff or turnId missing', () => {
+    expect(
+      mapCodexEventToStreamEvents(
+        makeEvent({ method: 'turn/diff/updated', payload: {} }),
+        HIVE
+      )
+    ).toEqual([])
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────
+// thread/tokenUsage/updated → session.context_usage
+// ────────────────────────────────────────────────────────────────────
+describe('thread/tokenUsage/updated', () => {
+  it('emits session.context_usage with totals + contextWindow', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
+        method: 'thread/tokenUsage/updated',
+        payload: {
+          tokenUsage: {
+            total: {
+              totalTokens: 1000,
+              inputTokens: 800,
+              outputTokens: 200,
+              cachedInputTokens: 100,
+              reasoningOutputTokens: 50
+            },
+            modelContextWindow: 475000
+          }
+        }
+      }),
+      HIVE
+    )
+    expect(result[0].type).toBe('session.context_usage')
+    const data = result[0].data as any
+    expect(data.tokens).toEqual({
+      input: 800,
+      output: 200,
+      cacheRead: 100,
+      reasoning: 50
     })
+    expect(data.contextWindow).toBe(475000)
+  })
 
-    const result = mapCodexEventToStreamEvents(event, HIVE_SESSION)
+  it('drops if tokenUsage missing', () => {
+    expect(
+      mapCodexEventToStreamEvents(
+        makeEvent({ method: 'thread/tokenUsage/updated', payload: {} }),
+        HIVE
+      )
+    ).toEqual([])
+  })
+})
 
-    expect((result[0].data as any).part.state.input).toEqual({ command: '/bin/zsh -lc pnpm test' })
+// ────────────────────────────────────────────────────────────────────
+// thread/status/changed → session.status
+// ────────────────────────────────────────────────────────────────────
+describe('thread/status/changed', () => {
+  it('active → busy', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
+        method: 'thread/status/changed',
+        payload: { status: { type: 'active' } }
+      }),
+      HIVE
+    )
+    expect(result[0].statusPayload?.type).toBe('busy')
+  })
+
+  it('idle → idle', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
+        method: 'thread/status/changed',
+        payload: { status: { type: 'idle' } }
+      }),
+      HIVE
+    )
+    expect(result[0].statusPayload?.type).toBe('idle')
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────
+// thread/name/updated → session.updated
+// ────────────────────────────────────────────────────────────────────
+describe('thread/name/updated', () => {
+  it('emits session.updated with title', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
+        method: 'thread/name/updated',
+        payload: { threadName: 'My Thread' }
+      }),
+      HIVE
+    )
+    expect(result[0].type).toBe('session.updated')
+    expect((result[0].data as any).title).toBe('My Thread')
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────
+// error / drop paths
+// ────────────────────────────────────────────────────────────────────
+describe('error & drop paths', () => {
+  it('process/error → session.error', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({ kind: 'error', method: 'process/error', message: 'boom' }),
+      HIVE
+    )
+    expect(result[0].type).toBe('session.error')
+    expect((result[0].data as any).error).toBe('boom')
+  })
+
+  it('process/error with no message → "Unknown error"', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({ kind: 'error', method: 'process/error' }),
+      HIVE
+    )
+    expect((result[0].data as any).error).toBe('Unknown error')
+  })
+
+  it('non-fatal error events drop', () => {
+    expect(
+      mapCodexEventToStreamEvents(
+        makeEvent({ kind: 'error', method: 'protocol/parseError' }),
+        HIVE
+      )
+    ).toEqual([])
+  })
+
+  it('process/stderr drops', () => {
+    expect(
+      mapCodexEventToStreamEvents(makeEvent({ method: 'process/stderr', message: 'warn' }), HIVE)
+    ).toEqual([])
+  })
+
+  it('reasoning/summaryPartAdded drops (no UI signal)', () => {
+    expect(
+      mapCodexEventToStreamEvents(
+        makeEvent({ method: 'item/reasoning/summaryPartAdded', payload: {} }),
+        HIVE
+      )
+    ).toEqual([])
+  })
+
+  it('mcpServer/startupStatus/updated drops', () => {
+    expect(
+      mapCodexEventToStreamEvents(
+        makeEvent({ method: 'mcpServer/startupStatus/updated', payload: {} }),
+        HIVE
+      )
+    ).toEqual([])
+  })
+
+  it('account/rateLimits/updated drops', () => {
+    expect(
+      mapCodexEventToStreamEvents(
+        makeEvent({ method: 'account/rateLimits/updated', payload: {} }),
+        HIVE
+      )
+    ).toEqual([])
+  })
+
+  it('completely unknown method drops', () => {
+    expect(
+      mapCodexEventToStreamEvents(makeEvent({ method: 'something/totally/new' }), HIVE)
+    ).toEqual([])
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────
+// hiveSessionId passthrough
+// ────────────────────────────────────────────────────────────────────
+describe('session ID passthrough', () => {
+  it('uses provided hiveSessionId in all events', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({ method: 'turn/started' }),
+      'hive-XYZ'
+    )
+    for (const ev of result) {
+      expect(ev.sessionId).toBe('hive-XYZ')
+    }
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────
+// preserved API: normalizeCodexPlanUpdateTodos / buildCodexUpdatePlanCallId
+// ────────────────────────────────────────────────────────────────────
+describe('plan helpers (preserved API)', () => {
+  it('normalizeCodexPlanUpdateTodos handles nested plan field', () => {
+    const todos = normalizeCodexPlanUpdateTodos({
+      plan: [
+        { step: 'a', status: 'inProgress' },
+        { step: 'b', status: 'completed' }
+      ]
+    })
+    expect(todos).toHaveLength(2)
+    expect(todos[0].status).toBe('in_progress')
+    expect(todos[1].status).toBe('completed')
+    expect(todos[0].step).toBe('a')
+  })
+
+  it('buildCodexUpdatePlanCallId uses turnId', () => {
+    const id = buildCodexUpdatePlanCallId(
+      makeEvent({ method: 'turn/plan/updated', turnId: 'T-7' })
+    )
+    expect(id).toBe('update_plan-T-7')
   })
 })
