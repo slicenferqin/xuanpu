@@ -125,7 +125,7 @@ function SessionDetailInner({
       {!atBottom && (
         <button
           onClick={jumpToBottom}
-          className="absolute right-4 bottom-28 px-3 py-1.5 rounded-full bg-zinc-800 text-xs text-zinc-200 shadow-lg active:bg-zinc-700"
+          className="absolute right-4 bottom-36 px-3 py-1.5 rounded-full bg-zinc-800 text-xs text-zinc-200 shadow-lg active:bg-zinc-700"
         >
           ↓ 新消息
         </button>
