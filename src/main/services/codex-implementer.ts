@@ -983,7 +983,17 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
 
       if (interactionMode === 'plan' && pendingPlanText && !userInputAskedInTurn) {
         const toolUseID = `codex-exitplan-${session.threadId}-${Date.now()}`
-        const requestId = `codex-plan:${session.threadId}`
+        // Per-plan requestId — including the turn id (or timestamp fallback)
+        // so the same session can produce multiple plans without their
+        // request_ids colliding. Previously this was just
+        // `codex-plan:${session.threadId}`, which meant every subsequent
+        // plan reused the requestId of the first plan; once that first plan
+        // had a `plan.resolved` activity persisted, every later plan in the
+        // same session got `resolvedRequestIds.has(reqId) === true` in
+        // parsePlanPartFromActivity → status flipped to 'success' → the
+        // brand-new plan card showed "Approved" while the FAB was still
+        // waiting for the user to act on the new plan.
+        const requestId = `codex-plan:${session.threadId}:${completedTurnId ?? Date.now()}`
         this.persistSyntheticActivity(session, {
           id: requestId,
           kind: 'plan.ready',
