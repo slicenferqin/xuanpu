@@ -1304,6 +1304,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         unstaged: 'unstaged'
       },
       menu: {
+        rename: 'Rename',
         close: 'Close',
         closeOthers: 'Close Others',
         closeToRight: 'Close Others to the Right',
@@ -3588,6 +3589,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         unstaged: '未暂存'
       },
       menu: {
+        rename: '重命名',
         close: '关闭',
         closeOthers: '关闭其他标签',
         closeToRight: '关闭右侧其他标签',

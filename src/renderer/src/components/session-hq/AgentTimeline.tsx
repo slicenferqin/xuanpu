@@ -161,12 +161,20 @@ function messageToNodes(message: TimelineMessage): TimelineNode[] {
   }
 
   const nodes: TimelineNode[] = []
+  // Action nodes (thinking / tool_use / subtask) and text nodes are collected
+  // separately so the assistant turn renders as "actions first → text summary
+  // last", regardless of the order parts arrive in. This matches how a human
+  // reads the turn ("here's what the agent did, and here's its conclusion")
+  // and avoids the older interleaved layout where a final summary paragraph
+  // sat above several large tool cards.
+  const actionNodes: TimelineNode[] = []
+  const textNodes: TimelineNode[] = []
   let collectedText = ''
 
   const flushText = () => {
     if (collectedText.trim()) {
-      nodes.push({
-        key: `${message.id}-text-${nodes.length}`,
+      textNodes.push({
+        key: `${message.id}-text-${textNodes.length}`,
         cardType: 'text',
         message,
         textContent: collectedText.trim()
@@ -183,11 +191,12 @@ function messageToNodes(message: TimelineMessage): TimelineNode[] {
       continue
     }
 
-    // Flush any accumulated text before a non-text part
+    // Flush any accumulated text into a node (still placed in textNodes,
+    // which gets rendered AFTER actionNodes regardless of source order).
     flushText()
 
     if (part.type === 'reasoning' && part.reasoning) {
-      nodes.push({
+      actionNodes.push({
         key: `${message.id}-thinking-${i}`,
         cardType: 'thinking',
         part,
@@ -232,7 +241,7 @@ function messageToNodes(message: TimelineMessage): TimelineNode[] {
         cardType = 'todo'
       }
 
-      nodes.push({
+      actionNodes.push({
         key: `${message.id}-tool-${i}`,
         cardType,
         part,
@@ -243,7 +252,7 @@ function messageToNodes(message: TimelineMessage): TimelineNode[] {
     }
 
     if (part.type === 'subtask' && part.subtask) {
-      nodes.push({
+      actionNodes.push({
         key: `${message.id}-subtask-${i}`,
         cardType: 'sub-agent',
         part,
@@ -256,6 +265,8 @@ function messageToNodes(message: TimelineMessage): TimelineNode[] {
   }
 
   flushText()
+
+  nodes.push(...actionNodes, ...textNodes)
 
   // Mark the last node so we can render a timestamp after it
   if (nodes.length > 0) {
