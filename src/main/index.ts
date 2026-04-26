@@ -925,4 +925,16 @@ app.on('will-quit', async () => {
   await telemetryService.shutdown()
   // Close database
   closeDatabase()
+
+  // fsevents (chokidar's macOS backend) racey-aborts during node's natural
+  // teardown — its `napi_release_threadsafe_function` runs after libuv's
+  // mutex has been destroyed, producing SIGABRT inside `fse_instance_destroy`
+  // and surfacing as a "玄圃 意外退出" Apple crash dialog every time the
+  // user quits. All renderer-visible cleanup is done at this point (DB
+  // closed, watchers stopped, telemetry flushed), so a synchronous
+  // process.exit(0) here is the well-trodden Electron+chokidar workaround.
+  // Only do this on macOS (the only platform that uses fsevents).
+  if (process.platform === 'darwin') {
+    process.exit(0)
+  }
 })
