@@ -95,14 +95,22 @@ export function SettingsModal(): React.JSX.Element {
                   key={section.id}
                   onClick={() => setActiveSection(section.id)}
                   className={cn(
-                    'flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors text-left',
+                    'relative flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-all',
                     activeSection === section.id
-                      ? 'bg-accent text-accent-foreground'
+                      ? 'scale-[1.02] border border-primary/55 bg-primary/14 text-primary shadow-[0_12px_28px_-16px_rgba(59,130,246,0.62)] ring-1 ring-primary/40'
                       : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
                   )}
                   data-testid={`settings-nav-${section.id}`}
                 >
-                  <Icon className="h-4 w-4" />
+                  {activeSection === section.id && (
+                    <span className="absolute left-0 top-1.5 h-[calc(100%-12px)] w-1 rounded-r-full bg-primary" />
+                  )}
+                  <Icon
+                    className={cn(
+                      'h-4 w-4 transition-colors',
+                      activeSection === section.id ? 'text-primary' : 'text-current'
+                    )}
+                  />
                   {t(`settings.sections.${section.id}`)}
                 </button>
               )

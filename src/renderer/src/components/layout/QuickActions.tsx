@@ -273,6 +273,12 @@ function XcodeIcon({ className }: { className?: string }): React.JSX.Element {
 const EDITOR_LABELS: Record<EditorOption, string> = {
   vscode: 'VS Code',
   cursor: 'Cursor',
+  trae: 'Trae',
+  windsurf: 'Windsurf',
+  antigravity: 'Antigravity',
+  idea: 'IDEA',
+  pycharm: 'PyCharm',
+  goland: 'GoLand',
   sublime: 'Sublime',
   webstorm: 'WebStorm',
   zed: 'Zed',

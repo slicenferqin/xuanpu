@@ -2,7 +2,11 @@
  * MessageBubble: renders a HubMessage with role-specific styling.
  *
  *   user      → right-aligned neutral bubble
- *   assistant → left-aligned transparent, with MiniMarkdown + ToolUse chips
+ *   assistant → left-aligned transparent, with MiniMarkdown + ToolUse chips.
+ *               Within an assistant turn we render tool/diff/unknown parts
+ *               FIRST and text parts AFTER, regardless of arrival order, so
+ *               the conversation reads "what the agent did → what it concluded"
+ *               instead of "thinking → tool → conclusion" interleaved.
  *   system    → centered faint text
  *
  * ToolUse and Unknown parts are collapsed by default (just show name + a
@@ -12,6 +16,7 @@
 import { useState } from 'react'
 import type { HubMessage, HubPart } from '../types/hub'
 import { MiniMarkdown } from './MiniMarkdown'
+import { ToolCard } from './ToolCards'
 
 export function MessageBubble({ message }: { message: HubMessage }): React.JSX.Element {
   if (message.role === 'user') {
@@ -34,10 +39,24 @@ export function MessageBubble({ message }: { message: HubMessage }): React.JSX.E
       </div>
     )
   }
+  // Assistant: split parts into tool/action group vs text group, render
+  // actions on top. We keep the original index in `key` so React doesn't
+  // re-mount tool cards (and lose their open/closed local state) when a
+  // streaming text delta arrives later in the same bubble.
+  const actionParts: Array<{ part: HubPart; idx: number }> = []
+  const textParts: Array<{ part: HubPart; idx: number }> = []
+  message.parts.forEach((part, idx) => {
+    if (part.type === 'text') textParts.push({ part, idx })
+    else actionParts.push({ part, idx })
+  })
+
   return (
-    <div className="space-y-2">
-      {message.parts.map((p, i) => (
-        <PartView key={i} part={p} role="assistant" />
+    <div className="space-y-2 text-zinc-100">
+      {actionParts.map(({ part, idx }) => (
+        <PartView key={idx} part={part} role="assistant" />
+      ))}
+      {textParts.map(({ part, idx }) => (
+        <PartView key={idx} part={part} role="assistant" />
       ))}
     </div>
   )
@@ -58,7 +77,15 @@ function PartView({
         <MiniMarkdown text={part.text} />
       )
     case 'tool_use':
-      return <ToolUseChip name={part.name} input={part.input} pending={!!part.pending} />
+      return (
+        <ToolCard
+          name={part.name}
+          input={part.input}
+          output={part.output}
+          pending={!!part.pending}
+          isError={part.isError}
+        />
+      )
     case 'tool_result':
       return <ToolResultChip output={part.output} isError={!!part.isError} />
     case 'diff':
@@ -66,37 +93,6 @@ function PartView({
     case 'unknown':
       return <UnknownChip raw={part.raw} />
   }
-}
-
-function ToolUseChip({
-  name,
-  input,
-  pending
-}: {
-  name: string
-  input?: unknown
-  pending: boolean
-}): React.JSX.Element {
-  const [open, setOpen] = useState(false)
-  return (
-    <button
-      onClick={() => setOpen((v) => !v)}
-      className="w-full text-left px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 active:bg-zinc-800"
-    >
-      <div className="flex items-center gap-2">
-        <span className="text-xs uppercase tracking-wider text-zinc-500">tool</span>
-        <span className="text-sm font-mono">{name}</span>
-        {pending && (
-          <span className="ml-auto text-xs text-amber-400">运行中…</span>
-        )}
-      </div>
-      {open && input !== undefined && (
-        <pre className="mt-2 text-xs font-mono text-zinc-300 whitespace-pre-wrap break-words">
-          {safeStringify(input)}
-        </pre>
-      )}
-    </button>
-  )
 }
 
 function ToolResultChip({

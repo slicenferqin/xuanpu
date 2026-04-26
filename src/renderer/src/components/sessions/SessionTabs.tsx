@@ -296,6 +296,15 @@ const SessionTab = memo(function SessionTab({
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
+        <ContextMenuItem
+          onSelect={() => {
+            setEditName(name)
+            setIsEditing(true)
+          }}
+        >
+          {t('sessionTabs.menu.rename')}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
         <ContextMenuItem onSelect={(e) => onClose(e as unknown as React.MouseEvent)}>
           {t('sessionTabs.menu.close')}
           <ContextMenuShortcut>&#8984;W</ContextMenuShortcut>

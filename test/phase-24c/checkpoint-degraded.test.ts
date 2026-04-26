@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'fs'
+import { createHash } from 'node:crypto'
 
 vi.mock('@shared/app-identity', () => ({
   getActiveAppDatabasePath: (home: string) => join(home, '.xuanpu', 'test.db'),
@@ -162,7 +163,7 @@ describe('Phase 24C degraded paths', () => {
       blockingReason: null,
       hotFiles: ['kept.ts', 'gone.ts'],
       hotFileDigests: {
-        'kept.ts': require('node:crypto').createHash('sha1').update('K').digest('hex'),
+        'kept.ts': createHash('sha1').update('K').digest('hex'),
         'gone.ts': 'whatever'
       },
       packetHash: 'h-1'

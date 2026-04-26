@@ -59,6 +59,124 @@ export interface AgentPartUpdatedData {
   progress?: number
 }
 
+// ---------------------------------------------------------------------------
+// ToolPart contract — typed shape for `part: { type: 'tool', ... }`
+// ---------------------------------------------------------------------------
+//
+// Runtimes (codex, claude-code, opencode) all emit message.part.updated with
+// part.type === 'tool'. This is the canonical shape they MUST adhere to.
+// AgentPartUpdatedData.part is intentionally left as Record<string, unknown>
+// for forward-compat (we don't want to lock out experimental fields), but
+// every concrete tool emission should match ToolPart.
+//
+// Tool-name normalization rules (see CanonicalToolName below):
+//   - Use first-letter-uppercased canonical names (Bash / Read / Edit / etc.)
+//   - For codex `commandExecution` items, mappers should "promote" via
+//     `commandActions[]` so a single-action `cat` becomes Read, `rg` becomes
+//     Grep, etc. Multi-action commands stay as Bash with `input.actions`.
+//   - For codex `mcpToolCall`, use 'McpTool' and put the original name in
+//     toolDisplay + the server in mcpServer.
+//   - For codex `turn/plan/updated`, use 'TodoWrite' with synthetic
+//     callID = `update_plan-<turnId>`.
+
+/** Canonical tool name across runtimes. */
+export type CanonicalToolName =
+  | 'Bash'
+  | 'Read'
+  | 'Grep'
+  | 'Glob'
+  | 'Write'
+  | 'Edit'
+  | 'WebSearch'
+  | 'WebFetch'
+  | 'TodoWrite'
+  | 'Task'
+  | 'McpTool'
+  | 'Unknown'
+
+/** Tool lifecycle status. Implementers must normalize before emitting. */
+export type ToolStatus = 'pending' | 'running' | 'completed' | 'error' | 'cancelled'
+
+/**
+ * Tool input. Each CanonicalToolName has expected fields documented below;
+ * the type stays a Record so runtimes can pass through extra metadata without
+ * runtime narrowing churn.
+ *
+ *   Bash:      { command: string; cwd?: string; actions?: unknown[] }
+ *   Read:      { file_path: string; lineRange?: [number, number]; displayName?: string }
+ *   Grep:      { pattern: string; path?: string; flags?: string[] }
+ *   Glob:      { pattern: string; path?: string }
+ *   Write:     { file_path: string; content?: string }
+ *   Edit:      { file_path?: string; old_string?: string; new_string?: string }
+ *              | { changes: Array<{ path: string; diff: string; kind: 'create'|'update'|'delete'|'move' }> }
+ *   WebSearch: { query: string; queries?: string[] }
+ *   WebFetch:  { url: string }
+ *   TodoWrite: { todos: Array<{ step?: string; content?: string; status: string }>; explanation?: string }
+ *   Task:      { description?: string; agent?: string }
+ *   McpTool:   { arguments?: unknown }
+ *   Unknown:   passthrough
+ */
+export type ToolInput = Record<string, unknown>
+
+/** Tool completion metadata. */
+export interface ToolMetadata {
+  exitCode?: number
+  durationMs?: number
+  filesAffected?: string[]
+  truncated?: boolean
+  truncatedBytes?: number
+}
+
+/** Tool state machine. status discriminates the union. */
+export type ToolState =
+  | { status: 'pending'; input?: ToolInput; time?: { start: number } }
+  | { status: 'running'; input?: ToolInput; output?: string; time?: { start: number } }
+  | {
+      status: 'completed'
+      input?: ToolInput
+      output?: string
+      result?: unknown
+      metadata?: ToolMetadata
+      time?: { start: number; end: number }
+    }
+  | {
+      status: 'error'
+      input?: ToolInput
+      output?: string
+      error: string
+      metadata?: ToolMetadata
+      time?: { start: number; end: number }
+    }
+  | {
+      status: 'cancelled'
+      input?: ToolInput
+      output?: string
+      metadata?: ToolMetadata
+      time?: { start: number; end: number }
+    }
+
+/** Canonical tool part as carried in AgentPartUpdatedData.part. */
+export interface ToolPart {
+  type: 'tool'
+  callID: string
+  tool: CanonicalToolName
+  /** Original (un-normalized) name; used for display and MCP-server context. */
+  toolDisplay?: string
+  /** MCP server name when tool === 'McpTool'. */
+  mcpServer?: string
+  state: ToolState
+}
+
+// ---------------------------------------------------------------------------
+// session.turn_diff — codex-only event carrying turn-cumulative git diff.
+// Persisted but not rendered yet (future "turn summary" UI will consume).
+// ---------------------------------------------------------------------------
+export interface AgentSessionTurnDiffData {
+  turnId: string
+  /** Unified git diff text. */
+  diff: string
+}
+
 export interface AgentMessageUpdatedData {
   id?: string
   requestId?: string
@@ -209,6 +327,13 @@ export type CanonicalAgentEvent = EventEnvelope &
         sessionId: string
         runtimeId?: SharedAgentRuntimeId
         data: AgentSessionContextUsageData
+        childSessionId?: string
+      }
+    | {
+        type: 'session.turn_diff'
+        sessionId: string
+        runtimeId?: SharedAgentRuntimeId
+        data: AgentSessionTurnDiffData
         childSessionId?: string
       }
     | {

@@ -20,6 +20,7 @@ const mockDbSession = {
 
 const mockDbWorktree = {
   get: vi.fn(),
+  update: vi.fn().mockResolvedValue({ success: true }),
   touch: vi.fn().mockResolvedValue(undefined),
   updateModel: vi.fn().mockResolvedValue({ success: true }),
   appendSessionTitle: vi.fn().mockResolvedValue({ success: true })
@@ -44,8 +45,8 @@ const mockConnectionOps = {
   removeWorktreeFromAll: vi.fn()
 }
 
-// ---------- Mock window.opencodeOps ----------
-const mockOpencodeOps = {
+// ---------- Mock window.agentOps / window.opencodeOps ----------
+const mockAgentOps = {
   setModel: vi.fn().mockResolvedValue(undefined)
 }
 
@@ -63,8 +64,22 @@ vi.mock('@/lib/toast', () => ({
 vi.mock('../../../src/renderer/src/stores/useSettingsStore', () => ({
   useSettingsStore: {
     getState: () => ({
+      defaultAgentSdk: 'opencode',
       selectedModel: null,
+      selectedModelByProvider: {},
+      getModelForMode: vi.fn().mockReturnValue(null),
       updateSetting: vi.fn()
+    })
+  },
+  resolveModelForSdk: vi.fn().mockReturnValue(null)
+}))
+
+vi.mock('../../../src/renderer/src/stores/useWorktreeStore', () => ({
+  useWorktreeStore: {
+    getState: () => ({
+      worktreesByProject: new Map(),
+      updateWorktreeLastAgentSdk: vi.fn(),
+      updateWorktreeModel: vi.fn()
     })
   }
 }))
@@ -80,7 +95,13 @@ Object.defineProperty(window, 'connectionOps', {
 Object.defineProperty(window, 'opencodeOps', {
   writable: true,
   configurable: true,
-  value: mockOpencodeOps
+  value: mockAgentOps
+})
+
+Object.defineProperty(window, 'agentOps', {
+  writable: true,
+  configurable: true,
+  value: mockAgentOps
 })
 
 if (!(window as any).db) {

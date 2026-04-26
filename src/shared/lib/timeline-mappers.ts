@@ -15,6 +15,7 @@
 
 import type { MessagePart } from '../types/opencode'
 import type { StreamingPart, ToolUseInfo, TimelineMessage } from './timeline-types'
+import { classifyCodexItem } from './codex-classify'
 
 // Re-export for convenience
 export type { StreamingPart, ToolUseInfo, TimelineMessage }
@@ -627,12 +628,60 @@ function normalizeCodexMessageRows(
   })
 }
 
-function parseToolPartFromActivity(activity: DbSessionActivity): StreamingPart | null {
+/** @internal — exported for tests only. */
+export function parseToolPartFromActivity(activity: DbSessionActivity): StreamingPart | null {
   const payload = parseJson<Record<string, unknown>>(activity.payload_json)
   const item =
     payload && typeof payload.item === 'object'
       ? (payload.item as Record<string, unknown>)
       : null
+
+  // Codex shape detection: codex items have type ∈ {commandExecution,
+  // fileChange, mcpToolCall, webSearch, agentMessage, reasoning,
+  // userMessage}. We classify them through the shared classifier so the
+  // durable timeline matches what the streaming overlay rendered.
+  const codexItemType = item && typeof item.type === 'string' ? item.type : undefined
+  const isCodexShape =
+    codexItemType === 'commandExecution' ||
+    codexItemType === 'fileChange' ||
+    codexItemType === 'mcpToolCall' ||
+    codexItemType === 'webSearch'
+
+  if (item && isCodexShape) {
+    const classified = classifyCodexItem(item)
+    if (classified) {
+      const status: 'running' | 'success' | 'error' =
+        activity.kind === 'tool.completed'
+          ? 'success'
+          : activity.kind === 'tool.failed'
+            ? 'error'
+            : 'running'
+      return {
+        type: 'tool_use',
+        toolUse: {
+          id: activity.item_id ?? activity.id,
+          name: classified.tool,
+          input: classified.input ?? {},
+          status,
+          startTime: Date.parse(activity.created_at) || Date.now(),
+          endTime:
+            activity.kind === 'tool.completed' || activity.kind === 'tool.failed'
+              ? Date.parse(activity.created_at) || Date.now()
+              : undefined,
+          output:
+            activity.kind === 'tool.completed' && classified.output
+              ? classified.output
+              : undefined,
+          error:
+            activity.kind === 'tool.failed'
+              ? (stringifyValue(classified.output) ?? activity.summary)
+              : undefined
+        }
+      }
+    }
+  }
+
+  // Generic / claude-code shape — preserve previous behavior.
   const toolName =
     (typeof item?.toolName === 'string' && item.toolName) ||
     (typeof item?.name === 'string' && item.name) ||
@@ -670,7 +719,10 @@ function parseToolPartFromActivity(activity: DbSessionActivity): StreamingPart |
   }
 }
 
-function parsePlanPartFromActivity(activity: DbSessionActivity): StreamingPart | null {
+function parsePlanPartFromActivity(
+  activity: DbSessionActivity,
+  resolvedRequestIds?: Set<string>
+): StreamingPart | null {
   const payload = parseJson<Record<string, unknown>>(activity.payload_json)
   if (activity.kind === 'plan.ready') {
     const plan =
@@ -685,14 +737,23 @@ function parsePlanPartFromActivity(activity: DbSessionActivity): StreamingPart |
       activity.request_id ||
       activity.id
 
+    // If a matching plan.resolved activity exists, the plan has been
+    // approved/rejected — surface the card with success status so the
+    // "Requires Approval" badge disappears and the card collapses.
+    const reqId = activity.request_id ?? activity.id
+    const isResolved = resolvedRequestIds?.has(reqId) ?? false
+
     return {
       type: 'tool_use',
       toolUse: {
         id: toolUseId,
         name: 'ExitPlanMode',
         input: { plan },
-        status: 'pending',
-        startTime: Date.parse(activity.created_at) || Date.now()
+        status: isResolved ? 'success' : 'pending',
+        startTime: Date.parse(activity.created_at) || Date.now(),
+        ...(isResolved
+          ? { endTime: Date.parse(activity.created_at) || Date.now() }
+          : {})
       }
     }
   }
@@ -851,10 +912,21 @@ function mergeCodexActivityMessages(
     return left.id.localeCompare(right.id)
   })
 
+  // Pre-scan for plan.resolved activities so plan.ready cards rendered later
+  // can be marked as resolved (no more "Requires Approval" badge).
+  const resolvedRequestIds = new Set<string>()
   for (const activity of sortedActivities) {
+    if (activity.kind === 'plan.resolved' && activity.request_id) {
+      resolvedRequestIds.add(activity.request_id)
+    }
+  }
+
+  for (const activity of sortedActivities) {
+    // Skip plan.resolved itself — it's a marker, not a renderable activity.
+    if (activity.kind === 'plan.resolved') continue
     const activityPart = activity.kind.startsWith('tool.')
       ? parseToolPartFromActivity(activity)
-      : parsePlanPartFromActivity(activity)
+      : parsePlanPartFromActivity(activity, resolvedRequestIds)
     if (!activityPart?.toolUse) continue
 
     const toolId = activityPart.toolUse.id
@@ -884,20 +956,67 @@ function mergeCodexActivityMessages(
   const injectedTurns = new Set<string>()
   const orderedMessages: TimelineMessage[] = []
 
+  // For each turn we build a sorted batch of [real assistant messages, synthetic
+  // tool/plan/question messages] interleaved by timestamp. Synthetics carry
+  // their activity's `created_at`, real messages carry their session_message
+  // timestamp. When ties occur we prefer real-before-synthetic so a plan
+  // card emitted at turn-end lands AFTER the assistant text rather than
+  // ahead of it (the legacy hardcoded "anchor before first assistant" rule
+  // got this wrong for plan.ready and AskUserQuestion). User messages are
+  // walked separately and pushed in their original document position so
+  // they always precede their turn's assistants.
+  function buildTurnBatch(turnId: string): TimelineMessage[] {
+    const synthetics = anchoredSyntheticByTurnId.get(turnId) ?? []
+    const reals = mergedMessages.filter(
+      (m) => m.role === 'assistant' && extractAssistantTurnId(m.id) === turnId
+    )
+    if (synthetics.length === 0) return reals
+    const tagged: Array<{ msg: TimelineMessage; ts: number; isSynthetic: boolean }> = [
+      ...reals.map((m) => ({
+        msg: m,
+        ts: Date.parse(m.timestamp) || 0,
+        isSynthetic: false
+      })),
+      ...synthetics.map((m) => ({
+        msg: m,
+        ts: Date.parse(m.timestamp) || 0,
+        isSynthetic: true
+      }))
+    ]
+    tagged.sort((a, b) => {
+      if (a.ts !== b.ts) return a.ts - b.ts
+      // Tie-break: real before synthetic. This puts post-turn synthetics
+      // (plan.ready, end-of-turn cards) after the assistant text when they
+      // share a timestamp.
+      if (a.isSynthetic !== b.isSynthetic) return a.isSynthetic ? 1 : -1
+      return 0
+    })
+    return tagged.map((t) => t.msg)
+  }
+
   mergedMessages.forEach((message, index) => {
     const turnId =
       message.role === 'assistant'
         ? extractAssistantTurnId(message.id)
         : (message.id.match(/^(.*):user(?::.*)?$/)?.[1] ?? null)
+
     if (
       turnId &&
       message.role === 'assistant' &&
       firstAssistantIndexByTurnId.get(turnId) === index &&
       !injectedTurns.has(turnId)
     ) {
-      orderedMessages.push(...(anchoredSyntheticByTurnId.get(turnId) ?? []))
+      // Push the full sorted batch for this turn (real + synthetic).
+      orderedMessages.push(...buildTurnBatch(turnId))
       injectedTurns.add(turnId)
+      return
     }
+
+    if (turnId && message.role === 'assistant' && injectedTurns.has(turnId)) {
+      // Already pushed as part of the turn batch above.
+      return
+    }
+
     orderedMessages.push(message)
   })
 

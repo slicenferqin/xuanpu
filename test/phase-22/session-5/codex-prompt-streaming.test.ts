@@ -949,8 +949,8 @@ describe('CodexImplementer.prompt()', () => {
                 item: {
                   type: 'commandExecution',
                   id: 'tool-1',
-                  toolName: 'bash',
-                  input: { command: 'ls' }
+                  command: 'ls',
+                  status: 'inProgress'
                 }
               }
             })
@@ -965,9 +965,9 @@ describe('CodexImplementer.prompt()', () => {
                 item: {
                   type: 'commandExecution',
                   id: 'tool-1',
-                  toolName: 'bash',
+                  command: 'ls',
                   status: 'completed',
-                  output: 'file-a'
+                  aggregatedOutput: 'file-a'
                 }
               }
             })
@@ -995,7 +995,7 @@ describe('CodexImplementer.prompt()', () => {
       expect((messages[1] as any).parts[1]).toMatchObject({
         type: 'tool',
         callID: 'tool-1',
-        tool: 'bash',
+        tool: 'Bash',
         state: {
           status: 'completed',
           input: { command: 'ls' },

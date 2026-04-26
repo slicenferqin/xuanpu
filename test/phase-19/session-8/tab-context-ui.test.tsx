@@ -89,6 +89,8 @@ function setupStores({
     completed_at: null
   }))
 
+  window.db.session.getActiveByWorktree.mockResolvedValue(sessions)
+
   useSessionStore.setState({
     sessionsByWorktree: new Map([[worktreeId, sessions]]),
     tabOrderByWorktree: new Map([[worktreeId, sessions.map((s) => s.id)]]),
@@ -201,6 +203,7 @@ describe('Session 8: Tab Context Menus UI', () => {
       fireEvent.contextMenu(tab)
 
       await waitFor(() => {
+        expect(screen.getByText('Rename')).toBeInTheDocument()
         expect(screen.getByText('Close')).toBeInTheDocument()
         expect(screen.getByText('Close Others')).toBeInTheDocument()
         expect(screen.getByText('Close Others to the Right')).toBeInTheDocument()
@@ -219,6 +222,23 @@ describe('Session 8: Tab Context Menus UI', () => {
 
       expect(screen.queryByText('Copy Relative Path')).not.toBeInTheDocument()
       expect(screen.queryByText('Copy Absolute Path')).not.toBeInTheDocument()
+    })
+
+    test('double-click opens inline edit input and saves new session name', async () => {
+      render(<SessionTabs />)
+
+      const tab = screen.getByTestId('session-tab-s1')
+      fireEvent.doubleClick(tab)
+
+      const input = await screen.findByTestId('rename-input-s1')
+      fireEvent.change(input, { target: { value: 'Custom Session Name' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      await waitFor(() => {
+        expect(window.db.session.update).toHaveBeenCalledWith('s1', {
+          name: 'Custom Session Name'
+        })
+      })
     })
   })
 

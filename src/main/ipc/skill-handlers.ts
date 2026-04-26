@@ -154,13 +154,29 @@ export function registerSkillHandlers(): void {
     success: true
     availability: ProviderAvailability
   }> => {
-    const raw = detectAgentSdks()
+    const raw = await detectAgentSdks()
+    const providers: SkillProvider[] = ['claude-code', 'codex', 'opencode']
+    const installedByProvider = await Promise.all(
+      providers.map(async (provider) => {
+        try {
+          const skills = await listInstalledSkills({ provider, kind: 'user' })
+          return [provider, skills.length > 0] as const
+        } catch {
+          return [provider, false] as const
+        }
+      })
+    )
+    const hasInstalledSkills = Object.fromEntries(installedByProvider) as Record<
+      SkillProvider,
+      boolean
+    >
+
     return {
       success: true,
       availability: {
-        'claude-code': raw.claude,
-        codex: raw.codex,
-        opencode: raw.opencode
+        'claude-code': raw.claude || hasInstalledSkills['claude-code'],
+        codex: raw.codex || hasInstalledSkills.codex,
+        opencode: raw.opencode || hasInstalledSkills.opencode
       }
     }
   })
