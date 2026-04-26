@@ -112,6 +112,13 @@ export interface PendingPlanApprovalState {
  *   SDK `assistant` message received → draft cleared (authoritative)
  *   abort() with non-null draft → materialise into session.messages
  */
+/**
+ * Internal lifecycle state per in-flight Claude SDK tool_use block.
+ * NOTE: emitted ToolPart conforms to `ToolStatus` from
+ * `@shared/types/agent-protocol` (pending|running|completed|error|cancelled).
+ * The internal `'success'` value here is mapped to `'completed'` at the
+ * emit boundary by the timeline-mappers / store code path.
+ */
 interface InFlightToolDraft {
   id: string
   name: string
@@ -591,7 +598,15 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         role: 'user',
         timestamp: syntheticTimestamp,
         content: prompt,
-        parts: syntheticParts
+        parts: syntheticParts,
+        // Marker for the SDK-echo dedup loop below. Without this the dedup
+        // falls back to content-string equality which fails whenever
+        // attachments are present: the synthetic content includes
+        // `[attachment: name]` placeholders, while the SDK echo only carries
+        // text blocks (extractTextFromContent skips file blocks). Mismatched
+        // strings → no dedup → DOUBLE row in session_messages on every prompt
+        // that has files attached.
+        _pendingSdkEcho: true
       })
 
       // Fresh AbortController for this prompt turn
@@ -1104,18 +1119,36 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
               const translatedContent = (translated as Record<string, unknown>).content
               let optimisticIndex = -1
 
-              if (isUserMessage && typeof translatedContent === 'string') {
-                for (let i = session.messages.length - 1; i >= 0; i--) {
+              if (isUserMessage) {
+                // Prefer flag-based dedup: the synthetic optimistic user
+                // message we pushed at prompt() time carries `_pendingSdkEcho`.
+                // Match the FIRST such pending entry (oldest first) to handle
+                // queued prompts in order. Falls back to legacy content-string
+                // equality when no flag entry is found (covers cold reloads
+                // where session.messages was hydrated from transcript).
+                for (let i = 0; i < session.messages.length; i++) {
                   const candidate = session.messages[i] as Record<string, unknown>
                   if (
                     candidate.role === 'user' &&
-                    typeof candidate.id === 'string' &&
-                    candidate.id.startsWith('user-') &&
-                    typeof candidate.content === 'string' &&
-                    candidate.content === translatedContent
+                    candidate._pendingSdkEcho === true
                   ) {
                     optimisticIndex = i
                     break
+                  }
+                }
+                if (optimisticIndex < 0 && typeof translatedContent === 'string') {
+                  for (let i = session.messages.length - 1; i >= 0; i--) {
+                    const candidate = session.messages[i] as Record<string, unknown>
+                    if (
+                      candidate.role === 'user' &&
+                      typeof candidate.id === 'string' &&
+                      candidate.id.startsWith('user-') &&
+                      typeof candidate.content === 'string' &&
+                      candidate.content === translatedContent
+                    ) {
+                      optimisticIndex = i
+                      break
+                    }
                   }
                 }
               }

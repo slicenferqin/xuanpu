@@ -26,10 +26,13 @@ type TodoCardProps = TodoCardPropsToolUse | TodoCardPropsTasks
 
 interface TodoItem {
   id?: string
+  /** claude-code shape */
   content?: string
   subject?: string
   description?: string
   activeForm?: string
+  /** codex turn/plan/updated shape — same semantic as content */
+  step?: string
   status?: string
   priority?: string
 }
@@ -83,9 +86,9 @@ function TaskRow({ item, index }: { item: TodoItem; index: number }): React.JSX.
       <StatusIcon status={item.status} />
       <div className="flex-1 min-w-0">
         <div className="text-sm text-foreground">
-          {item.content ?? item.subject ?? item.activeForm ?? item.description ?? `Task ${index + 1}`}
+          {item.step ?? item.content ?? item.subject ?? item.activeForm ?? item.description ?? `Task ${index + 1}`}
         </div>
-        {(item.subject || item.content) && item.description && (
+        {(item.subject || item.content || item.step) && item.description && (
           <div className="text-xs text-muted-foreground mt-0.5 truncate">
             {item.description}
           </div>

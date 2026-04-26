@@ -12,7 +12,12 @@ import {
 import { createLogger } from './logger'
 import { CodexAppServerManager, type CodexManagerEvent } from './codex-app-server-manager'
 import { mapCodexManagerEventToActivity } from './codex-activity-mapper'
-import { mapCodexEventToStreamEvents, contentStreamKindFromMethod } from './codex-event-mapper'
+import {
+  mapCodexEventToStreamEvents,
+  contentStreamKindFromMethod,
+  createCodexMapperState,
+  type CodexMapperState
+} from './codex-event-mapper'
 import { ensureCodexAppServerLaunchSpec } from './codex-binary-resolver'
 import { asNumber, asObject, asString, toDebugSnapshot } from './codex-utils'
 import { generateCodexSessionTitle } from './codex-session-title'
@@ -36,6 +41,23 @@ export interface CodexSessionState {
   revertDiff: string | null
   titleGenerated: boolean
   titleGenerationStarted: boolean
+  /**
+   * Per-session mapper state. Codex commandExecution streams stdout via
+   * outputDelta chunks; the mapper aggregates them into state.output here so
+   * the renderer's last-write-wins merge produces the full output, not just
+   * the latest delta.
+   */
+  mapperState: CodexMapperState
+  /**
+   * Per-turn array of wall-clock timestamps captured from `item/started`
+   * events as they stream in. Position-indexed: the N-th `item/started`
+   * we see for a turn lands at index N. parseThreadSnapshot uses the SAME
+   * positional index to assign timestamps because codex's thread/read
+   * response renumbers item ids (`item-1`, `item-2`, …), so an id-keyed
+   * lookup would miss every time. Position is the only reliable bridge
+   * between streaming and the snapshot.
+   */
+  itemTimestampsByTurn: Map<string, string[]>
 }
 
 interface CodexLiveToolPart {
@@ -69,6 +91,8 @@ interface PendingHitlEntry {
   hiveSessionId: string
   worktreePath: string
   turnId?: string
+  /** Snapshot of the questions[] payload so we can persist it on resolution. */
+  questions?: unknown[]
 }
 
 interface CodexPermissionRequest {
@@ -208,6 +232,26 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     if (targetSession) {
       this.persistActivity(targetSession, event)
 
+      // Record per-turn item arrival timestamps so parseThreadSnapshot can
+      // assign chronologically-correct timestamps later. Codex's thread/read
+      // response renumbers item ids (`item-1`, `item-2`, …) so id-keyed
+      // matching always misses; positional matching (turn → ordered list of
+      // ts) is the reliable bridge between streaming and snapshot.
+      if (
+        event.kind === 'notification' &&
+        (event.method === 'item/started' || event.method === 'item.started')
+      ) {
+        const turnId =
+          event.turnId ?? asString(asObject(event.payload)?.turnId) ?? null
+        if (turnId) {
+          const list =
+            targetSession.itemTimestampsByTurn.get(turnId) ??
+            (targetSession.itemTimestampsByTurn.set(turnId, []),
+            targetSession.itemTimestampsByTurn.get(turnId)!)
+          list.push(new Date().toISOString())
+        }
+      }
+
       // Phase 21.5: emit agent.* field events when a tool item completes.
       // Wrapped in try/catch — instrumentation failure must never affect
       // the main event flow.
@@ -336,7 +380,49 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       })
 
       const payload = asObject(event.payload)
-      const questions = (payload?.questions ?? []) as unknown[]
+      // Codex's request_user_input MCP tool may carry the question in any of
+      // several shapes (depending on how the agent invoked it). Normalize so
+      // the UI always receives a non-empty `questions` array — otherwise
+      // AskUserCard would silently drop the request and the turn would hang
+      // forever waiting for a reply that can never arrive.
+      let questions = (payload?.questions ?? payload?.items ?? []) as unknown[]
+      if (!Array.isArray(questions) || questions.length === 0) {
+        const item = asObject(payload?.item)
+        const args = asObject(item?.arguments) ?? asObject(payload?.arguments)
+        const prompt =
+          asString(args?.prompt) ??
+          asString(args?.question) ??
+          asString(payload?.prompt) ??
+          asString(payload?.question) ??
+          'Codex requested user input.'
+        const optionsRaw = (args?.options ?? args?.choices ?? payload?.options) as unknown
+        const options = Array.isArray(optionsRaw)
+          ? optionsRaw.map((opt) =>
+              typeof opt === 'string'
+                ? { label: opt, description: '' }
+                : ((opt as { label?: string; description?: string }) ?? { label: '', description: '' })
+            )
+          : []
+        questions = [
+          {
+            question: prompt,
+            header: 'Codex',
+            multiple: false,
+            options
+          }
+        ]
+        log.info('codex requestUserInput: synthesized fallback question', {
+          requestId,
+          prompt,
+          optionCount: options.length,
+          payloadKeys: payload ? Object.keys(payload) : []
+        })
+      }
+
+      // Snapshot questions on the pending entry so questionReply can include
+      // them in the durable record (input.questions).
+      const pending = this.pendingQuestions.get(requestId)
+      if (pending) pending.questions = questions
 
       emitAgentEvent(this.mainWindow, {
         type: 'question.asked',
@@ -347,6 +433,61 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
           questions
         }
       })
+
+      // Also surface as a synthetic tool part so AgentTimeline renders the
+      // existing AskUserCard (it dispatches on tool name === 'AskUserQuestion').
+      // Without this, the question would only appear as a composer placeholder
+      // change and the user would have nowhere to click an answer.
+      emitAgentEvent(this.mainWindow, {
+        type: 'message.part.updated',
+        sessionId: targetSession.hiveSessionId,
+        data: {
+          part: {
+            type: 'tool',
+            callID: requestId,
+            tool: 'AskUserQuestion',
+            state: {
+              status: 'running',
+              input: { questions }
+            }
+          }
+        }
+      })
+
+      // Persist a tool.started activity so the durable timeline keeps the
+      // AskUserCard around after the turn ends. Without this, the synthetic
+      // tool part lives only in the streaming overlay and disappears as
+      // soon as the live transcript is sealed.
+      if (this.dbService) {
+        try {
+          this.dbService.upsertSessionActivity({
+            id: `${requestId}:asked`,
+            session_id: targetSession.hiveSessionId,
+            agent_session_id: targetSession.threadId,
+            thread_id: targetSession.threadId,
+            turn_id: event.turnId ?? null,
+            item_id: requestId,
+            request_id: requestId,
+            kind: 'tool.started',
+            tone: 'tool',
+            summary: 'AskUserQuestion',
+            payload_json: JSON.stringify({
+              item: {
+                type: 'AskUserQuestion',
+                toolName: 'AskUserQuestion',
+                id: requestId,
+                input: { questions }
+              }
+            })
+          })
+        } catch (err) {
+          log.warn('codex requestUserInput: failed to persist tool.started', {
+            requestId,
+            error: err instanceof Error ? err.message : String(err)
+          })
+        }
+      }
+
       this.maybeNotifyPendingUserFeedback(targetSession.hiveSessionId, 'question')
     }
   }
@@ -409,7 +550,9 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       revertMessageID: null,
       revertDiff: null,
       titleGenerated: false,
-      titleGenerationStarted: false
+      titleGenerationStarted: false,
+      mapperState: createCodexMapperState(),
+      itemTimestampsByTurn: new Map()
     }
     this.sessions.set(key, state)
 
@@ -479,7 +622,9 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         revertMessageID: null,
         revertDiff: null,
         titleGenerated: true,
-        titleGenerationStarted: true
+        titleGenerationStarted: true,
+        mapperState: createCodexMapperState(),
+      itemTimestampsByTurn: new Map()
       }
       this.sessions.set(newKey, state)
 
@@ -629,12 +774,23 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     let turnCompleted = false
     let turnFailed = false
     let completedTurnId: string | undefined
+    // Track whether a question was raised in this turn. When the agent uses
+    // request_user_input (a Plan-mode tool) inside an otherwise-Plan turn,
+    // the assistant's final text is its REPLY to the user's answer, not a
+    // proposed plan. Re-emitting plan.ready in that case turns every Q&A
+    // into a fresh "Requires Approval" card. Suppress emission whenever the
+    // turn raised a question.
+    let userInputAskedInTurn = false
 
     const handleEvent = (event: CodexManagerEvent) => {
       // Only handle events for this thread
       if (event.threadId !== session.threadId) return
 
-      const streamEvents = mapCodexEventToStreamEvents(event, session.hiveSessionId)
+      const streamEvents = mapCodexEventToStreamEvents(
+        event,
+        session.hiveSessionId,
+        session.mapperState
+      )
       for (const streamEvent of streamEvents) {
         if (
           event.method === 'turn/completed' &&
@@ -703,6 +859,12 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
           turnFailed = true
         }
       }
+
+      // Track if request_user_input fires anywhere in this turn so we know
+      // the assistant's final text is a reply to a question, not a plan.
+      if (event.method === 'item/tool/requestUserInput') {
+        userInputAskedInTurn = true
+      }
     }
 
     this.manager.on('event', handleEvent)
@@ -736,7 +898,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       // Read canonical thread for properly separated messages
       try {
         const threadSnapshot = await this.manager.readThread(session.threadId)
-        const parsed = this.parseThreadSnapshot(threadSnapshot)
+        const parsed = this.parseThreadSnapshot(threadSnapshot, session.itemTimestampsByTurn)
         if (parsed.length > 0) {
           session.messages = parsed
         }
@@ -802,7 +964,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         }
       }
 
-      if (interactionMode === 'plan' && pendingPlanText) {
+      if (interactionMode === 'plan' && pendingPlanText && !userInputAskedInTurn) {
         const toolUseID = `codex-exitplan-${session.threadId}-${Date.now()}`
         const requestId = `codex-plan:${session.threadId}`
         this.persistSyntheticActivity(session, {
@@ -989,7 +1151,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     if (session.status !== 'closed') {
       try {
         const threadSnapshot = await this.manager.readThread(session.threadId)
-        const parsed = this.parseThreadSnapshot(threadSnapshot)
+        const parsed = this.parseThreadSnapshot(threadSnapshot, session.itemTimestampsByTurn)
         if (parsed.length > 0) {
           session.messages = parsed
           this.persistCanonicalMessages(session)
@@ -1104,6 +1266,62 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       sessionId: pending.hiveSessionId,
       data: { requestId, id: requestId }
     })
+
+    // Flip the synthetic AskUserQuestion tool part to completed so the
+    // AgentTimeline card transitions from "Waiting for reply" → "Answered".
+    const answerSummary = codexAnswers
+      .map((a) => a.answer)
+      .filter((s) => s.length > 0)
+      .join('\n')
+    emitAgentEvent(this.mainWindow, {
+      type: 'message.part.updated',
+      sessionId: pending.hiveSessionId,
+      data: {
+        part: {
+          type: 'tool',
+          callID: requestId,
+          tool: 'AskUserQuestion',
+          state: {
+            status: 'completed',
+            output: answerSummary
+          }
+        }
+      }
+    })
+
+    // Persist tool.completed so the answered question card survives turn
+    // sealing and remains in the durable timeline. Pairs with the
+    // tool.started activity written when the question was raised.
+    if (this.dbService) {
+      try {
+        this.dbService.upsertSessionActivity({
+          id: `${requestId}:answered`,
+          session_id: pending.hiveSessionId,
+          agent_session_id: pending.threadId,
+          thread_id: pending.threadId,
+          turn_id: pending.turnId ?? null,
+          item_id: requestId,
+          request_id: requestId,
+          kind: 'tool.completed',
+          tone: 'tool',
+          summary: 'AskUserQuestion',
+          payload_json: JSON.stringify({
+            item: {
+              type: 'AskUserQuestion',
+              toolName: 'AskUserQuestion',
+              id: requestId,
+              input: { questions: pending.questions ?? [] },
+              output: answerSummary
+            }
+          })
+        })
+      } catch (err) {
+        log.warn('codex questionReply: failed to persist tool.completed', {
+          requestId,
+          error: err instanceof Error ? err.message : String(err)
+        })
+      }
+    }
   }
 
   async questionReject(requestId: string, _worktreePath?: string): Promise<void> {
@@ -1136,6 +1354,20 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       type: 'question.rejected',
       sessionId: pending.hiveSessionId,
       data: { requestId, id: requestId }
+    })
+
+    // Flip the synthetic AskUserQuestion tool part to cancelled.
+    emitAgentEvent(this.mainWindow, {
+      type: 'message.part.updated',
+      sessionId: pending.hiveSessionId,
+      data: {
+        part: {
+          type: 'tool',
+          callID: requestId,
+          tool: 'AskUserQuestion',
+          state: { status: 'cancelled' }
+        }
+      }
     })
   }
 
@@ -2020,7 +2252,9 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         revertMessageID: null,
         revertDiff: null,
         titleGenerated: true,
-        titleGenerationStarted: true
+        titleGenerationStarted: true,
+        mapperState: createCodexMapperState(),
+      itemTimestampsByTurn: new Map()
       }
 
       this.sessions.set(this.getSessionKey(worktreePath, threadId), recovered)
@@ -2171,7 +2405,10 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
   }
 
   /** Parse a thread/read snapshot into a message array for getMessages() */
-  private parseThreadSnapshot(snapshot: unknown): unknown[] {
+  private parseThreadSnapshot(
+    snapshot: unknown,
+    itemTimestampsByTurn?: Map<string, string[]>
+  ): unknown[] {
     const obj = asObject(snapshot)
     if (!obj) return []
 
@@ -2195,7 +2432,22 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       if (!turnObj) continue
 
       const turnId = asString(turnObj.id)
-      const turnTimestamp = asString(turnObj.createdAt) ?? asString(turnObj.updatedAt)
+      // Codex turns expose `startedAt` / `completedAt` as Unix epoch SECONDS.
+      // Older code looked at `createdAt` / `updatedAt` which don't exist on
+      // codex's wire format, so every item ended up timestamped with
+      // `Date.now()` of the readThread call. That made real assistant
+      // messages sort AFTER any synthetic activity (tool cards, plan
+      // cards, AskUserQuestion cards) emitted during the turn — visually,
+      // synthetic cards jumped to the top of the turn batch. Pinning the
+      // turn timestamp to `startedAt` puts real messages early so
+      // synthetics fall after them in chronological order.
+      const startedAtSec = asNumber(turnObj.startedAt)
+      const completedAtSec = asNumber(turnObj.completedAt)
+      const turnStartIso = startedAtSec
+        ? new Date(startedAtSec * 1000).toISOString()
+        : undefined
+      const turnTimestamp =
+        turnStartIso ?? asString(turnObj.createdAt) ?? asString(turnObj.updatedAt)
       const items = turnObj.items as unknown[] | undefined
       if (Array.isArray(items) && items.length > 0) {
         let assistantItemOrdinal = 0
@@ -2223,13 +2475,24 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
           return `${turnId}:assistant:${suffix}`
         }
 
+        // Resolve per-turn streaming timestamps. We match by POSITION within
+        // the turn because codex's thread/read renumbers item ids. Falls back
+        // to turnTimestamp (turn startedAt) when the streaming list is too
+        // short — happens for past turns we never streamed.
+        const turnPositionalTimestamps =
+          turnId ? (itemTimestampsByTurn?.get(turnId) ?? []) : []
+        let itemPositionInTurn = 0
+
         for (const item of items) {
           const itemObj = asObject(item)
           if (!itemObj) continue
 
           const itemType = asString(itemObj.type)
           const itemId = asString(itemObj.id)
-          const itemTimestamp = turnTimestamp ?? new Date().toISOString()
+          const positionalTs = turnPositionalTimestamps[itemPositionInTurn]
+          const itemTimestamp =
+            positionalTs ?? turnTimestamp ?? new Date().toISOString()
+          itemPositionInTurn += 1
 
           if (itemType === 'userMessage') {
             const content = itemObj.content as unknown[] | undefined

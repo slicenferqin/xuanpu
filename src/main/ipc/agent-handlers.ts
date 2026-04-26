@@ -744,7 +744,10 @@ export function registerAgentHandlers(
     })
   )
 
-  // Reject a pending plan with user feedback — Claude will revise
+  // Reject a pending plan with user feedback — Claude will revise.
+  // For codex, plan.ready is synthetic (the turn has already completed), so
+  // there's no SDK to unblock. We accept the reject IPC as a no-op so the
+  // renderer can use a single code path without runtime branching.
   ipcMain.handle(
     'agent:plan:reject',
     createAgentHandler(ctx, {
@@ -757,14 +760,45 @@ export function registerAgentHandlers(
           feedbackLength: feedback.length
         })
         const claudeImpl = c.runtimeManager.getImplementer('claude-code') as ClaudeCodeImplementer
-        if (
+        const claudeHandled =
           (requestId && claudeImpl.hasPendingPlan(requestId)) ||
           claudeImpl.hasPendingPlanForSession(hiveSessionId)
-        ) {
+        if (claudeHandled) {
           await claudeImpl.planReject(worktreePath, hiveSessionId, feedback, requestId)
-          return {}
         }
-        throw new Error('No pending plan found')
+        // Always persist a plan.resolved activity so the durable timeline
+        // flips the plan card from "Requires Approval" to a resolved state
+        // on next read. The same activity covers both claude-code (paired
+        // with the SDK reject above) and codex (where plan.ready was
+        // synthetic and there's no SDK call needed).
+        try {
+          const session = c.dbService.getSession(hiveSessionId)
+          if (session && requestId) {
+            c.dbService.upsertSessionActivity({
+              id: `${requestId}:resolved`,
+              session_id: hiveSessionId,
+              agent_session_id: session.opencode_session_id ?? hiveSessionId,
+              thread_id: session.opencode_session_id ?? hiveSessionId,
+              turn_id: null,
+              item_id: null,
+              request_id: requestId,
+              kind: 'plan.resolved',
+              tone: 'info',
+              summary: 'Plan rejected by user',
+              payload_json: JSON.stringify({
+                resolution: 'rejected',
+                feedback,
+                requestId
+              })
+            })
+          }
+        } catch (err) {
+          log.warn('agent:plan:reject persistence failed', {
+            hiveSessionId,
+            error: err instanceof Error ? err.message : String(err)
+          })
+        }
+        return {}
       }
     })
   )

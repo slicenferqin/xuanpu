@@ -8,6 +8,7 @@ import { asObject, asString, toDebugSnapshot } from './codex-utils'
 import { CODEX_DEFAULT_MODEL } from './codex-models'
 import { type CodexLaunchSpec } from './codex-binary-resolver'
 import { spawnLaunchSpec } from './command-launch-utils'
+import { getCodexRpcDumper } from './codex-rpc-dumper'
 
 const log = createLogger({ component: 'CodexAppServerManager' })
 
@@ -901,6 +902,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
   /** @internal — exposed for testing */
   handleStdoutLine(context: CodexSessionContext, line: string): void {
+    getCodexRpcDumper()?.recordIn(context.session.threadId ?? undefined, line)
+
     let parsed: unknown
     try {
       parsed = JSON.parse(line)
@@ -1110,6 +1113,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       throw new Error('Cannot write to codex app-server stdin.')
     }
 
+    getCodexRpcDumper()?.recordOut(context.session.threadId ?? undefined, encoded)
     context.child.stdin.write(`${encoded}\n`)
   }
 

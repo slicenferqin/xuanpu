@@ -1325,6 +1325,51 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     useSessionStore.getState().clearPendingPlan(sessionId)
   }, [sessionId])
 
+  const handlePlanReject = useCallback(async () => {
+    if (!pendingPlan) return
+    const pendingBeforeAction = pendingPlan
+
+    // Clear local state first so the plan card disappears immediately and
+    // the user can keep typing without being trapped in feedback mode.
+    useSessionStore.getState().clearPendingPlan(sessionId)
+    useSessionRuntimeStore.getState().removeInterrupt(sessionId, pendingBeforeAction.requestId)
+    useWorktreeStatusStore.getState().clearSessionStatus(sessionId)
+
+    if (!worktreePath) return
+
+    // Always call the reject IPC — for claude-code it unblocks the SDK; for
+    // codex it's a no-op on the runtime side but persists a `plan.resolved`
+    // activity in SQLite, which is what flips the durable plan card from
+    // "Requires Approval" → resolved on next read.
+    try {
+      await window.agentOps.planReject(
+        worktreePath,
+        sessionId,
+        'Plan rejected by user',
+        pendingBeforeAction.requestId
+      )
+      // Re-pull the durable timeline so the persisted `plan.resolved`
+      // activity takes effect — without this, the plan card stays in its
+      // "Requires Approval" state until the user reloads the session
+      // (because timeline-mappers only sees the existing plan.ready
+      // activity in cached results).
+      await refresh()
+    } catch (err) {
+      const isClaudeCode = sessionRecord?.agent_sdk === 'claude-code'
+      if (isClaudeCode) {
+        // Claude reject failure means the SDK is still waiting. Restore so
+        // the user can retry; surfaced via toast.
+        toast.error(`Plan reject failed: ${err instanceof Error ? err.message : String(err)}`)
+        useSessionStore.getState().setPendingPlan(sessionId, pendingBeforeAction)
+        useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'plan_ready')
+      } else {
+        // Codex reject is best-effort persistence — log and continue. The
+        // local UI is already cleared.
+        console.warn('[SessionShell] codex plan reject persistence failed:', err)
+      }
+    }
+  }, [pendingPlan, sessionRecord?.agent_sdk, sessionId, worktreePath, refresh])
+
   // --- Loading state ---
   if (loading && timelineMessages.length === 0) {
     return (
@@ -1422,6 +1467,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         <PlanReadyImplementFab
           onImplement={handlePlanImplement}
           onHandoff={handlePlanHandoff}
+          onReject={handlePlanReject}
           visible={!!pendingPlan}
           superpowersAvailable={false}
         />

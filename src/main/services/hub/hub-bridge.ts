@@ -333,7 +333,11 @@ export class HubBridge {
         // session — first event opens the bubble via `message/append`, every
         // subsequent text delta becomes an `appendText` op, every tool update
         // becomes `replacePart` (status flips from running → completed/error).
-        // Result on the mobile UI: one IM-style bubble that streams in place.
+        // When a tool reaches a terminal state (completed/error/cancelled)
+        // and has output, we additionally emit a sibling `tool_result` part
+        // so the mobile client renders the actual command output / patch
+        // result, not just the "done" indicator. Result on the mobile UI:
+        // one IM-style bubble that streams in place.
         const d = ev.data as { part?: Record<string, unknown>; delta?: string }
         const rawPart = d.part
         if (!rawPart || typeof rawPart !== 'object') return []
@@ -341,6 +345,11 @@ export class HubBridge {
         let partKey: string
         let initialPart: HubPart
         let textDelta: string | null = null
+        let toolResultEmit: {
+          partKey: string
+          part: HubPart
+        } | null = null
+
         if (pType === 'text' || pType === 'reasoning') {
           partKey = pType
           textDelta =
@@ -355,17 +364,57 @@ export class HubBridge {
           const tool = rawPart as {
             callID?: string
             tool?: string
-            state?: { input?: unknown; status?: string; output?: unknown; error?: unknown }
+            state?: {
+              input?: unknown
+              status?: string
+              output?: unknown
+              error?: unknown
+              result?: unknown
+            }
           }
           const callId = tool.callID ?? ev.eventId
           partKey = `tool:${callId}`
+          const status = tool.state?.status
+          const isTerminal =
+            status === 'completed' || status === 'error' || status === 'cancelled'
           initialPart = {
             type: 'tool_use',
             toolUseId: callId,
             name: tool.tool ?? 'tool',
             input: tool.state?.input,
-            pending:
-              tool.state?.status !== 'completed' && tool.state?.status !== 'error'
+            pending: !isTerminal
+          }
+
+          // On terminal transition, also queue a tool_result with the actual
+          // output / error so mobile clients see the result body.
+          if (isTerminal) {
+            const output = tool.state?.output
+            const errorVal = tool.state?.error
+            const result = tool.state?.result
+            // Truncate large outputs for mobile (saves bandwidth).
+            const truncatedOutput =
+              typeof output === 'string' && output.length > 4096
+                ? output.slice(0, 4096) + `\n…[truncated ${output.length - 4096} bytes]…`
+                : output
+            const isError = status === 'error'
+            const hasPayload =
+              truncatedOutput !== undefined ||
+              errorVal !== undefined ||
+              result !== undefined
+            if (hasPayload) {
+              toolResultEmit = {
+                partKey: `tool-result:${callId}`,
+                part: {
+                  type: 'tool_result',
+                  toolUseId: callId,
+                  output:
+                    truncatedOutput !== undefined
+                      ? truncatedOutput
+                      : (result ?? errorVal),
+                  isError
+                }
+              }
+            }
           }
         } else {
           // Unknown part shape (e.g. compaction). Drop quietly.
@@ -374,6 +423,7 @@ export class HubBridge {
 
         const sessionId = ev.sessionId
         let stream = this.streamingMsgs.get(sessionId)
+        const out: ServerMsg[] = []
 
         if (!stream) {
           // Open a new assistant bubble seeded with this first part.
@@ -393,46 +443,56 @@ export class HubBridge {
             seq: 0,
             parts: [initialPart]
           }
-          return [{ type: 'message/append', seq: 0, message }]
-        }
-
-        const existingIdx = stream.partIdx.get(partKey)
-        if (existingIdx !== undefined) {
-          if (textDelta !== null) {
-            // Append the new chunk to the live text part — mobile UI grows
-            // the same bubble in place.
-            return [
-              {
+          out.push({ type: 'message/append', seq: 0, message })
+        } else {
+          const existingIdx = stream.partIdx.get(partKey)
+          if (existingIdx !== undefined) {
+            if (textDelta !== null) {
+              // Append the new chunk to the live text part — mobile UI grows
+              // the same bubble in place.
+              out.push({
                 type: 'message/update',
                 seq: 0,
                 messageId: stream.hubMsgId,
                 patch: { op: 'appendText', partIdx: existingIdx, value: textDelta }
-              }
-            ]
-          }
-          // Tool status update — replace the whole part (so pending → done
-          // and `input`/`output` get refreshed).
-          return [
-            {
+              })
+            } else {
+              // Tool status update — replace the whole part (so pending → done
+              // and `input`/`output` get refreshed).
+              out.push({
+                type: 'message/update',
+                seq: 0,
+                messageId: stream.hubMsgId,
+                patch: { op: 'replacePart', partIdx: existingIdx, value: initialPart }
+              })
+            }
+          } else {
+            // First time this partKey appears in the current bubble — append it.
+            stream.partIdx.set(partKey, stream.nextPartIdx)
+            stream.nextPartIdx += 1
+            out.push({
               type: 'message/update',
               seq: 0,
               messageId: stream.hubMsgId,
-              patch: { op: 'replacePart', partIdx: existingIdx, value: initialPart }
-            }
-          ]
+              patch: { op: 'appendPart', value: initialPart }
+            })
+          }
         }
 
-        // First time this partKey appears in the current bubble — append it.
-        stream.partIdx.set(partKey, stream.nextPartIdx)
-        stream.nextPartIdx += 1
-        return [
-          {
+        // Append the tool_result sibling part on terminal transition (once
+        // per callId; subsequent terminal updates won't re-append).
+        if (toolResultEmit && stream && !stream.partIdx.has(toolResultEmit.partKey)) {
+          stream.partIdx.set(toolResultEmit.partKey, stream.nextPartIdx)
+          stream.nextPartIdx += 1
+          out.push({
             type: 'message/update',
             seq: 0,
             messageId: stream.hubMsgId,
-            patch: { op: 'appendPart', value: initialPart }
-          }
-        ]
+            patch: { op: 'appendPart', value: toolResultEmit.part }
+          })
+        }
+
+        return out
       }
       case 'message.updated':
       case 'session.idle':
@@ -445,6 +505,7 @@ export class HubBridge {
       case 'session.commands_available':
       case 'session.model_limits':
       case 'session.context_usage':
+      case 'session.turn_diff':
       case 'permission.replied':
       case 'question.replied':
       case 'question.rejected':
