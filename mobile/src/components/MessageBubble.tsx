@@ -51,7 +51,7 @@ export function MessageBubble({ message }: { message: HubMessage }): React.JSX.E
   })
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 text-zinc-100">
       {actionParts.map(({ part, idx }) => (
         <PartView key={idx} part={part} role="assistant" />
       ))}

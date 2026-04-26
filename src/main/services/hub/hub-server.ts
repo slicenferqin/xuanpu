@@ -786,6 +786,7 @@ class HubServerImpl implements HubServer {
            LEFT JOIN worktrees w ON w.id = s.worktree_id
            LEFT JOIN projects p ON p.id = s.project_id
           WHERE s.status = 'active'
+            AND (w.status IS NULL OR w.status = 'active')
           ORDER BY s.updated_at DESC
           LIMIT 200`
       )
@@ -973,7 +974,7 @@ class HubServerImpl implements HubServer {
     // turns immediately on entry — the registry's ring buffer only carries
     // events emitted since the desktop app was started, which leaves cold
     // sessions empty even when the SQLite transcript is full.
-    const history = bridge.getHistorySnapshot(hiveSessionId, 10)
+    const history = bridge.getHistorySnapshot(hiveSessionId)
     try {
       ws.send(
         JSON.stringify({

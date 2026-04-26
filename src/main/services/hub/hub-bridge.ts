@@ -218,15 +218,36 @@ export class HubBridge {
   }
 
   /**
-   * Pull the last `limit` durable messages for a session out of SQLite and
-   * translate them into HubMessages so the mobile UI can show prior turns
-   * the moment a phone reconnects to a session. Falls back to `[]` on any
-   * error — the live stream still works.
+   * Pull recent durable messages for a session out of SQLite and translate
+   * them into HubMessages so the mobile UI can show prior turns the moment a
+   * phone reconnects. Falls back to `[]` on any error — the live stream still
+   * works.
+   *
+   * `limit` counts text-bearing messages (real user/assistant turns) rather
+   * than raw timeline rows. Codex `commandExecution` activities are merged
+   * into the timeline as synthetic tool-only assistant rows
+   * (`mergeCodexActivityMessages` in timeline-mappers.ts), and previously a
+   * naive `slice(-N)` could fill the entire window with those — leaving the
+   * mobile snapshot showing only command cards and no conversation text.
+   * Counting by text content keeps both real turns and the tool cards that
+   * came with them.
    */
-  getHistorySnapshot(hiveSessionId: string, limit = 10): HubMessage[] {
+  getHistorySnapshot(hiveSessionId: string, limit = 30): HubMessage[] {
     try {
       const result = getSessionTimeline(hiveSessionId)
-      const tail = result.messages.slice(-limit)
+      const messages = result.messages
+      let startIdx = 0
+      let textCount = 0
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (hasRenderableText(messages[i])) {
+          textCount += 1
+          if (textCount >= limit) {
+            startIdx = i
+            break
+          }
+        }
+      }
+      const tail = messages.slice(startIdx)
       return tail
         .map((m, idx) => translateTimelineMessage(m, idx))
         .filter((m): m is HubMessage => m !== null)
@@ -708,6 +729,18 @@ function mapStatus(raw: string | undefined): HubSessionStatus | null {
 
 // ─── Timeline → HubMessage translation ─────────────────────────────────────
 
+function hasRenderableText(msg: TimelineMessage): boolean {
+  if (typeof msg.content === 'string' && msg.content.trim() !== '') return true
+  if (msg.parts) {
+    for (const p of msg.parts) {
+      if (p.type === 'text' && typeof p.text === 'string' && p.text.trim() !== '') return true
+      if (p.type === 'reasoning' && typeof p.reasoning === 'string' && p.reasoning.trim() !== '')
+        return true
+    }
+  }
+  return false
+}
+
 function translateStreamingPart(p: StreamingPart): HubPart | null {
   switch (p.type) {
     case 'text': {
@@ -775,11 +808,24 @@ function translateTimelineMessage(msg: TimelineMessage, idx: number): HubMessage
       })
       .filter((p): p is HubPart => p !== null)
   }
+  const cleanedContent =
+    typeof msg.content === 'string' && msg.content.trim() !== ''
+      ? sanitizeText(role, msg.content)
+      : ''
+
+  // Timeline rows can legitimately contain tool-only structured parts while
+  // the human-readable assistant conclusion lives only in flattened `content`.
+  // If we rendered structured parts alone, mobile history would show just the
+  // command/tool cards and hide the actual reply text. Append the fallback
+  // text when no structured text part survived translation.
+  const hasRenderableTextPart = parts.some((p) => p.type === 'text' && p.text.trim() !== '')
+
   // Fall back to the flattened content text when the message has no
   // structured parts (e.g. legacy rows).
-  if (parts.length === 0 && typeof msg.content === 'string' && msg.content.trim() !== '') {
-    const cleaned = sanitizeText(role, msg.content)
-    if (cleaned) parts = [{ type: 'text', text: cleaned }]
+  if (parts.length === 0 && cleanedContent) {
+    parts = [{ type: 'text', text: cleanedContent }]
+  } else if (!hasRenderableTextPart && cleanedContent) {
+    parts = [...parts, { type: 'text', text: cleanedContent }]
   }
   if (parts.length === 0) return null
   const ts = (() => {

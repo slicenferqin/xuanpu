@@ -14,6 +14,7 @@ const wsMock = vi.hoisted(() => {
       _deviceId: string,
       _hiveSessionId: string
     ) {
+      // eslint-disable-next-line @typescript-eslint/no-this-alias
       latestSocket = this
     }
 

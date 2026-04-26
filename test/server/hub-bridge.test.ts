@@ -9,6 +9,12 @@ vi.mock('../../src/main/services/logger', () => ({
   })
 }))
 
+const getSessionTimelineMock = vi.fn()
+
+vi.mock('../../src/main/services/session-timeline-service', () => ({
+  getSessionTimeline: (...args: unknown[]) => getSessionTimelineMock(...args)
+}))
+
 import {
   HubBridge,
   AGENT_STREAM_CHANNEL,
@@ -96,6 +102,12 @@ describe('hub-bridge: outbound translation', () => {
   let bridge: HubBridge
 
   beforeEach(() => {
+    getSessionTimelineMock.mockReset()
+    getSessionTimelineMock.mockReturnValue({
+      messages: [],
+      compactionMarkers: [],
+      revertBoundary: null
+    })
     registry = new HubRegistry({ localDeviceId: 'd' })
     bridge = new HubBridge({
       registry,
@@ -184,6 +196,48 @@ describe('hub-bridge: outbound translation', () => {
       requestId: 'req-1',
       toolName: 'Read'
     })
+  })
+
+  it('keeps assistant text from flattened timeline content when structured parts are tool-only', () => {
+    getSessionTimelineMock.mockReturnValue({
+      messages: [
+        {
+          id: 'm-1',
+          role: 'assistant',
+          content: '我已经检查完问题，并给出修复建议。',
+          timestamp: '2026-01-01T00:00:00.000Z',
+          parts: [
+            {
+              type: 'tool_use',
+              toolUse: {
+                id: 'tool-1',
+                name: 'commandExecution',
+                input: { command: 'pnpm test' },
+                status: 'success',
+                startTime: 1,
+                output: 'ok'
+              }
+            }
+          ]
+        }
+      ],
+      compactionMarkers: [],
+      revertBoundary: null
+    })
+
+    const snapshot = bridge.getHistorySnapshot('s1', 10)
+
+    expect(snapshot).toHaveLength(1)
+    expect(snapshot[0]?.parts).toEqual([
+      expect.objectContaining({
+        type: 'tool_use',
+        name: 'commandExecution'
+      }),
+      expect.objectContaining({
+        type: 'text',
+        text: '我已经检查完问题，并给出修复建议。'
+      })
+    ])
   })
 })
 
