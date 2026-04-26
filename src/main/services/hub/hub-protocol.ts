@@ -29,7 +29,6 @@ export const HUB_ERROR_CODES = [
   'AUTH_REQUIRED',
   'DEVICE_OFFLINE',
   'SESSION_NOT_FOUND',
-  'CONFIRM_TIMEOUT',
   'NEED_FULL_RELOAD',
   'RATE_LIMITED',
   'BAD_REQUEST',
@@ -53,7 +52,11 @@ export const ToolUsePartSchema = z.object({
   name: z.string(),
   input: z.unknown().optional(),
   /** When set, the tool call is still streaming. */
-  pending: z.boolean().optional()
+  pending: z.boolean().optional(),
+  /** Final output payload, set once the tool transitions to completed/error. */
+  output: z.unknown().optional(),
+  /** True when the runtime reported tool error. */
+  isError: z.boolean().optional()
 })
 
 export const ToolResultPartSchema = z.object({
@@ -184,12 +187,44 @@ export const StatusMsgSchema = z.object({
   status: HubSessionStatusSchema
 })
 
-export const ConfirmationRequestMsgSchema = z.object({
-  type: z.literal('confirmation/request'),
+/**
+ * Out-of-band notice from the runtime that doesn't belong on the message
+ * timeline (e.g. context-usage update, compaction notice, transient warning).
+ * Mobile can render these as a top status bar / toast.
+ */
+export const SystemNoticeMsgSchema = z.object({
+  type: z.literal('system/notice'),
   ...baseServerMeta,
-  /** Mirror of the desktop-side confirm id; no actual server-side action. */
-  confirmId: z.string(),
-  preview: z.string()
+  level: z.enum(['info', 'warn', 'error']),
+  /** Stable category so the UI can deduplicate (e.g. 'context_usage'). */
+  category: z.string(),
+  text: z.string(),
+  /** Optional structured payload for richer rendering (kept opaque). */
+  data: z.unknown().optional()
+})
+
+/**
+ * `plan.ready` request awaiting mobile-side approve/reject. Mirrors the
+ * desktop's `PlanReadyImplementFab` flow.
+ */
+export const PlanRequestMsgSchema = z.object({
+  type: z.literal('plan/request'),
+  ...baseServerMeta,
+  requestId: z.string(),
+  planText: z.string()
+})
+
+/**
+ * Pre-execution approval gate for a shell command (e.g. `command.approval_needed`).
+ * Mobile shows command + cwd and either approves once / always or rejects.
+ */
+export const CommandApprovalRequestMsgSchema = z.object({
+  type: z.literal('command_approval/request'),
+  ...baseServerMeta,
+  requestId: z.string(),
+  command: z.string(),
+  cwd: z.string().optional(),
+  reason: z.string().optional()
 })
 
 export const ErrorMsgSchema = z.object({
@@ -207,7 +242,9 @@ export const ServerMsgSchema = z.discriminatedUnion('type', [
   PermissionRequestMsgSchema,
   QuestionRequestMsgSchema,
   StatusMsgSchema,
-  ConfirmationRequestMsgSchema,
+  SystemNoticeMsgSchema,
+  PlanRequestMsgSchema,
+  CommandApprovalRequestMsgSchema,
   ErrorMsgSchema
 ])
 export type ServerMsg = z.infer<typeof ServerMsgSchema>
@@ -244,12 +281,28 @@ export const ResumeClientMsgSchema = z.object({
   lastSeq: z.number().int().nonnegative()
 })
 
+export const PlanRespondClientMsgSchema = z.object({
+  type: z.literal('plan/respond'),
+  requestId: z.string(),
+  decision: z.enum(['approve', 'reject']),
+  feedback: z.string().optional()
+})
+
+export const CommandApprovalRespondClientMsgSchema = z.object({
+  type: z.literal('command_approval/respond'),
+  requestId: z.string(),
+  decision: z.enum(['approve_once', 'approve_always', 'reject']),
+  message: z.string().optional()
+})
+
 export const ClientMsgSchema = z.discriminatedUnion('type', [
   PromptClientMsgSchema,
   InterruptClientMsgSchema,
   PermissionRespondClientMsgSchema,
   QuestionRespondClientMsgSchema,
-  ResumeClientMsgSchema
+  ResumeClientMsgSchema,
+  PlanRespondClientMsgSchema,
+  CommandApprovalRespondClientMsgSchema
 ])
 export type ClientMsg = z.infer<typeof ClientMsgSchema>
 

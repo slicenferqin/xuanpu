@@ -1,12 +1,11 @@
 /**
  * useHubStore: renderer-side mirror of the Hub controller.
  *
- * Status/confirmations come from IPC events (`hub:status-changed`,
- * `hub:confirmation-requested`) pushed by the main process.
- * Actions proxy through `window.hubOps`.
+ * Status comes from IPC events (`hub:status-changed`) pushed by the main
+ * process. Actions proxy through `window.hubOps`.
  *
  * The store is **not** persisted — status is ephemeral; the main process is
- * source of truth and will resend snapshots on reconnect / refresh via
+ * source of truth and resends snapshots on reconnect / refresh via
  * `refresh()`.
  */
 
@@ -18,7 +17,6 @@ const DEFAULT_STATUS: HubStatusSnapshot = {
   port: null,
   host: null,
   authMode: 'password',
-  requireDesktopConfirm: true,
   tunnel: { state: 'stopped' },
   hasAdmin: false,
   setupKey: null
@@ -27,7 +25,6 @@ const DEFAULT_STATUS: HubStatusSnapshot = {
 interface HubStoreState {
   /** Last known snapshot from main. */
   status: HubStatusSnapshot
-  pendingConfirmations: HubPendingConfirmation[]
   cfAccessEmails: string[]
   /** True while any action is in-flight (hides double-clicks). */
   loading: boolean
@@ -43,7 +40,6 @@ interface HubStoreState {
   stopTunnel: () => Promise<boolean>
   setAuthMode: (mode: HubAuthMode) => Promise<boolean>
   setCfAccessEmails: (emails: string[]) => Promise<boolean>
-  setRequireDesktopConfirm: (value: boolean) => Promise<boolean>
   createUser: (args: {
     setupKey: string
     username: string
@@ -54,7 +50,6 @@ interface HubStoreState {
     oldPassword: string
     newPassword: string
   }) => Promise<{ success: boolean; error?: string }>
-  respondConfirmation: (confirmId: string, approve: boolean) => Promise<void>
 }
 
 export const useHubStore = create<HubStoreState>((set, get) => {
@@ -78,7 +73,6 @@ export const useHubStore = create<HubStoreState>((set, get) => {
 
   return {
     status: DEFAULT_STATUS,
-    pendingConfirmations: [],
     cfAccessEmails: [],
     loading: false,
 
@@ -93,18 +87,9 @@ export const useHubStore = create<HubStoreState>((set, get) => {
       const statusUnsub = window.hubOps.onStatusChanged((status) => {
         set({ status })
       })
-      const confirmUnsub = window.hubOps.onConfirmationRequested((req) => {
-        set((s) => ({ pendingConfirmations: [...s.pendingConfirmations, req] }))
-      })
-      unsubscribers.push(statusUnsub, confirmUnsub)
+      unsubscribers.push(statusUnsub)
 
-      await Promise.all([
-        get().refresh(),
-        get().refreshCfAccessEmails(),
-        window.hubOps.pendingConfirmations().then(({ confirmations }) => {
-          set({ pendingConfirmations: confirmations })
-        })
-      ])
+      await Promise.all([get().refresh(), get().refreshCfAccessEmails()])
 
       return () => {
         for (const u of unsubscribers) u()
@@ -180,16 +165,6 @@ export const useHubStore = create<HubStoreState>((set, get) => {
       return true
     },
 
-    setRequireDesktopConfirm: async (value) => {
-      const result = await wrap(
-        () => window.hubOps.setRequireDesktopConfirm(value),
-        '修改二次确认设置失败'
-      )
-      if (!result?.success) return false
-      set((s) => ({ status: { ...s.status, requireDesktopConfirm: value } }))
-      return true
-    },
-
     createUser: async (args) => {
       const result = await wrap(() => window.hubOps.createUser(args), '创建管理员失败')
       if (!result) return { success: false, error: 'ipc error' }
@@ -208,13 +183,6 @@ export const useHubStore = create<HubStoreState>((set, get) => {
       if (result.success) toast.success('密码已更新')
       else toast.error(result.error ?? '修改失败')
       return result
-    },
-
-    respondConfirmation: async (confirmId, approve) => {
-      await window.hubOps.respondConfirmation({ confirmId, approve })
-      set((s) => ({
-        pendingConfirmations: s.pendingConfirmations.filter((c) => c.confirmId !== confirmId)
-      }))
     }
   }
 })

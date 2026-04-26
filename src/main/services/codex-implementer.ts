@@ -2466,4 +2466,26 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       })
     })
   }
+
+  /**
+   * Reverse-lookup helper used by the Hub bridge: given a hive session id,
+   * find the live in-memory codex session and return the routing tuple.
+   * Mirrors `ClaudeCodeImplementer.findRoutingByHive` so the controller can
+   * iterate runtimes uniformly. Returns null when the session isn't loaded
+   * in this process — the controller then falls back to a DB-driven
+   * lazy-materialize via `reconnect()`.
+   */
+  findRoutingByHive(
+    hiveSessionId: string
+  ): { worktreePath: string; agentSessionId: string } | null {
+    for (const session of this.sessions.values()) {
+      if (session.hiveSessionId === hiveSessionId) {
+        return {
+          worktreePath: session.worktreePath,
+          agentSessionId: session.threadId
+        }
+      }
+    }
+    return null
+  }
 }

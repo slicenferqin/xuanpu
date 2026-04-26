@@ -341,7 +341,6 @@ describe('hub-server: protected routes', () => {
     expect(r.status).toBe(200)
     expect(r.body).toMatchObject({
       authMode: 'hybrid',
-      requireDesktopConfirm: true,
       tunnelUrl: 'https://abc.trycloudflare.com'
     })
   })

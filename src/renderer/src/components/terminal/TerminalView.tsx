@@ -42,6 +42,8 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
   const containerRef = useRef<HTMLDivElement>(null)
   const backendRef = useRef<ITerminalBackend | null>(null)
   const initializedRef = useRef<string | null>(null)
+  const setupAttemptRef = useRef(0)
+  const pendingSetupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** Track which backend type is currently mounted */
   const activeBackendTypeRef = useRef<TerminalBackendType | null>(null)
 
@@ -63,6 +65,21 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
   const ghosttyOverlaySuppressed = useLayoutStore((s) => s.ghosttyOverlaySuppressed)
 
   const effectiveVisible = isVisible && !ghosttyOverlaySuppressed
+
+  const disposeBackend = useCallback(() => {
+    if (pendingSetupTimerRef.current !== null) {
+      clearTimeout(pendingSetupTimerRef.current)
+      pendingSetupTimerRef.current = null
+    }
+    setupAttemptRef.current += 1
+
+    if (backendRef.current) {
+      backendRef.current.dispose()
+      backendRef.current = null
+    }
+    initializedRef.current = null
+    activeBackendTypeRef.current = null
+  }, [])
 
   // Expose imperative methods to parent via ref
   useImperativeHandle(
@@ -161,10 +178,29 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
       const container = containerRef.current
       if (!container) return
 
+      if (!effectiveVisible && !backendRef.current) {
+        return
+      }
+
+      // Avoid initializing xterm/ghostty while the container is still display:none.
+      // Opening the backend against a zero-sized node can leave the terminal blank
+      // until a later hard refresh.
+      if (effectiveVisible && (container.offsetWidth <= 0 || container.offsetHeight <= 0)) {
+        if (pendingSetupTimerRef.current === null) {
+          pendingSetupTimerRef.current = setTimeout(() => {
+            pendingSetupTimerRef.current = null
+            void setupTerminal(backendType)
+          }, 16)
+        }
+        return
+      }
+
       // Prevent re-initializing for the same worktree+backend combo
       if (initializedRef.current === terminalId && activeBackendTypeRef.current === backendType) {
         return
       }
+
+      const attemptId = ++setupAttemptRef.current
 
       // Clean up any previous backend
       if (backendRef.current) {
@@ -188,6 +224,10 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
         config = await window.terminalOps.getConfig()
       } catch {
         // Failed to fetch config, use defaults
+      }
+
+      if (attemptId !== setupAttemptRef.current || containerRef.current !== container) {
+        return
       }
 
       const backend = createBackend(backendType)
@@ -219,17 +259,12 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
 
       backendRef.current = backend
     },
-    [terminalId, worktreeId, cwd, destroyTerminal, terminalFontFamily]
+    [terminalId, worktreeId, cwd, destroyTerminal, terminalFontFamily, effectiveVisible]
   )
 
   // Handle restart — destroy old PTY and re-create terminal
   const handleRestart = useCallback(async () => {
-    if (backendRef.current) {
-      backendRef.current.dispose()
-      backendRef.current = null
-    }
-    initializedRef.current = null
-    activeBackendTypeRef.current = null
+    disposeBackend()
     setTerminalStatus('creating')
     setExitCode(undefined)
 
@@ -243,22 +278,19 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
     }
 
     await restartTerminal(terminalId, cwd, shell)
-    setupTerminal(embeddedTerminalBackend || 'xterm')
-  }, [terminalId, cwd, restartTerminal, setupTerminal, embeddedTerminalBackend])
+    void setupTerminal(embeddedTerminalBackend || 'xterm')
+  }, [terminalId, cwd, restartTerminal, setupTerminal, embeddedTerminalBackend, disposeBackend])
 
-  // Initialize terminal on mount, and re-create when backend setting changes
+  // Initialize only when visible so the backend never mounts into a hidden node.
   useEffect(() => {
-    setupTerminal(embeddedTerminalBackend || 'xterm')
+    void setupTerminal(embeddedTerminalBackend || 'xterm')
+  }, [setupTerminal, embeddedTerminalBackend, effectiveVisible])
 
+  useEffect(() => {
     return () => {
-      if (backendRef.current) {
-        backendRef.current.dispose()
-        backendRef.current = null
-      }
-      initializedRef.current = null
-      activeBackendTypeRef.current = null
+      disposeBackend()
     }
-  }, [setupTerminal, embeddedTerminalBackend])
+  }, [disposeBackend])
 
   // Restart the Ghostty terminal when font size changes so the new size takes effect.
   // We track the previous value so the effect only fires on actual changes, not on mount.
@@ -271,21 +303,16 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
 
     // Recreate the surface with the new font size
     const restart = async (): Promise<void> => {
-      if (backendRef.current) {
-        backendRef.current.dispose()
-        backendRef.current = null
-      }
-      initializedRef.current = null
-      activeBackendTypeRef.current = null
+      disposeBackend()
       setTerminalStatus('creating')
       setExitCode(undefined)
 
       await destroyTerminal(terminalId)
       await restartTerminal(terminalId, cwd)
-      setupTerminal('ghostty')
+      void setupTerminal('ghostty')
     }
-    restart()
-  }, [ghosttyFontSize, terminalId, cwd, destroyTerminal, restartTerminal, setupTerminal])
+    void restart()
+  }, [ghosttyFontSize, terminalId, cwd, destroyTerminal, restartTerminal, setupTerminal, disposeBackend])
 
   // Focus terminal on click
   const handleClick = useCallback(() => {

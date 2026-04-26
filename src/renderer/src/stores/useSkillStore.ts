@@ -124,7 +124,11 @@ export const useSkillStore = create<SkillState>((set, get) => ({
       if (!res.success) return
       const key = scopeKey(scope)
       set((state) => ({
-        installedByScope: { ...state.installedByScope, [key]: res.skills }
+        installedByScope: { ...state.installedByScope, [key]: res.skills },
+        providerAvailability:
+          res.skills.length > 0
+            ? { ...state.providerAvailability, [scope.provider]: true }
+            : state.providerAvailability
       }))
     } catch {
       // non-fatal
@@ -136,7 +140,8 @@ export const useSkillStore = create<SkillState>((set, get) => ({
       const res = await window.skillOps.detectProviders()
       if (res.success) set({ providerAvailability: res.availability })
     } catch {
-      // leave defaults (all false) — UI will show "not installed" for all
+      // Keep the current fallback state; installed-skill probes can still mark
+      // providers available even if the availability IPC call fails.
     }
   },
 

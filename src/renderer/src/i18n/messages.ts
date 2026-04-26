@@ -120,6 +120,11 @@ export const messages: Record<AppLocale, MessageTree> = {
         description: 'Choose which editor to use for "Open in Editor" actions',
         detecting: 'Detecting installed editors...',
         notFound: '(not found)',
+        groups: {
+          ai: 'AI Editors',
+          jetbrains: 'JetBrains',
+          general: 'General'
+        },
         customCommand: {
           label: 'Custom Editor Command',
           description: 'The command will be called with the worktree path as an argument.',
@@ -492,13 +497,15 @@ export const messages: Record<AppLocale, MessageTree> = {
         },
         install: {
           dialogTitle: 'Install "{name}"',
-          dialogSubtitle: 'Pick which providers to install into and at what scope.',
+          dialogSubtitle: 'Choose where this skill should be installed and which providers can use it.',
           providerLabel: 'Providers',
-          providerNotInstalled: 'CLI not detected',
-          providerUnsupportedScope: "Doesn't support this scope yet",
+          providerNotInstalled: 'Not available in this app yet',
+          providerUnsupportedScope: 'Available, but not for this scope',
           scopeLabel: 'Scope',
-          projectPickHint: 'Pick a project below',
-          worktreePickHint: 'Pick a project, then a worktree',
+          projectPickHint: 'Install for one project',
+          worktreePickHint: 'Install for one worktree',
+          projectPathHint: 'Installs into {path} inside the selected project',
+          worktreePathHint: 'Installs into {path} inside the selected worktree',
           noProjects: 'No projects yet',
           noWorktrees: 'No worktrees in this project',
           overwriteIfExists: 'Overwrite if already installed',
@@ -1297,6 +1304,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         unstaged: 'unstaged'
       },
       menu: {
+        rename: 'Rename',
         close: 'Close',
         closeOthers: 'Close Others',
         closeToRight: 'Close Others to the Right',
@@ -2411,6 +2419,11 @@ export const messages: Record<AppLocale, MessageTree> = {
         description: '选择 “Open in Editor” 操作默认打开的编辑器',
         detecting: '正在检测已安装的编辑器...',
         notFound: '（未找到）',
+        groups: {
+          ai: 'AI 编辑器',
+          jetbrains: 'JetBrains',
+          general: '通用编辑器'
+        },
         customCommand: {
           label: '自定义编辑器命令',
           description: '调用该命令时会把 worktree 路径作为参数传入。',
@@ -2775,13 +2788,15 @@ export const messages: Record<AppLocale, MessageTree> = {
         },
         install: {
           dialogTitle: '安装「{name}」',
-          dialogSubtitle: '选择要安装到哪些服务商，以及哪个级别。',
+          dialogSubtitle: '选择这个 skill 要安装到哪里，以及由哪些服务商使用。',
           providerLabel: '服务商',
-          providerNotInstalled: 'CLI 未检测到',
-          providerUnsupportedScope: '暂不支持当前范围',
+          providerNotInstalled: '当前应用环境中不可用',
+          providerUnsupportedScope: '当前可用，但不支持这个范围',
           scopeLabel: '范围',
-          projectPickHint: '在下方选择项目',
-          worktreePickHint: '先选项目，再选 Worktree',
+          projectPickHint: '安装到单个项目',
+          worktreePickHint: '安装到单个 Worktree',
+          projectPathHint: '会安装到所选项目下的 {path}',
+          worktreePathHint: '会安装到所选 Worktree 下的 {path}',
           noProjects: '暂无项目',
           noWorktrees: '此项目下暂无 Worktree',
           overwriteIfExists: '已存在则覆盖',
@@ -3574,6 +3589,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         unstaged: '未暂存'
       },
       menu: {
+        rename: '重命名',
         close: '关闭',
         closeOthers: '关闭其他标签',
         closeToRight: '关闭右侧其他标签',

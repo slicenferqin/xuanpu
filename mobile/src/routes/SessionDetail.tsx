@@ -2,10 +2,15 @@ import { useEffect } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useSessionStream } from '../hooks/useSessionStream'
 import { useAutoScrollToBottom } from '../hooks/useAutoScrollToBottom'
+import { useSessions } from '../stores/useSessions'
 import { MessageBubble } from '../components/MessageBubble'
 import { PermissionCard } from '../components/PermissionCard'
 import { QuestionCard } from '../components/QuestionCard'
+import { PlanCard } from '../components/PlanCard'
+import { CommandApprovalCard } from '../components/CommandApprovalCard'
+import { NoticeStrip } from '../components/NoticeStrip'
 import { PromptComposer } from '../components/PromptComposer'
+import { ErrorBoundary } from '../components/ErrorBoundary'
 
 export function SessionDetail(): React.JSX.Element {
   const { deviceId, hiveId } = useParams<{ deviceId: string; hiveId: string }>()
@@ -24,7 +29,20 @@ function SessionDetailInner({
 }): React.JSX.Element {
   const stream = useSessionStream(deviceId, hiveId)
   const { scrollRef, atBottom, jumpToBottom, bump } = useAutoScrollToBottom()
-  const { messages, connection, status, permission, question, error } = stream.state
+  const { messages, connection, status, permission, question, plan, commandApproval, notices, error } = stream.state
+  const sessionMeta = useSessions((s) =>
+    s.byDevice[deviceId]?.find((it) => it.hiveSessionId === hiveId)
+  )
+  const refreshSessions = useSessions((s) => s.refreshSessions)
+  const hasSessionName = Boolean(sessionMeta?.name?.trim())
+
+  // Refresh metadata when we don't have this session yet or only have the raw
+  // id, so the mobile header can upgrade to the latest session name.
+  useEffect(() => {
+    if (!sessionMeta || !hasSessionName) refreshSessions(deviceId)
+  }, [deviceId, hasSessionName, refreshSessions, sessionMeta])
+
+  const headerTitle = sessionMeta?.name?.trim() || hiveId
 
   // Bump auto-scroll whenever the message list or running state changes.
   useEffect(() => {
@@ -42,8 +60,8 @@ function SessionDetailInner({
           ←
         </Link>
         <div className="flex-1 min-w-0">
-          <h1 className="text-base font-semibold truncate">
-            {hiveId.slice(0, 8)}
+          <h1 className="text-base font-semibold truncate" title={headerTitle}>
+            {headerTitle}
           </h1>
           <ConnectionLine
             connection={connection}
@@ -65,6 +83,12 @@ function SessionDetailInner({
         </div>
       )}
 
+      <NoticeStrip
+        notices={notices}
+        onDismiss={stream.dismissNotice}
+        onClearAll={stream.clearAllNotices}
+      />
+
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto px-3 py-4 space-y-3"
@@ -76,11 +100,31 @@ function SessionDetailInner({
           </p>
         )}
         {messages.map((m) => (
-          <MessageBubble key={m.id} message={m} />
+          <ErrorBoundary key={m.id}>
+            <MessageBubble message={m} />
+          </ErrorBoundary>
         ))}
 
-        {permission && <PermissionCard stream={stream} />}
-        {question && <QuestionCard stream={stream} />}
+        {plan && (
+          <ErrorBoundary>
+            <PlanCard stream={stream} />
+          </ErrorBoundary>
+        )}
+        {commandApproval && (
+          <ErrorBoundary>
+            <CommandApprovalCard stream={stream} />
+          </ErrorBoundary>
+        )}
+        {permission && (
+          <ErrorBoundary>
+            <PermissionCard stream={stream} />
+          </ErrorBoundary>
+        )}
+        {question && (
+          <ErrorBoundary>
+            <QuestionCard stream={stream} />
+          </ErrorBoundary>
+        )}
 
         {error && error.code !== 'INTERNAL' && (
           <div className="p-3 rounded-lg bg-red-950/40 border border-red-900/50">
@@ -95,7 +139,7 @@ function SessionDetailInner({
       {!atBottom && (
         <button
           onClick={jumpToBottom}
-          className="absolute right-4 bottom-28 px-3 py-1.5 rounded-full bg-zinc-800 text-xs text-zinc-200 shadow-lg active:bg-zinc-700"
+          className="absolute right-4 bottom-36 px-3 py-1.5 rounded-full bg-zinc-800 text-xs text-zinc-200 shadow-lg active:bg-zinc-700"
         >
           ↓ 新消息
         </button>

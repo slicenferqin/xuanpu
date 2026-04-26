@@ -24,7 +24,7 @@
  *   POST /api/login        { username, password }
  *   POST /api/logout
  *   GET  /api/me
- *   GET  /api/config                         { authMode, requireDesktopConfirm, tunnelUrl }
+ *   GET  /api/config                         { authMode, tunnelUrl }
  *   GET  /api/devices
  *   GET  /api/devices/:id/sessions
  *   GET  /api/sessions/:hiveId/history
@@ -239,12 +239,13 @@ function getTunnelUrl(db: Database): string | null {
   return getSetting(db, SETTING_KEYS.tunnelUrl)
 }
 
-function getRequireDesktopConfirm(db: Database): boolean {
-  // Default ON. Locked ON when tunnel running (caller checks).
-  const v = getSetting(db, SETTING_KEYS.requireDesktopConfirm)
-  if (v === '0') return false
-  return true
+function getRequireDesktopConfirm(_db: Database): boolean {
+  // DEPRECATED stub. Confirm-on-desktop was removed; always false now.
+  // Retained so any external code that still imports this lib doesn't crash.
+  return false
 }
+// Acknowledge the noUnusedLocals lint without deleting the public-ish stub.
+void getRequireDesktopConfirm
 
 function countUsers(db: Database): number {
   const row = db.prepare('SELECT COUNT(*) as n FROM hub_users').get() as { n: number }
@@ -753,7 +754,6 @@ class HubServerImpl implements HubServer {
     if (!user) return sendError(res, { status: 401, code: 'AUTH_REQUIRED' })
     sendJson(res, 200, {
       authMode: getAuthMode(this.db),
-      requireDesktopConfirm: getRequireDesktopConfirm(this.db),
       tunnelUrl: getTunnelUrl(this.db)
     })
   }
@@ -786,6 +786,7 @@ class HubServerImpl implements HubServer {
            LEFT JOIN worktrees w ON w.id = s.worktree_id
            LEFT JOIN projects p ON p.id = s.project_id
           WHERE s.status = 'active'
+            AND (w.status IS NULL OR w.status = 'active')
           ORDER BY s.updated_at DESC
           LIMIT 200`
       )
@@ -973,7 +974,7 @@ class HubServerImpl implements HubServer {
     // turns immediately on entry — the registry's ring buffer only carries
     // events emitted since the desktop app was started, which leaves cold
     // sessions empty even when the SQLite transcript is full.
-    const history = bridge.getHistorySnapshot(hiveSessionId, 10)
+    const history = bridge.getHistorySnapshot(hiveSessionId)
     try {
       ws.send(
         JSON.stringify({
