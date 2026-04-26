@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useSessionStream } from '../hooks/useSessionStream'
 import { useAutoScrollToBottom } from '../hooks/useAutoScrollToBottom'
+import { useSessions } from '../stores/useSessions'
 import { MessageBubble } from '../components/MessageBubble'
 import { PermissionCard } from '../components/PermissionCard'
 import { QuestionCard } from '../components/QuestionCard'
@@ -29,6 +30,19 @@ function SessionDetailInner({
   const stream = useSessionStream(deviceId, hiveId)
   const { scrollRef, atBottom, jumpToBottom, bump } = useAutoScrollToBottom()
   const { messages, connection, status, permission, question, plan, commandApproval, notices, error } = stream.state
+  const sessionMeta = useSessions((s) =>
+    s.byDevice[deviceId]?.find((it) => it.hiveSessionId === hiveId)
+  )
+  const refreshSessions = useSessions((s) => s.refreshSessions)
+  const hasSessionName = Boolean(sessionMeta?.name?.trim())
+
+  // Refresh metadata when we don't have this session yet or only have the raw
+  // id, so the mobile header can upgrade to the latest session name.
+  useEffect(() => {
+    if (!sessionMeta || !hasSessionName) refreshSessions(deviceId)
+  }, [deviceId, hasSessionName, refreshSessions, sessionMeta])
+
+  const headerTitle = sessionMeta?.name?.trim() || hiveId
 
   // Bump auto-scroll whenever the message list or running state changes.
   useEffect(() => {
@@ -46,8 +60,8 @@ function SessionDetailInner({
           ←
         </Link>
         <div className="flex-1 min-w-0">
-          <h1 className="text-base font-semibold truncate">
-            {hiveId.slice(0, 8)}
+          <h1 className="text-base font-semibold truncate" title={headerTitle}>
+            {headerTitle}
           </h1>
           <ConnectionLine
             connection={connection}
