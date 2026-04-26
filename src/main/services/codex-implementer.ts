@@ -350,7 +350,10 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         threadId: targetSession.threadId,
         hiveSessionId: targetSession.hiveSessionId,
         worktreePath: targetSession.worktreePath,
-        turnId: event.turnId
+        turnId:
+          event.turnId ??
+          this.manager.getSession(targetSession.threadId)?.activeTurnId ??
+          undefined
       })
 
       const payload = asObject(event.payload)
@@ -376,7 +379,12 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         threadId: targetSession.threadId,
         hiveSessionId: targetSession.hiveSessionId,
         worktreePath: targetSession.worktreePath,
-        turnId: event.turnId
+        // Same fallback as the durable activity below — codex's
+        // requestUserInput JSON-RPC params don't always carry turn.id.
+        turnId:
+          event.turnId ??
+          this.manager.getSession(targetSession.threadId)?.activeTurnId ??
+          undefined
       })
 
       const payload = asObject(event.payload)
@@ -465,7 +473,16 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
             session_id: targetSession.hiveSessionId,
             agent_session_id: targetSession.threadId,
             thread_id: targetSession.threadId,
-            turn_id: event.turnId ?? null,
+            // Fallback to the session's active turn — codex's
+            // item/tool/requestUserInput JSON-RPC params don't always carry
+            // turn.id, but without it the synthetic AskUserCard becomes
+            // "unanchored" in timeline-mappers and gets pushed to the END of
+            // the timeline (rendered after all post-question text). The
+            // manager already tracks activeTurnId from turn/started events.
+            turn_id:
+              event.turnId ??
+              this.manager.getSession(targetSession.threadId)?.activeTurnId ??
+              null,
             item_id: requestId,
             request_id: requestId,
             kind: 'tool.started',

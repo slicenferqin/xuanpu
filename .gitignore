@@ -35,6 +35,10 @@ playwright-report/
 # Electron Builder
 release/
 
+# Cached cloudflared binaries (downloaded by scripts/download-cloudflared.sh
+# during build:cloudflared; should never be committed — they're 30MB each).
+resources/cloudflared/*/
+
 # Cached vendor binaries (e.g. libghostty.a)
 vendor/
 
