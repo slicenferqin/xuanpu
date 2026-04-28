@@ -57,6 +57,7 @@ vendor/
 
 # Local debug/playground scripts
 scripts/*
+!scripts/generate-brand-assets.py
 !scripts/generate-icon.py
 !scripts/release-canary.sh
 !scripts/release.sh

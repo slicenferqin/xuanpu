@@ -14,6 +14,7 @@
 </div>
 
 ## What Is Xuanpu
+
 Xuanpu is an AI-native workbench for builders. It is not "an editor with an AI sidebar" or "a terminal with a new theme." It puts the real first-class units of modern work back on the desktop:
 
 - `Workspace` — your projects, repos, linked repos, and the boundaries of your context
@@ -69,38 +70,46 @@ What Xuanpu does is move that visibility layer out of the user's head and into t
 Full reasoning: [VISION](./docs/VISION.md) and the [v1.4.0 retrospective](./docs/essays/2026-04-25-from-1-3-to-1-4-ai-native-workbench.md) (Chinese).
 
 ## Install
+
 ### Releases
+
 Download the latest build from [GitHub Releases](https://github.com/slicenferqin/xuanpu/releases/latest).
 
-| Platform | File | Note |
-|----------|------|------|
-| macOS (Apple Silicon) | `Xuanpu-x.x.x-arm64.dmg` | M1 / M2 / M3 / M4 |
-| macOS (Intel) | `Xuanpu-x.x.x.dmg` | Intel Mac |
-| Windows (x64) | `Xuanpu-Setup-x.x.x.exe` | 64-bit installer |
-| Windows (ARM) | `Xuanpu-Setup-x.x.x-arm64.exe` | ARM64 installer |
+| Platform              | File                           | Note              |
+| --------------------- | ------------------------------ | ----------------- |
+| macOS (Apple Silicon) | `Xuanpu-x.x.x-arm64.dmg`       | M1 / M2 / M3 / M4 |
+| macOS (Intel)         | `Xuanpu-x.x.x.dmg`             | Intel Mac         |
+| Windows (x64)         | `Xuanpu-Setup-x.x.x.exe`       | 64-bit installer  |
+| Windows (ARM)         | `Xuanpu-Setup-x.x.x-arm64.exe` | ARM64 installer   |
 
-> **macOS note**: The current build is unsigned. On first launch macOS will show an "unidentified developer" warning.
-> Run this in Terminal, then reopen the app:
+> **macOS note**: The current build is unsigned. After opening the DMG, double-click
+> `Install Xuanpu.command`; it copies the app to `/Applications`, removes quarantine
+> attributes, and opens the app. If the helper is not available, run:
+>
 > ```bash
 > /usr/bin/xattr -cr "/Applications/玄圃.app"
 > ```
+>
 > Or: System Settings → Privacy & Security → click "Open Anyway".
 >
 > **Windows note**: The installer is unsigned. Windows SmartScreen may show a warning.
 > Click "More info" → "Run anyway".
 
 ### Run From Source
+
 ```bash
 pnpm install
 pnpm dev
 ```
 
 ### Platform Status
+
 - `macOS`: primary platform, full feature set including Ghostty terminal
 - `Windows`: supported — all core features work; Ghostty terminal is macOS-only
 - `Linux`: planned target, still evolving
 
 ## Quick Start
+
 1. Add a local git repo as a project
 2. Create a dedicated worktree for the current task
 3. Start an agent session inside that worktree
@@ -117,6 +126,7 @@ If you live on the keyboard, the command palette, session switcher, sidebar togg
 📊 [View full download analytics →](https://greedeks.github.io/Pulse/?username=slicenferqin&repo=xuanpu)
 
 ## Repo Status
+
 This repo is the desktop main line. Current stack:
 
 - Electron 33
@@ -142,7 +152,7 @@ v1.4.0 cracked the first mile of "field." The 1.4.x line is about **making memor
 - **1.4.4 Codex experience overhaul** — make Codex inside Xuanpu actually feel native
 - **1.4.5 Memory panel** — promote the 4-tab Field Context Debug into a real Memory panel: see + edit + reset + regenerate
 - **1.4.6 Cost visibility** — token / ¥ spend on compaction, surfaced clearly per month
-- **1.4.x cross-agent injection quality** — empirically verify Codex / OpenCode / Amp are *using* the Field Context prefix, not silently dropping it
+- **1.4.x cross-agent injection quality** — empirically verify Codex / OpenCode / Amp are _using_ the Field Context prefix, not silently dropping it
 
 The next ring (VISION §3.2) is **XFP (Xuanpu Field Protocol)** — let any agent vendor obtain the field through a shared protocol, so "agents are stronger inside Xuanpu" becomes a standard, not a moat.
 
@@ -151,9 +161,11 @@ Full roadmap (Chinese): [docs/plans/2026-04-25-memory-product-direction.md](./do
 If you open the repo today you'll see parts that are still in motion — that's expected. Xuanpu is transitioning from an early fork into a standalone product line.
 
 ## Origins
+
 Xuanpu started as a fork / evolution of [Hive](https://github.com/slicenferqin/xuanpu). A meaningful part of the original engineering foundation, workbench structure, and product inspiration came from Hive. This product line has since diverged toward Chinese-first workflow, desktop-native interaction, and an independent brand, but credit to the original should stay visible.
 
 ## Contributing
+
 Contributions are especially valuable in these areas:
 
 - Chinese workflow and localization
@@ -163,4 +175,5 @@ Contributions are especially valuable in these areas:
 - documentation and design assets
 
 ## License
+
 This project is licensed under the [MIT License](./LICENSE).

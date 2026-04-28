@@ -10,6 +10,11 @@ files:
   # extraResources below — excluding it here stops ~195MB of non-target
   # binaries (Linux + Windows) from leaking into app.asar on a macOS build.
   - '!resources/cloudflared/**/*'
+  # Design sources and installer-only artwork are build inputs, not runtime
+  # application resources.
+  - '!resources/brand/**/*'
+  - '!resources/dmg-background*.png'
+  - '!resources/install-xuanpu.command'
 
 # Cross-platform extra resources — copied, not packed into ASAR, so the skill
 # service can enumerate them at runtime with plain fs APIs.
@@ -75,6 +80,23 @@ mac:
 
 dmg:
   sign: false
+  background: resources/dmg-background.png
+  icon: icon.icns
+  window:
+    width: 540
+    height: 420
+  contents:
+    - x: 130
+      y: 190
+    - x: 410
+      y: 190
+      type: link
+      path: /Applications
+    - x: 270
+      y: 320
+      type: file
+      path: install-xuanpu.command
+      name: 'Install Xuanpu.command'
 
 # ── Windows ────────────────────────────────────────────
 win:

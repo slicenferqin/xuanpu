@@ -2,17 +2,22 @@
 """
 generate-icon.py — Generate macOS-compliant app icons from source artwork.
 
-Applies Apple's squircle (continuous superellipse) mask with proper padding
-so the icon matches other macOS dock icons in size and shape.
+By default the source is treated as a finished 1024x1024 icon canvas and only
+receives Apple's transparent squircle mask. Use --source-mode artwork for older
+full-bleed artwork that still needs Apple's standard inset.
 
 Usage:
     python3 scripts/generate-icon.py [--source path/to/source.png]
 
-Defaults to resources/icon-source.png as source artwork.
+Defaults to resources/icon-source.png as a finished icon canvas.
 
 Outputs:
     resources/icon.icns    — macOS icon (all 10 required sizes)
+    resources/icon.ico     — Windows icon (multi-resolution)
     resources/icon.png     — Linux icon (512x512)
+    src/renderer/src/assets/icon.png — in-app icon asset
+    mobile/public/icon-192.png — mobile/PWA icon
+    mobile/public/icon-512.png — mobile/PWA icon
 
 Requirements:
     pip3 install Pillow
@@ -21,6 +26,8 @@ Requirements:
 
 import argparse
 import math
+import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -33,7 +40,7 @@ except ImportError:
     sys.exit(1)
 
 # Apple's macOS icon grid specifies artwork should sit within ~80% of the
-# 1024x1024 canvas. The standard inset is 100px on each side (824x824 art area).
+# 1024x1024 canvas. Keep this for older artwork-mode sources.
 CANVAS_SIZE = 1024
 ICON_INSET = 100  # px on each side at 1024x1024
 ART_SIZE = CANVAS_SIZE - (ICON_INSET * 2)  # 824x824
@@ -59,6 +66,21 @@ ICONSET_SIZES = [
     ('icon_512x512.png', 512),
     ('icon_512x512@2x.png', 1024),
 ]
+
+ICNS_TYPES = {
+    'icon_16x16.png': 'icp4',
+    'icon_16x16@2x.png': 'ic11',
+    'icon_32x32.png': 'icp5',
+    'icon_32x32@2x.png': 'ic12',
+    'icon_128x128.png': 'ic07',
+    'icon_128x128@2x.png': 'ic08',
+    'icon_256x256.png': 'ic08',
+    'icon_256x256@2x.png': 'ic09',
+    'icon_512x512.png': 'ic09',
+    'icon_512x512@2x.png': 'ic10',
+}
+
+ICO_SIZES = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
 
 
 def superellipse_mask(size: int, radius: float, n: float = SUPERELLIPSE_N) -> Image.Image:
@@ -139,6 +161,21 @@ def apply_icon_mask(source: Image.Image) -> Image.Image:
     return canvas
 
 
+def apply_final_icon_mask(source: Image.Image) -> Image.Image:
+    """Apply only the transparent squircle mask to a finished 1024x1024 icon.
+
+    AI/material-rendered icon sources already include their own tile, shadow,
+    object scale, and safe padding. Re-insetting those sources shrinks the icon
+    and can make edge/crop artifacts more visible, so the default path preserves
+    the canvas and only creates transparent platform corners.
+    """
+    icon = source.convert('RGBA').resize((CANVAS_SIZE, CANVAS_SIZE), Image.LANCZOS)
+    alpha = icon.getchannel('A')
+    alpha = Image.composite(alpha, Image.new('L', icon.size, 0), superellipse_mask(CANVAS_SIZE, 0))
+    icon.putalpha(alpha)
+    return icon
+
+
 def generate_iconset(masked_icon: Image.Image, output_dir: Path) -> None:
     """Generate all 10 required .iconset PNG files from the masked 1024x1024 icon."""
     iconset_dir = output_dir / 'icon.iconset'
@@ -163,11 +200,45 @@ def build_icns(output_dir: Path) -> Path:
     )
 
     if result.returncode != 0:
-        print(f'Error: iconutil failed: {result.stderr}', file=sys.stderr)
-        sys.exit(1)
+        print(f'  iconutil failed, falling back to Python ICNS writer: {result.stderr.strip()}')
+        build_icns_from_pngs(iconset_dir, icns_path)
 
     print(f'  Built {icns_path} ({icns_path.stat().st_size:,} bytes)')
     return icns_path
+
+
+def build_icns_from_pngs(iconset_dir: Path, icns_path: Path) -> None:
+    """Build a PNG-backed ICNS file without depending on iconutil."""
+    chunks = []
+    seen_types = set()
+
+    for filename, _size in ICONSET_SIZES:
+        icon_type = ICNS_TYPES[filename]
+        if icon_type in seen_types:
+            continue
+        seen_types.add(icon_type)
+
+        data = (iconset_dir / filename).read_bytes()
+        chunks.append(icon_type.encode('ascii') + struct.pack('>I', len(data) + 8) + data)
+
+    body = b''.join(chunks)
+    icns_path.write_bytes(b'icns' + struct.pack('>I', len(body) + 8) + body)
+
+
+def write_png(source: Image.Image, path: Path, size: int) -> None:
+    """Write a square RGBA PNG from the masked source artwork."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    icon = source.resize((size, size), Image.LANCZOS)
+    icon.save(path, 'PNG')
+    print(f'  Wrote {path} ({size}x{size})')
+
+
+def write_ico(source: Image.Image, path: Path) -> None:
+    """Write a multi-resolution Windows icon with transparent rounded corners."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    icon = source.resize((256, 256), Image.LANCZOS)
+    icon.save(path, format='ICO', sizes=ICO_SIZES)
+    print(f'  Wrote {path} ({len(ICO_SIZES)} Windows sizes)')
 
 
 def main():
@@ -178,12 +249,20 @@ def main():
         default=None,
         help='Path to source artwork PNG (default: resources/icon-source.png)',
     )
+    parser.add_argument(
+        '--source-mode',
+        choices=['final', 'artwork'],
+        default='final',
+        help='final keeps the 1024x1024 source scale; artwork applies the older 100px inset',
+    )
     args = parser.parse_args()
 
     # Resolve project root (script lives in scripts/)
     script_dir = Path(__file__).resolve().parent
     project_root = script_dir.parent
     resources_dir = project_root / 'resources'
+    renderer_assets_dir = project_root / 'src' / 'renderer' / 'src' / 'assets'
+    mobile_public_dir = project_root / 'mobile' / 'public'
 
     # Find source artwork
     source_path = args.source
@@ -203,8 +282,12 @@ def main():
     print(f'  Dimensions: {source.size[0]}x{source.size[1]}')
 
     # Apply mask
-    print('Applying macOS squircle mask...')
-    masked = apply_icon_mask(source)
+    if args.source_mode == 'artwork':
+        print('Applying macOS squircle mask with artwork inset...')
+        masked = apply_icon_mask(source)
+    else:
+        print('Applying macOS squircle mask to finished icon canvas...')
+        masked = apply_final_icon_mask(source)
 
     # Generate iconset in a temp directory, then build .icns
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -217,22 +300,24 @@ def main():
         icns_path = build_icns(tmpdir)
 
         # Copy outputs to resources/
-        import shutil
-
         dest_icns = resources_dir / 'icon.icns'
         shutil.copy2(icns_path, dest_icns)
         print(f'  Wrote {dest_icns}')
 
-    # Also save 512x512 PNG for Linux
-    linux_icon = masked.resize((512, 512), Image.LANCZOS)
-    linux_icon_path = resources_dir / 'icon.png'
-    linux_icon.save(linux_icon_path, 'PNG')
-    print(f'  Wrote {linux_icon_path} (512x512, Linux)')
+    # Cross-platform and in-app PNG assets all use the same rounded artwork.
+    write_png(masked, resources_dir / 'icon.png', 512)
+    write_png(masked, renderer_assets_dir / 'icon.png', 512)
+    write_png(masked, mobile_public_dir / 'icon-192.png', 192)
+    write_png(masked, mobile_public_dir / 'icon-512.png', 512)
+    write_ico(masked, resources_dir / 'icon.ico')
 
     print('')
     print('Done! Icon files updated in resources/')
     print('  - icon.icns  (macOS)')
+    print('  - icon.ico   (Windows)')
     print('  - icon.png   (Linux)')
+    print('  - src/renderer/src/assets/icon.png (renderer)')
+    print('  - mobile/public/icon-192.png and icon-512.png (mobile/PWA)')
 
 
 if __name__ == '__main__':
