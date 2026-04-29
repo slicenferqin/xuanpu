@@ -2,7 +2,13 @@
   <img src="resources/banner.png" alt="Xuanpu Workbench" width="100%" />
   <p><strong>An AI-native workbench for builders.</strong></p>
   <p>Not a chat box bolted onto an editor. A workspace where projects, context, tasks, agents, changes, and outputs live together.</p>
-  <p><a href="./README.md">简体中文</a> | <a href="./README.en.md"><strong>English</strong></a></p>
+  <p>
+    <a href="https://xuanpu.clawplay.club"><strong>Website</strong></a>
+    ·
+    <a href="./README.md">简体中文</a>
+    ·
+    <a href="./README.en.md"><strong>English</strong></a>
+  </p>
 
   <p>
     <a href="https://github.com/slicenferqin/xuanpu/releases/latest"><img src="https://img.shields.io/github/v/release/slicenferqin/xuanpu?style=flat-square&logo=github&label=version" alt="Latest Release" /></a>

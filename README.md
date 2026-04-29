@@ -2,7 +2,13 @@
   <img src="resources/banner.png" alt="玄圃 Xuanpu Workbench" width="100%" />
   <p><strong>面向构建者的 AI 原生工作台</strong></p>
   <p>不是把 AI 塞进传统编辑器，而是把项目、上下文、任务、Agent、变更和产物放进同一个工作台。</p>
-  <p><a href="./README.md"><strong>简体中文</strong></a> | <a href="./README.en.md">English</a></p>
+  <p>
+    <a href="https://xuanpu.clawplay.club"><strong>官网</strong></a>
+    ·
+    <a href="./README.md"><strong>简体中文</strong></a>
+    ·
+    <a href="./README.en.md">English</a>
+  </p>
 
   <p>
     <a href="https://github.com/slicenferqin/xuanpu/releases/latest"><img src="https://img.shields.io/github/v/release/slicenferqin/xuanpu?style=flat-square&logo=github&label=version" alt="Latest Release" /></a>

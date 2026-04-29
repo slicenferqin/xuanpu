@@ -1,0 +1,1310 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>玄圃 Xuanpu | AI 原生工作台</title>
+    <meta
+      name="description"
+      content="玄圃是面向构建者的 AI 原生桌面工作台，把项目、worktree、上下文、Agent session、变更和输出放回同一个本地现场。"
+    />
+    <link rel="canonical" href="https://xuanpu.clawplay.club/" />
+    <link rel="icon" type="image/x-icon" href="assets/favicon.ico" />
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://xuanpu.clawplay.club/" />
+    <meta property="og:title" content="玄圃 Xuanpu | AI 原生工作台" />
+    <meta
+      property="og:description"
+      content="不是编辑器里的聊天框。玄圃把项目、worktree、上下文、Agent session 和变更现场组织成一个本地工作场。"
+    />
+    <meta property="og:image" content="https://xuanpu.clawplay.club/assets/social-preview.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <style>
+      :root {
+        color-scheme: light;
+        --latte-base: #eff1f5;
+        --latte-mantle: #e6e9ef;
+        --latte-crust: #dce0e8;
+        --latte-text: #4c4f69;
+        --latte-subtext: #6c6f85;
+        --latte-overlay: #9ca0b0;
+        --latte-lavender: #7287fd;
+        --latte-teal: #179299;
+        --porcelain: #f7f3ea;
+        --jade: #7fb69a;
+        --jade-deep: #30463d;
+        --jade-dark: #1e2b27;
+        --gold: #d7b96c;
+        --paper: rgba(255, 255, 255, 0.72);
+        --paper-strong: rgba(255, 255, 255, 0.9);
+        --line: rgba(76, 79, 105, 0.14);
+        --shadow: 0 24px 80px rgba(76, 79, 105, 0.18);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+        background: var(--latte-base);
+        color: var(--latte-text);
+        font-family:
+          ui-sans-serif,
+          -apple-system,
+          BlinkMacSystemFont,
+          "SF Pro Text",
+          "PingFang SC",
+          "Hiragino Sans GB",
+          "Microsoft YaHei",
+          sans-serif;
+        letter-spacing: 0;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      .site-shell {
+        min-height: 100vh;
+        overflow: hidden;
+      }
+
+      .topbar {
+        position: fixed;
+        inset: 16px 18px auto;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 10px 12px;
+        border: 1px solid rgba(76, 79, 105, 0.12);
+        border-radius: 18px;
+        background: rgba(239, 241, 245, 0.74);
+        box-shadow: 0 18px 56px rgba(76, 79, 105, 0.11);
+        backdrop-filter: blur(20px);
+      }
+
+      .brand-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .brand-link img {
+        width: 34px;
+        height: 34px;
+        flex: 0 0 auto;
+      }
+
+      .brand-name {
+        display: grid;
+        gap: 1px;
+        line-height: 1;
+      }
+
+      .brand-name strong {
+        font-size: 15px;
+        font-weight: 750;
+        color: var(--jade-dark);
+      }
+
+      .brand-name span {
+        color: var(--latte-subtext);
+        font-family:
+          "SF Mono",
+          ui-monospace,
+          Menlo,
+          Consolas,
+          monospace;
+        font-size: 10px;
+      }
+
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+
+      .nav-links a {
+        border-radius: 999px;
+        padding: 8px 12px;
+        color: var(--latte-subtext);
+        font-size: 13px;
+        transition:
+          color 160ms ease,
+          background 160ms ease;
+      }
+
+      .nav-links a:hover {
+        background: rgba(255, 255, 255, 0.58);
+        color: var(--latte-text);
+      }
+
+      .nav-links .download {
+        background: var(--jade-dark);
+        color: #f5fbf7;
+      }
+
+      .nav-links .download:hover {
+        background: #263f37;
+        color: #ffffff;
+      }
+
+      .hero {
+        position: relative;
+        min-height: 88svh;
+        padding: 118px 24px 46px;
+        background:
+          linear-gradient(180deg, rgba(239, 241, 245, 0.1), rgba(239, 241, 245, 0.94) 82%),
+          url("assets/onboarding-bg.png") center / cover no-repeat;
+      }
+
+      .hero::after {
+        content: "";
+        position: absolute;
+        inset: auto 0 0;
+        height: 160px;
+        background: linear-gradient(180deg, rgba(239, 241, 245, 0), var(--latte-base));
+        pointer-events: none;
+      }
+
+      .hero-inner {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        grid-template-columns: minmax(0, 0.92fr) minmax(520px, 1.08fr);
+        align-items: center;
+        gap: 46px;
+        max-width: 1180px;
+        margin: 0 auto;
+      }
+
+      .hero-copy {
+        display: grid;
+        gap: 24px;
+        align-content: center;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        width: fit-content;
+        gap: 9px;
+        border: 1px solid rgba(48, 70, 61, 0.14);
+        border-radius: 999px;
+        padding: 7px 11px 7px 8px;
+        background: rgba(255, 255, 255, 0.58);
+        color: var(--jade-deep);
+        font-family:
+          "SF Mono",
+          ui-monospace,
+          Menlo,
+          Consolas,
+          monospace;
+        font-size: 12px;
+      }
+
+      .eyebrow::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--jade);
+        box-shadow: 0 0 0 5px rgba(127, 182, 154, 0.14);
+      }
+
+      h1 {
+        margin: 0;
+        max-width: 620px;
+        color: var(--jade-dark);
+        font-size: 64px;
+        line-height: 1.03;
+        letter-spacing: 0;
+      }
+
+      .hero-copy p {
+        max-width: 600px;
+        margin: 0;
+        color: #575b72;
+        font-size: 18px;
+        line-height: 1.78;
+      }
+
+      .hero-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 46px;
+        border: 1px solid rgba(48, 70, 61, 0.18);
+        border-radius: 999px;
+        padding: 0 18px;
+        font-size: 14px;
+        font-weight: 680;
+        transition:
+          transform 160ms ease,
+          box-shadow 160ms ease,
+          background 160ms ease;
+      }
+
+      .button:hover {
+        transform: translateY(-1px);
+      }
+
+      .button.primary {
+        border-color: transparent;
+        background: var(--jade-dark);
+        color: #f8fffb;
+        box-shadow: 0 18px 44px rgba(48, 70, 61, 0.24);
+      }
+
+      .button.secondary {
+        background: rgba(255, 255, 255, 0.65);
+        color: var(--jade-dark);
+      }
+
+      .hero-facts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        color: var(--latte-subtext);
+        font-size: 12px;
+      }
+
+      .hero-facts span {
+        border: 1px solid rgba(76, 79, 105, 0.11);
+        border-radius: 999px;
+        padding: 7px 10px;
+        background: rgba(255, 255, 255, 0.48);
+      }
+
+      .product-stage {
+        position: relative;
+        min-width: 0;
+      }
+
+      .app-window {
+        overflow: hidden;
+        border: 1px solid rgba(76, 79, 105, 0.16);
+        border-radius: 24px;
+        background: rgba(30, 30, 46, 0.96);
+        box-shadow: var(--shadow);
+      }
+
+      .app-titlebar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 38px;
+        padding: 0 16px;
+        border-bottom: 1px solid rgba(205, 214, 244, 0.1);
+        background: #181825;
+      }
+
+      .traffic {
+        width: 11px;
+        height: 11px;
+        border-radius: 999px;
+      }
+
+      .traffic.red {
+        background: #f38ba8;
+      }
+
+      .traffic.yellow {
+        background: #f9e2af;
+      }
+
+      .traffic.green {
+        background: #a6e3a1;
+      }
+
+      .titlebar-label {
+        margin-left: 10px;
+        color: #a6adc8;
+        font-family:
+          "SF Mono",
+          ui-monospace,
+          Menlo,
+          Consolas,
+          monospace;
+        font-size: 12px;
+      }
+
+      .product-ui {
+        display: grid;
+        grid-template-columns: 174px 1fr 210px;
+        min-height: 510px;
+      }
+
+      .sidebar {
+        border-right: 1px solid rgba(205, 214, 244, 0.1);
+        background: #11111b;
+        padding: 16px;
+      }
+
+      .sidebar-title,
+      .panel-title,
+      .session-kicker {
+        color: #9399b2;
+        font-family:
+          "SF Mono",
+          ui-monospace,
+          Menlo,
+          Consolas,
+          monospace;
+        font-size: 11px;
+        text-transform: uppercase;
+      }
+
+      .project-list {
+        display: grid;
+        gap: 10px;
+        margin-top: 15px;
+      }
+
+      .project-item {
+        border-radius: 12px;
+        padding: 10px;
+        color: #cdd6f4;
+        background: rgba(49, 50, 68, 0.7);
+        font-size: 12px;
+      }
+
+      .project-item.active {
+        outline: 1px solid rgba(148, 226, 213, 0.34);
+        background: rgba(49, 50, 68, 0.98);
+      }
+
+      .project-item span {
+        display: block;
+        margin-top: 5px;
+        color: #6c7086;
+        font-family:
+          "SF Mono",
+          ui-monospace,
+          Menlo,
+          Consolas,
+          monospace;
+        font-size: 10px;
+      }
+
+      .session-main {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        background:
+          linear-gradient(180deg, rgba(180, 190, 254, 0.08), rgba(30, 30, 46, 0) 38%),
+          #1e1e2e;
+      }
+
+      .session-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 18px 20px;
+        border-bottom: 1px solid rgba(205, 214, 244, 0.1);
+      }
+
+      .session-header h2 {
+        margin: 3px 0 0;
+        color: #f5e0dc;
+        font-size: 17px;
+        letter-spacing: 0;
+      }
+
+      .status-pill {
+        flex: 0 0 auto;
+        border: 1px solid rgba(166, 227, 161, 0.22);
+        border-radius: 999px;
+        padding: 7px 10px;
+        color: #a6e3a1;
+        background: rgba(166, 227, 161, 0.08);
+        font-family:
+          "SF Mono",
+          ui-monospace,
+          Menlo,
+          Consolas,
+          monospace;
+        font-size: 11px;
+      }
+
+      .timeline {
+        display: grid;
+        align-content: start;
+        gap: 12px;
+        padding: 18px 20px;
+      }
+
+      .message-row {
+        display: grid;
+        gap: 8px;
+        border: 1px solid rgba(205, 214, 244, 0.09);
+        border-radius: 14px;
+        padding: 13px;
+        background: rgba(24, 24, 37, 0.62);
+      }
+
+      .message-row.user {
+        margin-left: 52px;
+        border-color: rgba(180, 190, 254, 0.18);
+      }
+
+      .message-label {
+        display: flex;
+        justify-content: space-between;
+        color: #7f849c;
+        font-family:
+          "SF Mono",
+          ui-monospace,
+          Menlo,
+          Consolas,
+          monospace;
+        font-size: 10px;
+      }
+
+      .message-text {
+        color: #cdd6f4;
+        font-size: 12px;
+        line-height: 1.6;
+      }
+
+      .tool-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .tool {
+        border: 1px solid rgba(148, 226, 213, 0.14);
+        border-radius: 10px;
+        padding: 8px;
+        color: #94e2d5;
+        background: rgba(148, 226, 213, 0.06);
+        font-family:
+          "SF Mono",
+          ui-monospace,
+          Menlo,
+          Consolas,
+          monospace;
+        font-size: 10px;
+      }
+
+      .composer {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0 20px 18px;
+        border: 1px solid rgba(205, 214, 244, 0.12);
+        border-radius: 16px;
+        padding: 10px 12px;
+        color: #6c7086;
+        background: #181825;
+        font-size: 12px;
+      }
+
+      .right-panel {
+        border-left: 1px solid rgba(205, 214, 244, 0.1);
+        background: #181825;
+        padding: 16px;
+      }
+
+      .context-stack {
+        display: grid;
+        gap: 11px;
+        margin-top: 15px;
+      }
+
+      .context-block {
+        border: 1px solid rgba(205, 214, 244, 0.1);
+        border-radius: 12px;
+        padding: 11px;
+        background: rgba(49, 50, 68, 0.64);
+      }
+
+      .context-block strong {
+        display: block;
+        color: #cdd6f4;
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .context-block span {
+        display: block;
+        margin-top: 5px;
+        color: #7f849c;
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
+      .metric-row {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        max-width: 1180px;
+        margin: 24px auto 0;
+      }
+
+      .metric {
+        border-top: 1px solid rgba(48, 70, 61, 0.16);
+        padding-top: 14px;
+      }
+
+      .metric strong {
+        display: block;
+        color: var(--jade-dark);
+        font-size: 20px;
+      }
+
+      .metric span {
+        display: block;
+        margin-top: 4px;
+        color: var(--latte-subtext);
+        font-size: 12px;
+      }
+
+      main {
+        position: relative;
+        z-index: 2;
+      }
+
+      .section {
+        padding: 82px 24px;
+      }
+
+      .section.alt {
+        background: #e9ecef;
+      }
+
+      .section.dark {
+        color: #cdd6f4;
+        background:
+          linear-gradient(180deg, rgba(30, 30, 46, 0.92), rgba(17, 17, 27, 0.98)),
+          url("assets/onboarding-bg-dark.png") center / cover no-repeat;
+      }
+
+      .section-inner {
+        max-width: 1180px;
+        margin: 0 auto;
+      }
+
+      .section-heading {
+        display: grid;
+        gap: 12px;
+        max-width: 760px;
+        margin-bottom: 34px;
+      }
+
+      .section-heading .label {
+        color: var(--latte-teal);
+        font-family:
+          "SF Mono",
+          ui-monospace,
+          Menlo,
+          Consolas,
+          monospace;
+        font-size: 12px;
+        text-transform: uppercase;
+      }
+
+      .dark .section-heading .label {
+        color: #94e2d5;
+      }
+
+      .section-heading h2 {
+        margin: 0;
+        color: var(--jade-dark);
+        font-size: 34px;
+        line-height: 1.22;
+        letter-spacing: 0;
+      }
+
+      .dark .section-heading h2 {
+        color: #f5e0dc;
+      }
+
+      .section-heading p {
+        margin: 0;
+        color: var(--latte-subtext);
+        font-size: 16px;
+        line-height: 1.8;
+      }
+
+      .dark .section-heading p {
+        color: #a6adc8;
+      }
+
+      .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .feature-card {
+        min-height: 232px;
+        border: 1px solid rgba(76, 79, 105, 0.12);
+        border-radius: 8px;
+        padding: 22px;
+        background: rgba(255, 255, 255, 0.52);
+      }
+
+      .feature-card .num {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 999px;
+        color: var(--jade-dark);
+        background: rgba(127, 182, 154, 0.2);
+        font-family:
+          "SF Mono",
+          ui-monospace,
+          Menlo,
+          Consolas,
+          monospace;
+        font-size: 12px;
+      }
+
+      .feature-card h3 {
+        margin: 18px 0 10px;
+        color: var(--latte-text);
+        font-size: 18px;
+        letter-spacing: 0;
+      }
+
+      .feature-card p {
+        margin: 0;
+        color: var(--latte-subtext);
+        font-size: 14px;
+        line-height: 1.72;
+      }
+
+      .workflow {
+        display: grid;
+        grid-template-columns: 0.8fr 1.2fr;
+        gap: 38px;
+        align-items: start;
+      }
+
+      .workflow-list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .workflow-item {
+        display: grid;
+        grid-template-columns: 32px 1fr;
+        gap: 14px;
+        padding: 12px 0;
+        border-bottom: 1px solid rgba(76, 79, 105, 0.1);
+      }
+
+      .workflow-item:last-child {
+        border-bottom: 0;
+      }
+
+      .workflow-item b {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        color: var(--jade-dark);
+        background: rgba(127, 182, 154, 0.18);
+        font-family:
+          "SF Mono",
+          ui-monospace,
+          Menlo,
+          Consolas,
+          monospace;
+        font-size: 12px;
+      }
+
+      .workflow-item strong {
+        display: block;
+        color: var(--latte-text);
+        font-size: 15px;
+      }
+
+      .workflow-item span {
+        display: block;
+        margin-top: 5px;
+        color: var(--latte-subtext);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .field-map {
+        position: relative;
+        min-height: 420px;
+        border: 1px solid rgba(76, 79, 105, 0.12);
+        border-radius: 8px;
+        overflow: hidden;
+        background:
+          linear-gradient(90deg, rgba(114, 135, 253, 0.09) 1px, transparent 1px),
+          linear-gradient(0deg, rgba(23, 146, 153, 0.08) 1px, transparent 1px),
+          #f6f7fb;
+        background-size: 72px 72px;
+      }
+
+      .map-node {
+        position: absolute;
+        display: grid;
+        gap: 6px;
+        width: 180px;
+        border: 1px solid rgba(48, 70, 61, 0.18);
+        border-radius: 8px;
+        padding: 14px;
+        background: rgba(255, 255, 255, 0.76);
+        box-shadow: 0 20px 50px rgba(76, 79, 105, 0.12);
+      }
+
+      .map-node strong {
+        color: var(--jade-dark);
+        font-size: 14px;
+      }
+
+      .map-node span {
+        color: var(--latte-subtext);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .map-node.project {
+        left: 8%;
+        top: 16%;
+      }
+
+      .map-node.worktree {
+        right: 12%;
+        top: 12%;
+      }
+
+      .map-node.session {
+        left: 38%;
+        top: 36%;
+        border-color: rgba(114, 135, 253, 0.3);
+      }
+
+      .map-node.memory {
+        left: 10%;
+        bottom: 12%;
+      }
+
+      .map-node.output {
+        right: 9%;
+        bottom: 13%;
+      }
+
+      .map-line {
+        position: absolute;
+        height: 1px;
+        background: rgba(48, 70, 61, 0.18);
+        transform-origin: left center;
+      }
+
+      .map-line.one {
+        left: 26%;
+        top: 34%;
+        width: 170px;
+        transform: rotate(10deg);
+      }
+
+      .map-line.two {
+        right: 28%;
+        top: 31%;
+        width: 180px;
+        transform: rotate(166deg);
+      }
+
+      .map-line.three {
+        left: 26%;
+        bottom: 30%;
+        width: 190px;
+        transform: rotate(-12deg);
+      }
+
+      .map-line.four {
+        right: 27%;
+        bottom: 31%;
+        width: 170px;
+        transform: rotate(194deg);
+      }
+
+      .download-band {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 22px;
+        align-items: end;
+        border-top: 1px solid rgba(205, 214, 244, 0.14);
+        padding-top: 34px;
+      }
+
+      .download-band h2 {
+        margin: 0;
+        color: #f5e0dc;
+        font-size: 34px;
+        line-height: 1.18;
+      }
+
+      .download-band p {
+        max-width: 690px;
+        margin: 14px 0 0;
+        color: #a6adc8;
+        font-size: 15px;
+        line-height: 1.75;
+      }
+
+      .release-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        justify-content: flex-end;
+      }
+
+      .release-actions .button.secondary {
+        border-color: rgba(205, 214, 244, 0.16);
+        background: rgba(205, 214, 244, 0.08);
+        color: #cdd6f4;
+      }
+
+      .install-helper {
+        margin-top: 28px;
+        border: 1px solid rgba(205, 214, 244, 0.13);
+        border-radius: 8px;
+        overflow: hidden;
+        background: rgba(17, 17, 27, 0.76);
+      }
+
+      .helper-row {
+        display: grid;
+        grid-template-columns: 180px 1fr;
+        border-bottom: 1px solid rgba(205, 214, 244, 0.1);
+      }
+
+      .helper-row:last-child {
+        border-bottom: 0;
+      }
+
+      .helper-row strong,
+      .helper-row span {
+        padding: 15px 16px;
+        font-size: 13px;
+      }
+
+      .helper-row strong {
+        color: #f5e0dc;
+        background: rgba(205, 214, 244, 0.04);
+      }
+
+      .helper-row span {
+        color: #a6adc8;
+        line-height: 1.6;
+      }
+
+      footer {
+        padding: 32px 24px 46px;
+        color: #6c6f85;
+        background: var(--latte-base);
+      }
+
+      .footer-inner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        max-width: 1180px;
+        margin: 0 auto;
+        border-top: 1px solid rgba(76, 79, 105, 0.12);
+        padding-top: 22px;
+        font-size: 13px;
+      }
+
+      .footer-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+      }
+
+      .footer-links a:hover {
+        color: var(--jade-dark);
+      }
+
+      @media (max-width: 1020px) {
+        .hero-inner,
+        .workflow,
+        .download-band {
+          grid-template-columns: 1fr;
+        }
+
+        .product-ui {
+          grid-template-columns: 150px 1fr;
+        }
+
+        .right-panel {
+          display: none;
+        }
+
+        .feature-grid,
+        .metric-row {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .release-actions {
+          justify-content: flex-start;
+        }
+      }
+
+      @media (max-width: 720px) {
+        .topbar {
+          inset: 10px 10px auto;
+          border-radius: 14px;
+        }
+
+        .brand-name span,
+        .nav-links a:not(.download) {
+          display: none;
+        }
+
+        .hero {
+          min-height: auto;
+          padding: 96px 16px 34px;
+        }
+
+        .hero-inner {
+          gap: 28px;
+        }
+
+        h1 {
+          font-size: 42px;
+          line-height: 1.08;
+        }
+
+        .hero-copy p {
+          font-size: 16px;
+          line-height: 1.72;
+        }
+
+        .product-ui {
+          grid-template-columns: 1fr;
+          min-height: 0;
+        }
+
+        .sidebar {
+          display: none;
+        }
+
+        .tool-grid,
+        .feature-grid,
+        .metric-row {
+          grid-template-columns: 1fr;
+        }
+
+        .message-row.user {
+          margin-left: 0;
+        }
+
+        .field-map {
+          min-height: auto;
+          display: grid;
+          gap: 10px;
+          padding: 12px;
+        }
+
+        .map-node {
+          position: static;
+          width: auto;
+        }
+
+        .map-line {
+          display: none;
+        }
+
+        .section {
+          padding: 64px 16px;
+        }
+
+        .section-heading h2,
+        .download-band h2 {
+          font-size: 28px;
+        }
+
+        .helper-row {
+          grid-template-columns: 1fr;
+        }
+
+        .footer-inner {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="site-shell">
+      <header class="topbar" aria-label="主导航">
+        <a class="brand-link" href="#top" aria-label="玄圃首页">
+          <img src="assets/icon.png" alt="" />
+          <span class="brand-name">
+            <strong>玄圃</strong>
+            <span>Xuanpu Workbench</span>
+          </span>
+        </a>
+        <nav class="nav-links">
+          <a href="#field">工作场</a>
+          <a href="#workflow">工作流</a>
+          <a href="https://github.com/slicenferqin/xuanpu" target="_blank" rel="noreferrer">源码</a>
+          <a class="download" href="https://github.com/slicenferqin/xuanpu/releases/latest" target="_blank" rel="noreferrer">下载</a>
+        </nav>
+      </header>
+
+      <section id="top" class="hero">
+        <div class="hero-inner">
+          <div class="hero-copy">
+            <span class="eyebrow">AI-native field context</span>
+            <h1>玄圃 Xuanpu</h1>
+            <p>
+              面向构建者的本地桌面工作台。玄圃把项目、worktree、上下文、Agent session、
+              变更和输出放回同一个现场，让 AI coding agents 不再只是编辑器里的聊天框。
+            </p>
+            <div class="hero-actions">
+              <a class="button primary" href="https://github.com/slicenferqin/xuanpu/releases/latest" target="_blank" rel="noreferrer">下载最新版本</a>
+              <a class="button secondary" href="#field">看它如何组织现场</a>
+            </div>
+            <div class="hero-facts" aria-label="产品标签">
+              <span>Electron desktop</span>
+              <span>Git worktrees</span>
+              <span>Claude Code / OpenCode / Codex</span>
+              <span>Local-first context</span>
+            </div>
+          </div>
+
+          <div class="product-stage" aria-label="玄圃产品界面示意">
+            <div class="app-window">
+              <div class="app-titlebar">
+                <span class="traffic red"></span>
+                <span class="traffic yellow"></span>
+                <span class="traffic green"></span>
+                <span class="titlebar-label">xuanpu://field/brand-assets</span>
+              </div>
+              <div class="product-ui">
+                <aside class="sidebar">
+                  <div class="sidebar-title">Projects</div>
+                  <div class="project-list">
+                    <div class="project-item active">xuanpu<span>brand/field-mark-assets</span></div>
+                    <div class="project-item">clipclip<span>sync-polish</span></div>
+                    <div class="project-item">session-hub<span>mobile-control</span></div>
+                  </div>
+                </aside>
+                <section class="session-main">
+                  <div class="session-header">
+                    <div>
+                      <div class="session-kicker">Agent Session</div>
+                      <h2>统一品牌资产和安装体验</h2>
+                    </div>
+                    <div class="status-pill">running</div>
+                  </div>
+                  <div class="timeline">
+                    <div class="message-row user">
+                      <div class="message-label"><span>You</span><span>09:42</span></div>
+                      <div class="message-text">把 icon、banner、安装器背景和空状态图统一到新的品牌方向。</div>
+                    </div>
+                    <div class="message-row">
+                      <div class="message-label"><span>Agent</span><span>context loaded</span></div>
+                      <div class="message-text">
+                        已读取 pinned source、生成脚本、Electron builder 配置和 macOS 安装辅助脚本。
+                      </div>
+                      <div class="tool-grid">
+                        <div class="tool">read assets</div>
+                        <div class="tool">update tests</div>
+                        <div class="tool">build app</div>
+                      </div>
+                    </div>
+                    <div class="message-row">
+                      <div class="message-label"><span>Field Memory</span><span>active</span></div>
+                      <div class="message-text">
+                        当前任务的品牌选择、脚本修复和验证命令被保留在同一个工作场中。
+                      </div>
+                    </div>
+                  </div>
+                  <div class="composer">Ask the agent to continue from the current field...</div>
+                </section>
+                <aside class="right-panel">
+                  <div class="panel-title">Current Focus</div>
+                  <div class="context-stack">
+                    <div class="context-block">
+                      <strong>Project</strong>
+                      <span>玄圃桌面主线</span>
+                    </div>
+                    <div class="context-block">
+                      <strong>Worktree</strong>
+                      <span>独立分支承载本轮变更</span>
+                    </div>
+                    <div class="context-block">
+                      <strong>Memory</strong>
+                      <span>品牌资产决策和验证记录</span>
+                    </div>
+                    <div class="context-block">
+                      <strong>Output</strong>
+                      <span>PR、安装器、可复现资产</span>
+                    </div>
+                  </div>
+                </aside>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="metric-row" aria-label="玄圃核心对象">
+          <div class="metric"><strong>Project</strong><span>项目和仓库边界</span></div>
+          <div class="metric"><strong>Worktree</strong><span>每个任务的隔离现场</span></div>
+          <div class="metric"><strong>Session</strong><span>Agent 对话和执行轨迹</span></div>
+          <div class="metric"><strong>Memory</strong><span>可见、可修正、可复用的上下文</span></div>
+        </div>
+      </section>
+
+      <main>
+        <section id="field" class="section">
+          <div class="section-inner">
+            <div class="section-heading">
+              <span class="label">Why Xuanpu</span>
+              <h2>AI 编程不是一条聊天记录，而是一整个工作场。</h2>
+              <p>
+                当任务跨过多个文件、多个分支、多个 agent 和多次验证时，真正稀缺的不是输入框，
+                而是一个能保存现场、展示变化、承接下一轮工作的桌面环境。
+              </p>
+            </div>
+
+            <div class="feature-grid">
+              <article class="feature-card">
+                <span class="num">01</span>
+                <h3>Worktree 是任务边界</h3>
+                <p>每个需求拥有独立目录、分支和运行状态。你不用在同一个仓库里不断 stash、切分支、找回上下文。</p>
+              </article>
+              <article class="feature-card">
+                <span class="num">02</span>
+                <h3>Session 是执行轨迹</h3>
+                <p>Claude Code、OpenCode、Codex 的输出被放进统一时间线，工具调用、计划、确认和结果能被继续追踪。</p>
+              </article>
+              <article class="feature-card">
+                <span class="num">03</span>
+                <h3>Memory 是可见现场</h3>
+                <p>上下文不是隐藏 prompt。玄圃把当前焦点、历史片段、关键文件和决策暴露出来，让你能判断 agent 是否真的理解任务。</p>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section id="workflow" class="section alt">
+          <div class="section-inner workflow">
+            <div class="section-heading">
+              <span class="label">Field Map</span>
+              <h2>从项目到 PR，现场不断线。</h2>
+              <p>
+                玄圃关注的是一轮真实工作的生命周期：开一个任务现场，让 agent 在正确目录执行，
+                观察变化，验证结果，最后把分支、构建和 PR 都收束起来。
+              </p>
+              <div class="workflow-list">
+                <div class="workflow-item">
+                  <b>1</b>
+                  <div><strong>选择项目</strong><span>项目、关联仓库和本地路径作为上下文边界。</span></div>
+                </div>
+                <div class="workflow-item">
+                  <b>2</b>
+                  <div><strong>创建 worktree</strong><span>为当前需求开一个可回收的隔离工作场。</span></div>
+                </div>
+                <div class="workflow-item">
+                  <b>3</b>
+                  <div><strong>启动 agent</strong><span>让 agent 在这个现场里读文件、改代码、跑验证。</span></div>
+                </div>
+                <div class="workflow-item">
+                  <b>4</b>
+                  <div><strong>收束交付</strong><span>保留验证证据，提交、推送、创建 PR，进入下一轮。</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="field-map" aria-label="玄圃工作场对象关系图">
+              <span class="map-line one"></span>
+              <span class="map-line two"></span>
+              <span class="map-line three"></span>
+              <span class="map-line four"></span>
+              <div class="map-node project"><strong>Project</strong><span>仓库、路径、关联项目</span></div>
+              <div class="map-node worktree"><strong>Worktree</strong><span>分支、目录、任务边界</span></div>
+              <div class="map-node session"><strong>Agent Session</strong><span>对话、工具调用、计划和验证</span></div>
+              <div class="map-node memory"><strong>Field Memory</strong><span>焦点、历史、决策和上下文</span></div>
+              <div class="map-node output"><strong>Output</strong><span>提交、构建、PR 和发布</span></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="download" class="section dark">
+          <div class="section-inner">
+            <div class="download-band">
+              <div>
+                <h2>先从 macOS 开始，把 AI coding 的现场收回来。</h2>
+                <p>
+                  玄圃当前主支持 macOS。安装包内包含安装辅助脚本：双击即可复制到
+                  `/Applications`、移除 quarantine 属性并打开应用，降低未签名版本的首次启动成本。
+                </p>
+              </div>
+              <div class="release-actions">
+                <a class="button primary" href="https://github.com/slicenferqin/xuanpu/releases/latest" target="_blank" rel="noreferrer">GitHub Releases</a>
+                <a class="button secondary" href="https://github.com/slicenferqin/xuanpu" target="_blank" rel="noreferrer">查看源码</a>
+              </div>
+            </div>
+
+            <div class="install-helper" aria-label="安装流程">
+              <div class="helper-row">
+                <strong>macOS</strong>
+                <span>打开 DMG 后双击 `Install Xuanpu.command`，自动复制、去隔离并启动。</span>
+              </div>
+              <div class="helper-row">
+                <strong>Windows</strong>
+                <span>已有 x64 / ARM64 打包链路，未签名版本遇到 SmartScreen 时选择继续运行。</span>
+              </div>
+              <div class="helper-row">
+                <strong>Linux</strong>
+                <span>目标平台之一，体验仍在补齐中。</span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer>
+        <div class="footer-inner">
+          <span>玄圃 Xuanpu Workbench · xuanpu.clawplay.club</span>
+          <div class="footer-links">
+            <a href="https://github.com/slicenferqin/xuanpu" target="_blank" rel="noreferrer">GitHub</a>
+            <a href="https://github.com/slicenferqin/xuanpu/releases/latest" target="_blank" rel="noreferrer">Releases</a>
+            <a href="https://github.com/slicenferqin/xuanpu/issues" target="_blank" rel="noreferrer">Issues</a>
+          </div>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>
