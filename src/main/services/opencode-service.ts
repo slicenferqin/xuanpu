@@ -8,6 +8,16 @@ import { getEventBus } from '../../server/event-bus'
 import type { AgentSdkImplementer } from './agent-runtime-types'
 import type { AgentRuntimeAdapter } from './agent-runtime-types'
 import { beginSessionRun, emitAgentEvent } from '@shared/lib/normalize-agent-event'
+import { classifyOpenCodeTool } from '@shared/lib/opencode-classify'
+import {
+  mapOpenCodeEventToActivity,
+  type ToolStartedTracker
+} from './opencode-activity-mapper'
+import {
+  generateOpenCodeSessionTitle,
+  isPlaceholderSessionTitle,
+  extractTitleSourceText
+} from './opencode-session-title'
 import {
   resolveOpenCodeLaunchSpec,
   type OpenCodeLaunchSpec
@@ -64,6 +74,14 @@ interface OpenCodeInstance {
   directorySubscriptions: Map<string, DirectorySubscription>
   // Map of directory-scoped child/subagent OpenCode session keys to parent OpenCode session IDs
   childToParentMap: Map<string, string>
+  // Phase 1.4.5 (OpenCode parity): per-Hive-session set of tool callIDs we've
+  // already emitted a `tool.started` activity for. Used by the activity mapper
+  // to flip subsequent `running` updates into `tool.updated`.
+  toolStartedTrackerByHiveSession: Map<string, Set<string>>
+  // Phase 1.4.5 (OpenCode parity): per-Hive-session flag tracking whether we
+  // have already kicked off async title generation for that session, so we
+  // only do it once (on the first user prompt).
+  titleGenerationStartedByHiveSession: Map<string, boolean>
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -331,7 +349,9 @@ class OpenCodeService implements AgentSdkImplementer, AgentRuntimeAdapter {
           sessionMap: new Map(),
           sessionDirectories: new Map(),
           directorySubscriptions: new Map(),
-          childToParentMap: new Map()
+          childToParentMap: new Map(),
+          toolStartedTrackerByHiveSession: new Map(),
+          titleGenerationStartedByHiveSession: new Map()
         }
 
         this.instance = instance
@@ -723,6 +743,15 @@ class OpenCodeService implements AgentSdkImplementer, AgentRuntimeAdapter {
       })
 
       log.info('Prompt sent successfully', { opencodeSessionId })
+
+      // Phase 1.4.5 (OpenCode parity): kick off async title generation on the
+      // first user prompt for this session, mirroring Codex's pattern. Fire
+      // and forget — failures must never block the prompt path. The
+      // `session.updated` handler will still pick up any later, better title
+      // emitted by OpenCode's server.
+      if (hiveSessionId) {
+        this.maybeStartTitleGeneration(hiveSessionId, opencodeSessionId, worktreePath, parts)
+      }
     } catch (error) {
       log.error('Failed to send prompt', { opencodeSessionId, error })
       throw error
@@ -1002,11 +1031,17 @@ class OpenCodeService implements AgentSdkImplementer, AgentRuntimeAdapter {
     this.unsubscribeFromDirectory(this.instance, worktreePath)
 
     const scopedKey = this.getSessionMapKey(worktreePath, opencodeSessionId)
+    const trackedHiveSessionId =
+      this.instance.sessionMap.get(scopedKey) ?? this.instance.sessionMap.get(opencodeSessionId)
     this.instance.sessionMap.delete(scopedKey)
     this.instance.sessionDirectories.delete(scopedKey)
     // Legacy cleanup
     this.instance.sessionMap.delete(opencodeSessionId)
     this.instance.sessionDirectories.delete(opencodeSessionId)
+    if (trackedHiveSessionId) {
+      this.instance.toolStartedTrackerByHiveSession.delete(trackedHiveSessionId)
+      this.instance.titleGenerationStartedByHiveSession.delete(trackedHiveSessionId)
+    }
 
     // Clean up child-to-parent mappings that reference this parent
     for (const [childId, parentId] of this.instance.childToParentMap) {
@@ -1040,6 +1075,8 @@ class OpenCodeService implements AgentSdkImplementer, AgentRuntimeAdapter {
     }
     this.instance.directorySubscriptions.clear()
     this.instance.childToParentMap.clear()
+    this.instance.toolStartedTrackerByHiveSession.clear()
+    this.instance.titleGenerationStartedByHiveSession.clear()
 
     // Close the server
     try {
@@ -1288,7 +1325,30 @@ class OpenCodeService implements AgentSdkImplementer, AgentRuntimeAdapter {
         : {})
     }
 
+    // Phase 1.4.5 (OpenCode parity): rewrite tool parts so `part.tool` carries
+    // the CanonicalToolName (Bash/Read/Edit/...) the agent-protocol contract
+    // expects. Original lowercase name is preserved on `toolDisplay`. Both the
+    // live stream and the durable message snapshot benefit from canonical
+    // names; ToolCard's case-insensitive fallback remains as a safety net.
+    if (eventType === 'message.part.updated') {
+      this.canonicalizeToolPart(streamEvent.data)
+    }
+
     emitAgentEvent(this.mainWindow, streamEvent)
+
+    // Phase 1.4.5 (OpenCode parity): persist a SessionActivity row so the
+    // history view can replay this turn just like Codex does. Skip child /
+    // subagent events at this layer — only parent-session activities show up
+    // in the timeline (matches existing Phase 21.5 emit-agent-tool gating).
+    if (!isChildEvent) {
+      try {
+        this.persistOpenCodeActivity(hiveSessionId, sessionId, event)
+      } catch (err) {
+        log.debug('OpenCode activity persistence failed; continuing', {
+          error: err instanceof Error ? err.message : String(err)
+        })
+      }
+    }
 
     // Phase 21.5: emit agent.* field event when a tool part completes.
     // OpenCode streams tool parts via `message.part.updated`; we only emit
@@ -1544,6 +1604,140 @@ class OpenCodeService implements AgentSdkImplementer, AgentRuntimeAdapter {
   async cleanup(): Promise<void> {
     log.info('Cleaning up OpenCode instance')
     this.shutdownServer()
+  }
+
+  /**
+   * Phase 1.4.5 (OpenCode parity): kick off async session-title generation on
+   * the first user prompt for a Hive session, mirroring Codex's pattern in
+   * `codex-implementer.ts:760-762`.
+   *
+   * - Idempotent per Hive session (guarded by `titleGenerationStartedByHiveSession`)
+   * - Fire-and-forget: errors are logged, never thrown
+   * - Skips empty messages
+   * - Only applies the generated title when the current DB title is still a
+   *   placeholder ("Session N" / "New session 2026-..."), letting the
+   *   `session.updated` handler win if OpenCode itself produces a better
+   *   title in the meantime
+   * - Also calls `renameSession` so the OpenCode server-side title stays in
+   *   sync (best-effort)
+   */
+  private maybeStartTitleGeneration(
+    hiveSessionId: string,
+    opencodeSessionId: string,
+    worktreePath: string,
+    parts: Array<
+      | { type: 'text'; text: string }
+      | { type: 'file'; mime: string; url: string; filename?: string }
+    >
+  ): void {
+    const instance = this.instance
+    if (!instance) return
+    if (instance.titleGenerationStartedByHiveSession.get(hiveSessionId)) return
+
+    const sourceText = extractTitleSourceText(parts)
+    if (!sourceText) return
+
+    instance.titleGenerationStartedByHiveSession.set(hiveSessionId, true)
+
+    void (async () => {
+      try {
+        const title = await generateOpenCodeSessionTitle(sourceText, worktreePath)
+        if (!title) return
+
+        const db = getDatabase()
+        const current = db.getSession(hiveSessionId)?.name ?? null
+        if (!isPlaceholderSessionTitle(current)) {
+          log.info('Skipping generated title — session already has a non-placeholder name', {
+            hiveSessionId,
+            current
+          })
+          return
+        }
+
+        db.updateSession(hiveSessionId, { name: title })
+        log.info('Applied generated OpenCode session title', { hiveSessionId, title })
+
+        // Best-effort sync to OpenCode server so its session record matches.
+        try {
+          await this.renameSession(opencodeSessionId, title, worktreePath)
+        } catch (syncErr) {
+          log.warn('Failed to sync generated title to OpenCode server', {
+            opencodeSessionId,
+            error: syncErr instanceof Error ? syncErr.message : String(syncErr)
+          })
+        }
+      } catch (err) {
+        log.warn('Title generation failed', {
+          hiveSessionId,
+          error: err instanceof Error ? err.message : String(err)
+        })
+      }
+    })()
+  }
+
+  /**
+   * Phase 1.4.5 (OpenCode parity): persist a SessionActivity record for the
+   * given OpenCode event so the history pane can replay the turn (parity with
+   * Codex which goes through `mapCodexManagerEventToActivity`).
+   *
+   * - Tracker (per-Hive-session Set<callID>) lives on the instance so
+   *   `running` → `running` transitions correctly emit `tool.updated` instead
+   *   of duplicating `tool.started`.
+   * - DB writes are best-effort: caller already wraps in try/catch.
+   */
+  private persistOpenCodeActivity(
+    hiveSessionId: string,
+    agentSessionId: string,
+    event: { type?: string; properties?: Record<string, unknown> }
+  ): void {
+    const instance = this.instance
+    if (!instance) return
+
+    let tracker: ToolStartedTracker | undefined =
+      instance.toolStartedTrackerByHiveSession.get(hiveSessionId)
+    if (!tracker) {
+      tracker = new Set<string>()
+      instance.toolStartedTrackerByHiveSession.set(hiveSessionId, tracker)
+    }
+
+    const activity = mapOpenCodeEventToActivity(hiveSessionId, agentSessionId, event, tracker)
+    if (!activity) return
+
+    const db = getDatabase()
+    db.upsertSessionActivity(activity)
+  }
+
+  /**
+   * Phase 1.4.5 (OpenCode parity): rewrite a `message.part.updated` payload
+   * in place so any tool part carries a CanonicalToolName.
+   *
+   * OpenCode's SDK emits lowercase native names ('bash' / 'read' / ...) on
+   * `part.tool`. The agent-protocol contract (src/shared/types/agent-protocol.ts)
+   * requires CanonicalToolName ('Bash' / 'Read' / ...). We mutate the part
+   * object so:
+   *   - `tool`         → CanonicalToolName (Bash / Read / Edit / Grep / ...)
+   *   - `toolDisplay`  → original raw name (preserved for UI display)
+   *   - `mcpServer`    → server segment when classified as 'McpTool'
+   *
+   * Mutation is shallow and safe because `streamEvent.data` is fresh per event
+   * (event.properties from the SDK iterator). Non-tool parts are ignored.
+   */
+  private canonicalizeToolPart(data: unknown): void {
+    if (!data || typeof data !== 'object') return
+    const dataRecord = data as Record<string, unknown>
+    const part = dataRecord.part as Record<string, unknown> | undefined
+    if (!part || part.type !== 'tool') return
+    const rawName = part.tool
+    if (typeof rawName !== 'string' || rawName.length === 0) return
+
+    const classified = classifyOpenCodeTool(rawName)
+    part.tool = classified.tool
+    if (classified.toolDisplay && !part.toolDisplay) {
+      part.toolDisplay = classified.toolDisplay
+    }
+    if (classified.mcpServer && !part.mcpServer) {
+      part.mcpServer = classified.mcpServer
+    }
   }
 
   /**
