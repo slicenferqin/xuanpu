@@ -1,4 +1,5 @@
-import { Notification, BrowserWindow, app } from 'electron'
+import { Notification, BrowserWindow, app, nativeImage } from 'electron'
+import { join } from 'path'
 import { createLogger } from './logger'
 
 const log = createLogger({ component: 'NotificationService' })
@@ -12,6 +13,10 @@ interface SessionNotificationData {
 }
 
 type PendingUserFeedbackKind = 'question' | 'approval'
+
+function createNotificationIcon(): Electron.NativeImage {
+  return nativeImage.createFromPath(join(app.getAppPath(), 'resources', 'icon.png'))
+}
 
 class NotificationService {
   private mainWindow: BrowserWindow | null = null
@@ -77,6 +82,7 @@ class NotificationService {
     const notification = new Notification({
       title: data.projectName,
       body,
+      icon: createNotificationIcon(),
       silent: false
     })
 
