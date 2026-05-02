@@ -55,7 +55,16 @@ const OPENCODE_NATIVE_TOOLS: Record<string, CanonicalToolName> = {
   webfetch: 'WebFetch',
   websearch: 'WebSearch',
   todowrite: 'TodoWrite',
-  task: 'Task'
+  task: 'Task',
+  // Phase 1.4.8 (OpenCode AskUserQuestion parity): OpenCode wraps the
+  // `question.asked` HITL request in a tool part named `question`. Without
+  // this entry it would fall through to `Unknown`, AgentTimeline would not
+  // recognise it as the AskUser card type, and the question UI would never
+  // render even though the input bar correctly switches into reply mode.
+  // Aligns with codex-implementer.ts which emits 'AskUserQuestion' directly.
+  question: 'AskUserQuestion',
+  askuserquestion: 'AskUserQuestion',
+  ask_user: 'AskUserQuestion'
 }
 
 /**

@@ -86,6 +86,28 @@ describe('classifyOpenCodeTool', () => {
         toolDisplay: 'task'
       })
     })
+
+    it('classifies question -> AskUserQuestion (Phase 1.4.8)', () => {
+      // OpenCode wraps the `question.asked` HITL request in a tool part named
+      // `question`. Without this mapping it would fall through to `Unknown`
+      // and AgentTimeline would not render AskUserCard, even though the
+      // composer correctly switches into reply mode.
+      expect(classifyOpenCodeTool('question')).toEqual({
+        tool: 'AskUserQuestion',
+        toolDisplay: 'question'
+      })
+    })
+
+    it('classifies askuserquestion / ask_user as AskUserQuestion (Claude/Codex aliases)', () => {
+      expect(classifyOpenCodeTool('askuserquestion')).toEqual({
+        tool: 'AskUserQuestion',
+        toolDisplay: 'askuserquestion'
+      })
+      expect(classifyOpenCodeTool('ask_user')).toEqual({
+        tool: 'AskUserQuestion',
+        toolDisplay: 'ask_user'
+      })
+    })
   })
 
   describe('case insensitivity', () => {
