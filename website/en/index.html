@@ -1,68 +1,65 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>玄圃 Xuanpu | AI 原生工作台 · Git Worktree + Claude Code 桌面</title>
+    <title>Xuanpu | AI-Native Desktop Workbench for Coding Agents</title>
     <meta
       name="description"
-      content="玄圃 Xuanpu 是面向构建者的 AI 原生桌面工作台。原生集成 Git Worktree、Claude Code、OpenCode、Codex，把项目、上下文、Agent session 与变更收回同一个本地现场。macOS 免费开源。"
+      content="Xuanpu is an AI-native desktop workbench for builders. It puts projects, git worktrees, context, agent sessions and changes back into one local field — Claude Code, OpenCode and Codex included. Free and open source for macOS."
     />
     <meta
       name="keywords"
-      content="玄圃,Xuanpu,AI 工作台,Claude Code 桌面,OpenCode,Codex,Git Worktree GUI,AI coding agent,本地 AI 编程,Electron"
+      content="Xuanpu,AI workbench,Claude Code desktop,OpenCode,Codex,Git Worktree GUI,AI coding agent,local-first AI,Electron,macOS"
     />
     <meta name="author" content="Xuanpu" />
     <meta
       name="robots"
       content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1"
     />
-    <link rel="canonical" href="https://xuanpu.clawplay.club/" />
+    <link rel="canonical" href="https://xuanpu.clawplay.club/en/" />
     <link rel="alternate" hreflang="zh-CN" href="https://xuanpu.clawplay.club/" />
     <link rel="alternate" hreflang="en" href="https://xuanpu.clawplay.club/en/" />
     <link rel="alternate" hreflang="x-default" href="https://xuanpu.clawplay.club/" />
     <link rel="dns-prefetch" href="//github.com" />
     <link rel="preconnect" href="https://github.com" crossorigin />
-    <link rel="preload" as="image" href="assets/product-hero-1920.webp" imagesrcset="assets/product-hero-1280.webp 1280w, assets/product-hero-1920.webp 1920w, assets/product-hero-2600.webp 2600w" imagesizes="(max-width: 720px) 100vw, (max-width: 1280px) 90vw, 1280px" type="image/webp" fetchpriority="high" />
-    <link rel="icon" type="image/x-icon" href="assets/favicon.ico" />
-    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
+    <link rel="preload" as="image" href="../assets/product-hero-1920.webp" imagesrcset="../assets/product-hero-1280.webp 1280w, ../assets/product-hero-1920.webp 1920w, ../assets/product-hero-2600.webp 2600w" imagesizes="(max-width: 720px) 100vw, (max-width: 1280px) 90vw, 1280px" type="image/webp" fetchpriority="high" />
+    <link rel="icon" type="image/x-icon" href="../assets/favicon.ico" />
+    <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png" />
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://xuanpu.clawplay.club/" />
-    <meta property="og:site_name" content="玄圃 Xuanpu" />
-    <meta property="og:locale" content="zh_CN" />
-    <meta property="og:locale:alternate" content="en_US" />
-    <meta property="og:title" content="玄圃 Xuanpu | AI 原生工作台 · Git Worktree + Claude Code 桌面" />
+    <meta property="og:url" content="https://xuanpu.clawplay.club/en/" />
+    <meta property="og:site_name" content="Xuanpu" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="zh_CN" />
+    <meta property="og:title" content="Xuanpu | AI-Native Desktop Workbench" />
     <meta
       property="og:description"
-      content="不是编辑器里的聊天框。玄圃把项目、worktree、上下文、Agent session 和变更现场组织成一个本地工作场。原生集成 Claude Code / OpenCode / Codex。"
+      content="Not a chat box inside an editor. Xuanpu organises projects, worktrees, context, agent sessions and changes into one local field. Native integration with Claude Code, OpenCode and Codex."
     />
     <meta property="og:image" content="https://xuanpu.clawplay.club/assets/social-preview.png" />
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1280" />
     <meta property="og:image:height" content="640" />
-    <meta property="og:image:alt" content="玄圃 Xuanpu — 面向 AI 编程的本地桌面工作台" />
+    <meta property="og:image:alt" content="Xuanpu — AI-native desktop workbench for coding agents" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="玄圃 Xuanpu | AI 原生工作台" />
+    <meta name="twitter:title" content="Xuanpu | AI-Native Desktop Workbench" />
     <meta
       name="twitter:description"
-      content="不是编辑器里的聊天框。玄圃把项目、worktree、上下文、Agent session 和变更现场组织成一个本地工作场。"
+      content="A local workbench for AI coding agents — Claude Code, OpenCode, Codex. Built around git worktrees."
     />
     <meta name="twitter:image" content="https://xuanpu.clawplay.club/assets/social-preview.png" />
-    <meta name="twitter:image:alt" content="玄圃 Xuanpu 产品界面截图" />
+    <meta name="twitter:image:alt" content="Xuanpu product UI screenshot" />
     <meta name="theme-color" content="#eff1f5" />
-
-    <!-- Search engine verification -->
-    <meta name="baidu-site-verification" content="codeva-S1Z0Gmsw6R" />
 
     <!-- Structured data: SoftwareApplication -->
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
         "@type": "SoftwareApplication",
-        "name": "玄圃 Xuanpu",
-        "alternateName": ["Xuanpu", "Xuanpu Workbench", "玄圃"],
-        "description": "面向构建者的 AI 原生桌面工作台。把项目、worktree、上下文、Agent session、变更和输出放回同一个本地现场，原生集成 Claude Code、OpenCode、Codex。",
-        "url": "https://xuanpu.clawplay.club/",
+        "name": "Xuanpu",
+        "alternateName": ["Xuanpu Workbench", "玄圃"],
+        "description": "An AI-native desktop workbench for builders. Xuanpu brings projects, git worktrees, context, agent sessions, changes and outputs back into one local field — Claude Code, OpenCode and Codex included.",
+        "url": "https://xuanpu.clawplay.club/en/",
         "image": "https://xuanpu.clawplay.club/assets/social-preview.png",
         "applicationCategory": "DeveloperApplication",
         "applicationSubCategory": "IDE",
@@ -84,10 +81,10 @@
         },
         "featureList": [
           "Git worktree GUI",
-          "AI agent session 时间线",
-          "Claude Code / OpenCode / Codex 集成",
-          "Local-first 上下文",
-          "多 worktree 并行开发"
+          "Agent session timeline",
+          "Claude Code / OpenCode / Codex integration",
+          "Local-first context",
+          "Parallel worktree workflows"
         ]
       }
     </script>
@@ -113,50 +110,50 @@
         "mainEntity": [
           {
             "@type": "Question",
-            "name": "玄圃 Xuanpu 是什么？",
+            "name": "What is Xuanpu?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "玄圃是一个原生 macOS 桌面应用，把 git worktree 管理与 AI coding agent（Claude Code、OpenCode、Codex）整合在同一个本地工作现场，让你在多分支、多任务并行时不必反复 stash 和切分支。"
+              "text": "Xuanpu is a native macOS application that combines git worktree management with AI-powered coding assistance. It allows you to work on multiple branches simultaneously without the hassle of stashing and switching."
             }
           },
           {
             "@type": "Question",
-            "name": "玄圃免费吗？",
+            "name": "Is Xuanpu free?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "是。玄圃在 MIT 许可下免费开源，可在 GitHub 获取源代码与 Releases 安装包。"
+              "text": "Yes, Xuanpu is free and open source under the MIT license."
             }
           },
           {
             "@type": "Question",
-            "name": "玄圃支持哪些平台？",
+            "name": "Which platforms does Xuanpu support?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "目前主要支持 macOS 12.0 (Monterey) 及以上版本。Windows 与 Linux 处于规划与补齐过程中。"
+              "text": "Currently, Xuanpu is macOS-only (12.0 Monterey or later). Windows and Linux support are planned for future releases."
             }
           },
           {
             "@type": "Question",
-            "name": "如何安装玄圃？",
+            "name": "How do I install Xuanpu?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "推荐通过 Homebrew：brew tap slicenferqin/xuanpu && brew install --cask xuanpu。也可以从 GitHub Releases 下载 DMG，双击 Install Xuanpu.command 自动复制到 /Applications、移除 quarantine 并启动。"
+              "text": "The easiest way is via Homebrew: brew tap slicenferqin/xuanpu && brew install --cask xuanpu. Alternatively, download the .dmg from GitHub Releases and double-click Install Xuanpu.command to copy it to /Applications, remove quarantine attributes, and launch it."
             }
           },
           {
             "@type": "Question",
-            "name": "我必须懂 git worktree 才能用玄圃吗？",
+            "name": "Do I need to know git worktrees to use Xuanpu?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "不需要。玄圃把 worktree 的复杂性都封装在界面背后，只要你会用 git 分支，就能直接使用玄圃创建、归档和切换工作场。"
+              "text": "No. Xuanpu handles all the worktree complexity for you. If you can use git branches, you can use Xuanpu."
             }
           },
           {
             "@type": "Question",
-            "name": "我的代码会被上传到第三方服务器吗？",
+            "name": "Will my code be uploaded to third-party servers?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "不会。所有 AI 交互都在你的机器与所选 AI provider（Claude / OpenCode 等）的 API 之间直连，玄圃不存储或转发你的代码到任何中间服务器。"
+              "text": "No. All AI interactions go directly between your machine and the AI provider you choose (Claude, OpenCode, etc.) over their APIs. Xuanpu does not store or relay your code to any intermediate server."
             }
           }
         ]
@@ -1276,20 +1273,20 @@
   </head>
   <body>
     <div class="site-shell">
-      <header class="topbar" aria-label="主导航">
-        <a class="brand-link" href="#top" aria-label="玄圃首页">
-          <img src="assets/icon.png" alt="" />
+      <header class="topbar" aria-label="Primary navigation">
+        <a class="brand-link" href="#top" aria-label="Xuanpu home">
+          <img src="../assets/icon.png" alt="" />
           <span class="brand-name">
-            <strong>玄圃</strong>
+            <strong>Xuanpu</strong>
             <span>Xuanpu Workbench</span>
           </span>
         </a>
         <nav class="nav-links">
-          <a href="#field">工作场</a>
-          <a href="#workflow">工作流</a>
-          <a href="/en/">English</a>
-          <a href="https://github.com/slicenferqin/xuanpu" target="_blank" rel="noreferrer">源码</a>
-          <a class="download" href="https://github.com/slicenferqin/xuanpu/releases/latest" target="_blank" rel="noreferrer">下载</a>
+          <a href="#field">Field</a>
+          <a href="#workflow">Workflow</a>
+          <a href="/">Chinese</a>
+          <a href="https://github.com/slicenferqin/xuanpu" target="_blank" rel="noreferrer">Source</a>
+          <a class="download" href="https://github.com/slicenferqin/xuanpu/releases/latest" target="_blank" rel="noreferrer">Download</a>
         </nav>
       </header>
 
@@ -1297,16 +1294,17 @@
         <div class="hero-inner">
           <div class="hero-copy">
             <span class="eyebrow" data-reveal>AI-native field context</span>
-            <h1 data-reveal style="--reveal-delay: 80ms">玄圃 Xuanpu</h1>
+            <h1 data-reveal style="--reveal-delay: 80ms">Xuanpu</h1>
             <p data-reveal style="--reveal-delay: 140ms">
-              面向构建者的本地桌面工作台。玄圃把项目、worktree、上下文、Agent session、
-              变更和输出放回同一个现场，让 AI coding agents 不再只是编辑器里的聊天框。
+              A local desktop workbench for builders. Xuanpu brings projects, git worktrees,
+              context, agent sessions, changes and outputs back into one field — so AI coding
+              agents stop being just a chat box inside your editor.
             </p>
             <div class="hero-actions" data-reveal style="--reveal-delay: 180ms">
-              <a class="button primary" href="https://github.com/slicenferqin/xuanpu/releases/latest" target="_blank" rel="noreferrer">下载最新版本</a>
-              <a class="button secondary" href="#field">看它如何组织现场</a>
+              <a class="button primary" href="https://github.com/slicenferqin/xuanpu/releases/latest" target="_blank" rel="noreferrer">Download latest</a>
+              <a class="button secondary" href="#field">See how it organises the field</a>
             </div>
-            <div class="hero-facts" aria-label="产品标签" data-reveal style="--reveal-delay: 260ms">
+            <div class="hero-facts" aria-label="Product tags" data-reveal style="--reveal-delay: 260ms">
               <span>Electron desktop</span>
               <span>Git worktrees</span>
               <span>Claude Code / OpenCode / Codex</span>
@@ -1314,19 +1312,19 @@
             </div>
           </div>
 
-          <div class="product-stage" aria-label="玄圃真实产品界面截图" data-reveal style="--reveal-delay: 120ms">
+          <div class="product-stage" aria-label="Xuanpu product UI screenshot" data-reveal style="--reveal-delay: 120ms">
             <figure class="screenshot-frame">
               <picture>
                 <source
                   type="image/webp"
-                  srcset="assets/product-hero-1280.webp 1280w, assets/product-hero-1920.webp 1920w, assets/product-hero-2600.webp 2600w"
+                  srcset="../assets/product-hero-1280.webp 1280w, ../assets/product-hero-1920.webp 1920w, ../assets/product-hero-2600.webp 2600w"
                   sizes="(max-width: 720px) 100vw, (max-width: 1280px) 90vw, 1280px"
                 />
                 <img
-                  src="assets/product-hero-1920.jpg"
-                  srcset="assets/product-hero-1280.jpg 1280w, assets/product-hero-1920.jpg 1920w, assets/product-hero-2600.jpg 2600w"
+                  src="../assets/product-hero-1920.jpg"
+                  srcset="../assets/product-hero-1280.jpg 1280w, ../assets/product-hero-1920.jpg 1920w, ../assets/product-hero-2600.jpg 2600w"
                   sizes="(max-width: 720px) 100vw, (max-width: 1280px) 90vw, 1280px"
-                  alt="玄圃真实产品界面截图，包含项目列表、Agent session、变更面板和终端"
+                  alt="Xuanpu product UI screenshot showing project list, agent session, changes panel and terminal"
                   width="2600"
                   height="1301"
                   fetchpriority="high"
@@ -1336,11 +1334,11 @@
             </figure>
           </div>
         </div>
-        <div class="metric-row" aria-label="玄圃核心对象">
-          <div class="metric" data-reveal><strong>Project</strong><span>项目和仓库边界</span></div>
-          <div class="metric" data-reveal style="--reveal-delay: 80ms"><strong>Worktree</strong><span>每个任务的隔离现场</span></div>
-          <div class="metric" data-reveal style="--reveal-delay: 160ms"><strong>Session</strong><span>Agent 对话和执行轨迹</span></div>
-          <div class="metric" data-reveal style="--reveal-delay: 240ms"><strong>Changes</strong><span>文件、终端、差异和 PR</span></div>
+        <div class="metric-row" aria-label="Xuanpu core objects">
+          <div class="metric" data-reveal><strong>Project</strong><span>Repository &amp; project boundary</span></div>
+          <div class="metric" data-reveal style="--reveal-delay: 80ms"><strong>Worktree</strong><span>Isolated field per task</span></div>
+          <div class="metric" data-reveal style="--reveal-delay: 160ms"><strong>Session</strong><span>Agent dialogue &amp; execution trace</span></div>
+          <div class="metric" data-reveal style="--reveal-delay: 240ms"><strong>Changes</strong><span>Files, terminal, diffs &amp; PRs</span></div>
         </div>
       </section>
 
@@ -1349,28 +1347,29 @@
           <div class="section-inner">
             <div class="section-heading" data-reveal>
               <span class="label">Why Xuanpu</span>
-              <h2>AI 编程不是一条聊天记录，而是一整个工作场。</h2>
+              <h2>AI coding isn't a chat log — it's an entire workfield.</h2>
               <p>
-                当任务跨过多个文件、多个分支、多个 agent 和多次验证时，真正稀缺的不是输入框，
-                而是一个能保存现场、展示变化、承接下一轮工作的桌面环境。
+                When a task crosses many files, branches, agents and verification rounds, the
+                scarce resource isn't an input box. It's a desktop environment that preserves the
+                field, surfaces what changed, and carries the next round of work.
               </p>
             </div>
 
             <div class="feature-grid">
               <article class="feature-card" data-reveal>
                 <span class="num">01</span>
-                <h3>Worktree 是任务边界</h3>
-                <p>每个需求拥有独立目录、分支和运行状态。你不用在同一个仓库里不断 stash、切分支、找回上下文。</p>
+                <h3>Worktree as task boundary</h3>
+                <p>Each task gets its own directory, branch and runtime state. No more endless stash, switch and reload of context inside a single repo.</p>
               </article>
               <article class="feature-card" data-reveal style="--reveal-delay: 90ms">
                 <span class="num">02</span>
-                <h3>Session 是执行轨迹</h3>
-                <p>Claude Code、OpenCode、Codex 的输出被放进统一时间线，工具调用、计划、确认和结果能被继续追踪。</p>
+                <h3>Session as execution trace</h3>
+                <p>Output from Claude Code, OpenCode and Codex lands on a unified timeline. Tool calls, plans, confirmations and results stay traceable across rounds.</p>
               </article>
               <article class="feature-card" data-reveal style="--reveal-delay: 180ms">
                 <span class="num">03</span>
-                <h3>变更是交付现场</h3>
-                <p>右侧变更、文件、差异和终端输出一起留在当前任务里。你看到的不只是回答，而是这轮工作真正改了什么。</p>
+                <h3>Changes as the delivery field</h3>
+                <p>Changes, files, diffs and terminal output stay attached to the current task. You see not just an answer, but what this round actually changed.</p>
               </article>
             </div>
           </div>
@@ -1380,40 +1379,41 @@
           <div class="section-inner workflow">
             <div class="section-heading" data-reveal>
               <span class="label">Field Map</span>
-              <h2>从项目到 PR，现场不断线。</h2>
+              <h2>From project to PR — the field never breaks.</h2>
               <p>
-                玄圃关注的是一轮真实工作的生命周期：开一个任务现场，让 agent 在正确目录执行，
-                观察变化，验证结果，最后把分支、构建和 PR 都收束起来。
+                Xuanpu cares about the lifecycle of a real round of work: open a task field,
+                let the agent run in the right directory, observe the changes, verify results,
+                then wrap up branch, build and PR.
               </p>
               <div class="workflow-list">
                 <div class="workflow-item" data-reveal>
                   <b>1</b>
-                  <div><strong>选择项目</strong><span>项目、关联仓库和本地路径作为上下文边界。</span></div>
+                  <div><strong>Pick a project</strong><span>Project, linked repo and local path become the context boundary.</span></div>
                 </div>
                 <div class="workflow-item" data-reveal style="--reveal-delay: 70ms">
                   <b>2</b>
-                  <div><strong>创建 worktree</strong><span>为当前需求开一个可回收的隔离工作场。</span></div>
+                  <div><strong>Create a worktree</strong><span>Open a disposable, isolated workfield for the current task.</span></div>
                 </div>
                 <div class="workflow-item" data-reveal style="--reveal-delay: 140ms">
                   <b>3</b>
-                  <div><strong>启动 agent</strong><span>让 agent 在这个现场里读文件、改代码、跑验证。</span></div>
+                  <div><strong>Launch the agent</strong><span>Let the agent read files, edit code and run verifications inside this field.</span></div>
                 </div>
                 <div class="workflow-item" data-reveal style="--reveal-delay: 210ms">
                   <b>4</b>
-                  <div><strong>收束交付</strong><span>保留验证证据，提交、推送、创建 PR，进入下一轮。</span></div>
+                  <div><strong>Wrap up &amp; deliver</strong><span>Keep the verification evidence, commit, push, open a PR — then move on.</span></div>
                 </div>
               </div>
             </div>
-            <div class="field-map" aria-label="玄圃工作场对象关系图" data-reveal style="--reveal-delay: 120ms">
+            <div class="field-map" aria-label="Xuanpu field object map" data-reveal style="--reveal-delay: 120ms">
               <span class="map-line one"></span>
               <span class="map-line two"></span>
               <span class="map-line three"></span>
               <span class="map-line four"></span>
-              <div class="map-node project"><strong>Project</strong><span>仓库、路径、关联项目</span></div>
-              <div class="map-node worktree"><strong>Worktree</strong><span>分支、目录、任务边界</span></div>
-              <div class="map-node session"><strong>Agent Session</strong><span>对话、工具调用、计划和验证</span></div>
-              <div class="map-node changes"><strong>Changes</strong><span>文件、终端、差异和验证结果</span></div>
-              <div class="map-node output"><strong>Output</strong><span>提交、构建、PR 和发布</span></div>
+              <div class="map-node project"><strong>Project</strong><span>Repo, path, linked projects</span></div>
+              <div class="map-node worktree"><strong>Worktree</strong><span>Branch, directory, task boundary</span></div>
+              <div class="map-node session"><strong>Agent Session</strong><span>Dialogue, tool calls, plan, verification</span></div>
+              <div class="map-node changes"><strong>Changes</strong><span>Files, terminal, diffs &amp; verification</span></div>
+              <div class="map-node output"><strong>Output</strong><span>Commit, build, PR &amp; release</span></div>
             </div>
           </div>
         </section>
@@ -1422,30 +1422,31 @@
           <div class="section-inner">
             <div class="download-band" data-reveal>
               <div>
-                <h2>先从 macOS 开始，把 AI coding agent 的现场收回来。</h2>
+                <h2>Start on macOS. Bring your AI coding field back into one place.</h2>
                 <p>
-                  玄圃当前主支持 macOS。安装包内包含安装辅助脚本：双击即可复制到
-                  `/Applications`、移除 quarantine 属性并打开应用，降低未签名版本的首次启动成本。
+                  Xuanpu is currently macOS-first. The DMG ships with an install helper:
+                  double-click to copy to `/Applications`, remove quarantine, and launch —
+                  cutting the friction of unsigned first-run.
                 </p>
               </div>
               <div class="release-actions">
                 <a class="button primary" href="https://github.com/slicenferqin/xuanpu/releases/latest" target="_blank" rel="noreferrer">GitHub Releases</a>
-                <a class="button secondary" href="https://github.com/slicenferqin/xuanpu" target="_blank" rel="noreferrer">查看源码</a>
+                <a class="button secondary" href="https://github.com/slicenferqin/xuanpu" target="_blank" rel="noreferrer">Source code</a>
               </div>
             </div>
 
-            <div class="install-helper" aria-label="安装流程" data-reveal style="--reveal-delay: 120ms">
+            <div class="install-helper" aria-label="Install flow" data-reveal style="--reveal-delay: 120ms">
               <div class="helper-row">
                 <strong>macOS</strong>
-                <span>打开 DMG 后双击 `Install Xuanpu.command`，自动复制、去隔离并启动。</span>
+                <span>Open the DMG and double-click `Install Xuanpu.command` to copy, de-quarantine and launch automatically.</span>
               </div>
               <div class="helper-row">
                 <strong>Windows</strong>
-                <span>已有 x64 / ARM64 打包链路，未签名版本遇到 SmartScreen 时选择继续运行。</span>
+                <span>x64 / ARM64 packaging is ready. For unsigned builds, choose "Run anyway" if SmartScreen warns.</span>
               </div>
               <div class="helper-row">
                 <strong>Linux</strong>
-                <span>目标平台之一，体验仍在补齐中。</span>
+                <span>A target platform — experience is still being built out.</span>
               </div>
             </div>
           </div>
@@ -1454,7 +1455,7 @@
 
       <footer>
         <div class="footer-inner">
-          <span>玄圃 Xuanpu Workbench · xuanpu.clawplay.club</span>
+          <span>Xuanpu Workbench · xuanpu.clawplay.club</span>
           <div class="footer-links">
             <a href="https://github.com/slicenferqin/xuanpu" target="_blank" rel="noreferrer">GitHub</a>
             <a href="https://github.com/slicenferqin/xuanpu/releases/latest" target="_blank" rel="noreferrer">Releases</a>

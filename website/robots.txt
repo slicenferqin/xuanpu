@@ -1,4 +1,6 @@
 User-agent: *
 Allow: /
+Disallow: /*.psd$
+Disallow: /*.sketch$
 
 Sitemap: https://xuanpu.clawplay.club/sitemap.xml
