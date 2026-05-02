@@ -2,7 +2,13 @@
   <img src="resources/banner.png" alt="玄圃 Xuanpu Workbench" width="100%" />
   <p><strong>面向构建者的 AI 原生工作台</strong></p>
   <p>不是把 AI 塞进传统编辑器，而是把项目、上下文、任务、Agent、变更和产物放进同一个工作台。</p>
-  <p><a href="./README.md"><strong>简体中文</strong></a> | <a href="./README.en.md">English</a></p>
+  <p>
+    <a href="https://xuanpu.clawplay.club"><strong>官网</strong></a>
+    ·
+    <a href="./README.md"><strong>简体中文</strong></a>
+    ·
+    <a href="./README.en.md">English</a>
+  </p>
 
   <p>
     <a href="https://github.com/slicenferqin/xuanpu/releases/latest"><img src="https://img.shields.io/github/v/release/slicenferqin/xuanpu?style=flat-square&logo=github&label=version" alt="Latest Release" /></a>
@@ -14,6 +20,7 @@
 </div>
 
 ## 玄圃是什么
+
 玄圃是一款面向构建者的 AI 原生工作台。它不是“给编辑器加一个聊天框”，也不是“把终端换个皮肤”，而是把真实工作流里的几个一等公民放回桌面端：
 
 - `Workspace`：你的项目、仓库、关联仓库和上下文边界
@@ -69,40 +76,48 @@
 完整论述见：[VISION](./docs/VISION.md) 和 [v1.4.0 节点回顾](./docs/essays/2026-04-25-from-1-3-to-1-4-ai-native-workbench.md)。
 
 ## 安装
+
 当前建议的使用方式：
 
 ### 直接下载
+
 从 [GitHub Releases](https://github.com/slicenferqin/xuanpu/releases/latest) 下载最新构建。
 
-| 平台 | 文件 | 说明 |
-|------|------|------|
-| macOS (Apple Silicon) | `Xuanpu-x.x.x-arm64.dmg` | M1 / M2 / M3 / M4 |
-| macOS (Intel) | `Xuanpu-x.x.x.dmg` | Intel Mac |
-| Windows (x64) | `Xuanpu-Setup-x.x.x.exe` | 64-bit 安装包 |
-| Windows (ARM) | `Xuanpu-Setup-x.x.x-arm64.exe` | ARM64 安装包 |
+| 平台                  | 文件                           | 说明              |
+| --------------------- | ------------------------------ | ----------------- |
+| macOS (Apple Silicon) | `Xuanpu-x.x.x-arm64.dmg`       | M1 / M2 / M3 / M4 |
+| macOS (Intel)         | `Xuanpu-x.x.x.dmg`             | Intel Mac         |
+| Windows (x64)         | `Xuanpu-Setup-x.x.x.exe`       | 64-bit 安装包     |
+| Windows (ARM)         | `Xuanpu-Setup-x.x.x-arm64.exe` | ARM64 安装包      |
 
-> **macOS 安装提示**：当前版本未经 Apple 签名，首次打开时会提示"无法验证开发者"。
-> 请在终端执行以下命令后重新打开：
+> **macOS 安装提示**：当前版本未经 Apple 签名。打开 DMG 后，双击里面的
+> `Install Xuanpu.command`，它会自动复制到 `/Applications`、执行去隔离命令并打开应用。
+> 如果脚本不可用，也可以手动执行：
+>
 > ```bash
 > /usr/bin/xattr -cr "/Applications/玄圃.app"
 > ```
+>
 > 或者：系统设置 → 隐私与安全性 → 点击「仍要打开」。
 >
 > **Windows 安装提示**：安装包未签名，Windows SmartScreen 可能会弹出警告。
 > 点击「更多信息」→「仍要运行」即可。
 
 ### 从源码启动
+
 ```bash
 pnpm install
 pnpm dev
 ```
 
 ### 当前平台状态
+
 - `macOS`：主支持平台
 - `Windows`：已有打包链路，持续验证中
 - `Linux`：目标平台之一，仍在逐步补齐体验
 
 ## 快速开始
+
 1. 添加本地 git 仓库作为项目
 2. 为当前任务创建独立 worktree
 3. 在 worktree 中启动 Agent session
@@ -119,6 +134,7 @@ pnpm dev
 📊 [查看完整下载统计 →](https://greedeks.github.io/Pulse/?username=slicenferqin&repo=xuanpu)
 
 ## 仓库现状
+
 当前仓库是桌面端主仓，核心栈如下：
 
 - Electron 33
@@ -152,9 +168,11 @@ v1.4.0 把"现场"打通了第一公里。1.4.x 的核心是**让记忆变得可
 如果你现在打开仓库，会看到一些仍在演进中的部分，这是正常状态。玄圃正在从早期 fork 产物，过渡到独立产品主线。
 
 ## 致谢与来源
+
 玄圃起步于对 [Hive](https://github.com/slicenferqin/xuanpu) 的 fork / 演化。最初很多工程基础、工作台结构和产品启发都来自 Hive。当前这条产品线已经开始沿着中文工作流、桌面端交互和独立品牌方向持续分化，但对原项目的致谢应该保留。
 
 ## 贡献
+
 欢迎贡献，尤其是这些方向：
 
 - 中文文案和本地化体验
@@ -164,4 +182,5 @@ v1.4.0 把"现场"打通了第一公里。1.4.x 的核心是**让记忆变得可
 - 文档与设计资产整理
 
 ## 许可
+
 本项目基于 [MIT License](./LICENSE) 开源。

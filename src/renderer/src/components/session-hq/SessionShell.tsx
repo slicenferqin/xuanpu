@@ -67,6 +67,7 @@ import {
   extractModelUsage
 } from '@/lib/token-utils'
 import { applySessionContextUsage } from '@/lib/context-usage'
+import { mapRawTranscriptToTimeline } from '@shared/lib/timeline-mappers'
 import { lastSendMode, messageSendTimes } from '@/lib/message-send-times'
 import {
   getMessageDisplayContent,
@@ -111,7 +112,14 @@ function extractMissionTasks(messages: TimelineMessage[]): MissionTask[] {
 // useTimeline hook — fetches durable timeline from main process
 // ---------------------------------------------------------------------------
 
-function useTimeline(sessionId: string) {
+function useTimeline(
+  sessionId: string,
+  options?: {
+    worktreePath?: string | null
+    opencodeSessionId?: string | null
+    agentSdk?: string | null
+  }
+) {
   // Restore optimistic messages from buffer on mount so they survive tab switches
   const initBuffer = getStreamingBuffer(sessionId)
   const [messages, setMessages] = useState<TimelineMessage[]>(
@@ -135,18 +143,59 @@ function useTimeline(sessionId: string) {
     }
     try {
       const result = await window.agentOps.getTimeline(sessionId)
+      let durableMessages = result.messages
+
+      const hasRenderableAssistant = durableMessages.some(
+        (msg) =>
+          msg.role === 'assistant' &&
+          ((typeof msg.content === 'string' && msg.content.trim().length > 0) ||
+            (Array.isArray(msg.parts) && msg.parts.length > 0))
+      )
+
+      const canFallbackToSdkMessages =
+        Boolean(window.agentOps?.getMessages) &&
+        typeof options?.worktreePath === 'string' &&
+        options.worktreePath.length > 0 &&
+        typeof options?.opencodeSessionId === 'string' &&
+        options.opencodeSessionId.length > 0 &&
+        options.agentSdk !== 'codex' &&
+        options.agentSdk !== 'terminal'
+
+      if (!hasRenderableAssistant && canFallbackToSdkMessages) {
+        try {
+          const transcript = await window.agentOps.getMessages(
+            options!.worktreePath!,
+            options!.opencodeSessionId!
+          )
+          if (transcript.success && Array.isArray(transcript.messages) && transcript.messages.length > 0) {
+            const fallbackMessages = mapRawTranscriptToTimeline(transcript.messages)
+            const fallbackHasAssistant = fallbackMessages.some(
+              (msg) =>
+                msg.role === 'assistant' &&
+                ((typeof msg.content === 'string' && msg.content.trim().length > 0) ||
+                  (Array.isArray(msg.parts) && msg.parts.length > 0))
+            )
+            if (fallbackHasAssistant) {
+              durableMessages = fallbackMessages
+            }
+          }
+        } catch (err) {
+          console.warn('[SessionShell] getMessages fallback failed:', err)
+        }
+      }
+
       // Restore cached attachments onto refreshed messages
       const cache = attachmentCacheRef.current
       const restored =
         cache.size > 0
-          ? result.messages.map((msg) => {
+          ? durableMessages.map((msg) => {
               if (msg.role === 'user' && !msg.attachments) {
                 const stored = cache.get(msg.content.trim())
                 if (stored) return { ...msg, attachments: stored }
               }
               return msg
             })
-          : result.messages
+          : durableMessages
 
       // Merge back optimistic messages not yet present in DB results.
       // Match by content — once the DB contains a user message with the same
@@ -175,7 +224,7 @@ function useTimeline(sessionId: string) {
     } finally {
       setLoading(false)
     }
-  }, [sessionId])
+  }, [sessionId, options?.worktreePath, options?.opencodeSessionId, options?.agentSdk])
 
   useEffect(() => {
     setLoading(true)
@@ -284,6 +333,15 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   }, [worktreePathFromStore, connectionId])
 
   const worktreePath = resolvedPath
+  const opcSessionId = sessionRecord?.opencode_session_id ?? null
+  const agentSdk = sessionRecord?.agent_sdk ?? null
+
+  // We need droidSessionId before useTimeline so that, after connect/reconnect,
+  // the SDK transcript fallback can hydrate prior history even when the
+  // session record's opencode_session_id is still null on first mount.
+  const [droidSessionId, setDroidSessionId] = useState<string | null>(
+    sessionRecord?.opencode_session_id ?? null
+  )
 
   const {
     messages: timelineMessages,
@@ -292,12 +350,18 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     refresh,
     appendOptimistic,
     optimisticRef
-  } = useTimeline(sessionId)
+  } = useTimeline(sessionId, {
+    worktreePath,
+    // After connect/reconnect we know the live OpenCode session id even if
+    // sessionRecord.opencode_session_id is still null on first mount, so
+    // fall back to droidSessionId so the SDK transcript fallback path can
+    // hydrate prior history before the first turn finishes.
+    opencodeSessionId: opcSessionId ?? droidSessionId,
+    agentSdk
+  })
   const { lifecycle, interruptQueue, pendingCount } = useSessionRuntime(sessionId)
 
   // --- Connect or reconnect to agent runtime on mount ---
-  const opcSessionId = sessionRecord?.opencode_session_id ?? null
-  const agentSdk = sessionRecord?.agent_sdk ?? null
 
   // --- Plan mode ---
   const mode = useSessionStore((s) => s.modeBySession?.get(sessionId) ?? 'build')
@@ -415,6 +479,15 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
     return resolvedModel ?? undefined
   }, [resolvedModel, sessionRecord?.model_provider_id, sessionRecord?.model_id])
+  // Phase 1.4.8: OpenCode's plan agent only activates when the prompt body
+  // carries `agent: 'plan'`, which opencode-service.prompt() derives from
+  // PromptOptions.mode. Build the options object here so every send path
+  // (first prompt / queued drain / follow-up / proposed-plan implement)
+  // consistently passes the live session mode.
+  const promptOptions = useMemo(
+    () => (agentSdk === 'opencode' ? { mode } : undefined),
+    [agentSdk, mode]
+  )
   const currentModelId = resolvedModel?.modelID ?? ''
   const currentProviderId = resolvedModel?.providerID ?? ''
   const skipForkFromMessageConfirm = useSettingsStore((s) => s.skipForkFromMessageConfirm)
@@ -428,9 +501,6 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   const streamingParts = streamingMirror.parts
   const mirrorVersion = streamingMirror.mirrorVersion
   const childPartsMap = streamingMirror.childParts
-  const [droidSessionId, setDroidSessionId] = useState<string | null>(
-    sessionRecord?.opencode_session_id ?? null
-  )
   const timelineBottomAreaRef = useRef<HTMLDivElement>(null)
   const composerBarRef = useRef<HTMLDivElement>(null)
 
@@ -869,7 +939,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
                   if (message.attachments.length > 0) {
                     messageParts = await buildMessageParts(message.attachments as Attachment[], message.content)
                   }
-                  return window.agentOps.prompt(wp, sid, messageParts ?? message.content, requestModel)
+                  return window.agentOps.prompt(wp, sid, messageParts ?? message.content, requestModel, promptOptions)
                 },
                 worktreePath,
                 (sid, message) => useSessionRuntimeStore.getState().requeueMessageFront(sid, message)
@@ -952,6 +1022,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     optimisticRef,
     currentProviderId,
     requestModel,
+    promptOptions,
     refreshUsageSummary
   ])
 
@@ -961,10 +1032,30 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       if (!worktreePath || !droidSessionId) return false
       let optimisticMessageId: string | null = null
 
-      // Pure stop (no content) — just abort, don't clear anything
+      // Pure stop (no content) — abort, then optimistically clear the live
+      // overlay so the streaming tool / text cards disappear immediately. The
+      // committed transcript (durable timeline messages) remains. Without
+      // this, the in-flight tool card stayed visible until the next prompt,
+      // which made the user think the Stop button "didn't work" and click it
+      // 2-3 more times. Backend aborts were going through; only the optics
+      // were wrong. (See OpenCode plan-mode dump 2026-05-01T09:59 — three
+      // abort.accepted markers within ~6 s for the same idle session.)
       if (action === 'stop_and_send' && !content.trim()) {
         try {
-          await window.agentOps.abort(worktreePath, droidSessionId)
+          const result = await window.agentOps.abort(worktreePath, droidSessionId)
+          if (result.success && result.aborted !== false) {
+            resetLiveOverlay(false)
+            // Phase 1.4.8: optimistically flip lifecycle to 'idle' so the
+            // ComposerBar Stop button (red square) flips back to Send (blue
+            // arrow) immediately. Backend will eventually emit
+            // `session.status idle` via flushAbortDraft, but on slow networks
+            // or when SSE reconnects mid-abort the event can lag by seconds —
+            // long enough that users keep clicking Stop thinking it failed.
+            // Safe because the worst case (abort actually didn't take) is
+            // self-correcting: the next backend `busy` event would put us
+            // back into busy state.
+            useSessionRuntimeStore.getState().setLifecycle(sessionId, 'idle')
+          }
         } catch (err) {
           console.error('[SessionShell] abort failed:', err)
         }
@@ -1011,7 +1102,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
             if (attachments.length > 0) {
               messageParts = await buildMessageParts(attachments, c)
             }
-            return window.agentOps.prompt(wp, sid, messageParts ?? c, requestModel)
+            return window.agentOps.prompt(wp, sid, messageParts ?? c, requestModel, promptOptions)
           },
           steer: (wp, sid, c) => window.agentOps.steer(wp, sid, c, requestModel),
           abort: (wp, sid) => window.agentOps.abort(wp, sid),
@@ -1045,6 +1136,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       appendOptimistic,
       optimisticRef,
       requestModel,
+      promptOptions,
       resetLiveOverlay,
       setMessages,
       syncOptimisticMessagesToMirror
@@ -1108,7 +1200,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         const consumed = await executeSendAction('send', contentToSend, [], {
           worktreePath,
           sessionId: droidSessionId,
-          prompt: (wp, sid, content) => window.agentOps.prompt(wp, sid, content, requestModel),
+          prompt: (wp, sid, content) => window.agentOps.prompt(wp, sid, content, requestModel, promptOptions),
           abort: (wp, sid) => window.agentOps.abort(wp, sid),
           queueMessage: (sid, msg) => useSessionRuntimeStore.getState().queueMessage(sid, msg)
         })
@@ -1130,6 +1222,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       setMessages,
       appendOptimistic,
       requestModel,
+      promptOptions,
       resetLiveOverlay,
       syncOptimisticMessagesToMirror,
       t,
@@ -1296,7 +1389,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       await executeSendAction('send', implementPrompt, [], {
         worktreePath,
         sessionId: droidSessionId,
-        prompt: (wp, sid, c) => window.agentOps.prompt(wp, sid, c, requestModel),
+        prompt: (wp, sid, c) => window.agentOps.prompt(wp, sid, c, requestModel, promptOptions),
         abort: (wp, sid) => window.agentOps.abort(wp, sid),
         queueMessage: (sid, msg) => useSessionRuntimeStore.getState().queueMessage(sid, msg)
       })
@@ -1317,7 +1410,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     resetLiveOverlay,
     syncOptimisticMessagesToMirror,
     transitionToolStatus,
-    requestModel
+    requestModel,
+    promptOptions
   ])
 
   const handlePlanHandoff = useCallback(() => {

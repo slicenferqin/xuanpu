@@ -1,0 +1,10 @@
+/* TEAM */
+  Project: 玄圃 Xuanpu
+  Site:    https://xuanpu.clawplay.club/
+  Source:  https://github.com/slicenferqin/xuanpu
+  License: MIT
+
+/* TECHNOLOGY COLOPHON */
+  HTML5, CSS, vanilla JS
+  Electron 33 · React 19 · TypeScript · Tailwind CSS 4 · SQLite (better-sqlite3)
+  Git Worktrees · Claude Code · OpenCode · Codex

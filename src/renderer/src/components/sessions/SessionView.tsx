@@ -847,9 +847,15 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   const updateSetting = useSettingsStore((state) => state.updateSetting)
   const vimModeEnabled = useSettingsStore((s) => s.vimModeEnabled)
 
+  // Subscribe reactively so switching Build <-> Plan reruns this memo and
+  // the next prompt picks up the new mode on opencode sessions.
+  const sessionMode = useSessionStore((s) => s.modeBySession?.get(sessionId) ?? 'build')
   const codexPromptOptions = useMemo(
-    () => (sessionAgentSdk === 'codex' ? { codexFastMode } : undefined),
-    [sessionAgentSdk, codexFastMode]
+    () => ({
+      ...(sessionAgentSdk === 'codex' ? { codexFastMode } : {}),
+      ...(sessionAgentSdk === 'opencode' ? { mode: sessionMode } : {})
+    }),
+    [sessionAgentSdk, codexFastMode, sessionMode]
   )
 
   // Streaming dedup refs

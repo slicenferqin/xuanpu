@@ -1,0 +1,1526 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Xuanpu | AI-Native Desktop Workbench for Coding Agents</title>
+    <meta
+      name="description"
+      content="Xuanpu is an AI-native desktop workbench for builders. It puts projects, git worktrees, context, agent sessions and changes back into one local field — Claude Code, OpenCode and Codex included. Free and open source for macOS."
+    />
+    <meta
+      name="keywords"
+      content="Xuanpu,AI workbench,Claude Code desktop,OpenCode,Codex,Git Worktree GUI,AI coding agent,local-first AI,Electron,macOS"
+    />
+    <meta name="author" content="Xuanpu" />
+    <meta
+      name="robots"
+      content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1"
+    />
+    <link rel="canonical" href="https://xuanpu.clawplay.club/en/" />
+    <link rel="alternate" hreflang="zh-CN" href="https://xuanpu.clawplay.club/" />
+    <link rel="alternate" hreflang="en" href="https://xuanpu.clawplay.club/en/" />
+    <link rel="alternate" hreflang="x-default" href="https://xuanpu.clawplay.club/" />
+    <link rel="dns-prefetch" href="//github.com" />
+    <link rel="preconnect" href="https://github.com" crossorigin />
+    <link rel="preload" as="image" href="../assets/product-hero-1920.webp" imagesrcset="../assets/product-hero-1280.webp 1280w, ../assets/product-hero-1920.webp 1920w, ../assets/product-hero-2600.webp 2600w" imagesizes="(max-width: 720px) 100vw, (max-width: 1280px) 90vw, 1280px" type="image/webp" fetchpriority="high" />
+    <link rel="icon" type="image/x-icon" href="../assets/favicon.ico" />
+    <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://xuanpu.clawplay.club/en/" />
+    <meta property="og:site_name" content="Xuanpu" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="zh_CN" />
+    <meta property="og:title" content="Xuanpu | AI-Native Desktop Workbench" />
+    <meta
+      property="og:description"
+      content="Not a chat box inside an editor. Xuanpu organises projects, worktrees, context, agent sessions and changes into one local field. Native integration with Claude Code, OpenCode and Codex."
+    />
+    <meta property="og:image" content="https://xuanpu.clawplay.club/assets/social-preview.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1280" />
+    <meta property="og:image:height" content="640" />
+    <meta property="og:image:alt" content="Xuanpu — AI-native desktop workbench for coding agents" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Xuanpu | AI-Native Desktop Workbench" />
+    <meta
+      name="twitter:description"
+      content="A local workbench for AI coding agents — Claude Code, OpenCode, Codex. Built around git worktrees."
+    />
+    <meta name="twitter:image" content="https://xuanpu.clawplay.club/assets/social-preview.png" />
+    <meta name="twitter:image:alt" content="Xuanpu product UI screenshot" />
+    <meta name="theme-color" content="#eff1f5" />
+
+    <!-- Structured data: SoftwareApplication -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Xuanpu",
+        "alternateName": ["Xuanpu Workbench", "玄圃"],
+        "description": "An AI-native desktop workbench for builders. Xuanpu brings projects, git worktrees, context, agent sessions, changes and outputs back into one local field — Claude Code, OpenCode and Codex included.",
+        "url": "https://xuanpu.clawplay.club/en/",
+        "image": "https://xuanpu.clawplay.club/assets/social-preview.png",
+        "applicationCategory": "DeveloperApplication",
+        "applicationSubCategory": "IDE",
+        "operatingSystem": "macOS 12.0+",
+        "downloadUrl": "https://github.com/slicenferqin/xuanpu/releases/latest",
+        "softwareVersion": "1.4.4",
+        "softwareHelp": "https://github.com/slicenferqin/xuanpu",
+        "license": "https://opensource.org/licenses/MIT",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD",
+          "availability": "https://schema.org/InStock"
+        },
+        "author": {
+          "@type": "Organization",
+          "name": "Xuanpu",
+          "url": "https://github.com/slicenferqin/xuanpu"
+        },
+        "featureList": [
+          "Git worktree GUI",
+          "Agent session timeline",
+          "Claude Code / OpenCode / Codex integration",
+          "Local-first context",
+          "Parallel worktree workflows"
+        ]
+      }
+    </script>
+
+    <!-- Structured data: Organization -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "Xuanpu",
+        "alternateName": "玄圃",
+        "url": "https://xuanpu.clawplay.club/",
+        "logo": "https://xuanpu.clawplay.club/assets/icon.png",
+        "sameAs": ["https://github.com/slicenferqin/xuanpu"]
+      }
+    </script>
+
+    <!-- Structured data: FAQPage -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "What is Xuanpu?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Xuanpu is a native macOS application that combines git worktree management with AI-powered coding assistance. It allows you to work on multiple branches simultaneously without the hassle of stashing and switching."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Is Xuanpu free?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes, Xuanpu is free and open source under the MIT license."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Which platforms does Xuanpu support?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Currently, Xuanpu is macOS-only (12.0 Monterey or later). Windows and Linux support are planned for future releases."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How do I install Xuanpu?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The easiest way is via Homebrew: brew tap slicenferqin/xuanpu && brew install --cask xuanpu. Alternatively, download the .dmg from GitHub Releases and double-click Install Xuanpu.command to copy it to /Applications, remove quarantine attributes, and launch it."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Do I need to know git worktrees to use Xuanpu?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No. Xuanpu handles all the worktree complexity for you. If you can use git branches, you can use Xuanpu."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Will my code be uploaded to third-party servers?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No. All AI interactions go directly between your machine and the AI provider you choose (Claude, OpenCode, etc.) over their APIs. Xuanpu does not store or relay your code to any intermediate server."
+            }
+          }
+        ]
+      }
+    </script>
+
+    <style>
+      :root {
+        color-scheme: light;
+        --latte-base: #eff1f5;
+        --latte-mantle: #e6e9ef;
+        --latte-crust: #dce0e8;
+        --latte-text: #4c4f69;
+        --latte-subtext: #6c6f85;
+        --latte-overlay: #9ca0b0;
+        --latte-lavender: #7287fd;
+        --latte-teal: #179299;
+        --porcelain: #f7f3ea;
+        --jade: #7fb69a;
+        --jade-deep: #30463d;
+        --jade-dark: #1e2b27;
+        --gold: #d7b96c;
+        --paper: rgba(255, 255, 255, 0.72);
+        --paper-strong: rgba(255, 255, 255, 0.9);
+        --line: rgba(76, 79, 105, 0.14);
+        --shadow: 0 24px 80px rgba(76, 79, 105, 0.18);
+        --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+        --ease-snap: cubic-bezier(0.2, 0.9, 0.18, 1);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+        background: var(--latte-base);
+        color: var(--latte-text);
+        font-family:
+          ui-sans-serif,
+          -apple-system,
+          BlinkMacSystemFont,
+          "SF Pro Text",
+          "PingFang SC",
+          "Hiragino Sans GB",
+          "Microsoft YaHei",
+          sans-serif;
+        letter-spacing: 0;
+        text-rendering: optimizeLegibility;
+      }
+
+      ::selection {
+        color: #10231e;
+        background: rgba(127, 182, 154, 0.34);
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      .site-shell {
+        min-height: 100vh;
+        overflow: hidden;
+      }
+
+      .topbar {
+        position: fixed;
+        inset: 16px 18px auto;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        max-width: 860px;
+        margin: 0 auto;
+        padding: 9px 10px;
+        border: 1px solid rgba(76, 79, 105, 0.12);
+        border-radius: 17px;
+        background: rgba(245, 247, 250, 0.78);
+        box-shadow:
+          0 20px 70px rgba(76, 79, 105, 0.14),
+          0 1px 0 rgba(255, 255, 255, 0.9) inset;
+        backdrop-filter: blur(22px) saturate(1.12);
+        animation: navIn 720ms var(--ease-out) both;
+      }
+
+      .brand-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .brand-link img {
+        width: 34px;
+        height: 34px;
+        flex: 0 0 auto;
+      }
+
+      .brand-name {
+        display: grid;
+        gap: 1px;
+        line-height: 1;
+      }
+
+      .brand-name strong {
+        font-size: 15px;
+        font-weight: 750;
+        color: var(--jade-dark);
+      }
+
+      .brand-name span {
+        color: var(--latte-subtext);
+        font-family:
+          "SF Mono",
+          ui-monospace,
+          Menlo,
+          Consolas,
+          monospace;
+        font-size: 10px;
+      }
+
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+
+      .nav-links a {
+        border-radius: 999px;
+        padding: 8px 12px;
+        color: var(--latte-subtext);
+        font-size: 13px;
+        transition:
+          color 160ms ease,
+          background 160ms ease,
+          transform 160ms ease;
+      }
+
+      .nav-links a:hover {
+        background: rgba(255, 255, 255, 0.58);
+        color: var(--latte-text);
+        transform: translateY(-1px);
+      }
+
+      .nav-links .download {
+        background: var(--jade-dark);
+        color: #f5fbf7;
+      }
+
+      .nav-links .download:hover {
+        background: #263f37;
+        color: #ffffff;
+      }
+
+      .hero {
+        position: relative;
+        min-height: 94svh;
+        overflow: hidden;
+        padding: 118px 24px 30px;
+        background:
+          linear-gradient(90deg, rgba(255, 255, 255, 0.66) 0 1px, transparent 1px),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.56) 0 1px, transparent 1px),
+          linear-gradient(135deg, rgba(114, 135, 253, 0.11), transparent 38%),
+          linear-gradient(315deg, rgba(127, 182, 154, 0.12), transparent 42%),
+          linear-gradient(118deg, #f7f3ea 0%, #eff1f5 48%, #e6e9ef 100%);
+        background-size:
+          72px 72px,
+          72px 72px,
+          auto,
+          auto,
+          auto;
+      }
+
+      .hero::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(105deg, transparent 10%, rgba(255, 255, 255, 0.46) 42%, transparent 66%),
+          linear-gradient(90deg, rgba(23, 146, 153, 0), rgba(23, 146, 153, 0.12), rgba(23, 146, 153, 0));
+        opacity: 0.52;
+        transform: translateX(-62%);
+        animation: heroSweep 7.8s var(--ease-out) 900ms infinite;
+        pointer-events: none;
+      }
+
+      .hero::after {
+        content: "";
+        position: absolute;
+        inset: auto 0 0;
+        height: 160px;
+        background: linear-gradient(180deg, rgba(239, 241, 245, 0), var(--latte-base));
+        pointer-events: none;
+      }
+
+      .hero-inner {
+        position: relative;
+        z-index: 1;
+        width: 100%;
+        min-height: 646px;
+        max-width: 1220px;
+        margin: 0 auto;
+      }
+
+      .hero-inner::before {
+        content: "";
+        position: absolute;
+        inset: 0 auto 0 -24px;
+        z-index: 2;
+        width: min(620px, 48vw);
+        background: linear-gradient(
+          90deg,
+          rgba(247, 243, 234, 0.96) 0%,
+          rgba(239, 241, 245, 0.78) 64%,
+          rgba(239, 241, 245, 0) 100%
+        );
+        pointer-events: none;
+      }
+
+      .hero-copy {
+        position: relative;
+        z-index: 3;
+        display: grid;
+        gap: 24px;
+        align-content: center;
+        max-width: 585px;
+        padding-top: 38px;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        width: fit-content;
+        gap: 9px;
+        border: 1px solid rgba(48, 70, 61, 0.14);
+        border-radius: 999px;
+        padding: 7px 11px 7px 8px;
+        background: rgba(255, 255, 255, 0.58);
+        color: var(--jade-deep);
+        font-family:
+          "SF Mono",
+          ui-monospace,
+          Menlo,
+          Consolas,
+          monospace;
+        font-size: 12px;
+      }
+
+      .eyebrow::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--jade);
+        box-shadow: 0 0 0 5px rgba(127, 182, 154, 0.14);
+      }
+
+      h1 {
+        margin: 0;
+        max-width: 620px;
+        color: var(--jade-dark);
+        font-size: clamp(62px, 7vw, 92px);
+        line-height: 0.98;
+        letter-spacing: 0;
+      }
+
+      .hero-copy p {
+        max-width: 560px;
+        margin: 0;
+        color: #51556e;
+        font-size: 18px;
+        line-height: 1.78;
+      }
+
+      .hero-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 46px;
+        border: 1px solid rgba(48, 70, 61, 0.18);
+        border-radius: 999px;
+        padding: 0 18px;
+        font-size: 14px;
+        font-weight: 680;
+        transition:
+          transform 160ms ease,
+          box-shadow 160ms ease,
+          background 160ms ease;
+      }
+
+      .button:hover {
+        transform: translateY(-1px);
+      }
+
+      .button.primary {
+        border-color: transparent;
+        background: linear-gradient(135deg, #14251f, #243f36);
+        color: #f8fffb;
+        box-shadow:
+          0 18px 44px rgba(48, 70, 61, 0.24),
+          0 1px 0 rgba(255, 255, 255, 0.2) inset;
+      }
+
+      .button.secondary {
+        background: rgba(255, 255, 255, 0.74);
+        color: var(--jade-dark);
+        box-shadow: 0 12px 34px rgba(76, 79, 105, 0.08);
+      }
+
+      .hero-facts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        color: var(--latte-subtext);
+        font-size: 12px;
+      }
+
+      .hero-facts span {
+        border: 1px solid rgba(76, 79, 105, 0.11);
+        border-radius: 999px;
+        padding: 7px 10px;
+        background: rgba(255, 255, 255, 0.48);
+      }
+
+      .product-stage {
+        isolation: isolate;
+        min-width: 0;
+        position: absolute;
+        right: clamp(-132px, -7vw, -70px);
+        bottom: 4px;
+        z-index: 1;
+        width: min(60vw, 900px);
+        transform: translate3d(0, var(--hero-shift, 0px), 0);
+        will-change: transform;
+      }
+
+      .screenshot-frame {
+        position: relative;
+        overflow: hidden;
+        margin: 0;
+        border: 1px solid rgba(76, 79, 105, 0.18);
+        border-radius: 20px;
+        background: rgba(255, 255, 255, 0.84);
+        box-shadow:
+          0 40px 120px rgba(76, 79, 105, 0.25),
+          0 12px 36px rgba(30, 43, 39, 0.08),
+          0 2px 0 rgba(255, 255, 255, 0.86) inset;
+        transform: perspective(1300px) rotateX(2.4deg) rotateY(-4.4deg) translateZ(0);
+        transform-origin: center center;
+        animation: frameIn 900ms var(--ease-snap) 180ms both;
+      }
+
+      .screenshot-frame::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        box-shadow:
+          0 0 0 1px rgba(255, 255, 255, 0.36) inset,
+          0 -44px 90px rgba(255, 255, 255, 0.18) inset;
+        pointer-events: none;
+      }
+
+      .screenshot-frame img {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+
+      .metric-row {
+        position: relative;
+        z-index: 3;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        max-width: 1180px;
+        margin: 18px auto 0;
+        padding: 0 2px;
+      }
+
+      .metric {
+        position: relative;
+        border-top: 1px solid rgba(48, 70, 61, 0.16);
+        padding: 15px 0 0;
+      }
+
+      .metric::before {
+        content: "";
+        position: absolute;
+        inset: -1px auto auto 0;
+        width: 42px;
+        height: 1px;
+        background: var(--jade);
+        transform-origin: left center;
+        animation: lineGrow 900ms var(--ease-out) both;
+      }
+
+      .metric strong {
+        display: block;
+        color: var(--jade-dark);
+        font-size: 19px;
+        line-height: 1;
+      }
+
+      .metric span {
+        display: block;
+        margin-top: 4px;
+        color: var(--latte-subtext);
+        font-size: 12px;
+      }
+
+      main {
+        position: relative;
+        z-index: 2;
+      }
+
+      .section {
+        padding: 94px 24px;
+      }
+
+      .section.alt {
+        background:
+          linear-gradient(180deg, rgba(239, 241, 245, 0.48), rgba(230, 233, 239, 0.92)),
+          #e9ecef;
+      }
+
+      .section.dark {
+        position: relative;
+        overflow: hidden;
+        color: #cdd6f4;
+        background:
+          linear-gradient(180deg, rgba(30, 30, 46, 0.9), rgba(17, 17, 27, 0.98)),
+          linear-gradient(90deg, rgba(148, 226, 213, 0.06) 0 1px, transparent 1px),
+          url("assets/onboarding-bg-dark.png") center / cover no-repeat;
+        background-size:
+          auto,
+          88px 88px,
+          cover;
+      }
+
+      .section.dark::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(118deg, transparent 18%, rgba(148, 226, 213, 0.08), transparent 52%);
+        transform: translateX(-62%);
+        animation: darkSweep 9s var(--ease-out) infinite;
+        pointer-events: none;
+      }
+
+      .section-inner {
+        max-width: 1180px;
+        margin: 0 auto;
+      }
+
+      .section-heading {
+        display: grid;
+        gap: 12px;
+        max-width: 760px;
+        margin-bottom: 34px;
+      }
+
+      .section-heading .label {
+        color: var(--latte-teal);
+        font-family:
+          "SF Mono",
+          ui-monospace,
+          Menlo,
+          Consolas,
+          monospace;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+
+      .dark .section-heading .label {
+        color: #94e2d5;
+      }
+
+      .section-heading h2 {
+        margin: 0;
+        color: var(--jade-dark);
+        font-size: clamp(34px, 4vw, 54px);
+        line-height: 1.08;
+        letter-spacing: 0;
+      }
+
+      .dark .section-heading h2 {
+        color: #f5e0dc;
+      }
+
+      .section-heading p {
+        margin: 0;
+        color: var(--latte-subtext);
+        font-size: 16px;
+        line-height: 1.8;
+      }
+
+      .dark .section-heading p {
+        color: #a6adc8;
+      }
+
+      .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .feature-card {
+        position: relative;
+        overflow: hidden;
+        min-height: 242px;
+        border: 1px solid rgba(76, 79, 105, 0.12);
+        border-radius: 10px;
+        padding: 24px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.46)),
+          rgba(255, 255, 255, 0.52);
+        box-shadow: 0 18px 60px rgba(76, 79, 105, 0.08);
+        transition:
+          transform 220ms var(--ease-out),
+          border-color 220ms ease,
+          box-shadow 220ms ease;
+      }
+
+      .feature-card::before {
+        content: "";
+        position: absolute;
+        inset: 0 0 auto;
+        height: 3px;
+        background: linear-gradient(90deg, var(--jade), var(--latte-lavender), var(--latte-teal));
+        opacity: 0;
+        transform: scaleX(0.4);
+        transform-origin: left center;
+        transition:
+          opacity 220ms ease,
+          transform 420ms var(--ease-out);
+      }
+
+      .feature-card:hover {
+        border-color: rgba(48, 70, 61, 0.2);
+        box-shadow: 0 26px 74px rgba(76, 79, 105, 0.13);
+        transform: translateY(-4px);
+      }
+
+      .feature-card:hover::before {
+        opacity: 1;
+        transform: scaleX(1);
+      }
+
+      .feature-card .num {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 999px;
+        color: var(--jade-dark);
+        background: linear-gradient(135deg, rgba(127, 182, 154, 0.24), rgba(114, 135, 253, 0.1));
+        font-family:
+          "SF Mono",
+          ui-monospace,
+          Menlo,
+          Consolas,
+          monospace;
+        font-size: 12px;
+      }
+
+      .feature-card h3 {
+        margin: 22px 0 10px;
+        color: var(--latte-text);
+        font-size: 19px;
+        letter-spacing: 0;
+      }
+
+      .feature-card p {
+        margin: 0;
+        color: var(--latte-subtext);
+        font-size: 14px;
+        line-height: 1.72;
+      }
+
+      .workflow {
+        display: grid;
+        grid-template-columns: 0.74fr 1.26fr;
+        gap: 44px;
+        align-items: center;
+      }
+
+      .workflow-list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .workflow-item {
+        position: relative;
+        display: grid;
+        grid-template-columns: 32px 1fr;
+        gap: 14px;
+        padding: 15px 0;
+        border-bottom: 1px solid rgba(76, 79, 105, 0.1);
+      }
+
+      .workflow-item:last-child {
+        border-bottom: 0;
+      }
+
+      .workflow-item b {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        color: var(--jade-dark);
+        background: rgba(127, 182, 154, 0.2);
+        font-family:
+          "SF Mono",
+          ui-monospace,
+          Menlo,
+          Consolas,
+          monospace;
+        font-size: 12px;
+      }
+
+      .workflow-item strong {
+        display: block;
+        color: var(--latte-text);
+        font-size: 15px;
+      }
+
+      .workflow-item span {
+        display: block;
+        margin-top: 5px;
+        color: var(--latte-subtext);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .field-map {
+        position: relative;
+        min-height: 456px;
+        border: 1px solid rgba(76, 79, 105, 0.12);
+        border-radius: 12px;
+        overflow: hidden;
+        background:
+          linear-gradient(90deg, rgba(114, 135, 253, 0.1) 1px, transparent 1px),
+          linear-gradient(0deg, rgba(23, 146, 153, 0.08) 1px, transparent 1px),
+          linear-gradient(145deg, rgba(255, 255, 255, 0.62), rgba(239, 241, 245, 0.86)),
+          #f6f7fb;
+        background-size: 72px 72px;
+        box-shadow:
+          0 28px 90px rgba(76, 79, 105, 0.12),
+          0 1px 0 rgba(255, 255, 255, 0.74) inset;
+      }
+
+      .field-map::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(100deg, transparent 18%, rgba(255, 255, 255, 0.68), transparent 54%);
+        opacity: 0.46;
+        transform: translateX(-82%);
+        animation: mapScan 8.8s var(--ease-out) infinite;
+        pointer-events: none;
+      }
+
+      .map-node {
+        position: absolute;
+        display: grid;
+        gap: 6px;
+        width: 180px;
+        border: 1px solid rgba(48, 70, 61, 0.18);
+        border-radius: 10px;
+        padding: 14px;
+        background: rgba(255, 255, 255, 0.82);
+        box-shadow:
+          0 20px 50px rgba(76, 79, 105, 0.12),
+          0 1px 0 rgba(255, 255, 255, 0.8) inset;
+        backdrop-filter: blur(10px);
+      }
+
+      .map-node strong {
+        color: var(--jade-dark);
+        font-size: 14px;
+      }
+
+      .map-node span {
+        color: var(--latte-subtext);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .map-node.project {
+        left: 8%;
+        top: 16%;
+      }
+
+      .map-node.worktree {
+        right: 12%;
+        top: 12%;
+      }
+
+      .map-node.session {
+        left: 38%;
+        top: 36%;
+        border-color: rgba(114, 135, 253, 0.3);
+      }
+
+      .map-node.changes {
+        left: 10%;
+        bottom: 12%;
+      }
+
+      .map-node.output {
+        right: 9%;
+        bottom: 13%;
+      }
+
+      .map-line {
+        position: absolute;
+        height: 1px;
+        background: linear-gradient(90deg, rgba(48, 70, 61, 0), rgba(48, 70, 61, 0.34), rgba(48, 70, 61, 0));
+        transform-origin: left center;
+        animation: linePulse 4.8s ease-in-out infinite;
+      }
+
+      .map-line.one {
+        left: 26%;
+        top: 34%;
+        width: 170px;
+        transform: rotate(10deg);
+      }
+
+      .map-line.two {
+        right: 28%;
+        top: 31%;
+        width: 180px;
+        transform: rotate(166deg);
+      }
+
+      .map-line.three {
+        left: 26%;
+        bottom: 30%;
+        width: 190px;
+        transform: rotate(-12deg);
+      }
+
+      .map-line.four {
+        right: 27%;
+        bottom: 31%;
+        width: 170px;
+        transform: rotate(194deg);
+      }
+
+      .download-band {
+        position: relative;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 22px;
+        align-items: end;
+        border-top: 1px solid rgba(205, 214, 244, 0.16);
+        padding-top: 38px;
+      }
+
+      .download-band::before {
+        content: "";
+        position: absolute;
+        inset: -1px auto auto 0;
+        width: 140px;
+        height: 1px;
+        background: linear-gradient(90deg, #94e2d5, rgba(148, 226, 213, 0));
+      }
+
+      .download-band h2 {
+        margin: 0;
+        color: #f5e0dc;
+        font-size: clamp(34px, 4vw, 52px);
+        line-height: 1.18;
+      }
+
+      .download-band p {
+        max-width: 690px;
+        margin: 14px 0 0;
+        color: #a6adc8;
+        font-size: 15px;
+        line-height: 1.75;
+      }
+
+      .release-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        justify-content: flex-end;
+      }
+
+      .release-actions .button.secondary {
+        border-color: rgba(205, 214, 244, 0.16);
+        background: rgba(205, 214, 244, 0.08);
+        color: #cdd6f4;
+      }
+
+      .install-helper {
+        margin-top: 28px;
+        border: 1px solid rgba(205, 214, 244, 0.13);
+        border-radius: 10px;
+        overflow: hidden;
+        background: rgba(17, 17, 27, 0.78);
+        box-shadow: 0 26px 80px rgba(0, 0, 0, 0.18);
+        backdrop-filter: blur(14px);
+      }
+
+      .helper-row {
+        display: grid;
+        grid-template-columns: 180px 1fr;
+        border-bottom: 1px solid rgba(205, 214, 244, 0.1);
+        transition: background 180ms ease;
+      }
+
+      .helper-row:hover {
+        background: rgba(205, 214, 244, 0.035);
+      }
+
+      .helper-row:last-child {
+        border-bottom: 0;
+      }
+
+      .helper-row strong,
+      .helper-row span {
+        padding: 15px 16px;
+        font-size: 13px;
+      }
+
+      .helper-row strong {
+        color: #f5e0dc;
+        background: rgba(205, 214, 244, 0.04);
+      }
+
+      .helper-row span {
+        color: #a6adc8;
+        line-height: 1.6;
+      }
+
+      footer {
+        padding: 32px 24px 46px;
+        color: #6c6f85;
+        background: var(--latte-base);
+      }
+
+      .footer-inner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        max-width: 1180px;
+        margin: 0 auto;
+        border-top: 1px solid rgba(76, 79, 105, 0.12);
+        padding-top: 22px;
+        font-size: 13px;
+      }
+
+      .footer-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+      }
+
+      .footer-links a:hover {
+        color: var(--jade-dark);
+      }
+
+      .motion-ready [data-reveal] {
+        opacity: 0;
+        translate: 0 22px;
+        transition:
+          opacity 740ms var(--ease-out),
+          translate 740ms var(--ease-out);
+        transition-delay: var(--reveal-delay, 0ms);
+      }
+
+      .motion-ready [data-reveal].is-visible {
+        opacity: 1;
+        translate: 0 0;
+      }
+
+      @keyframes navIn {
+        from {
+          opacity: 0;
+          transform: translateY(-16px) scale(0.98);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+
+      @keyframes heroSweep {
+        0%,
+        46% {
+          transform: translateX(-68%);
+        }
+        72%,
+        100% {
+          transform: translateX(68%);
+        }
+      }
+
+      @keyframes frameIn {
+        from {
+          opacity: 0;
+          transform: perspective(1300px) rotateX(6deg) rotateY(-7deg) translate3d(34px, 30px, 0);
+        }
+        to {
+          opacity: 1;
+          transform: perspective(1300px) rotateX(2.4deg) rotateY(-4.4deg) translateZ(0);
+        }
+      }
+
+      @keyframes lineGrow {
+        from {
+          transform: scaleX(0);
+          opacity: 0;
+        }
+        to {
+          transform: scaleX(1);
+          opacity: 1;
+        }
+      }
+
+      @keyframes mapScan {
+        0%,
+        54% {
+          transform: translateX(-82%);
+        }
+        82%,
+        100% {
+          transform: translateX(82%);
+        }
+      }
+
+      @keyframes linePulse {
+        0%,
+        100% {
+          opacity: 0.35;
+        }
+        50% {
+          opacity: 0.95;
+        }
+      }
+
+      @keyframes darkSweep {
+        0%,
+        56% {
+          transform: translateX(-62%);
+        }
+        86%,
+        100% {
+          transform: translateX(62%);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          animation: none !important;
+          transition: none !important;
+        }
+
+        [data-reveal] {
+          opacity: 1 !important;
+          translate: none !important;
+        }
+
+        .product-stage,
+        .screenshot-frame {
+          transform: none !important;
+        }
+      }
+
+      @media (max-width: 1020px) {
+        .workflow,
+        .download-band {
+          grid-template-columns: 1fr;
+        }
+
+        .hero-inner {
+          min-height: auto;
+        }
+
+        .hero-inner::before {
+          display: none;
+        }
+
+        .hero-copy {
+          max-width: 720px;
+          padding-top: 16px;
+        }
+
+        .product-stage {
+          position: relative;
+          right: auto;
+          bottom: auto;
+          width: min(100%, 940px);
+          margin-top: 34px;
+        }
+
+        .screenshot-frame {
+          animation: none;
+          transform: none;
+        }
+
+        .feature-grid,
+        .metric-row {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .release-actions {
+          justify-content: flex-start;
+        }
+      }
+
+      @media (max-width: 720px) {
+        .topbar {
+          inset: 10px 10px auto;
+          border-radius: 14px;
+        }
+
+        .brand-name span,
+        .nav-links a:not(.download) {
+          display: none;
+        }
+
+        .hero {
+          min-height: auto;
+          padding: 96px 16px 34px;
+        }
+
+        .hero-inner {
+          gap: 28px;
+        }
+
+        h1 {
+          font-size: 42px;
+          line-height: 1.08;
+        }
+
+        .hero-copy p {
+          font-size: 16px;
+          line-height: 1.72;
+        }
+
+        .feature-grid,
+        .metric-row {
+          grid-template-columns: 1fr;
+        }
+
+        .screenshot-frame {
+          border-radius: 16px;
+        }
+
+        .field-map {
+          min-height: auto;
+          display: grid;
+          gap: 10px;
+          padding: 12px;
+        }
+
+        .map-node {
+          position: static;
+          width: auto;
+        }
+
+        .map-line {
+          display: none;
+        }
+
+        .section {
+          padding: 64px 16px;
+        }
+
+        .section-heading h2,
+        .download-band h2 {
+          font-size: 28px;
+        }
+
+        .helper-row {
+          grid-template-columns: 1fr;
+        }
+
+        .footer-inner {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="site-shell">
+      <header class="topbar" aria-label="Primary navigation">
+        <a class="brand-link" href="#top" aria-label="Xuanpu home">
+          <img src="../assets/icon.png" alt="" />
+          <span class="brand-name">
+            <strong>Xuanpu</strong>
+            <span>Xuanpu Workbench</span>
+          </span>
+        </a>
+        <nav class="nav-links">
+          <a href="#field">Field</a>
+          <a href="#workflow">Workflow</a>
+          <a href="/">Chinese</a>
+          <a href="https://github.com/slicenferqin/xuanpu" target="_blank" rel="noreferrer">Source</a>
+          <a class="download" href="https://github.com/slicenferqin/xuanpu/releases/latest" target="_blank" rel="noreferrer">Download</a>
+        </nav>
+      </header>
+
+      <section id="top" class="hero">
+        <div class="hero-inner">
+          <div class="hero-copy">
+            <span class="eyebrow" data-reveal>AI-native field context</span>
+            <h1 data-reveal style="--reveal-delay: 80ms">Xuanpu</h1>
+            <p data-reveal style="--reveal-delay: 140ms">
+              A local desktop workbench for builders. Xuanpu brings projects, git worktrees,
+              context, agent sessions, changes and outputs back into one field — so AI coding
+              agents stop being just a chat box inside your editor.
+            </p>
+            <div class="hero-actions" data-reveal style="--reveal-delay: 180ms">
+              <a class="button primary" href="https://github.com/slicenferqin/xuanpu/releases/latest" target="_blank" rel="noreferrer">Download latest</a>
+              <a class="button secondary" href="#field">See how it organises the field</a>
+            </div>
+            <div class="hero-facts" aria-label="Product tags" data-reveal style="--reveal-delay: 260ms">
+              <span>Electron desktop</span>
+              <span>Git worktrees</span>
+              <span>Claude Code / OpenCode / Codex</span>
+              <span>Local-first context</span>
+            </div>
+          </div>
+
+          <div class="product-stage" aria-label="Xuanpu product UI screenshot" data-reveal style="--reveal-delay: 120ms">
+            <figure class="screenshot-frame">
+              <picture>
+                <source
+                  type="image/webp"
+                  srcset="../assets/product-hero-1280.webp 1280w, ../assets/product-hero-1920.webp 1920w, ../assets/product-hero-2600.webp 2600w"
+                  sizes="(max-width: 720px) 100vw, (max-width: 1280px) 90vw, 1280px"
+                />
+                <img
+                  src="../assets/product-hero-1920.jpg"
+                  srcset="../assets/product-hero-1280.jpg 1280w, ../assets/product-hero-1920.jpg 1920w, ../assets/product-hero-2600.jpg 2600w"
+                  sizes="(max-width: 720px) 100vw, (max-width: 1280px) 90vw, 1280px"
+                  alt="Xuanpu product UI screenshot showing project list, agent session, changes panel and terminal"
+                  width="2600"
+                  height="1301"
+                  fetchpriority="high"
+                  decoding="async"
+                />
+              </picture>
+            </figure>
+          </div>
+        </div>
+        <div class="metric-row" aria-label="Xuanpu core objects">
+          <div class="metric" data-reveal><strong>Project</strong><span>Repository &amp; project boundary</span></div>
+          <div class="metric" data-reveal style="--reveal-delay: 80ms"><strong>Worktree</strong><span>Isolated field per task</span></div>
+          <div class="metric" data-reveal style="--reveal-delay: 160ms"><strong>Session</strong><span>Agent dialogue &amp; execution trace</span></div>
+          <div class="metric" data-reveal style="--reveal-delay: 240ms"><strong>Changes</strong><span>Files, terminal, diffs &amp; PRs</span></div>
+        </div>
+      </section>
+
+      <main>
+        <section id="field" class="section">
+          <div class="section-inner">
+            <div class="section-heading" data-reveal>
+              <span class="label">Why Xuanpu</span>
+              <h2>AI coding isn't a chat log — it's an entire workfield.</h2>
+              <p>
+                When a task crosses many files, branches, agents and verification rounds, the
+                scarce resource isn't an input box. It's a desktop environment that preserves the
+                field, surfaces what changed, and carries the next round of work.
+              </p>
+            </div>
+
+            <div class="feature-grid">
+              <article class="feature-card" data-reveal>
+                <span class="num">01</span>
+                <h3>Worktree as task boundary</h3>
+                <p>Each task gets its own directory, branch and runtime state. No more endless stash, switch and reload of context inside a single repo.</p>
+              </article>
+              <article class="feature-card" data-reveal style="--reveal-delay: 90ms">
+                <span class="num">02</span>
+                <h3>Session as execution trace</h3>
+                <p>Output from Claude Code, OpenCode and Codex lands on a unified timeline. Tool calls, plans, confirmations and results stay traceable across rounds.</p>
+              </article>
+              <article class="feature-card" data-reveal style="--reveal-delay: 180ms">
+                <span class="num">03</span>
+                <h3>Changes as the delivery field</h3>
+                <p>Changes, files, diffs and terminal output stay attached to the current task. You see not just an answer, but what this round actually changed.</p>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section id="workflow" class="section alt">
+          <div class="section-inner workflow">
+            <div class="section-heading" data-reveal>
+              <span class="label">Field Map</span>
+              <h2>From project to PR — the field never breaks.</h2>
+              <p>
+                Xuanpu cares about the lifecycle of a real round of work: open a task field,
+                let the agent run in the right directory, observe the changes, verify results,
+                then wrap up branch, build and PR.
+              </p>
+              <div class="workflow-list">
+                <div class="workflow-item" data-reveal>
+                  <b>1</b>
+                  <div><strong>Pick a project</strong><span>Project, linked repo and local path become the context boundary.</span></div>
+                </div>
+                <div class="workflow-item" data-reveal style="--reveal-delay: 70ms">
+                  <b>2</b>
+                  <div><strong>Create a worktree</strong><span>Open a disposable, isolated workfield for the current task.</span></div>
+                </div>
+                <div class="workflow-item" data-reveal style="--reveal-delay: 140ms">
+                  <b>3</b>
+                  <div><strong>Launch the agent</strong><span>Let the agent read files, edit code and run verifications inside this field.</span></div>
+                </div>
+                <div class="workflow-item" data-reveal style="--reveal-delay: 210ms">
+                  <b>4</b>
+                  <div><strong>Wrap up &amp; deliver</strong><span>Keep the verification evidence, commit, push, open a PR — then move on.</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="field-map" aria-label="Xuanpu field object map" data-reveal style="--reveal-delay: 120ms">
+              <span class="map-line one"></span>
+              <span class="map-line two"></span>
+              <span class="map-line three"></span>
+              <span class="map-line four"></span>
+              <div class="map-node project"><strong>Project</strong><span>Repo, path, linked projects</span></div>
+              <div class="map-node worktree"><strong>Worktree</strong><span>Branch, directory, task boundary</span></div>
+              <div class="map-node session"><strong>Agent Session</strong><span>Dialogue, tool calls, plan, verification</span></div>
+              <div class="map-node changes"><strong>Changes</strong><span>Files, terminal, diffs &amp; verification</span></div>
+              <div class="map-node output"><strong>Output</strong><span>Commit, build, PR &amp; release</span></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="download" class="section dark">
+          <div class="section-inner">
+            <div class="download-band" data-reveal>
+              <div>
+                <h2>Start on macOS. Bring your AI coding field back into one place.</h2>
+                <p>
+                  Xuanpu is currently macOS-first. The DMG ships with an install helper:
+                  double-click to copy to `/Applications`, remove quarantine, and launch —
+                  cutting the friction of unsigned first-run.
+                </p>
+              </div>
+              <div class="release-actions">
+                <a class="button primary" href="https://github.com/slicenferqin/xuanpu/releases/latest" target="_blank" rel="noreferrer">GitHub Releases</a>
+                <a class="button secondary" href="https://github.com/slicenferqin/xuanpu" target="_blank" rel="noreferrer">Source code</a>
+              </div>
+            </div>
+
+            <div class="install-helper" aria-label="Install flow" data-reveal style="--reveal-delay: 120ms">
+              <div class="helper-row">
+                <strong>macOS</strong>
+                <span>Open the DMG and double-click `Install Xuanpu.command` to copy, de-quarantine and launch automatically.</span>
+              </div>
+              <div class="helper-row">
+                <strong>Windows</strong>
+                <span>x64 / ARM64 packaging is ready. For unsigned builds, choose "Run anyway" if SmartScreen warns.</span>
+              </div>
+              <div class="helper-row">
+                <strong>Linux</strong>
+                <span>A target platform — experience is still being built out.</span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer>
+        <div class="footer-inner">
+          <span>Xuanpu Workbench · xuanpu.clawplay.club</span>
+          <div class="footer-links">
+            <a href="https://github.com/slicenferqin/xuanpu" target="_blank" rel="noreferrer">GitHub</a>
+            <a href="https://github.com/slicenferqin/xuanpu/releases/latest" target="_blank" rel="noreferrer">Releases</a>
+            <a href="https://github.com/slicenferqin/xuanpu/issues" target="_blank" rel="noreferrer">Issues</a>
+          </div>
+        </div>
+      </footer>
+    </div>
+    <script>
+      ;(() => {
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        const shell = document.querySelector('.site-shell')
+        const revealTargets = Array.from(document.querySelectorAll('[data-reveal]'))
+
+        if (!reduceMotion && shell) {
+          const markVisible = (target) => target.classList.add('is-visible')
+          revealTargets.forEach((target) => {
+            if (target.getBoundingClientRect().top < window.innerHeight * 0.96) {
+              markVisible(target)
+            }
+          })
+          shell.classList.add('motion-ready')
+
+          if ('IntersectionObserver' in window) {
+            const observer = new IntersectionObserver(
+              (entries) => {
+                entries.forEach((entry) => {
+                  if (entry.isIntersecting) {
+                    markVisible(entry.target)
+                    observer.unobserve(entry.target)
+                  }
+                })
+              },
+              { rootMargin: '0px 0px -12% 0px', threshold: 0.12 }
+            )
+
+            revealTargets.forEach((target) => {
+              if (!target.classList.contains('is-visible')) observer.observe(target)
+            })
+          } else {
+            revealTargets.forEach(markVisible)
+          }
+
+          let ticking = false
+          const updateHeroMotion = () => {
+            const shift = Math.max(-26, Math.min(0, window.scrollY * -0.04))
+            document.documentElement.style.setProperty('--hero-shift', `${shift}px`)
+            ticking = false
+          }
+
+          updateHeroMotion()
+          window.addEventListener(
+            'scroll',
+            () => {
+              if (!ticking) {
+                window.requestAnimationFrame(updateHeroMotion)
+                ticking = true
+              }
+            },
+            { passive: true }
+          )
+        } else {
+          revealTargets.forEach((target) => target.classList.add('is-visible'))
+        }
+      })()
+    </script>
+  </body>
+</html>

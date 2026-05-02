@@ -27,12 +27,46 @@ type DiffLine =
 
 function isEditTool(name: string | undefined): boolean {
   const n = name?.toLowerCase() ?? ''
-  return n === 'edit' || n === 'editfile' || n === 'edit_file'
+  return n === 'edit' || n === 'editfile' || n === 'edit_file' || n === 'multiedit'
 }
 
 function isWriteTool(name: string | undefined): boolean {
   const n = name?.toLowerCase() ?? ''
   return n === 'write' || n === 'writefile' || n === 'write_file'
+}
+
+/** Extract old/new string pairs, accepting both snake_case and camelCase. */
+function readEditStrings(input: Record<string, unknown>): { oldStr: string; newStr: string } {
+  const oldStr =
+    (typeof input.old_string === 'string' && input.old_string) ||
+    (typeof input.oldString === 'string' && input.oldString) ||
+    ''
+  const newStr =
+    (typeof input.new_string === 'string' && input.new_string) ||
+    (typeof input.newString === 'string' && input.newString) ||
+    ''
+  return { oldStr, newStr }
+}
+
+function readWriteContent(input: Record<string, unknown>): string {
+  if (typeof input.content === 'string') return input.content
+  if (typeof input.text === 'string') return input.text
+  return ''
+}
+
+function resolveWriteFilePath(toolUse: ToolUseInfo, fallback?: string): string {
+  const input = (toolUse.input ?? {}) as Record<string, unknown>
+  const direct =
+    (input.filePath ||
+      input.file_path ||
+      input.path ||
+      input.displayName ||
+      input.filename ||
+      '') as string
+  if (direct) return direct
+  const paths = input.paths
+  if (Array.isArray(paths) && typeof paths[0] === 'string') return paths[0]
+  return fallback ?? ''
 }
 
 interface CodexChange {
@@ -104,8 +138,7 @@ function computeLineDiff(toolUse: ToolUseInfo): { added: number; removed: number
   const input = toolUse.input ?? {}
 
   if (isEditTool(toolUse.name)) {
-    const oldStr = (input.old_string as string) ?? ''
-    const newStr = (input.new_string as string) ?? ''
+    const { oldStr, newStr } = readEditStrings(input)
     if (!oldStr && !newStr) return null
     const oldLines = oldStr ? oldStr.split('\n').length : 0
     const newLines = newStr ? newStr.split('\n').length : 0
@@ -116,10 +149,18 @@ function computeLineDiff(toolUse: ToolUseInfo): { added: number; removed: number
   }
 
   if (isWriteTool(toolUse.name)) {
-    const content = (input.content as string) ?? ''
+    const content = readWriteContent(input)
     if (!content) return null
     const lines = content.split('\n').length
     return { added: lines, removed: 0 }
+  }
+
+  // Prefer filediff-provided totals when available (OpenCode Edit tool ships
+  // `input.additions` / `input.deletions` via enrichToolPart).
+  const additions = typeof input.additions === 'number' ? input.additions : null
+  const deletions = typeof input.deletions === 'number' ? input.deletions : null
+  if (additions !== null || deletions !== null) {
+    return { added: additions ?? 0, removed: deletions ?? 0 }
   }
 
   return null
@@ -163,13 +204,12 @@ function buildPreviewLines(toolUse: ToolUseInfo): DiffLine[] | null {
 
   const input = toolUse.input ?? {}
   if (isEditTool(toolUse.name)) {
-    const oldStr = (input.old_string as string) ?? ''
-    const newStr = (input.new_string as string) ?? ''
+    const { oldStr, newStr } = readEditStrings(input)
     if (!oldStr && !newStr) return null
     return buildEditPreview(oldStr, newStr)
   }
   if (isWriteTool(toolUse.name)) {
-    const content = (input.content as string) ?? ''
+    const content = readWriteContent(input)
     if (!content) return null
     return buildWritePreview(content)
   }
@@ -224,9 +264,8 @@ function DiffPreview({ lines }: DiffPreviewProps): React.JSX.Element {
 export function FileWriteCard({ toolUse }: FileWriteCardProps): React.JSX.Element {
   const codexChanges = getCodexChanges(toolUse)
   const filePath =
-    (toolUse.input?.file_path as string) ??
-    (toolUse.input?.path as string) ??
-    codexChanges?.[0]?.path ??
+    resolveWriteFilePath(toolUse, codexChanges?.[0]?.path) ||
+    codexChanges?.[0]?.path ||
     ''
   // Codex emits 'Edit' for both pure edits and full rewrites; treat as Edit.
   const isEdit =

@@ -1,10 +1,13 @@
 import { vi, describe, test, expect, beforeEach } from 'vitest'
+import { join } from 'path'
 
 // Mock electron module
 const mockSetBadge = vi.fn()
 const mockNotificationShow = vi.fn()
 const mockNotificationOn = vi.fn()
 const mockNotificationOptions: Record<string, unknown>[] = []
+const mockNativeImage = vi.hoisted(() => ({ source: 'notification-icon' }))
+const mockCreateFromPath = vi.hoisted(() => vi.fn(() => mockNativeImage))
 let notificationsSupported = true
 
 vi.mock('electron', () => ({
@@ -18,8 +21,12 @@ vi.mock('electron', () => ({
     on = mockNotificationOn
     show = mockNotificationShow
   },
+  nativeImage: {
+    createFromPath: mockCreateFromPath
+  },
   BrowserWindow: vi.fn(),
   app: {
+    getAppPath: () => '/tmp/test-app',
     getPath: () => '/tmp/test-home',
     dock: {
       setBadge: (...args: string[]) => mockSetBadge(...args)
@@ -161,6 +168,17 @@ describe('Session 6: Dock Badge', () => {
     })
     expect(mockNotificationShow).toHaveBeenCalledTimes(1)
     expect(mockSetBadge).toHaveBeenCalledWith('1')
+  })
+
+  test('uses packaged app icon for native notifications', () => {
+    notificationService.showPendingUserFeedback(mockSessionData, 'question')
+
+    expect(mockCreateFromPath).toHaveBeenCalledWith(
+      join('/tmp/test-app', 'resources', 'icon.png')
+    )
+    expect(mockNotificationOptions[0]).toMatchObject({
+      icon: mockNativeImage
+    })
   })
 
   test('suppresses completion notification while session still has queued follow-up', () => {

@@ -1178,7 +1178,7 @@ const agentOps = {
           | { type: 'file'; mime: string; url: string; filename?: string }
         >,
     model?: { providerID: string; modelID: string; variant?: string },
-    options?: { codexFastMode?: boolean }
+    options?: { codexFastMode?: boolean; mode?: 'build' | 'plan' }
   ): Promise<{ success: boolean; error?: string }> => {
     const parts =
       typeof messageOrParts === 'string'

@@ -17,7 +17,8 @@ import type { TimelineResult, TimelineMessage } from '../../shared/lib/timeline-
 import {
   mapDbRowsToTimelineMessages,
   mapRawTranscriptToTimeline,
-  deriveCodexTimeline
+  deriveCodexTimeline,
+  mergeOpenCodePlanActivities
 } from '../../shared/lib/timeline-mappers'
 import type { DbSessionMessage, DbSessionActivity } from '../../shared/lib/timeline-mappers'
 import type { SessionMessage, SessionActivity, Session } from '../db/types'
@@ -154,6 +155,22 @@ export function getSessionTimeline(sessionId: string): TimelineResult {
         // Fallback: build timeline from individual DB rows (less rich,
         // but handles cases where timeline JSON wasn't persisted).
         messages = mapDbRowsToTimelineMessages(messageRows.map(toDbSessionMessage))
+      }
+      // Phase 1.4.8 (OpenCode plan parity): plan-mode turns produce plan
+      // markdown as a regular `text` part — the only way to render a
+      // PlanCard in the durable timeline is by attaching ExitPlanMode tool
+      // parts derived from `plan.ready` activities. Merge them in here so
+      // the card appears alongside the assistant text. (Same mechanism the
+      // codex branch above relies on, but scoped to plan rows only so we
+      // don't disturb OpenCode's own tool-part stream.)
+      if (session.agent_sdk === 'opencode') {
+        const activityRows = db.getSessionActivities(sessionId)
+        if (Array.isArray(activityRows) && activityRows.length > 0) {
+          messages = mergeOpenCodePlanActivities(
+            messages,
+            activityRows.map(toDbSessionActivity)
+          )
+        }
       }
       break
     }

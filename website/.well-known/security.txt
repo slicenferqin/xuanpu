@@ -1,0 +1,4 @@
+Contact: https://github.com/slicenferqin/xuanpu/security/advisories/new
+Expires: 2027-04-29T00:00:00.000Z
+Preferred-Languages: zh-CN, en
+Canonical: https://xuanpu.clawplay.club/.well-known/security.txt
