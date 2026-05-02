@@ -247,6 +247,201 @@ describe('getSessionTimeline', () => {
       expect(result.compactionMarkers).toHaveLength(1)
       expect(result.compactionMarkers[0]).toBe('msg-2')
     })
+
+    it('attaches plan.ready activity as ExitPlanMode tool_use part on matching opencode message', () => {
+      const rawTimeline = [
+        {
+          info: { id: 'msg-plan-1', role: 'assistant', createdAt: '2024-01-01T00:00:00.000Z' },
+          parts: [{ type: 'text', text: '## Plan\n- step 1' }]
+        }
+      ]
+      mockGetSession.mockReturnValue(makeSession({ agent_sdk: 'opencode' }))
+      mockGetSessionMessages.mockReturnValue([
+        makeMessageRow({
+          opencode_timeline_json: JSON.stringify(rawTimeline)
+        })
+      ])
+      mockGetSessionActivities.mockReturnValue([
+        {
+          id: 'opencode-plan:sess-1:msg-plan-1',
+          session_id: 'sess-1',
+          agent_session_id: 'opc-1',
+          thread_id: null,
+          turn_id: null,
+          item_id: 'msg-plan-1',
+          request_id: 'opencode-plan:sess-1:msg-plan-1',
+          kind: 'plan.ready',
+          tone: 'info',
+          summary: 'Plan ready',
+          payload_json: JSON.stringify({
+            plan: '## Plan\n- step 1',
+            toolUseID: 'msg-plan-1',
+            requestId: 'opencode-plan:sess-1:msg-plan-1'
+          }),
+          sequence: null,
+          created_at: '2024-01-01T00:00:01.000Z'
+        }
+      ])
+
+      const result = getSessionTimeline('sess-1')
+      expect(result.messages).toHaveLength(1)
+      const parts = result.messages[0].parts
+      expect(parts).toBeDefined()
+      // text part stays + ExitPlanMode tool part appended
+      const planPart = parts!.find((p) => p.type === 'tool_use' && p.toolUse?.name === 'ExitPlanMode')
+      expect(planPart).toBeDefined()
+      expect(planPart?.toolUse?.input).toMatchObject({ plan: '## Plan\n- step 1' })
+      // Pending status because no plan.resolved row yet
+      expect(planPart?.toolUse?.status).toBe('pending')
+    })
+
+    it('marks plan card as resolved when matching plan.resolved activity exists', () => {
+      const rawTimeline = [
+        {
+          info: { id: 'msg-plan-1', role: 'assistant', createdAt: '2024-01-01T00:00:00.000Z' },
+          parts: [{ type: 'text', text: '## Plan' }]
+        }
+      ]
+      const reqId = 'opencode-plan:sess-1:msg-plan-1'
+      mockGetSession.mockReturnValue(makeSession({ agent_sdk: 'opencode' }))
+      mockGetSessionMessages.mockReturnValue([
+        makeMessageRow({
+          opencode_timeline_json: JSON.stringify(rawTimeline)
+        })
+      ])
+      mockGetSessionActivities.mockReturnValue([
+        {
+          id: reqId,
+          session_id: 'sess-1',
+          agent_session_id: 'opc-1',
+          thread_id: null,
+          turn_id: null,
+          item_id: 'msg-plan-1',
+          request_id: reqId,
+          kind: 'plan.ready',
+          tone: 'info',
+          summary: 'Plan ready',
+          payload_json: JSON.stringify({ plan: '## Plan', toolUseID: 'msg-plan-1' }),
+          sequence: null,
+          created_at: '2024-01-01T00:00:01.000Z'
+        },
+        {
+          id: `${reqId}:resolved`,
+          session_id: 'sess-1',
+          agent_session_id: 'opc-1',
+          thread_id: null,
+          turn_id: null,
+          item_id: null,
+          request_id: reqId,
+          kind: 'plan.resolved',
+          tone: 'info',
+          summary: 'Plan rejected by user',
+          payload_json: JSON.stringify({ resolution: 'rejected' }),
+          sequence: null,
+          created_at: '2024-01-01T00:00:02.000Z'
+        }
+      ])
+
+      const result = getSessionTimeline('sess-1')
+      const planPart = result.messages[0].parts?.find(
+        (p) => p.type === 'tool_use' && p.toolUse?.name === 'ExitPlanMode'
+      )
+      expect(planPart?.toolUse?.status).toBe('success')
+    })
+
+    it('strips text part whose content matches the plan to avoid double-rendering', () => {
+      // Symptom (2026-05-02 test): user saw the plan markdown twice — once as
+      // an assistant text bubble and once as the "Proposed Execution Plan"
+      // approval card. The merge now drops the assistant text part when its
+      // content is fully contained in the plan we're rendering.
+      const planText = '## My Plan\n- step 1\n- step 2'
+      const rawTimeline = [
+        {
+          info: { id: 'msg-plan-2', role: 'assistant', createdAt: '2024-01-01T00:00:00.000Z' },
+          parts: [{ type: 'text', text: planText }]
+        }
+      ]
+      const reqId = 'opencode-plan:sess-1:msg-plan-2'
+      mockGetSession.mockReturnValue(makeSession({ agent_sdk: 'opencode' }))
+      mockGetSessionMessages.mockReturnValue([
+        makeMessageRow({ opencode_timeline_json: JSON.stringify(rawTimeline) })
+      ])
+      mockGetSessionActivities.mockReturnValue([
+        {
+          id: reqId,
+          session_id: 'sess-1',
+          agent_session_id: 'opc-1',
+          thread_id: null,
+          turn_id: null,
+          item_id: 'msg-plan-2',
+          request_id: reqId,
+          kind: 'plan.ready',
+          tone: 'info',
+          summary: 'Plan ready',
+          payload_json: JSON.stringify({ plan: planText, toolUseID: 'msg-plan-2' }),
+          sequence: null,
+          created_at: '2024-01-01T00:00:01.000Z'
+        }
+      ])
+
+      const result = getSessionTimeline('sess-1')
+      const parts = result.messages[0].parts ?? []
+      // No more `text` part — it was duplicated by the plan card and got stripped
+      const textParts = parts.filter((p) => p.type === 'text')
+      expect(textParts).toHaveLength(0)
+      // Plan card is still there
+      const planPart = parts.find(
+        (p) => p.type === 'tool_use' && p.toolUse?.name === 'ExitPlanMode'
+      )
+      expect(planPart?.toolUse?.input).toMatchObject({ plan: planText })
+    })
+
+    it('keeps text part if it does NOT match the plan content (e.g. preamble)', () => {
+      // Defensive: only strip when content is duplicated. A legitimate
+      // pre-plan preamble like "Here is my analysis..." must survive.
+      const planText = '## Plan\n- step 1'
+      const preamble = 'Here is my analysis based on the codebase.'
+      const rawTimeline = [
+        {
+          info: { id: 'msg-plan-3', role: 'assistant', createdAt: '2024-01-01T00:00:00.000Z' },
+          parts: [{ type: 'text', text: preamble }]
+        }
+      ]
+      const reqId = 'opencode-plan:sess-1:msg-plan-3'
+      mockGetSession.mockReturnValue(makeSession({ agent_sdk: 'opencode' }))
+      mockGetSessionMessages.mockReturnValue([
+        makeMessageRow({ opencode_timeline_json: JSON.stringify(rawTimeline) })
+      ])
+      mockGetSessionActivities.mockReturnValue([
+        {
+          id: reqId,
+          session_id: 'sess-1',
+          agent_session_id: 'opc-1',
+          thread_id: null,
+          turn_id: null,
+          item_id: 'msg-plan-3',
+          request_id: reqId,
+          kind: 'plan.ready',
+          tone: 'info',
+          summary: 'Plan ready',
+          payload_json: JSON.stringify({ plan: planText, toolUseID: 'msg-plan-3' }),
+          sequence: null,
+          created_at: '2024-01-01T00:00:01.000Z'
+        }
+      ])
+
+      const result = getSessionTimeline('sess-1')
+      const parts = result.messages[0].parts ?? []
+      const textParts = parts.filter((p) => p.type === 'text')
+      // Preamble survives
+      expect(textParts).toHaveLength(1)
+      expect(textParts[0].text).toBe(preamble)
+      // Plan card still present
+      const planPart = parts.find(
+        (p) => p.type === 'tool_use' && p.toolUse?.name === 'ExitPlanMode'
+      )
+      expect(planPart).toBeDefined()
+    })
   })
 
   describe('codex sessions', () => {
@@ -299,13 +494,23 @@ describe('getSessionTimeline', () => {
       expect(mockGetSessionActivities).toHaveBeenCalledWith('sess-1')
     })
 
-    it('does NOT fetch activities for non-codex sessions', () => {
-      mockGetSession.mockReturnValue(makeSession({ agent_sdk: 'opencode' }))
+    it('does NOT fetch activities for claude-code sessions', () => {
+      mockGetSession.mockReturnValue(makeSession({ agent_sdk: 'claude-code' }))
       mockGetSessionMessages.mockReturnValue([])
 
       getSessionTimeline('sess-1')
 
       expect(mockGetSessionActivities).not.toHaveBeenCalled()
+    })
+
+    it('fetches activities for opencode sessions (plan-card merge, Phase 1.4.8)', () => {
+      mockGetSession.mockReturnValue(makeSession({ agent_sdk: 'opencode' }))
+      mockGetSessionMessages.mockReturnValue([])
+      mockGetSessionActivities.mockReturnValue([])
+
+      getSessionTimeline('sess-1')
+
+      expect(mockGetSessionActivities).toHaveBeenCalledWith('sess-1')
     })
   })
 

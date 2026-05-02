@@ -596,6 +596,18 @@ export function useAgentEventBridge(): void {
             return
           }
 
+          // ----- session.error -----
+          // Phase 1.4.8: when the backend emits a session.error (e.g.
+          // MessageAbortedError after Stop), force the UI lifecycle back to
+          // 'idle' so the ComposerBar Stop icon flips to Send. Some abort
+          // paths land error first and idle later (or never) — without this
+          // shortcut the Stop button can stay red indefinitely.
+          if (event.type === 'session.error') {
+            runtime.setLifecycle(sessionId, 'idle')
+            runtime.setRetryInfo(sessionId, null)
+            return
+          }
+
           // ----- session.status (the main lifecycle signal) -----
           if (event.type !== 'session.status') return
 
@@ -711,7 +723,9 @@ export function useAgentEventBridge(): void {
                 const result = await window.agentOps.prompt(
                   context.worktreePath,
                   context.opencodeSessionId,
-                  [{ type: 'text', text: message }]
+                  [{ type: 'text', text: message }],
+                  undefined,
+                  { mode }
                 )
 
                 if (!result.success) {

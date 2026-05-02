@@ -227,8 +227,14 @@ export function registerAgentHandlers(
             }
           }
           const rawOptions = obj.options as Record<string, unknown> | undefined
-          if (rawOptions && typeof rawOptions.codexFastMode === 'boolean') {
-            options = { codexFastMode: rawOptions.codexFastMode }
+          if (rawOptions) {
+            options = {}
+            if (typeof rawOptions.codexFastMode === 'boolean') {
+              options.codexFastMode = rawOptions.codexFastMode
+            }
+            if (rawOptions.mode === 'build' || rawOptions.mode === 'plan') {
+              options.mode = rawOptions.mode
+            }
           }
         } else {
           // Legacy positional args: (worktreePath, sessionId, message)
@@ -248,8 +254,14 @@ export function registerAgentHandlers(
             }
           }
           const rawOptions = args[4] as Record<string, unknown> | undefined
-          if (rawOptions && typeof rawOptions.codexFastMode === 'boolean') {
-            options = { codexFastMode: rawOptions.codexFastMode }
+          if (rawOptions) {
+            options = {}
+            if (typeof rawOptions.codexFastMode === 'boolean') {
+              options.codexFastMode = rawOptions.codexFastMode
+            }
+            if (rawOptions.mode === 'build' || rawOptions.mode === 'plan') {
+              options.mode = rawOptions.mode
+            }
           }
         }
 

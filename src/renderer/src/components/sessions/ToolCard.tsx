@@ -381,6 +381,16 @@ function shortenPath(filePath: string, cwd?: string | null): string {
   return parts.length > 2 ? `.../${parts.slice(-2).join('/')}` : filePath
 }
 
+function resolveToolFilePath(input: Record<string, unknown>): string {
+  const direct =
+    (input.filePath || input.file_path || input.path || input.displayName || input.filename ||
+      '') as string
+  if (direct) return direct
+  const paths = input.paths
+  if (Array.isArray(paths) && typeof paths[0] === 'string') return paths[0]
+  return ''
+}
+
 /** Renders tool-specific collapsed header content (icon + name + contextual info) */
 function CollapsedContent({
   toolUse,
@@ -435,7 +445,7 @@ function CollapsedContent({
 
   // Read / Cat / View
   if (lowerName.includes('read') || lowerName === 'cat' || lowerName === 'view') {
-    const filePath = (input.filePath || input.file_path || input.path || '') as string
+    const filePath = resolveToolFilePath(input)
     const lineCount = output ? output.trimEnd().split('\n').length : null
     return (
       <>
@@ -457,7 +467,7 @@ function CollapsedContent({
 
   // Write / Create
   if (lowerName.includes('write') || lowerName === 'create') {
-    const filePath = (input.filePath || input.file_path || input.path || '') as string
+    const filePath = resolveToolFilePath(input)
     const content = (input.content || '') as string
     const lineCount = content ? content.trimEnd().split('\n').length : null
     return (
@@ -505,7 +515,7 @@ function CollapsedContent({
 
   // Edit / Replace / Patch
   if (lowerName.includes('edit') || lowerName.includes('replace') || lowerName.includes('patch')) {
-    const filePath = (input.filePath || input.file_path || input.path || '') as string
+    const filePath = resolveToolFilePath(input)
     const oldString = (input.oldString || input.old_string || '') as string
     const newString = (input.newString || input.new_string || '') as string
     const removedLines = oldString ? oldString.split('\n').length : 0
@@ -799,10 +809,7 @@ const CompactFileToolCard = memo(function CompactFileToolCard({
   const isLsp = isLspTool(toolUse.name)
   const isFigma = isFigmaTool(toolUse.name)
   const isFileChange = isFileChangeTool(toolUse.name)
-  const filePath = (toolUse.input.filePath ||
-    toolUse.input.file_path ||
-    toolUse.input.path ||
-    '') as string
+  const filePath = resolveToolFilePath(toolUse.input)
   const shortPath = shortenPath(filePath, cwd)
   const label = isSkill ? t('toolCard.labels.skill') : t(getFileToolLabelKey(toolUse.name))
   const detail = isSkill

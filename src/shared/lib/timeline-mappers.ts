@@ -1049,3 +1049,132 @@ export function deriveCodexTimeline(
     activityRows
   )
 }
+
+/**
+ * Phase 1.4.8 (OpenCode plan parity): merge `plan.ready` activity rows into
+ * an OpenCode timeline so the durable transcript shows a `ExitPlanMode`
+ * tool-use card per plan turn.
+ *
+ * OpenCode's normal timeline is built from `mapRawTranscriptToTimeline`
+ * (messages only) — activities are not consulted. Plan-mode generates the
+ * plan as a regular `text` part, so without this merge the FAB pops up but
+ * no card ever appears in the message stream.
+ *
+ * This is intentionally narrower than `mergeCodexActivityMessages`:
+ *   - Only `plan.ready` activities are merged (the others are already
+ *     captured by OpenCode's own tool parts).
+ *   - The synthetic ExitPlanMode tool-part is appended to the matching
+ *     assistant message (looked up by `item_id` === message id). If we can't
+ *     match (e.g. timeline trimmed), the part is appended as a standalone
+ *     synthetic assistant message anchored at the activity's timestamp so
+ *     the card still appears.
+ *   - Plans with a paired `plan.resolved` row render as `status: 'success'`
+ *     (greyed out, no "Requires Approval" badge), same logic Codex uses.
+ */
+export function mergeOpenCodePlanActivities(
+  messages: TimelineMessage[],
+  activityRows: DbSessionActivity[]
+): TimelineMessage[] {
+  if (activityRows.length === 0) return messages
+
+  const planReadyRows = activityRows.filter((row) => row.kind === 'plan.ready')
+  if (planReadyRows.length === 0) return messages
+
+  const resolvedRequestIds = new Set<string>()
+  for (const row of activityRows) {
+    if (row.kind === 'plan.resolved' && row.request_id) {
+      resolvedRequestIds.add(row.request_id)
+    }
+  }
+
+  // Index existing messages by id (the assistant message id == activity.item_id)
+  const messageIndex = new Map<string, number>()
+  messages.forEach((msg, idx) => messageIndex.set(msg.id, idx))
+
+  // Track tool ids already present so we don't duplicate cards if the upstream
+  // transcript ever starts surfacing ExitPlanMode itself.
+  const knownToolIds = new Set<string>()
+  for (const msg of messages) {
+    if (!Array.isArray(msg.parts)) continue
+    for (const part of msg.parts) {
+      if (part.type === 'tool_use' && part.toolUse?.id) {
+        knownToolIds.add(part.toolUse.id)
+      }
+    }
+  }
+
+  // Clone messages so we can splice parts safely
+  const next = messages.map((msg) => ({
+    ...msg,
+    parts: msg.parts ? [...msg.parts] : undefined
+  }))
+
+  const trailing: TimelineMessage[] = []
+
+  for (const row of planReadyRows) {
+    const part = parsePlanPartFromActivity(row, resolvedRequestIds)
+    if (!part?.toolUse) continue
+    if (knownToolIds.has(part.toolUse.id)) continue
+    knownToolIds.add(part.toolUse.id)
+
+    // Phase 1.4.8 follow-up: PlanCard renders the full plan markdown via its
+    // `content` prop, and `messageToNodes` ALSO renders any `text` part as a
+    // separate text card. Without de-dup, the user sees the plan twice — once
+    // in the assistant text bubble and once in the "Proposed Execution Plan"
+    // approval card. Strip text parts whose content is fully contained in the
+    // plan we're about to render so the card becomes the single source.
+    const planText =
+      typeof part.toolUse.input?.plan === 'string'
+        ? (part.toolUse.input.plan as string).trim()
+        : ''
+
+    const itemId = row.item_id ?? null
+    if (itemId && messageIndex.has(itemId)) {
+      const targetIdx = messageIndex.get(itemId)!
+      const target = next[targetIdx]
+      const existingParts = target.parts ?? []
+
+      const filteredParts = planText
+        ? existingParts.filter((p) => {
+            if (p.type !== 'text') return true
+            const partText = (p.text ?? '').trim()
+            if (!partText) return false
+            // Drop the text part if its content is identical to the plan or a
+            // strict prefix/suffix subset (covers cases where the SDK trims
+            // trailing whitespace differently than our buffer).
+            return !(planText === partText || planText.includes(partText))
+          })
+        : existingParts
+
+      next[targetIdx] = {
+        ...target,
+        // Also clear `content` if it's the same plan text — `messageToNodes`
+        // falls back to `content` when `parts` is empty (line 153).
+        content:
+          planText && (target.content ?? '').trim() === planText ? '' : target.content,
+        parts: [...filteredParts, part]
+      }
+    } else {
+      // Fallback: synthesize an assistant message wrapper so the card still
+      // shows up. Anchored at the activity's created_at so it lands in
+      // chronological order.
+      trailing.push({
+        id: row.id,
+        role: 'assistant',
+        content: '',
+        timestamp: row.created_at,
+        parts: [part]
+      })
+    }
+  }
+
+  if (trailing.length === 0) return next
+
+  // Insertion-sort trailing rows by timestamp into next[]
+  const merged = [...next, ...trailing].sort((a, b) => {
+    const ta = Date.parse(a.timestamp ?? '') || 0
+    const tb = Date.parse(b.timestamp ?? '') || 0
+    return ta - tb
+  })
+  return merged
+}

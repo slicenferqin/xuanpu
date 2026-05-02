@@ -91,6 +91,7 @@ export type CanonicalToolName =
   | 'WebFetch'
   | 'TodoWrite'
   | 'Task'
+  | 'AskUserQuestion'
   | 'McpTool'
   | 'Unknown'
 

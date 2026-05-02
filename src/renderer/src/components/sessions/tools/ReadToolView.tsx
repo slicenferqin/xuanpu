@@ -132,11 +132,21 @@ function getLanguageFromPath(filePath: string): string {
   return extensionToLanguage[ext] || 'text'
 }
 
+function resolveReadFilePath(input: Record<string, unknown>): string {
+  const direct =
+    (input.file_path || input.filePath || input.path || input.displayName || input.filename ||
+      '') as string
+  if (direct) return direct
+  const paths = input.paths
+  if (Array.isArray(paths) && typeof paths[0] === 'string') return paths[0]
+  return ''
+}
+
 export function ReadToolView({ input, output, error }: ToolViewProps) {
   const { t } = useI18n()
   const [showAll, setShowAll] = useState(false)
 
-  const filePath = (input.file_path || input.filePath || input.path || '') as string
+  const filePath = resolveReadFilePath(input)
   const offset = input.offset as number | undefined
   const limit = input.limit as number | undefined
 

@@ -16,6 +16,8 @@ export interface AgentRuntimeCapabilities {
 
 export interface PromptOptions {
   codexFastMode?: boolean
+  /** Session mode — used by OpenCode to select the agent (e.g. 'plan' → agent:'plan') */
+  mode?: 'build' | 'plan'
 }
 
 export interface AgentRuntimeAdapter {
