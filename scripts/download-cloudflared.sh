@@ -45,19 +45,33 @@ download() {
   chmod +x "${dst_file}" || true
 }
 
-download "darwin-arm64"  "cloudflared-darwin-arm64.tgz" "cloudflared.tgz"
-if [[ -f "${dst_root}/darwin-arm64/cloudflared.tgz" ]]; then
-  tar -xzf "${dst_root}/darwin-arm64/cloudflared.tgz" -C "${dst_root}/darwin-arm64"
-  rm -f "${dst_root}/darwin-arm64/cloudflared.tgz"
-  chmod +x "${dst_root}/darwin-arm64/cloudflared"
-fi
+download_tgz() {
+  local platform="$1"
+  local upstream="$2"
+  local dst_dir="${dst_root}/${platform}"
+  local archive="${dst_dir}/cloudflared.tgz"
+  local binary="${dst_dir}/cloudflared"
 
-download "darwin-amd64"  "cloudflared-darwin-amd64.tgz" "cloudflared.tgz"
-if [[ -f "${dst_root}/darwin-amd64/cloudflared.tgz" ]]; then
-  tar -xzf "${dst_root}/darwin-amd64/cloudflared.tgz" -C "${dst_root}/darwin-amd64"
-  rm -f "${dst_root}/darwin-amd64/cloudflared.tgz"
-  chmod +x "${dst_root}/darwin-amd64/cloudflared"
-fi
+  if [[ -x "${binary}" ]]; then
+    rm -f "${archive}"
+    echo "[skip] ${platform} already present at ${binary}"
+    return
+  fi
+
+  if [[ -f "${archive}" ]] && ! tar -tzf "${archive}" >/dev/null 2>&1; then
+    echo "[stale] ${platform} archive is corrupt; re-downloading"
+    rm -f "${archive}"
+  fi
+
+  download "${platform}" "${upstream}" "cloudflared.tgz"
+
+  tar -xzf "${archive}" -C "${dst_dir}"
+  rm -f "${archive}"
+  chmod +x "${binary}"
+}
+
+download_tgz "darwin-arm64" "cloudflared-darwin-arm64.tgz"
+download_tgz "darwin-amd64" "cloudflared-darwin-amd64.tgz"
 
 download "linux-amd64"   "cloudflared-linux-amd64"      "cloudflared"
 download "linux-arm64"   "cloudflared-linux-arm64"      "cloudflared"
