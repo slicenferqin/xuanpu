@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useSettingsStore } from '@/stores/useSettingsStore'
+import { useShortcutStore } from '@/stores/useShortcutStore'
+import { useThemeStore } from '@/stores/useThemeStore'
 import { AgentSetupWizard } from './AgentSetupWizard'
-
-type WizardAgentId = 'opencode' | 'claude-code' | 'codex' | 'terminal'
 
 export function AgentSetupGuard(): React.JSX.Element | null {
   const initialSetupComplete = useSettingsStore((s) => s.initialSetupComplete)
@@ -49,17 +49,29 @@ export function AgentSetupGuard(): React.JSX.Element | null {
     return null
   }
 
-  function completeSetup(sdk: WizardAgentId): void {
-    updateSetting('defaultAgentSdk', sdk)
+  function completeSetup(): void {
+    // The wizard has already persisted every other choice (default agent,
+    // keymap preset, theme) the moment the user made them. Flipping
+    // `initialSetupComplete` is the only thing left to do here.
     updateSetting('initialSetupComplete', true)
 
+    const settings = useSettingsStore.getState()
+    const shortcuts = useShortcutStore.getState()
+    const theme = useThemeStore.getState()
     const readyAgents = doctorResult?.agents.filter((agent) => agent.selectable).length ?? 0
 
     window.analyticsOps.track('onboarding_completed', {
-      sdk,
+      // Original schema (kept stable for downstream BI)
+      sdk: settings.defaultAgentSdk,
       auto_selected: false,
       wizard: true,
-      ready_agents: readyAgents
+      ready_agents: readyAgents,
+      // Schema v2 additions
+      event_version: 2,
+      default_runtime: settings.defaultAgentSdk,
+      keymap_preset: shortcuts.activePreset,
+      theme_id: theme.themeId,
+      theme_follow_system: theme.followSystem
     })
   }
 
