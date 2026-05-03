@@ -1470,6 +1470,63 @@ export const messages: Record<AppLocale, MessageTree> = {
         saveError: 'Failed to save context'
       }
     },
+    pinnedFacts: {
+      title: 'Pinned Facts',
+      description:
+        'Permanent facts about this worktree. Injected verbatim into every AI session as part of the Field Context.',
+      placeholder:
+        'Write permanent facts about this worktree, one per line.\n\nExamples:\n- Use pnpm, not npm\n- DB lives at ~/.xuanpu/xuanpu.db\n- Don\'t add comments to generated code',
+      empty: 'No pinned facts yet. Click in the box above to start adding.',
+      save: 'Save',
+      saving: 'Saving…',
+      saved: 'Saved',
+      unsaved: 'Unsaved changes',
+      charCount: '{count} / {max}',
+      overLimit: 'Pinned Facts cannot exceed {max} characters.',
+      toasts: {
+        loadError: 'Failed to load pinned facts',
+        saved: 'Pinned facts saved',
+        saveError: 'Failed to save pinned facts'
+      }
+    },
+    memory: {
+      title: 'Memory',
+      pinnedSection: 'Pinned Facts',
+      observedSection: 'Observed (Episodic)',
+      semanticSection: 'Semantic',
+      regenerate: 'Regenerate',
+      clear: 'Clear',
+      open: 'Open',
+      create: 'Create',
+      compactedAt: 'compacted {ago} ago',
+      compactor: 'compactor: {id} v{version}',
+      eventCount: 'from {count} events',
+      empty: {
+        pinned: 'No pinned facts yet.',
+        observed: 'No summary yet — about 20 events will trigger one automatically.',
+        semantic:
+          'No memory.md found. Create one to give the agent permanent project rules.',
+        checkpoint:
+          'Aborting the current session will record a checkpoint here for next time.'
+      },
+      semanticPath: '`{path}` ({age})',
+      semanticNeverEdited: 'never edited',
+      toasts: {
+        rememberMissingFact: '`/remember` needs a fact (e.g. `/remember use pnpm`)',
+        forgetMissingQuery: '`/forget` needs a query (e.g. `/forget pnpm`)',
+        forgetNoMatch: 'No matching pinned fact',
+        forgetAmbiguous: 'Multiple matches — open the Memory panel to choose',
+        remembered: 'Added to Pinned Facts',
+        forgotten: 'Removed from Pinned Facts',
+        pinnedOverLimit: 'Pinned Facts cannot exceed {max} characters',
+        pinnedSaveError: 'Failed to update Pinned Facts',
+        regenerateOk: 'Episodic summary regenerated',
+        regenerateSkipped: 'Compactor declined (insufficient activity or privacy disabled)',
+        regenerateError: 'Failed to regenerate episodic summary',
+        clearOk: 'Episodic summary cleared',
+        clearError: 'Failed to clear episodic summary'
+      }
+    },
     codexFastToggle: {
       label: 'Fast',
       title: 'Fast Mode',
@@ -3753,6 +3810,61 @@ export const messages: Record<AppLocale, MessageTree> = {
         loadError: '加载 worktree 上下文失败',
         saved: '上下文已保存',
         saveError: '保存上下文失败'
+      }
+    },
+    pinnedFacts: {
+      title: 'Pinned Facts',
+      description:
+        '关于这个 worktree 的永恒事实。每条 AI 会话都会作为 Field Context 的一部分原样注入。',
+      placeholder:
+        '在这里写下关于本 worktree 的永恒事实，一行一条。\n\n示例：\n- 用 pnpm，不要用 npm\n- DB 在 ~/.xuanpu/xuanpu.db\n- 不要给生成的代码加注释',
+      empty: '还没有任何 Pinned Facts。点击上方文本框开始添加。',
+      save: '保存',
+      saving: '保存中…',
+      saved: '已保存',
+      unsaved: '存在未保存更改',
+      charCount: '{count} / {max}',
+      overLimit: 'Pinned Facts 不能超过 {max} 字。',
+      toasts: {
+        loadError: '加载 Pinned Facts 失败',
+        saved: 'Pinned Facts 已保存',
+        saveError: '保存 Pinned Facts 失败'
+      }
+    },
+    memory: {
+      title: '记忆',
+      pinnedSection: 'Pinned Facts',
+      observedSection: '观察记忆（Episodic）',
+      semanticSection: '语义记忆（Semantic）',
+      regenerate: '重新压缩',
+      clear: '清空',
+      open: '打开',
+      create: '创建',
+      compactedAt: '{ago}前压缩',
+      compactor: 'compactor: {id} v{version}',
+      eventCount: '基于 {count} 个事件',
+      empty: {
+        pinned: '还没有任何 Pinned Facts。',
+        observed: '还没有摘要——大约 20 个事件后会自动压缩。',
+        semantic: '还没有 memory.md。创建一个，把项目永恒规则交给 AI。',
+        checkpoint: 'abort 当前 session 时会自动记录现场，方便下次接着干。'
+      },
+      semanticPath: '`{path}`（{age}）',
+      semanticNeverEdited: '从未编辑',
+      toasts: {
+        rememberMissingFact: '`/remember` 需要一条事实（例如 `/remember 用 pnpm`）',
+        forgetMissingQuery: '`/forget` 需要一个查询（例如 `/forget pnpm`）',
+        forgetNoMatch: '没有匹配的 Pinned Fact',
+        forgetAmbiguous: '匹配到多条——请到 Memory 面板手动选择',
+        remembered: '已加入 Pinned Facts',
+        forgotten: '已从 Pinned Facts 移除',
+        pinnedOverLimit: 'Pinned Facts 不能超过 {max} 字',
+        pinnedSaveError: '更新 Pinned Facts 失败',
+        regenerateOk: '观察记忆已重新压缩',
+        regenerateSkipped: '压缩器跳过（事件不足或隐私已关闭）',
+        regenerateError: '重新压缩失败',
+        clearOk: '观察记忆已清空',
+        clearError: '清空观察记忆失败'
       }
     },
     codexFastToggle: {

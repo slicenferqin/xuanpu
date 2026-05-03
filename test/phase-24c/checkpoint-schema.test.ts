@@ -124,7 +124,10 @@ describe('field_session_checkpoints schema (Phase 24C v20)', () => {
     expect(cols).not.toContain('stale_reason')
   })
 
-  it('schema version is 20', () => {
-    expect(db.getSchemaVersion()).toBe(20)
+  it('schema version is 21', () => {
+    // v21: add_field_pinned_facts (v1.4.1). Phase 24C still owns the
+    // checkpoint table from v20 — this assertion only tracks the head
+    // version of the migration ladder.
+    expect(db.getSchemaVersion()).toBe(21)
   })
 })

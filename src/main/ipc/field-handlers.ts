@@ -19,6 +19,11 @@ import { createLogger } from '../services/logger'
 import { emitFieldEvent } from '../field/emit'
 import { getLastInjection } from '../field/last-injection-cache'
 import { getSemanticMemory } from '../field/semantic-memory-loader'
+import {
+  getPinnedFacts,
+  upsertPinnedFacts,
+  PINNED_FACTS_MAX_CHARS
+} from '../field/pinned-facts-repository'
 import type { WorktreeSwitchTrigger } from '../../shared/types'
 
 const log = createLogger({ component: 'FieldHandlers' })
@@ -201,6 +206,73 @@ export function registerFieldHandlers(): void {
     }).catch(() => null)
     const raw = getLatestCheckpoint(worktreeId)
     return { verified, raw }
+  })
+
+  // -------------------------------------------------------------------------
+  // v1.4.1: Pinned Facts — read.
+  // -------------------------------------------------------------------------
+  ipcMain.handle('field:getPinnedFacts', (_event, worktreeId: unknown) => {
+    if (typeof worktreeId !== 'string' || worktreeId.length === 0) return null
+    return getPinnedFacts(worktreeId)
+  })
+
+  // -------------------------------------------------------------------------
+  // v1.4.1: Pinned Facts — upsert. Returns the canonical post-write record so
+  // the renderer can refresh its cache without a follow-up read.
+  // -------------------------------------------------------------------------
+  ipcMain.handle('field:updatePinnedFacts', (_event, input: unknown) => {
+    if (!isPlainObject(input)) {
+      throw new Error('updatePinnedFacts: input must be an object')
+    }
+    const { worktreeId, contentMd } = input
+    if (typeof worktreeId !== 'string' || worktreeId.length === 0) {
+      throw new Error('updatePinnedFacts: worktreeId is required')
+    }
+    if (typeof contentMd !== 'string') {
+      throw new Error('updatePinnedFacts: contentMd must be a string')
+    }
+    if (contentMd.length > PINNED_FACTS_MAX_CHARS) {
+      throw new Error(
+        `Pinned Facts content exceeds ${PINNED_FACTS_MAX_CHARS} chars (got ${contentMd.length})`
+      )
+    }
+    const worktree = getDatabase().getWorktree(worktreeId)
+    if (!worktree) {
+      throw new Error(`updatePinnedFacts: worktree ${worktreeId} not found`)
+    }
+    return upsertPinnedFacts(worktreeId, contentMd)
+  })
+
+  // -------------------------------------------------------------------------
+  // v1.4.2: Episodic Memory — force-regenerate the rolling summary for a
+  // worktree. Bypasses the debounce + min-event threshold; respects privacy
+  // and "don't downgrade" rules. Returns the new record (or null when the
+  // compactor declined — e.g. insufficient events, privacy disabled).
+  // -------------------------------------------------------------------------
+  ipcMain.handle('field:regenerateEpisodic', async (_event, worktreeId: unknown) => {
+    if (typeof worktreeId !== 'string' || worktreeId.length === 0) {
+      throw new Error('regenerateEpisodic: worktreeId is required')
+    }
+    const worktree = getDatabase().getWorktree(worktreeId)
+    if (!worktree) {
+      throw new Error(`regenerateEpisodic: worktree ${worktreeId} not found`)
+    }
+    const { getEpisodicMemoryUpdater } = await import('../field/episodic-updater')
+    const output = await getEpisodicMemoryUpdater().forceCompact(worktreeId)
+    if (!output) return null
+    return getDatabase().getEpisodicMemory(worktreeId)
+  })
+
+  // -------------------------------------------------------------------------
+  // v1.4.2: Episodic Memory — clear the rolling summary for a worktree.
+  // The next eligible event will trigger a fresh compaction.
+  // -------------------------------------------------------------------------
+  ipcMain.handle('field:clearEpisodic', (_event, worktreeId: unknown) => {
+    if (typeof worktreeId !== 'string' || worktreeId.length === 0) {
+      throw new Error('clearEpisodic: worktreeId is required')
+    }
+    const deleted = getDatabase().deleteEpisodicMemory(worktreeId)
+    return { deleted }
   })
 }
 

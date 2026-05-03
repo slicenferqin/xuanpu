@@ -57,6 +57,14 @@ export interface FieldContextSnapshot {
   /** User-authored notes from `worktrees.context`. */
   worktreeNotes: string | null
   /**
+   * v1.4.1: Pinned Facts — user-authored permanent facts for this worktree.
+   * Rendered before semantic memory; null/empty content suppresses the section.
+   */
+  pinnedFacts: {
+    contentMd: string
+    updatedAt: number
+  } | null
+  /**
    * Phase 24C: resumed work-state from the previous session on this worktree.
    * Null when no checkpoint, stale, or field collection disabled.
    */

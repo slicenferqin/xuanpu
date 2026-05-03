@@ -5,6 +5,7 @@ import { MarkdownRenderer } from '@/components/sessions/MarkdownRenderer'
 import { useFileViewerStore } from '@/stores/useFileViewerStore'
 import { toast } from '@/lib/toast'
 import { useI18n } from '@/i18n/useI18n'
+import { PinnedFactsCard } from './PinnedFactsCard'
 
 interface WorktreeContextEditorProps {
   worktreeId: string
@@ -162,17 +163,23 @@ export function WorktreeContextEditor({
             value={content}
             onChange={(e) => setContent(e.target.value)}
             placeholder={t('worktreeContext.placeholder')}
-            className="w-full h-full resize-none bg-transparent font-mono text-sm p-4 focus:outline-none"
+            className="w-full min-h-[40vh] resize-none bg-transparent font-mono text-sm p-4 focus:outline-none"
           />
         ) : content ? (
           <div className="p-4 text-sm">
             <MarkdownRenderer content={content} />
           </div>
         ) : (
-          <div className="flex items-center justify-center h-full text-sm text-muted-foreground px-8 text-center">
+          <div className="flex items-center justify-center min-h-[40vh] text-sm text-muted-foreground px-8 text-center">
             {t('worktreeContext.empty')}
           </div>
         )}
+
+        {/* v1.4.1: Pinned Facts — permanent worktree-scoped facts injected
+            into every AI session as part of the Field Context. */}
+        <div className="px-4 pb-4 pt-2">
+          <PinnedFactsCard worktreeId={worktreeId} />
+        </div>
       </div>
 
       {/* Footer with save button — only in edit mode */}

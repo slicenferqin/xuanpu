@@ -139,6 +139,18 @@ export const BUILT_IN_SLASH_COMMANDS: SlashCommandInfo[] = [
     description: 'Show MCP server status',
     template: '/mcp',
     builtIn: true
+  },
+  {
+    name: 'remember',
+    description: 'Add a permanent fact about this worktree (Pinned Facts)',
+    template: '/remember ',
+    builtIn: true
+  },
+  {
+    name: 'forget',
+    description: 'Remove a Pinned Fact by substring match',
+    template: '/forget ',
+    builtIn: true
   }
 ]
 
@@ -3685,6 +3697,76 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             if (success && session) {
               useSessionStore.getState().setActiveSession(session.id)
             }
+          }
+
+          return
+        }
+
+        if (commandName === 'remember' || commandName === 'forget') {
+          // v1.4.2: Pinned Facts slash commands. Persist directly via fieldOps,
+          // never sent to the agent. The composer is cleared regardless of
+          // outcome so the user isn't left holding a stale slash command.
+          setShowSlashCommands(false)
+          setInputValue('')
+          inputValueRef.current = ''
+          if (draftTimerRef.current) clearTimeout(draftTimerRef.current)
+          window.db.session.updateDraft(sessionId, null)
+
+          if (!worktreeId) {
+            toast.error(t('sessionView.toasts.notConnected'))
+            return
+          }
+
+          const argsText = (spaceIndex > 0 ? trimmedValue.slice(spaceIndex + 1) : '').trim()
+          if (!argsText) {
+            toast.error(
+              commandName === 'remember'
+                ? t('memory.toasts.rememberMissingFact')
+                : t('memory.toasts.forgetMissingQuery')
+            )
+            return
+          }
+
+          try {
+            const current = await window.fieldOps.getPinnedFacts(worktreeId)
+            const existing = current?.contentMd ?? ''
+
+            if (commandName === 'remember') {
+              const newLine = argsText.startsWith('-') ? argsText : `- ${argsText}`
+              const next = existing.length === 0 ? newLine : `${existing.trimEnd()}\n${newLine}`
+              if (next.length > 2000) {
+                toast.error(t('memory.toasts.pinnedOverLimit', { max: '2000' }))
+                return
+              }
+              await window.fieldOps.updatePinnedFacts({
+                worktreeId,
+                contentMd: next
+              })
+              toast.success(t('memory.toasts.remembered'))
+            } else {
+              const lines = existing.split('\n')
+              const needle = argsText.toLowerCase()
+              const matchIdx = lines
+                .map((line, i) => ({ line, i }))
+                .filter(({ line }) => line.toLowerCase().includes(needle))
+              if (matchIdx.length === 0) {
+                toast.error(t('memory.toasts.forgetNoMatch'))
+                return
+              }
+              if (matchIdx.length > 1) {
+                toast.warning(t('memory.toasts.forgetAmbiguous'))
+                return
+              }
+              const next = lines.filter((_, i) => i !== matchIdx[0].i).join('\n').trim()
+              await window.fieldOps.updatePinnedFacts({
+                worktreeId,
+                contentMd: next
+              })
+              toast.success(t('memory.toasts.forgotten'))
+            }
+          } catch (error) {
+            console.error('Memory slash command failed:', error)
+            toast.error(t('memory.toasts.pinnedSaveError'))
           }
 
           return

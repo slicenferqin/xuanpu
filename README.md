@@ -156,10 +156,11 @@ pnpm dev
 
 v1.4.0 把"现场"打通了第一公里。1.4.x 的核心是**让记忆变得可见可编辑**：
 
-- **1.4.1 Pinned Facts**：用户能在 GUI 里直接钉住"这个项目用 pnpm"这种永久事实
-- **1.4.2 Memory 面板**：把 4-tab Field Context Debug 升级为完整的 Memory 面板，能看见 + 编辑 + 重置 + 重新生成
-- **1.4.3 成本可见**：本月压缩消耗了多少 token / ¥X，明明白白告诉用户
-- **1.4.4 跨 agent 注入质量验证**：实测 Codex / OpenCode / Amp 收到 Field Context prefix 是真用还是当垃圾忽略
+- **1.4.1 Pinned Facts** ✅ — 用户能在 GUI 里直接钉住"这个项目用 pnpm"这种永久事实，每条 prompt 自动注入
+- **1.4.2 Memory 面板** ✅ — 把 4-tab Field Context Debug 升级为完整的 Memory 面板，能看见 + 编辑 + 重置 + 重新生成；`/remember` `/forget` slash 命令直接管 Pinned Facts
+- **1.4.3 发版 / onboarding 加固** — CI post-package verify、Edit/Write diff 折叠、Composer 图片大图预览（已落）；首次 onboarding checklist + 空状态文案仍在路上
+- **1.4.4 Codex 体验对齐** — 让 Codex 在玄圃里跑得真正像 native
+- **1.4.x 成本可见 + 跨 agent 注入质量验证** — 本月压缩消耗了多少 token / ¥X 明白告诉用户；实测 Codex / OpenCode / Amp 收到 Field Context prefix 是真用还是当垃圾忽略
 
 更远的第二圈（VISION §3.2）是 **XFP（Xuanpu Field Protocol）** —— 让任何 agent 厂商能用同一套协议获取现场，把"在玄圃里 agent 比在原生环境里更强"做成标准。
 

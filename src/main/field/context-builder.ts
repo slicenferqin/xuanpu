@@ -21,6 +21,7 @@ import { getFieldEventSink } from './sink'
 import { getRecentFieldEvents, type StoredFieldEvent } from './repository'
 import { getSemanticMemory } from './semantic-memory-loader'
 import { verifyCheckpoint } from './checkpoint-verifier'
+import { getPinnedFacts } from './pinned-facts-repository'
 import { createLogger } from '../services/logger'
 import type {
   FieldContextSnapshot,
@@ -130,6 +131,7 @@ export async function buildFieldContextSnapshot(
         }
       : null,
     worktreeNotes: worktreeRow?.context ?? null,
+    pinnedFacts: readPinnedFacts(opts.worktreeId),
     checkpoint,
     episodicSummary: readEpisodicSummary(opts.worktreeId),
     semanticMemory: semanticMemory
@@ -147,6 +149,16 @@ export async function buildFieldContextSnapshot(
     focus: { file: focusFile, selection: focusSelection },
     lastTerminal,
     recentActivity
+  }
+}
+
+function readPinnedFacts(worktreeId: string): FieldContextSnapshot['pinnedFacts'] {
+  const entry = getPinnedFacts(worktreeId)
+  if (!entry) return null
+  if (entry.contentMd.trim().length === 0) return null
+  return {
+    contentMd: entry.contentMd,
+    updatedAt: entry.updatedAt
   }
 }
 

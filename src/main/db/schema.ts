@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 20
+export const CURRENT_SCHEMA_VERSION = 21
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -234,6 +234,18 @@ CREATE INDEX IF NOT EXISTS idx_field_session_checkpoints_worktree_created
   ON field_session_checkpoints(worktree_id, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_field_session_checkpoints_worktree_hash
   ON field_session_checkpoints(worktree_id, packet_hash);
+
+-- Phase 22D / v1.4.1: Pinned Facts (per-worktree user-authored permanent facts)
+-- See docs/plans/2026-05-03-field-memory-implementation.md
+-- Single row per worktree; content is freeform markdown injected verbatim
+-- into Field Context as a "## Pinned Facts" section. Application enforces
+-- a 2000-char cap; no DB CHECK so future cap changes need no migration.
+CREATE TABLE IF NOT EXISTS field_pinned_facts (
+  worktree_id TEXT PRIMARY KEY REFERENCES worktrees(id) ON DELETE CASCADE,
+  content_md TEXT NOT NULL DEFAULT '',
+  updated_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
 `
 
 export interface Migration {
@@ -716,6 +728,29 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_field_session_checkpoints_worktree_hash;
       DROP INDEX IF EXISTS idx_field_session_checkpoints_worktree_created;
       DROP TABLE IF EXISTS field_session_checkpoints;
+    `
+  },
+  {
+    version: 21,
+    name: 'add_field_pinned_facts',
+    up: `
+      -- v1.4.1: Pinned Facts (per-worktree user-authored permanent facts)
+      -- See docs/plans/2026-05-03-field-memory-implementation.md
+      --
+      -- Single row per worktree (PK = worktree_id). content_md is freeform
+      -- markdown injected verbatim into Field Context. 2000-char cap is
+      -- enforced in the application layer to keep future cap changes
+      -- migration-free. ON DELETE CASCADE: removing a worktree clears its
+      -- pinned facts automatically.
+      CREATE TABLE IF NOT EXISTS field_pinned_facts (
+        worktree_id TEXT PRIMARY KEY REFERENCES worktrees(id) ON DELETE CASCADE,
+        content_md TEXT NOT NULL DEFAULT '',
+        updated_at INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+    `,
+    down: `
+      DROP TABLE IF EXISTS field_pinned_facts;
     `
   }
 ]

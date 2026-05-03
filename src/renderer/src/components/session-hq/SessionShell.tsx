@@ -31,6 +31,7 @@ import { MissionControl, type MissionTask } from './MissionControl'
 import { InterruptDock } from './InterruptDock'
 import { ComposerBar } from './ComposerBar'
 import { FieldContextDebug } from '@/components/sessions/FieldContextDebug'
+import { MemoryPanel } from '@/components/sessions/MemoryPanel'
 import { ForkFromMessageConfirmDialog } from './ForkFromMessageConfirmDialog'
 import { PlanReadyImplementFab } from '../sessions/PlanReadyImplementFab'
 import { ScrollToBottomFab } from '../sessions/ScrollToBottomFab'
@@ -1582,17 +1583,21 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           commandsVersion={commandsVersion}
         />
 
-        {/* Phase 22A debug: collapsible view of the last Field Context injection.
-            Anchored to the very bottom of the relative content area so it
-            survives `overflow-hidden` and sits below the floating ComposerBar
-            (which is `absolute bottom-16`). Higher z-index than the timeline
-            so users can always click to expand. */}
+        {/* v1.4.2: User-facing Memory panel — Pinned Facts / Observed
+            (Episodic) / Semantic. Sits above the FieldContextDebug
+            (which is dev-only) so it's the daily-driver for memory edits. */}
         <div className="absolute bottom-0 left-0 right-0 z-30">
-          <FieldContextDebug
-            sessionId={droidSessionId}
-            fallbackSessionIds={[sessionId]}
-            worktreeId={worktreeId}
-          />
+          <MemoryPanel worktreeId={worktreeId} />
+          {/* Phase 22A debug: collapsible view of the last Field Context injection.
+              Only visible in dev builds — production users use the MemoryPanel
+              above for daily memory inspection. */}
+          {process.env.NODE_ENV === 'development' && (
+            <FieldContextDebug
+              sessionId={droidSessionId}
+              fallbackSessionIds={[sessionId]}
+              worktreeId={worktreeId}
+            />
+          )}
         </div>
 
         <ForkFromMessageConfirmDialog
