@@ -39,6 +39,10 @@ import {
   openCommandInSystemTerminal,
   runOnboardingDoctor
 } from './services/onboarding-doctor'
+import {
+  detectImportSources,
+  parseImportSource
+} from './services/keybinding-import'
 import { createResponseLog, appendResponseLog } from './services/response-logger'
 import { notificationService } from './services/notification-service'
 import { updaterService } from './services/updater'
@@ -472,6 +476,17 @@ function registerSystemHandlers(): void {
   ipcMain.handle('system:runOnboardingDoctor', () => {
     return runOnboardingDoctor()
   })
+
+  ipcMain.handle('system:detectKeybindingImportSources', () => {
+    return detectImportSources()
+  })
+
+  ipcMain.handle(
+    'system:parseKeybindingImportSource',
+    async (_event, source: 'vscode' | 'cursor') => {
+      return parseImportSource(source)
+    }
+  )
 
   ipcMain.handle(
     'system:openCommandInTerminal',

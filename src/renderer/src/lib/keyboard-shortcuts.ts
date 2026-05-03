@@ -200,6 +200,102 @@ const shortcutMap = new Map<string, ShortcutDefinition>()
 DEFAULT_SHORTCUTS.forEach((s) => shortcutMap.set(s.id, s))
 
 // ==========================================
+// Keymap Presets
+// ==========================================
+
+export type KeymapPresetId = 'xuanpu-default' | 'vscode' | 'jetbrains'
+
+export interface KeymapPresetMeta {
+  id: KeymapPresetId
+  /** i18n key under `onboardingWizard.keymap.presets.{id}.label` */
+  labelKey: string
+  /** i18n key under `onboardingWizard.keymap.presets.{id}.description` */
+  descriptionKey: string
+  /** Sparse map: only shortcuts that differ from DEFAULT_SHORTCUTS. */
+  overrides: Partial<Record<string, KeyBinding>>
+}
+
+export const DEFAULT_KEYMAP_PRESET: KeymapPresetId = 'xuanpu-default'
+
+export const KEYMAP_PRESETS: Record<KeymapPresetId, KeymapPresetMeta> = {
+  'xuanpu-default': {
+    id: 'xuanpu-default',
+    labelKey: 'onboardingWizard.keymap.presets.xuanpu-default.label',
+    descriptionKey: 'onboardingWizard.keymap.presets.xuanpu-default.description',
+    overrides: {}
+  },
+  vscode: {
+    id: 'vscode',
+    labelKey: 'onboardingWizard.keymap.presets.vscode.label',
+    descriptionKey: 'onboardingWizard.keymap.presets.vscode.description',
+    overrides: {
+      'nav:command-palette': { key: 'p', modifiers: ['meta', 'shift'] },
+      'nav:file-search': { key: 'p', modifiers: ['meta'] },
+      'git:push': { key: 'p', modifiers: ['alt', 'meta'] },
+      'git:commit': { key: 'Enter', modifiers: ['meta'] },
+      'git:pull': { key: 'l', modifiers: ['alt', 'meta'] },
+      'nav:filter-projects': { key: 'f', modifiers: ['meta', 'shift'] },
+      'terminal:new-tab': { key: '`', modifiers: ['ctrl', 'shift'] },
+      'terminal:close-tab': { key: 'k', modifiers: ['ctrl', 'shift'] },
+      'sidebar:toggle-right': { key: 'b', modifiers: ['alt', 'meta'] }
+    }
+  },
+  jetbrains: {
+    id: 'jetbrains',
+    labelKey: 'onboardingWizard.keymap.presets.jetbrains.label',
+    descriptionKey: 'onboardingWizard.keymap.presets.jetbrains.description',
+    overrides: {
+      'nav:command-palette': { key: 'a', modifiers: ['meta', 'shift'] },
+      'nav:file-search': { key: 'o', modifiers: ['meta', 'shift'] },
+      'nav:session-history': { key: 'e', modifiers: ['meta'] },
+      'git:commit': { key: 'k', modifiers: ['meta'] },
+      'git:push': { key: 'k', modifiers: ['meta', 'shift'] },
+      'sidebar:toggle-left': { key: '1', modifiers: ['meta'] },
+      'focus:left-sidebar': { key: '1', modifiers: ['alt'] },
+      'focus:main-pane': { key: '2', modifiers: ['alt'] }
+    }
+  }
+}
+
+export const KEYMAP_PRESET_ORDER: KeymapPresetId[] = ['xuanpu-default', 'vscode', 'jetbrains']
+
+/**
+ * Resolve the effective binding for a shortcut under a preset, with optional custom override.
+ * Priority: custom > preset.overrides > DEFAULT_SHORTCUTS.
+ */
+export function resolveBindingForPreset(
+  shortcutId: string,
+  preset: KeymapPresetId,
+  custom?: KeyBinding
+): KeyBinding | null {
+  if (custom) return custom
+  const override = KEYMAP_PRESETS[preset]?.overrides[shortcutId]
+  if (override) return override
+  return shortcutMap.get(shortcutId)?.defaultBinding ?? null
+}
+
+/**
+ * Build a Map of every shortcut's effective binding for the given preset (no custom overlay).
+ * Useful for conflict detection.
+ */
+export function buildPresetBindingMap(preset: KeymapPresetId): Map<string, KeyBinding> {
+  const result = new Map<string, KeyBinding>()
+  for (const def of DEFAULT_SHORTCUTS) {
+    const binding = resolveBindingForPreset(def.id, preset)
+    if (binding) result.set(def.id, binding)
+  }
+  return result
+}
+
+/**
+ * Returns true if the preset's overrides reference only known shortcut ids.
+ * Used by tests to ensure presets don't drift from DEFAULT_SHORTCUTS.
+ */
+export function presetOverridesAreValid(preset: KeymapPresetId): boolean {
+  return Object.keys(KEYMAP_PRESETS[preset].overrides).every((id) => shortcutMap.has(id))
+}
+
+// ==========================================
 // Utility Functions
 // ==========================================
 
