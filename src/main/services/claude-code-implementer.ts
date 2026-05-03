@@ -965,7 +965,18 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
           // exhaustion, and (2) compaction summary injected by SDK after context
           // window compression. Neither should appear in the UI timeline.
           // Also skip skill prompt injection messages (expanded skill file content).
+          // Also skip the SDK's synthetic "Continue from where you left off." marker
+          // injected by aA8/print.ts when resuming an interrupted_turn or a deferred
+          // tool use. It carries isMeta:true upstream, but the flag is unreliable
+          // across SDK serialization, so we match the canonical text instead.
           if (msgType === 'user') {
+            // Honor explicit isMeta marker when SDK propagates it
+            if ((sdkMsg as Record<string, unknown>).isMeta === true) {
+              log.info('Skipping SDK meta user message', {
+                uuid: typeof sdkMsg.uuid === 'string' ? sdkMsg.uuid.slice(0, 12) : undefined
+              })
+              continue
+            }
             let textContent = ''
             if (Array.isArray(msgContent)) {
               textContent = msgContent
@@ -984,8 +995,12 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
               trimmed.startsWith('Here is a summary of the conversation so far') ||
               trimmed.startsWith('Base directory for this skill:') ||
               trimmed.startsWith('<local-command-stdout>') ||
-              trimmed.startsWith('<system-reminder>')
+              trimmed.startsWith('<system-reminder>') ||
+              trimmed === 'Continue from where you left off.'
             ) {
+              log.info('Skipping SDK boilerplate user message', {
+                preview: trimmed.slice(0, 60)
+              })
               continue
             }
           }
