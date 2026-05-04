@@ -322,6 +322,8 @@ const TOOL_RENDERERS: Record<string, React.FC<ToolViewProps>> = {
   glob: GrepToolView,
   Bash: BashToolView,
   bash: BashToolView,
+  // Token Saver: agent sees Bash via in-process MCP under this name.
+  'mcp__xuanpu__bash': BashToolView,
   Task: TaskToolView,
   task: TaskToolView,
   mcp_question: QuestionToolView,

@@ -1580,6 +1580,10 @@ const skillOps = {
 const fileOps = {
   readFile: (filePath: string): Promise<{ success: boolean; content?: string; error?: string }> =>
     ipcRenderer.invoke('file:read', filePath),
+  readArchive: (
+    filePath: string
+  ): Promise<{ success: boolean; content?: string; error?: string }> =>
+    ipcRenderer.invoke('file:readArchive', filePath),
   writeFile: (filePath: string, content: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('file:write', filePath, content),
   readPrompt: (

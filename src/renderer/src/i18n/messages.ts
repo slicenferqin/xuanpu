@@ -1121,6 +1121,10 @@ export const messages: Record<AppLocale, MessageTree> = {
     },
     sessionView: {
       compacting: 'Compressing context...',
+      tokenSaverBanner: {
+        label: 'Saved {saved} ({percent}%)',
+        tooltip: 'Token Saver: {before} → {after} across {hits} tool calls'
+      },
       loading: {
         title: 'Connecting to session...',
         subtitle: 'This may take a moment'
@@ -1781,6 +1785,15 @@ export const messages: Record<AppLocale, MessageTree> = {
       common: {
         showLess: 'Show less',
         showAllLines: 'Show all {count} lines'
+      },
+      tokenSaver: {
+        savedBadge: 'Saved {percent}% · {before} → {after}',
+        viaRules: 'via {rules}',
+        showOriginal: 'Show original',
+        hideOriginal: 'Hide original',
+        loadingOriginal: 'Loading…',
+        loadFailed: 'Failed to load original',
+        archivedAt: 'Archived at {path}'
       },
       grep: {
         in: 'in',
@@ -3469,6 +3482,10 @@ export const messages: Record<AppLocale, MessageTree> = {
     },
     sessionView: {
       compacting: '正在压缩上下文窗口...',
+      tokenSaverBanner: {
+        label: '已节省 {saved}（{percent}%）',
+        tooltip: 'Token 节省器：本会话累计压缩 {before} → {after}，共 {hits} 次工具调用'
+      },
       loading: {
         title: '正在连接会话...',
         subtitle: '这可能需要一点时间'
@@ -4126,6 +4143,15 @@ export const messages: Record<AppLocale, MessageTree> = {
       common: {
         showLess: '收起',
         showAllLines: '显示全部 {count} 行'
+      },
+      tokenSaver: {
+        savedBadge: '节省 {percent}% · {before} → {after}',
+        viaRules: '使用 {rules}',
+        showOriginal: '查看原文',
+        hideOriginal: '收起原文',
+        loadingOriginal: '加载中…',
+        loadFailed: '原文加载失败',
+        archivedAt: '原文存档于 {path}'
       },
       grep: {
         in: '在',

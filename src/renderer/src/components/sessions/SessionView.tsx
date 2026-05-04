@@ -79,6 +79,7 @@ import { CommandApprovalPrompt } from './CommandApprovalPrompt'
 import type { ToolStatus, ToolUseInfo } from './ToolCard'
 import { PLAN_MODE_PREFIX, ASK_MODE_PREFIX, stripPlanModePrefix } from '@/lib/constants'
 import { SessionCostPill } from './SessionCostPill'
+import { SessionTokenSaverBanner } from './SessionTokenSaverBanner'
 import { QueuedMessagesBar, type QueuedMsg } from './QueuedMessagesBar'
 import type { UsageAnalyticsSessionSummary } from '@shared/types/usage-analytics'
 import type { SessionActivity } from '@shared/types/session'
@@ -5417,6 +5418,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                             : null
                         }
                       />
+                      <SessionTokenSaverBanner messages={messages} />
                       {pendingPlan ? (
                         <span className="text-[12px] text-muted-foreground">
                           {t('sessionView.composer.planFeedbackHint')}
