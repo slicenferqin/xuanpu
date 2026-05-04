@@ -31,6 +31,7 @@ import {
   type EpisodicCompactor
 } from './episodic-compactor'
 import type { StoredFieldEvent } from './repository'
+import { redactSecrets as sharedRedactSecrets } from './redact'
 
 const log = createLogger({ component: 'ClaudeHaikuCompactor' })
 
@@ -309,8 +310,11 @@ function truncate(s: string, max: number): string {
 const SECRET_INLINE_REGEX =
   /(api[_-]?key|password|token|secret|authorization|bearer)\s*[:=]?\s*\S+/gi
 
+// NOTE: This local regex is no longer used at runtime — sharedRedactSecrets
+// from `./redact` is the real implementation. The wrapper preserves the old
+// exported test surface (`__HAIKU_COMPACTOR_TUNABLES_FOR_TEST.redactSecrets`).
 function redactSecrets(s: string): string {
-  return s.replace(SECRET_INLINE_REGEX, (_m, kw: string) => `${kw}=[REDACTED]`)
+  return sharedRedactSecrets(s, { mode: 'inline' })
 }
 
 function sleep(ms: number): Promise<void> {
