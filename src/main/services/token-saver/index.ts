@@ -1,11 +1,10 @@
 /**
  * Token Saver — public entry point.
  *
- * Stage 1: pipeline + strategies. Stage 2 will add the MCP Bash interceptor
- * + ContextOffloadStore. Stage 3 will add UI metadata.
- *
- * Consumers:
- *   import { OutputCompressionPipeline, defaultPipeline } from 'src/main/services/token-saver'
+ * Stage 1: pipeline + strategies.
+ * Stage 2a: ContextOffloadStore + BashCommandRunner.
+ * Stage 2b: MCP server factory + claude-code-implementer integration (next).
+ * Stage 3: UI metadata.
  */
 export type {
   CompressionContext,
@@ -27,6 +26,12 @@ export {
   DEFAULT_STRATEGIES
 } from './strategies'
 
+export type { OffloadRecord, OffloadInput, ContextOffloadStoreOptions } from './offload-store'
+export { ContextOffloadStore } from './offload-store'
+
+export type { RunBashOptions, RunBashResult } from './bash-runner'
+export { runBashCommand } from './bash-runner'
+
 import { OutputCompressionPipeline } from './pipeline'
 import { DEFAULT_STRATEGIES } from './strategies'
 
@@ -34,8 +39,6 @@ let cachedDefault: OutputCompressionPipeline | null = null
 
 /**
  * Returns a memoised default pipeline with all 5 built-in strategies in order.
- * Most consumers should use this. Tests and bespoke consumers can construct
- * their own pipeline with `new OutputCompressionPipeline([...])`.
  */
 export function defaultPipeline(): OutputCompressionPipeline {
   if (!cachedDefault) {
