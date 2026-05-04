@@ -113,6 +113,13 @@ export const messages: Record<AppLocale, MessageTree> = {
           description:
             'This will reset all settings, theme, and keyboard shortcuts to their defaults.',
           success: 'All settings reset to defaults'
+        },
+        reopenOnboarding: {
+          label: 'Re-run welcome setup',
+          description:
+            'Reopen the first-launch wizard to revisit the agent, keymap, and theme decisions.',
+          button: 'Re-run setup',
+          toast: 'Welcome setup will reopen now.'
         }
       },
       editor: {
@@ -303,6 +310,13 @@ export const messages: Record<AppLocale, MessageTree> = {
         conflictDescription: 'This binding is already used by:',
         resetTitle: 'Reset to default',
         recording: 'Press keys...',
+        preset: {
+          label: 'Keymap preset',
+          description:
+            'Switching the preset only changes shortcuts that differ from the default. Your custom bindings always win.',
+          customNotice:
+            'You have {count} custom binding(s) that override this preset on the same shortcuts.'
+        },
         categories: {
           recent: 'Recent',
           navigation: 'Navigation',
@@ -1010,7 +1024,10 @@ export const messages: Record<AppLocale, MessageTree> = {
         runInTerminal: 'Open in Terminal',
         copyCommand: 'Copy command',
         quit: 'Quit app',
-        start: 'Start with this setup'
+        start: 'Start with this setup',
+        finish: 'Finish setup',
+        finishHint: 'Wrap up and enter Xuanpu',
+        finishDisabledHint: 'Install or sign in to at least one agent, or pick Terminal mode.'
       },
       loading: {
         title: 'Checking your local setup',
@@ -1043,6 +1060,12 @@ export const messages: Record<AppLocale, MessageTree> = {
           title: 'Xcode Command Line Tools',
           ready: 'Installed',
           missing: 'Recommended for Git and common local toolchains on macOS.'
+        },
+        collapsed: {
+          allReady: '{count}/{total} environment checks ready',
+          needsAttention: '{count} item(s) need attention',
+          expand: 'Show details',
+          collapse: 'Hide details'
         }
       },
       agents: {
@@ -1111,7 +1134,97 @@ export const messages: Record<AppLocale, MessageTree> = {
         docsOpened: 'Opened the official documentation',
         terminalOpened: 'Opened the command in the system terminal',
         actionFailed: 'Action failed',
-        selectedAgentRequired: 'Select a ready agent, or continue with Terminal mode.'
+        selectedAgentRequired: 'Select a ready agent, or continue with Terminal mode.',
+        defaultAgentSet: '{agent} is now your default for new sessions.',
+        terminalFallbackSet: 'Set Terminal mode as the fallback default.'
+      },
+      providers: {
+        title: 'AI agents',
+        description:
+          'Install, sign in, and pick a default. You can change this later in Settings.',
+        actions: {
+          install: 'Install',
+          login: 'Sign in',
+          recheck: 'Re-check',
+          setDefault: 'Set as default',
+          isDefault: 'Default agent',
+          docs: 'Docs'
+        },
+        defaultRuntimeReadout: 'Default: {agent}',
+        defaultRuntimeUnset: 'No default selected — pick one below or use Terminal mode.',
+        terminal: {
+          fallbackTitle: 'Terminal mode',
+          fallbackDescription:
+            'Skip the agent for now. You still get projects, worktrees, and the integrated terminal.',
+          setFallback: 'Use as fallback',
+          isFallback: 'Current fallback'
+        },
+        loading: {
+          message: 'Detecting installed agents…'
+        },
+        errorBanner: {
+          title: 'Could not finish the agent check',
+          retry: 'Try again',
+          fallback: 'Continue with Terminal mode'
+        }
+      },
+      keymap: {
+        title: 'Base keymap',
+        description:
+          'Pick the keystrokes you already know. We only swap shortcuts that differ from Xuanpu defaults.',
+        sample: '{shortcut} {label}',
+        samples: {
+          commandPalette: 'Command palette',
+          fileSearch: 'Find file'
+        },
+        importTitle: 'Import from your editor',
+        importDescription:
+          'We can read keybindings.json from VS Code or Cursor and bring over the commands we recognize.',
+        importEmpty: 'No VS Code or Cursor settings detected on this machine.',
+        importNotFound: 'keybindings.json not found at:\n{path}',
+        importBusy: 'Importing…',
+        importApply: 'Import from {source}',
+        importSourceVscode: 'VS Code',
+        importSourceCursor: 'Cursor',
+        importToast: {
+          success: 'Imported {count} keybinding(s) from {source}.',
+          partial:
+            'Imported {applied} from {source}; {skipped} skipped due to conflicts or unsupported shortcuts.',
+          empty: 'Nothing to import from {source} — no recognised commands.',
+          notFound: 'No keybindings.json found for {source}.',
+          error: 'Could not import from {source}: {message}'
+        },
+        importMeta: {
+          unmapped: '{count} command(s) we don’t map yet were skipped.',
+          contextScoped: '{count} entry(ies) with `when` clauses were skipped.'
+        },
+        presets: {
+          'xuanpu-default': {
+            label: 'Xuanpu default',
+            description: 'The shortcuts shipped with Xuanpu, tuned for AI sessions.'
+          },
+          vscode: {
+            label: 'VS Code',
+            description: 'Cmd+Shift+P palette, Cmd+P quick open — the muscle memory you brought.'
+          },
+          jetbrains: {
+            label: 'JetBrains',
+            description: 'Cmd+Shift+A find action, Cmd+Shift+O search everywhere.'
+          }
+        },
+        toast: {
+          switched: 'Switched to {preset}',
+          conflicts:
+            'Switched to {preset}. {count} of your custom shortcuts will keep overriding the preset.',
+          viewConflicts: 'Review them'
+        }
+      },
+      appearance: {
+        title: 'Appearance',
+        description: 'Pick a theme. You can fine-tune density and fonts later in Settings.',
+        followSystem: 'Follow system',
+        light: 'Light',
+        dark: 'Dark'
       }
     },
     sessionView: {
@@ -2412,6 +2525,12 @@ export const messages: Record<AppLocale, MessageTree> = {
           label: '重置全部设置',
           description: '这会把所有设置、主题和快捷键恢复到默认值。',
           success: '所有设置已恢复默认值'
+        },
+        reopenOnboarding: {
+          label: '重新运行欢迎向导',
+          description: '再次打开首次启动的引导页，重新选择 Agent、键位预设和主题。',
+          button: '重新运行',
+          toast: '欢迎向导即将打开。'
         }
       },
       editor: {
@@ -2597,6 +2716,11 @@ export const messages: Record<AppLocale, MessageTree> = {
         conflictDescription: '该按键已被以下操作占用：',
         resetTitle: '恢复默认',
         recording: '请按下按键...',
+        preset: {
+          label: '键位预设',
+          description: '切换预设只会改动与默认不同的快捷键。你的自定义始终优先生效。',
+          customNotice: '当前有 {count} 项自定义会继续覆盖该预设上的同名快捷键。'
+        },
         categories: {
           recent: '最近',
           navigation: '导航',
@@ -3299,7 +3423,10 @@ export const messages: Record<AppLocale, MessageTree> = {
         runInTerminal: '在终端中打开',
         copyCommand: '复制命令',
         quit: '退出应用',
-        start: '使用当前配置开始'
+        start: '使用当前配置开始',
+        finish: '完成安装',
+        finishHint: '收尾并进入玄圃',
+        finishDisabledHint: '至少安装/登录一个 Agent，或者选择终端兜底再继续。'
       },
       loading: {
         title: '正在检查本地环境',
@@ -3332,6 +3459,12 @@ export const messages: Record<AppLocale, MessageTree> = {
           title: 'Xcode Command Line Tools',
           ready: '已安装',
           missing: '在 macOS 上推荐安装，便于 Git 和常见本地工具链正常工作。'
+        },
+        collapsed: {
+          allReady: '{count}/{total} 项环境就绪',
+          needsAttention: '{count} 项需关注',
+          expand: '展开详情',
+          collapse: '收起详情'
         }
       },
       agents: {
@@ -3397,7 +3530,91 @@ export const messages: Record<AppLocale, MessageTree> = {
         docsOpened: '已打开官方文档',
         terminalOpened: '已在系统终端中打开命令',
         actionFailed: '操作失败',
-        selectedAgentRequired: '先选择一个可用 Agent，或者改用终端模式继续。'
+        selectedAgentRequired: '先选择一个可用 Agent，或者改用终端模式继续。',
+        defaultAgentSet: '已把 {agent} 设为新会话默认 Agent。',
+        terminalFallbackSet: '已把终端模式设为兜底默认。'
+      },
+      providers: {
+        title: 'AI Agent',
+        description: '安装、登录、设置默认。这些之后都可以在设置里改。',
+        actions: {
+          install: '安装',
+          login: '登录',
+          recheck: '重新检测',
+          setDefault: '设为默认',
+          isDefault: '当前默认',
+          docs: '文档'
+        },
+        defaultRuntimeReadout: '默认：{agent}',
+        defaultRuntimeUnset: '尚未选默认 Agent — 在下方挑一个，或先用终端模式。',
+        terminal: {
+          fallbackTitle: '终端模式',
+          fallbackDescription: '暂时跳过 Agent，仍然可以使用项目、worktree 和集成终端。',
+          setFallback: '用作兜底',
+          isFallback: '当前兜底'
+        },
+        loading: {
+          message: '正在检测已安装的 Agent…'
+        },
+        errorBanner: {
+          title: 'Agent 检查未能完成',
+          retry: '重试',
+          fallback: '改用终端模式继续'
+        }
+      },
+      keymap: {
+        title: '键位预设',
+        description: '从你熟悉的编辑器迁移。我们只换掉与玄圃默认不同的快捷键。',
+        sample: '{shortcut}  {label}',
+        samples: {
+          commandPalette: '命令面板',
+          fileSearch: '查找文件'
+        },
+        importTitle: '从你的编辑器导入',
+        importDescription: '我们可以读取 VS Code 或 Cursor 的 keybindings.json，把能识别的命令直接搬过来。',
+        importEmpty: '本机没有检测到 VS Code 或 Cursor 的设置。',
+        importNotFound: '没找到 keybindings.json：\n{path}',
+        importBusy: '正在导入…',
+        importApply: '从 {source} 导入',
+        importSourceVscode: 'VS Code',
+        importSourceCursor: 'Cursor',
+        importToast: {
+          success: '已从 {source} 导入 {count} 条快捷键。',
+          partial: '已从 {source} 导入 {applied} 条；{skipped} 条因冲突或不支持被跳过。',
+          empty: '{source} 里没有可导入的快捷键（没识别到玄圃支持的命令）。',
+          notFound: '未找到 {source} 的 keybindings.json。',
+          error: '导入 {source} 失败：{message}'
+        },
+        importMeta: {
+          unmapped: '另有 {count} 条命令暂未支持映射，已跳过。',
+          contextScoped: '另有 {count} 条带 `when` 上下文的快捷键被跳过。'
+        },
+        presets: {
+          'xuanpu-default': {
+            label: '玄圃默认',
+            description: '玄圃自带的快捷键，针对 AI 会话做了细调。'
+          },
+          vscode: {
+            label: 'VS Code',
+            description: 'Cmd+Shift+P 命令面板、Cmd+P 文件搜索 — 你熟悉的肌肉记忆。'
+          },
+          jetbrains: {
+            label: 'JetBrains',
+            description: 'Cmd+Shift+A 找操作、Cmd+Shift+O 全局搜索。'
+          }
+        },
+        toast: {
+          switched: '已切换到 {preset}',
+          conflicts: '已切换到 {preset}。你的 {count} 个自定义会继续覆盖该预设。',
+          viewConflicts: '去查看'
+        }
+      },
+      appearance: {
+        title: '外观',
+        description: '选一个主题。字号和密度可以稍后在设置里精调。',
+        followSystem: '跟随系统',
+        light: '浅色',
+        dark: '深色'
       }
     },
     sessionView: {

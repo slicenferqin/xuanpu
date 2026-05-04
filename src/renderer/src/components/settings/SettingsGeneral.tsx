@@ -1,6 +1,6 @@
 import { useThemeStore } from '@/stores/useThemeStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
-import { RotateCcw } from 'lucide-react'
+import { RotateCcw, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { useShortcutStore } from '@/stores/useShortcutStore'
@@ -35,6 +35,11 @@ export function SettingsGeneral(): React.JSX.Element {
     resetShortcuts()
     setTheme(DEFAULT_THEME_ID)
     toast.success(t('settings.general.resetAll.success'))
+  }
+
+  const handleReopenOnboarding = (): void => {
+    updateSetting('initialSetupComplete', false)
+    toast.success(t('settings.general.reopenOnboarding.toast'))
   }
 
   return (
@@ -422,6 +427,29 @@ export function SettingsGeneral(): React.JSX.Element {
               )}
             />
           </button>
+        </div>
+      </div>
+
+      {/* Reopen welcome wizard */}
+      <div className="pt-4 border-t">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-sm font-medium">
+              {t('settings.general.reopenOnboarding.label')}
+            </div>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {t('settings.general.reopenOnboarding.description')}
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleReopenOnboarding}
+            data-testid="reopen-onboarding"
+          >
+            <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+            {t('settings.general.reopenOnboarding.button')}
+          </Button>
         </div>
       </div>
 

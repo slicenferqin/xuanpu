@@ -454,6 +454,34 @@ const systemOps = {
   runOnboardingDoctor: (): Promise<OnboardingDoctorResult> =>
     ipcRenderer.invoke('system:runOnboardingDoctor'),
 
+  // Detect available VS Code / Cursor keybindings.json files for import
+  detectKeybindingImportSources: (): Promise<
+    Array<{
+      id: 'vscode' | 'cursor'
+      path: string
+      exists: boolean
+      available: boolean
+    }>
+  > => ipcRenderer.invoke('system:detectKeybindingImportSources'),
+
+  // Parse a VS Code / Cursor keybindings.json into Xuanpu shortcut entries
+  parseKeybindingImportSource: (
+    source: 'vscode' | 'cursor'
+  ): Promise<{
+    source: 'vscode' | 'cursor'
+    path: string
+    parsedRows: number
+    entries: Array<{
+      shortcutId: string
+      binding: { key: string; modifiers: Array<'ctrl' | 'meta' | 'alt' | 'shift'> }
+      sourceCommand: string
+      sourceKey: string
+    }>
+    unmapped: string[]
+    contextScoped: number
+    errors: string[]
+  }> => ipcRenderer.invoke('system:parseKeybindingImportSource', source),
+
   checkFullDiskAccess: (force?: boolean): Promise<{ supported: boolean; granted: boolean }> =>
     ipcRenderer.invoke('system:checkFullDiskAccess', force ?? false),
 
