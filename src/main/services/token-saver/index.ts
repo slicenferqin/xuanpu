@@ -32,6 +32,13 @@ export { ContextOffloadStore } from './offload-store'
 export type { RunBashOptions, RunBashResult } from './bash-runner'
 export { runBashCommand } from './bash-runner'
 
+export type { XuanpuToolsContext, BashToolMetadata } from './xuanpu-tools-mcp'
+export {
+  createXuanpuToolsMcpServerConfig,
+  formatToolResultText,
+  runBashWithCompression
+} from './xuanpu-tools-mcp'
+
 import { OutputCompressionPipeline } from './pipeline'
 import { DEFAULT_STRATEGIES } from './strategies'
 

@@ -20,6 +20,8 @@ import { Options, PermissionMode } from '@anthropic-ai/claude-agent-sdk'
 import type { SDKControlGetContextUsageResponse } from '@anthropic-ai/claude-agent-sdk'
 import { CommandFilterService, type CommandFilterSettings } from './command-filter-service'
 import { createLspMcpServerConfig, LspService } from './lsp'
+import { createXuanpuToolsMcpServerConfig } from './token-saver/xuanpu-tools-mcp'
+import { isTokenSaverEnabled } from '../field/privacy'
 import { APP_SETTINGS_DB_KEY } from '@shared/types/settings'
 import { getActiveAppHomeDir } from '@shared/app-identity'
 import { beginSessionRun, emitAgentEvent } from '@shared/lib/normalize-agent-event'
@@ -698,6 +700,31 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
           worktreePath: session.worktreePath,
           error: err instanceof Error ? err.message : String(err)
         })
+      }
+
+      // Token Saver (v1.5.0): in-process MCP `bash` tool that compresses
+      // verbose output before it reaches the API and archives the original
+      // locally. When enabled we suppress the built-in Bash so the agent only
+      // sees ours. Best-effort: failure to attach falls through to native Bash.
+      if (isTokenSaverEnabled()) {
+        try {
+          const tokenSaverServer = await createXuanpuToolsMcpServerConfig({
+            sessionId: session.hiveSessionId,
+            defaultCwd: session.worktreePath,
+            logger: { warn: (msg, meta) => log.warn(msg, meta) }
+          })
+          options.mcpServers = { ...options.mcpServers, xuanpu: tokenSaverServer }
+          options.allowedTools = [...(options.allowedTools ?? []), 'mcp__xuanpu__bash']
+          options.disallowedTools = [...(options.disallowedTools ?? []), 'Bash']
+          log.info('Token Saver: attached xuanpu MCP, disallowed built-in Bash', {
+            hiveSessionId: session.hiveSessionId
+          })
+        } catch (err) {
+          log.warn('Token Saver: failed to attach MCP, falling back to native Bash', {
+            hiveSessionId: session.hiveSessionId,
+            error: err instanceof Error ? err.message : String(err)
+          })
+        }
       }
 
       options = await maybeWithClaudeProjectMemory(options)

@@ -263,6 +263,11 @@ export const messages: Record<AppLocale, MessageTree> = {
           description:
             "When the agent runs a shell command, also store the first 1 KB of stdout and last 1 KB of stderr in the local event log. Default OFF because command output often contains API keys, env dumps, or error stacks with tokens. The command text itself is always captured regardless of this setting."
         },
+        tokenSaver: {
+          label: 'Token Saver',
+          description:
+            'Compress verbose tool output before it reaches the agent — agent sees a concise summary, full original is archived locally to ~/.xuanpu/archive (you can expand any compressed bubble to read the original). Default ON.'
+        },
         fda: {
           title: 'Full Disk Access',
           description: 'Helps Xuanpu and agent runtimes read files in protected macOS locations.',
@@ -2614,6 +2619,11 @@ export const messages: Record<AppLocale, MessageTree> = {
           label: '采集 Agent Bash 的 stdout/stderr',
           description:
             'Agent 跑 shell 命令时,把 stdout 前 1KB 和 stderr 后 1KB 也存进本地事件日志。默认关闭,因为命令输出常含 API key、env dump、带 token 的错误堆栈。命令本身无论此开关如何都会被采集。'
+        },
+        tokenSaver: {
+          label: 'Token 节省器',
+          description:
+            '在工具输出送给 agent 之前先做压缩——agent 看到精简版,原文落地到 ~/.xuanpu/archive,可在任意压缩气泡上展开查看。默认开启。'
         },
         fda: {
           title: '完全磁盘访问权限',

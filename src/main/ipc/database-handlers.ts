@@ -6,9 +6,11 @@ import {
   setFieldCollectionEnabledCache,
   setMemoryInjectionEnabledCache,
   setBashOutputCaptureEnabledCache,
+  setTokenSaverEnabledCache,
   FIELD_COLLECTION_SETTING_KEY,
   MEMORY_INJECTION_SETTING_KEY,
-  BASH_OUTPUT_CAPTURE_SETTING_KEY
+  BASH_OUTPUT_CAPTURE_SETTING_KEY,
+  TOKEN_SAVER_ENABLED_SETTING_KEY
 } from '../field/privacy'
 import type {
   ProjectCreate,
@@ -47,6 +49,10 @@ export function registerDatabaseHandlers(): void {
     if (key === BASH_OUTPUT_CAPTURE_SETTING_KEY) {
       setBashOutputCaptureEnabledCache(value === 'true')
     }
+    // v1.5.0: Token Saver master switch. Default ON — only literal 'false' disables.
+    if (key === TOKEN_SAVER_ENABLED_SETTING_KEY) {
+      setTokenSaverEnabledCache(value !== 'false')
+    }
     return true
   })
 
@@ -63,6 +69,10 @@ export function registerDatabaseHandlers(): void {
     // Phase 21.5: delete reverts bash output capture to default OFF.
     if (key === BASH_OUTPUT_CAPTURE_SETTING_KEY) {
       setBashOutputCaptureEnabledCache(false)
+    }
+    // v1.5.0: delete reverts Token Saver to default ON.
+    if (key === TOKEN_SAVER_ENABLED_SETTING_KEY) {
+      setTokenSaverEnabledCache(true)
     }
     return true
   })
