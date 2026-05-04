@@ -22,6 +22,7 @@ import { CommandFilterService, type CommandFilterSettings } from './command-filt
 import { createLspMcpServerConfig, LspService } from './lsp'
 import { createXuanpuToolsMcpServerConfig } from './token-saver/xuanpu-tools-mcp'
 import { isTokenSaverEnabled } from '../field/privacy'
+import { XUANPU_SYSTEM_CONTEXT } from './xuanpu-system-context'
 import { APP_SETTINGS_DB_KEY } from '@shared/types/settings'
 import { getActiveAppHomeDir } from '@shared/app-identity'
 import { beginSessionRun, emitAgentEvent } from '@shared/lib/normalize-agent-event'
@@ -669,6 +670,13 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         enableFileCheckpointing: true,
         settingSources: ['user', 'project', 'local'],
         extraArgs: { 'replay-user-messages': null },
+        // Append Xuanpu's runtime context to the SDK system prompt. This
+        // tells the model that Xuanpu's [Field Context]/[User Message] envelope
+        // is informational, not contractual — preventing "No response
+        // requested." silent-exits when the SDK injects bare boilerplate
+        // (e.g. "Continue from where you left off." after an interrupted turn).
+        // See src/main/services/xuanpu-system-context.ts for the full rationale.
+        appendSystemPrompt: XUANPU_SYSTEM_CONTEXT,
         ...(additionalDirs.length > 0 ? { additionalDirectories: additionalDirs } : {}),
         ...(this.thinkingSupported ? { thinking: { type: 'adaptive' } as const } : {}),
         effort: effortLevel,
