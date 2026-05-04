@@ -798,6 +798,11 @@ declare global {
         content?: string
         error?: string
       }>
+      readArchive: (filePath: string) => Promise<{
+        success: boolean
+        content?: string
+        error?: string
+      }>
       writeFile: (filePath: string, content: string) => Promise<{
         success: boolean
         error?: string
@@ -1417,6 +1422,38 @@ declare global {
           packetHash: string
         } | null
       } | null>
+      /** v1.4.1: Pinned Facts — read user-authored permanent facts for a worktree. */
+      getPinnedFacts: (
+        worktreeId: string
+      ) => Promise<{
+        worktreeId: string
+        contentMd: string
+        updatedAt: number
+        createdAt: number
+      } | null>
+      /** v1.4.1: Pinned Facts — upsert. Throws if contentMd exceeds 2000 chars. */
+      updatePinnedFacts: (input: { worktreeId: string; contentMd: string }) => Promise<{
+        worktreeId: string
+        contentMd: string
+        updatedAt: number
+        createdAt: number
+      }>
+      /**
+       * v1.4.2: Episodic Memory — force-regenerate the rolling summary for a
+       * worktree. Null when the compactor declined.
+       */
+      regenerateEpisodic: (worktreeId: string) => Promise<{
+        worktreeId: string
+        summaryMarkdown: string
+        compactorId: string
+        version: number
+        compactedAt: number
+        sourceEventCount: number
+        sourceSince: number
+        sourceUntil: number
+      } | null>
+      /** v1.4.2: Episodic Memory — clear the rolling summary for a worktree. */
+      clearEpisodic: (worktreeId: string) => Promise<{ deleted: boolean }>
     }
     skillOps: {
       listHubs: () => Promise<{

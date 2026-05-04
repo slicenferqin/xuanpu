@@ -28,6 +28,11 @@ const MAX_SUMMARY_CHARS = 2000
 const MAX_SUMMARY_CHARS_SHRUNK = 800
 const MAX_SEMANTIC_CHARS = 4000
 const MAX_SEMANTIC_CHARS_SHRUNK = 1000
+// v1.4.1: Pinned Facts have a dedicated cap so they don't get squeezed by
+// long episodic/semantic blocks. Full ~400 tokens; minimum keeps the first
+// 300 chars so the user's most-important facts are always present.
+const MAX_PINNED_FACTS_CHARS = 1200
+const MAX_PINNED_FACTS_CHARS_SHRUNK = 300
 const OUTPUT_HEAD_LINES_BASE = 20
 const OUTPUT_HEAD_LINES_SHRUNK = 3
 const OUTPUT_TAIL_LINES_BASE = 50
@@ -78,6 +83,7 @@ export function formatFieldContext(
       notesMaxChars: Infinity,
       summaryMaxChars: MAX_SUMMARY_CHARS,
       semanticMaxChars: MAX_SEMANTIC_CHARS,
+      pinnedFactsMaxChars: MAX_PINNED_FACTS_CHARS,
       outputHeadLines: OUTPUT_HEAD_LINES_BASE,
       outputTailLines: OUTPUT_TAIL_LINES_BASE,
       resumedLevel: RESUMED_FULL
@@ -88,6 +94,7 @@ export function formatFieldContext(
       notesMaxChars: Infinity,
       summaryMaxChars: MAX_SUMMARY_CHARS,
       semanticMaxChars: MAX_SEMANTIC_CHARS,
+      pinnedFactsMaxChars: MAX_PINNED_FACTS_CHARS,
       outputHeadLines: OUTPUT_HEAD_LINES_BASE,
       outputTailLines: OUTPUT_TAIL_LINES_BASE,
       resumedLevel: RESUMED_FULL
@@ -98,6 +105,7 @@ export function formatFieldContext(
       notesMaxChars: Infinity,
       summaryMaxChars: MAX_SUMMARY_CHARS_SHRUNK,
       semanticMaxChars: MAX_SEMANTIC_CHARS,
+      pinnedFactsMaxChars: MAX_PINNED_FACTS_CHARS,
       outputHeadLines: OUTPUT_HEAD_LINES_BASE,
       outputTailLines: OUTPUT_TAIL_LINES_BASE,
       resumedLevel: RESUMED_FULL
@@ -108,6 +116,7 @@ export function formatFieldContext(
       notesMaxChars: MAX_NOTES_CHARS,
       summaryMaxChars: MAX_SUMMARY_CHARS_SHRUNK,
       semanticMaxChars: MAX_SEMANTIC_CHARS,
+      pinnedFactsMaxChars: MAX_PINNED_FACTS_CHARS,
       outputHeadLines: OUTPUT_HEAD_LINES_BASE,
       outputTailLines: OUTPUT_TAIL_LINES_BASE,
       resumedLevel: RESUMED_FULL
@@ -118,6 +127,7 @@ export function formatFieldContext(
       notesMaxChars: MAX_NOTES_CHARS,
       summaryMaxChars: MAX_SUMMARY_CHARS_SHRUNK,
       semanticMaxChars: MAX_SEMANTIC_CHARS_SHRUNK,
+      pinnedFactsMaxChars: MAX_PINNED_FACTS_CHARS,
       outputHeadLines: OUTPUT_HEAD_LINES_BASE,
       outputTailLines: OUTPUT_TAIL_LINES_SHRUNK,
       resumedLevel: RESUMED_SHRUNK
@@ -128,6 +138,7 @@ export function formatFieldContext(
       notesMaxChars: MAX_NOTES_CHARS,
       summaryMaxChars: MAX_SUMMARY_CHARS_SHRUNK,
       semanticMaxChars: MAX_SEMANTIC_CHARS_SHRUNK,
+      pinnedFactsMaxChars: MAX_PINNED_FACTS_CHARS_SHRUNK,
       outputHeadLines: OUTPUT_HEAD_LINES_SHRUNK,
       outputTailLines: OUTPUT_TAIL_LINES_SHRUNK,
       resumedLevel: RESUMED_SHRUNK
@@ -138,6 +149,7 @@ export function formatFieldContext(
       notesMaxChars: MAX_NOTES_CHARS,
       summaryMaxChars: MAX_SUMMARY_CHARS_SHRUNK,
       semanticMaxChars: MAX_SEMANTIC_CHARS_SHRUNK,
+      pinnedFactsMaxChars: MAX_PINNED_FACTS_CHARS_SHRUNK,
       outputHeadLines: OUTPUT_HEAD_LINES_SHRUNK,
       outputTailLines: OUTPUT_TAIL_LINES_SHRUNK,
       resumedLevel: RESUMED_MINIMAL
@@ -148,18 +160,22 @@ export function formatFieldContext(
       notesMaxChars: MAX_NOTES_CHARS,
       summaryMaxChars: 0,
       semanticMaxChars: MAX_SEMANTIC_CHARS_SHRUNK,
+      pinnedFactsMaxChars: MAX_PINNED_FACTS_CHARS_SHRUNK,
       outputHeadLines: OUTPUT_HEAD_LINES_SHRUNK,
       outputTailLines: OUTPUT_TAIL_LINES_SHRUNK,
       resumedLevel: RESUMED_MINIMAL
     },
     // Tier 8: drop semantic memory entirely (extreme budget). Resumed kept
     // minimal (summary+warnings only) — it's a 1-line fact about prior session
-    // that's almost always cheaper than dropping entirely.
+    // that's almost always cheaper than dropping entirely. Pinned Facts are
+    // kept (shrunk) — they are user-authored permanent intent and dropping
+    // them silently is worse than dropping low-signal episodic data.
     {
       activityCount: 0,
       notesMaxChars: MAX_NOTES_CHARS,
       summaryMaxChars: 0,
       semanticMaxChars: 0,
+      pinnedFactsMaxChars: MAX_PINNED_FACTS_CHARS_SHRUNK,
       outputHeadLines: OUTPUT_HEAD_LINES_SHRUNK,
       outputTailLines: OUTPUT_TAIL_LINES_SHRUNK,
       resumedLevel: RESUMED_MINIMAL
@@ -192,6 +208,8 @@ interface FormatTier {
   summaryMaxChars: number
   /** Char budget per semantic-memory layer (project, user). 0 = drop entirely. */
   semanticMaxChars: number
+  /** v1.4.1: char budget for the Pinned Facts section. 0 = drop entirely. */
+  pinnedFactsMaxChars: number
   outputHeadLines: number
   outputTailLines: number
   /** Phase 24C: Resumed block shrink level. 0=full, 1=shrunk, 2=minimal, 3=dropped. */
@@ -238,6 +256,22 @@ function render(snapshot: FieldContextSnapshot, tier: FormatTier): string {
   // (so the live scene wins) and before Semantic Memory (because resume
   // hints are more time-sensitive than long-lived rules).
   renderResumedBlock(lines, snapshot, tier.resumedLevel)
+
+  // v1.4.1: Pinned Facts (user-authored permanent facts for this worktree).
+  // Placed before Semantic Memory because pinned facts are user intent
+  // scoped to *this* worktree and trump generic project/user rules.
+  if (snapshot.pinnedFacts && tier.pinnedFactsMaxChars > 0) {
+    const trimmed = snapshot.pinnedFacts.contentMd.trim()
+    if (trimmed.length > 0) {
+      lines.push('## Pinned Facts')
+      lines.push(
+        `*(User-authored permanent facts for this worktree. Treat as binding rules unless the current task explicitly overrides.)*`
+      )
+      lines.push('')
+      lines.push(truncate(trimmed, tier.pinnedFactsMaxChars))
+      lines.push('')
+    }
+  }
 
   // Semantic Memory: project-level (Phase 22C.1).
   if (snapshot.semanticMemory && tier.semanticMaxChars > 0) {

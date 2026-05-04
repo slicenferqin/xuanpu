@@ -20,6 +20,9 @@ import { Options, PermissionMode } from '@anthropic-ai/claude-agent-sdk'
 import type { SDKControlGetContextUsageResponse } from '@anthropic-ai/claude-agent-sdk'
 import { CommandFilterService, type CommandFilterSettings } from './command-filter-service'
 import { createLspMcpServerConfig, LspService } from './lsp'
+import { createXuanpuToolsMcpServerConfig } from './token-saver/xuanpu-tools-mcp'
+import { isTokenSaverEnabled } from '../field/privacy'
+import { XUANPU_SYSTEM_CONTEXT } from './xuanpu-system-context'
 import { APP_SETTINGS_DB_KEY } from '@shared/types/settings'
 import { getActiveAppHomeDir } from '@shared/app-identity'
 import { beginSessionRun, emitAgentEvent } from '@shared/lib/normalize-agent-event'
@@ -667,6 +670,13 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         enableFileCheckpointing: true,
         settingSources: ['user', 'project', 'local'],
         extraArgs: { 'replay-user-messages': null },
+        // Append Xuanpu's runtime context to the SDK system prompt. This
+        // tells the model that Xuanpu's [Field Context]/[User Message] envelope
+        // is informational, not contractual — preventing "No response
+        // requested." silent-exits when the SDK injects bare boilerplate
+        // (e.g. "Continue from where you left off." after an interrupted turn).
+        // See src/main/services/xuanpu-system-context.ts for the full rationale.
+        appendSystemPrompt: XUANPU_SYSTEM_CONTEXT,
         ...(additionalDirs.length > 0 ? { additionalDirectories: additionalDirs } : {}),
         ...(this.thinkingSupported ? { thinking: { type: 'adaptive' } as const } : {}),
         effort: effortLevel,
@@ -698,6 +708,31 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
           worktreePath: session.worktreePath,
           error: err instanceof Error ? err.message : String(err)
         })
+      }
+
+      // Token Saver (v1.5.0): in-process MCP `bash` tool that compresses
+      // verbose output before it reaches the API and archives the original
+      // locally. When enabled we suppress the built-in Bash so the agent only
+      // sees ours. Best-effort: failure to attach falls through to native Bash.
+      if (isTokenSaverEnabled()) {
+        try {
+          const tokenSaverServer = await createXuanpuToolsMcpServerConfig({
+            sessionId: session.hiveSessionId,
+            defaultCwd: session.worktreePath,
+            logger: { warn: (msg, meta) => log.warn(msg, meta) }
+          })
+          options.mcpServers = { ...options.mcpServers, xuanpu: tokenSaverServer }
+          options.allowedTools = [...(options.allowedTools ?? []), 'mcp__xuanpu__bash']
+          options.disallowedTools = [...(options.disallowedTools ?? []), 'Bash']
+          log.info('Token Saver: attached xuanpu MCP, disallowed built-in Bash', {
+            hiveSessionId: session.hiveSessionId
+          })
+        } catch (err) {
+          log.warn('Token Saver: failed to attach MCP, falling back to native Bash', {
+            hiveSessionId: session.hiveSessionId,
+            error: err instanceof Error ? err.message : String(err)
+          })
+        }
       }
 
       options = await maybeWithClaudeProjectMemory(options)
@@ -965,7 +1000,18 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
           // exhaustion, and (2) compaction summary injected by SDK after context
           // window compression. Neither should appear in the UI timeline.
           // Also skip skill prompt injection messages (expanded skill file content).
+          // Also skip the SDK's synthetic "Continue from where you left off." marker
+          // injected by aA8/print.ts when resuming an interrupted_turn or a deferred
+          // tool use. It carries isMeta:true upstream, but the flag is unreliable
+          // across SDK serialization, so we match the canonical text instead.
           if (msgType === 'user') {
+            // Honor explicit isMeta marker when SDK propagates it
+            if ((sdkMsg as Record<string, unknown>).isMeta === true) {
+              log.info('Skipping SDK meta user message', {
+                uuid: typeof sdkMsg.uuid === 'string' ? sdkMsg.uuid.slice(0, 12) : undefined
+              })
+              continue
+            }
             let textContent = ''
             if (Array.isArray(msgContent)) {
               textContent = msgContent
@@ -984,8 +1030,12 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
               trimmed.startsWith('Here is a summary of the conversation so far') ||
               trimmed.startsWith('Base directory for this skill:') ||
               trimmed.startsWith('<local-command-stdout>') ||
-              trimmed.startsWith('<system-reminder>')
+              trimmed.startsWith('<system-reminder>') ||
+              trimmed === 'Continue from where you left off.'
             ) {
+              log.info('Skipping SDK boilerplate user message', {
+                preview: trimmed.slice(0, 60)
+              })
               continue
             }
           }

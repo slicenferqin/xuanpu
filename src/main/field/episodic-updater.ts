@@ -20,6 +20,7 @@ import { getDatabase } from '../db'
 import { getEventBus } from '../../server/event-bus'
 import { createLogger } from '../services/logger'
 import { isFieldCollectionEnabled } from './privacy'
+import { redactSecrets } from './redact'
 import { getFieldEventSink } from './sink'
 import { getRecentFieldEvents } from './repository'
 import {
@@ -401,7 +402,7 @@ class EpisodicMemoryUpdater {
       })
 
       if (process.env.XUANPU_FIELD_DEBUG_BODIES === 'true') {
-        log.debug('Episodic compaction body', { body: redactSecrets(output.markdown) })
+        log.debug('Episodic compaction body', { body: redactForLog(output.markdown) })
       }
 
       return output
@@ -430,16 +431,13 @@ class EpisodicMemoryUpdater {
 }
 
 // ---------------------------------------------------------------------------
-// Secret redaction (conservative line-level replacement)
+// Secret redaction — delegates to shared module (src/main/field/redact.ts).
+// This consumer uses 'line' mode for max safety (debug logs of compacted
+// bodies should NEVER leak credentials, even at the cost of context).
 // ---------------------------------------------------------------------------
 
-const SECRET_LINE_REGEX = /(api[_-]?key|password|token|secret|authorization|bearer)/i
-
-function redactSecrets(s: string): string {
-  return s
-    .split('\n')
-    .map((line) => (SECRET_LINE_REGEX.test(line) ? '[REDACTED LINE]' : line))
-    .join('\n')
+function redactForLog(s: string): string {
+  return redactSecrets(s, { mode: 'line' })
 }
 
 // ---------------------------------------------------------------------------
@@ -511,7 +509,7 @@ export const __UPDATER_TUNABLES_FOR_TEST = {
   MIN_EVENTS_BEFORE_TRIGGER,
   MIN_AGE_BEFORE_TRIGGER_MS,
   COMPACTOR_PRIORITY,
-  redactSecrets
+  redactForLog
 }
 
 export { EpisodicMemoryUpdater }

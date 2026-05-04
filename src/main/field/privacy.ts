@@ -87,6 +87,34 @@ export function setBashOutputCaptureEnabledCache(value: boolean): void {
 export const BASH_OUTPUT_CAPTURE_SETTING_KEY = BASH_CAPTURE_SETTING_KEY
 
 // ---------------------------------------------------------------------------
+// token_saver_enabled (v1.5.0 Token Saver)
+//
+// Master switch for the Token Saver pipeline (in-process MCP Bash interceptor
+// + OutputCompressionPipeline + ContextOffloadStore). When ON, agent Bash
+// invocations are routed through `mcp__xuanpu__bash` and their output is
+// compressed before reaching the API; the full original is archived locally.
+//
+// Default ON. Users opt-out via Settings → Token 节省器.
+// ---------------------------------------------------------------------------
+
+const TOKEN_SAVER_SETTING_KEY = 'token_saver_enabled'
+let tokenSaverCached: boolean | null = null
+
+export function isTokenSaverEnabled(): boolean {
+  if (tokenSaverCached !== null) return tokenSaverCached
+  const value = getDatabase().getSetting(TOKEN_SAVER_SETTING_KEY)
+  // Default ON: anything other than literal 'false' enables it.
+  tokenSaverCached = value !== 'false'
+  return tokenSaverCached
+}
+
+export function setTokenSaverEnabledCache(value: boolean): void {
+  tokenSaverCached = value
+}
+
+export const TOKEN_SAVER_ENABLED_SETTING_KEY = TOKEN_SAVER_SETTING_KEY
+
+// ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
@@ -94,4 +122,5 @@ export function invalidatePrivacyCache(): void {
   collectionCached = null
   injectionCached = null
   bashCaptureCached = null
+  tokenSaverCached = null
 }

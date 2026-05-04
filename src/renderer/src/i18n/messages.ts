@@ -270,6 +270,11 @@ export const messages: Record<AppLocale, MessageTree> = {
           description:
             "When the agent runs a shell command, also store the first 1 KB of stdout and last 1 KB of stderr in the local event log. Default OFF because command output often contains API keys, env dumps, or error stacks with tokens. The command text itself is always captured regardless of this setting."
         },
+        tokenSaver: {
+          label: 'Token Saver',
+          description:
+            'Compress verbose tool output before it reaches the agent — agent sees a concise summary, full original is archived locally to ~/.xuanpu/archive (you can expand any compressed bubble to read the original). Default ON.'
+        },
         fda: {
           title: 'Full Disk Access',
           description: 'Helps Xuanpu and agent runtimes read files in protected macOS locations.',
@@ -1229,6 +1234,10 @@ export const messages: Record<AppLocale, MessageTree> = {
     },
     sessionView: {
       compacting: 'Compressing context...',
+      tokenSaverBanner: {
+        label: 'Saved {saved} ({percent}%)',
+        tooltip: 'Token Saver: {before} → {after} across {hits} tool calls'
+      },
       loading: {
         title: 'Connecting to session...',
         subtitle: 'This may take a moment'
@@ -1583,6 +1592,63 @@ export const messages: Record<AppLocale, MessageTree> = {
         saveError: 'Failed to save context'
       }
     },
+    pinnedFacts: {
+      title: 'Pinned Facts',
+      description:
+        'Permanent facts about this worktree. Injected verbatim into every AI session as part of the Field Context.',
+      placeholder:
+        'Write permanent facts about this worktree, one per line.\n\nExamples:\n- Use pnpm, not npm\n- DB lives at ~/.xuanpu/xuanpu.db\n- Don\'t add comments to generated code',
+      empty: 'No pinned facts yet. Click in the box above to start adding.',
+      save: 'Save',
+      saving: 'Saving…',
+      saved: 'Saved',
+      unsaved: 'Unsaved changes',
+      charCount: '{count} / {max}',
+      overLimit: 'Pinned Facts cannot exceed {max} characters.',
+      toasts: {
+        loadError: 'Failed to load pinned facts',
+        saved: 'Pinned facts saved',
+        saveError: 'Failed to save pinned facts'
+      }
+    },
+    memory: {
+      title: 'Memory',
+      pinnedSection: 'Pinned Facts',
+      observedSection: 'Observed (Episodic)',
+      semanticSection: 'Semantic',
+      regenerate: 'Regenerate',
+      clear: 'Clear',
+      open: 'Open',
+      create: 'Create',
+      compactedAt: 'compacted {ago} ago',
+      compactor: 'compactor: {id} v{version}',
+      eventCount: 'from {count} events',
+      empty: {
+        pinned: 'No pinned facts yet.',
+        observed: 'No summary yet — about 20 events will trigger one automatically.',
+        semantic:
+          'No memory.md found. Create one to give the agent permanent project rules.',
+        checkpoint:
+          'Aborting the current session will record a checkpoint here for next time.'
+      },
+      semanticPath: '`{path}` ({age})',
+      semanticNeverEdited: 'never edited',
+      toasts: {
+        rememberMissingFact: '`/remember` needs a fact (e.g. `/remember use pnpm`)',
+        forgetMissingQuery: '`/forget` needs a query (e.g. `/forget pnpm`)',
+        forgetNoMatch: 'No matching pinned fact',
+        forgetAmbiguous: 'Multiple matches — open the Memory panel to choose',
+        remembered: 'Added to Pinned Facts',
+        forgotten: 'Removed from Pinned Facts',
+        pinnedOverLimit: 'Pinned Facts cannot exceed {max} characters',
+        pinnedSaveError: 'Failed to update Pinned Facts',
+        regenerateOk: 'Episodic summary regenerated',
+        regenerateSkipped: 'Compactor declined (insufficient activity or privacy disabled)',
+        regenerateError: 'Failed to regenerate episodic summary',
+        clearOk: 'Episodic summary cleared',
+        clearError: 'Failed to clear episodic summary'
+      }
+    },
     codexFastToggle: {
       label: 'Fast',
       title: 'Fast Mode',
@@ -1832,6 +1898,15 @@ export const messages: Record<AppLocale, MessageTree> = {
       common: {
         showLess: 'Show less',
         showAllLines: 'Show all {count} lines'
+      },
+      tokenSaver: {
+        savedBadge: 'Saved {percent}% · {before} → {after}',
+        viaRules: 'via {rules}',
+        showOriginal: 'Show original',
+        hideOriginal: 'Hide original',
+        loadingOriginal: 'Loading…',
+        loadFailed: 'Failed to load original',
+        archivedAt: 'Archived at {path}'
       },
       grep: {
         in: 'in',
@@ -2676,6 +2751,11 @@ export const messages: Record<AppLocale, MessageTree> = {
           label: '采集 Agent Bash 的 stdout/stderr',
           description:
             'Agent 跑 shell 命令时,把 stdout 前 1KB 和 stderr 后 1KB 也存进本地事件日志。默认关闭,因为命令输出常含 API key、env dump、带 token 的错误堆栈。命令本身无论此开关如何都会被采集。'
+        },
+        tokenSaver: {
+          label: 'Token 节省器',
+          description:
+            '在工具输出送给 agent 之前先做压缩——agent 看到精简版,原文落地到 ~/.xuanpu/archive,可在任意压缩气泡上展开查看。默认开启。'
         },
         fda: {
           title: '完全磁盘访问权限',
@@ -3619,6 +3699,10 @@ export const messages: Record<AppLocale, MessageTree> = {
     },
     sessionView: {
       compacting: '正在压缩上下文窗口...',
+      tokenSaverBanner: {
+        label: '已节省 {saved}（{percent}%）',
+        tooltip: 'Token 节省器：本会话累计压缩 {before} → {after}，共 {hits} 次工具调用'
+      },
       loading: {
         title: '正在连接会话...',
         subtitle: '这可能需要一点时间'
@@ -3972,6 +4056,61 @@ export const messages: Record<AppLocale, MessageTree> = {
         saveError: '保存上下文失败'
       }
     },
+    pinnedFacts: {
+      title: 'Pinned Facts',
+      description:
+        '关于这个 worktree 的永恒事实。每条 AI 会话都会作为 Field Context 的一部分原样注入。',
+      placeholder:
+        '在这里写下关于本 worktree 的永恒事实，一行一条。\n\n示例：\n- 用 pnpm，不要用 npm\n- DB 在 ~/.xuanpu/xuanpu.db\n- 不要给生成的代码加注释',
+      empty: '还没有任何 Pinned Facts。点击上方文本框开始添加。',
+      save: '保存',
+      saving: '保存中…',
+      saved: '已保存',
+      unsaved: '存在未保存更改',
+      charCount: '{count} / {max}',
+      overLimit: 'Pinned Facts 不能超过 {max} 字。',
+      toasts: {
+        loadError: '加载 Pinned Facts 失败',
+        saved: 'Pinned Facts 已保存',
+        saveError: '保存 Pinned Facts 失败'
+      }
+    },
+    memory: {
+      title: '记忆',
+      pinnedSection: 'Pinned Facts',
+      observedSection: '观察记忆（Episodic）',
+      semanticSection: '语义记忆（Semantic）',
+      regenerate: '重新压缩',
+      clear: '清空',
+      open: '打开',
+      create: '创建',
+      compactedAt: '{ago}前压缩',
+      compactor: 'compactor: {id} v{version}',
+      eventCount: '基于 {count} 个事件',
+      empty: {
+        pinned: '还没有任何 Pinned Facts。',
+        observed: '还没有摘要——大约 20 个事件后会自动压缩。',
+        semantic: '还没有 memory.md。创建一个，把项目永恒规则交给 AI。',
+        checkpoint: 'abort 当前 session 时会自动记录现场，方便下次接着干。'
+      },
+      semanticPath: '`{path}`（{age}）',
+      semanticNeverEdited: '从未编辑',
+      toasts: {
+        rememberMissingFact: '`/remember` 需要一条事实（例如 `/remember 用 pnpm`）',
+        forgetMissingQuery: '`/forget` 需要一个查询（例如 `/forget pnpm`）',
+        forgetNoMatch: '没有匹配的 Pinned Fact',
+        forgetAmbiguous: '匹配到多条——请到 Memory 面板手动选择',
+        remembered: '已加入 Pinned Facts',
+        forgotten: '已从 Pinned Facts 移除',
+        pinnedOverLimit: 'Pinned Facts 不能超过 {max} 字',
+        pinnedSaveError: '更新 Pinned Facts 失败',
+        regenerateOk: '观察记忆已重新压缩',
+        regenerateSkipped: '压缩器跳过（事件不足或隐私已关闭）',
+        regenerateError: '重新压缩失败',
+        clearOk: '观察记忆已清空',
+        clearError: '清空观察记忆失败'
+      }
+    },
     codexFastToggle: {
       label: '快速',
       title: '快速模式',
@@ -4221,6 +4360,15 @@ export const messages: Record<AppLocale, MessageTree> = {
       common: {
         showLess: '收起',
         showAllLines: '显示全部 {count} 行'
+      },
+      tokenSaver: {
+        savedBadge: '节省 {percent}% · {before} → {after}',
+        viaRules: '使用 {rules}',
+        showOriginal: '查看原文',
+        hideOriginal: '收起原文',
+        loadingOriginal: '加载中…',
+        loadFailed: '原文加载失败',
+        archivedAt: '原文存档于 {path}'
       },
       grep: {
         in: '在',

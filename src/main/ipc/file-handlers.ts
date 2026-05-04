@@ -1,6 +1,12 @@
 import { ipcMain } from 'electron'
 import { createLogger } from '../services/logger'
-import { readFile, readFileAsBase64, readPromptFile, writeFile } from '../services/file-ops'
+import {
+  readFile,
+  readFileAsBase64,
+  readPromptFile,
+  writeFile,
+  readArchiveFile
+} from '../services/file-ops'
 
 const log = createLogger({ component: 'FileHandlers' })
 
@@ -20,6 +26,27 @@ export function registerFileHandlers(): void {
       const result = readFile(filePath)
       if (!result.success) {
         log.error('Failed to read file', new Error(result.error ?? 'Unknown error'), { filePath })
+      }
+      return result
+    }
+  )
+
+  // Token Saver archive: whitelisted to ~/.xuanpu/archive only.
+  ipcMain.handle(
+    'file:readArchive',
+    async (
+      _event,
+      filePath: string
+    ): Promise<{
+      success: boolean
+      content?: string
+      error?: string
+    }> => {
+      const result = readArchiveFile(filePath)
+      if (!result.success) {
+        log.error('Failed to read archive', new Error(result.error ?? 'Unknown error'), {
+          filePath
+        })
       }
       return result
     }

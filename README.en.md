@@ -154,11 +154,11 @@ A `headless` service entry is also kept, so the desktop app and automation / rem
 
 v1.4.0 cracked the first mile of "field." The 1.4.x line is about **making memory visible and editable**:
 
-- **1.4.3 release / onboarding hardening** — CI post-package verify, first-run onboarding card, README.en.md sync, Edit/Write diff preview, Composer image large preview
+- **1.4.1 Pinned Facts** ✅ — pin permanent worktree facts like "this project uses pnpm" from the GUI; automatically prefixed into every prompt
+- **1.4.2 Memory panel** ✅ — promote the 4-tab Field Context Debug into a real Memory panel: see + edit + reset + regenerate; `/remember` / `/forget` slash commands manage Pinned Facts directly from the composer
+- **1.4.3 release / onboarding hardening** — CI post-package verify, Edit/Write diff fold, Composer image lightbox (shipped); first-run onboarding checklist + empty-state copy still in flight
 - **1.4.4 Codex experience overhaul** — make Codex inside Xuanpu actually feel native
-- **1.4.5 Memory panel** — promote the 4-tab Field Context Debug into a real Memory panel: see + edit + reset + regenerate
-- **1.4.6 Cost visibility** — token / ¥ spend on compaction, surfaced clearly per month
-- **1.4.x cross-agent injection quality** — empirically verify Codex / OpenCode / Amp are _using_ the Field Context prefix, not silently dropping it
+- **1.4.x cost visibility + cross-agent injection quality** — surface monthly token / ¥ spend on compaction; empirically verify Codex / OpenCode / Amp are _using_ the Field Context prefix, not silently dropping it
 
 The next ring (VISION §3.2) is **XFP (Xuanpu Field Protocol)** — let any agent vendor obtain the field through a shared protocol, so "agents are stronger inside Xuanpu" becomes a standard, not a moat.
 
