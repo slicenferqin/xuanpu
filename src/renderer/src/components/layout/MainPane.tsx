@@ -255,8 +255,9 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
           }
         >
           <MonacoDiffView
-            key={`${activeDiff.filePath}|${activeDiff.compareBranch ?? ''}|${activeDiff.staged}|${activeDiff.prReviewWorktreeId ?? ''}`}
+            key={`${activeDiff.filePath}|${activeDiff.compareBranch ?? ''}|${activeDiff.staged}|${activeDiff.prReviewWorktreeId ?? ''}|${activeDiff.worktreeId ?? ''}`}
             worktreePath={activeDiff.worktreePath}
+            worktreeId={activeDiff.worktreeId}
             filePath={activeDiff.filePath}
             fileName={activeDiff.fileName}
             staged={activeDiff.staged}

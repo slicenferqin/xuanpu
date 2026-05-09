@@ -10,6 +10,7 @@ export interface FileViewerTab {
 export interface DiffTab {
   type: 'diff'
   worktreePath: string
+  worktreeId?: string
   filePath: string
   fileName: string
   staged: boolean
@@ -28,6 +29,7 @@ export type TabEntry = FileViewerTab | DiffTab | ContextTab
 
 export interface ActiveDiff {
   worktreePath: string
+  worktreeId?: string
   filePath: string
   fileName: string
   staged: boolean
@@ -214,6 +216,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
       openFiles.set(tabKey, {
         type: 'diff',
         worktreePath: diff.worktreePath,
+        worktreeId: diff.worktreeId,
         filePath: diff.filePath,
         fileName: diff.fileName,
         staged: diff.staged,
@@ -224,9 +227,8 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
       })
       // Increment scrollTrigger so the scroll effect re-fires even when
       // scrollToLine hasn't changed (e.g. same comment clicked twice)
-      const scrollTrigger = diff.scrollToLine != null
-        ? (state.activeDiff?.scrollTrigger ?? 0) + 1
-        : undefined
+      const scrollTrigger =
+        diff.scrollToLine != null ? (state.activeDiff?.scrollTrigger ?? 0) + 1 : undefined
       return {
         activeDiff: { ...diff, scrollTrigger },
         activeFilePath: tabKey,
@@ -260,6 +262,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
         activeFilePath: tabKey,
         activeDiff: {
           worktreePath: tab.worktreePath,
+          worktreeId: tab.worktreeId,
           filePath: tab.filePath,
           fileName: tab.fileName,
           staged: tab.staged,

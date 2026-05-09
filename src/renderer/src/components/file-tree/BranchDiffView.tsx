@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { RefreshCw, ChevronDown, Search, GitBranch } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useGitStore } from '@/stores/useGitStore'
+import { useWorktreeStore } from '@/stores/useWorktreeStore'
 import { useFileViewerStore } from '@/stores/useFileViewerStore'
 import { FileIcon } from './FileIcon'
 import { GitStatusIndicator, type GitStatusCode } from './GitStatusIndicator'
@@ -33,6 +34,7 @@ export function BranchDiffView({ worktreePath }: BranchDiffViewProps): React.JSX
   const { t } = useI18n()
   const selectedDiffBranch = useGitStore((state) => state.selectedDiffBranch)
   const setSelectedDiffBranch = useGitStore((state) => state.setSelectedDiffBranch)
+  const selectedWorktreeId = useWorktreeStore((state) => state.selectedWorktreeId)
 
   const selectedBranch = worktreePath ? (selectedDiffBranch.get(worktreePath) ?? null) : null
 
@@ -144,6 +146,7 @@ export function BranchDiffView({ worktreePath }: BranchDiffViewProps): React.JSX
       const fileName = file.relativePath.split('/').pop() || file.relativePath
       useFileViewerStore.getState().setActiveDiff({
         worktreePath,
+        worktreeId: selectedWorktreeId ?? undefined,
         filePath: file.relativePath,
         fileName,
         staged: false,
@@ -151,7 +154,7 @@ export function BranchDiffView({ worktreePath }: BranchDiffViewProps): React.JSX
         compareBranch: selectedBranch
       })
     },
-    [worktreePath, selectedBranch]
+    [worktreePath, selectedBranch, selectedWorktreeId]
   )
 
   const handleRefresh = useCallback(async () => {

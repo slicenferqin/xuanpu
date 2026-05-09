@@ -1903,6 +1903,32 @@ export const messages: Record<AppLocale, MessageTree> = {
         copyRawHtml: 'Copy raw HTML'
       }
     },
+    diffComments: {
+      addAtCurrentLine: 'Add diff comment at current line',
+      newOnLine: 'New comment on line {line}',
+      placeholder: 'Write a review note...',
+      save: 'Save',
+      cancel: 'Cancel',
+      edit: 'Edit',
+      delete: 'Delete',
+      resolve: 'Resolve',
+      reopen: 'Reopen',
+      resolved: 'resolved',
+      attachToChat: 'Attach to chat',
+      removeAttachment: 'Remove attachment',
+      clearAttachments: 'Clear',
+      sidebar: {
+        title: 'Diff comments',
+        empty: 'No diff comments yet',
+        refresh: 'Refresh diff comments'
+      },
+      toasts: {
+        created: 'Diff comment saved',
+        updated: 'Diff comment updated',
+        deleted: 'Diff comment deleted',
+        attached: 'Diff comment attached'
+      }
+    },
     toolViews: {
       common: {
         showLess: 'Show less',
@@ -4372,6 +4398,32 @@ export const messages: Record<AppLocale, MessageTree> = {
         copied: '已复制原始评论 HTML',
         outdated: '旧',
         copyRawHtml: '复制原始 HTML'
+      }
+    },
+    diffComments: {
+      addAtCurrentLine: '在当前行添加 diff 评论',
+      newOnLine: '第 {line} 行新评论',
+      placeholder: '写一条审查备注...',
+      save: '保存',
+      cancel: '取消',
+      edit: '编辑',
+      delete: '删除',
+      resolve: '标记已解决',
+      reopen: '重新打开',
+      resolved: '已解决',
+      attachToChat: '附加到聊天',
+      removeAttachment: '移除附件',
+      clearAttachments: '清空',
+      sidebar: {
+        title: 'Diff 评论',
+        empty: '还没有 diff 评论',
+        refresh: '刷新 diff 评论'
+      },
+      toasts: {
+        created: '已保存 diff 评论',
+        updated: '已更新 diff 评论',
+        deleted: '已删除 diff 评论',
+        attached: '已附加 diff 评论'
       }
     },
     toolViews: {

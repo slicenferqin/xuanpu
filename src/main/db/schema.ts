@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 21
+export const CURRENT_SCHEMA_VERSION = 22
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -246,6 +246,25 @@ CREATE TABLE IF NOT EXISTS field_pinned_facts (
   updated_at INTEGER NOT NULL,
   created_at INTEGER NOT NULL
 );
+
+-- v1.4.7: Local diff comments anchored to worktree/file/line.
+CREATE TABLE IF NOT EXISTS diff_comments (
+  id TEXT PRIMARY KEY,
+  worktree_id TEXT NOT NULL REFERENCES worktrees(id) ON DELETE CASCADE,
+  file_path TEXT NOT NULL,
+  side TEXT NOT NULL CHECK (side IN ('original', 'modified')),
+  line_number INTEGER NOT NULL,
+  compare_branch TEXT DEFAULT NULL,
+  staged INTEGER NOT NULL DEFAULT 0,
+  body TEXT NOT NULL,
+  resolved INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_diff_comments_worktree_file
+  ON diff_comments(worktree_id, file_path, line_number);
+CREATE INDEX IF NOT EXISTS idx_diff_comments_worktree_updated
+  ON diff_comments(worktree_id, updated_at DESC);
 `
 
 export interface Migration {
@@ -263,6 +282,8 @@ export const MIGRATIONS: Migration[] = [
     down: `
       DROP INDEX IF EXISTS idx_project_spaces_project;
       DROP INDEX IF EXISTS idx_project_spaces_space;
+      DROP INDEX IF EXISTS idx_diff_comments_worktree_updated;
+      DROP INDEX IF EXISTS idx_diff_comments_worktree_file;
       DROP INDEX IF EXISTS idx_projects_accessed;
       DROP INDEX IF EXISTS idx_sessions_updated;
       DROP INDEX IF EXISTS idx_messages_session_opencode_unique;
@@ -280,6 +301,7 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_worktrees_project;
       DROP TABLE IF EXISTS project_spaces;
       DROP TABLE IF EXISTS spaces;
+      DROP TABLE IF EXISTS diff_comments;
       DROP TABLE IF EXISTS settings;
       DROP TABLE IF EXISTS usage_sync_state;
       DROP TABLE IF EXISTS usage_entries;
@@ -751,6 +773,35 @@ export const MIGRATIONS: Migration[] = [
     `,
     down: `
       DROP TABLE IF EXISTS field_pinned_facts;
+    `
+  },
+  {
+    version: 22,
+    name: 'add_diff_comments',
+    up: `
+      -- v1.4.7: Local diff comments anchored to worktree/file/line.
+      CREATE TABLE IF NOT EXISTS diff_comments (
+        id TEXT PRIMARY KEY,
+        worktree_id TEXT NOT NULL REFERENCES worktrees(id) ON DELETE CASCADE,
+        file_path TEXT NOT NULL,
+        side TEXT NOT NULL CHECK (side IN ('original', 'modified')),
+        line_number INTEGER NOT NULL,
+        compare_branch TEXT DEFAULT NULL,
+        staged INTEGER NOT NULL DEFAULT 0,
+        body TEXT NOT NULL,
+        resolved INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_diff_comments_worktree_file
+        ON diff_comments(worktree_id, file_path, line_number);
+      CREATE INDEX IF NOT EXISTS idx_diff_comments_worktree_updated
+        ON diff_comments(worktree_id, updated_at DESC);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_diff_comments_worktree_updated;
+      DROP INDEX IF EXISTS idx_diff_comments_worktree_file;
+      DROP TABLE IF EXISTS diff_comments;
     `
   }
 ]

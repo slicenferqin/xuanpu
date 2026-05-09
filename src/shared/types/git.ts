@@ -41,3 +41,34 @@ export interface PRReviewComment {
   pullRequestReviewId: number | null
   subjectType: 'line' | 'file'
 }
+
+export type DiffCommentSide = 'original' | 'modified'
+
+export interface DiffComment {
+  id: string
+  worktreeId: string
+  filePath: string
+  side: DiffCommentSide
+  lineNumber: number
+  compareBranch: string | null
+  staged: boolean
+  body: string
+  resolved: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+export interface DiffCommentCreate {
+  worktreeId: string
+  filePath: string
+  side: DiffCommentSide
+  lineNumber: number
+  compareBranch?: string | null
+  staged?: boolean
+  body: string
+}
+
+export interface DiffCommentUpdate {
+  body?: string
+  resolved?: boolean
+}

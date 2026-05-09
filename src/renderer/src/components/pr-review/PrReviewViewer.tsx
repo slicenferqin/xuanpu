@@ -69,6 +69,7 @@ export function PrReviewViewer({ worktreeId }: PrReviewViewerProps): React.JSX.E
 
       useFileViewerStore.getState().setActiveDiff({
         worktreePath: worktree.path,
+        worktreeId,
         filePath: comment.path,
         fileName: comment.path.split('/').pop() || comment.path,
         staged: false,

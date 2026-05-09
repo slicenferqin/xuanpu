@@ -235,8 +235,10 @@ export function GitStatusPanel({
           useFileViewerStore.getState().openFile(fullPath, fileName, worktreeId)
         }
       } else {
+        const worktreeId = useWorktreeStore.getState().selectedWorktreeId
         useFileViewerStore.getState().setActiveDiff({
           worktreePath,
+          worktreeId: worktreeId ?? undefined,
           filePath: file.relativePath,
           fileName: file.relativePath.split('/').pop() || file.relativePath,
           staged: file.staged,

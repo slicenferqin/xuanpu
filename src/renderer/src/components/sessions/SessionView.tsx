@@ -8,6 +8,7 @@ import {
   Square,
   X,
   Github,
+  MessageSquare,
   MessageCircleQuestion,
   Shield
 } from 'lucide-react'
@@ -54,6 +55,7 @@ import { useSessionRuntimeStore } from '@/stores/useSessionRuntimeStore'
 import { useProjectStore } from '@/stores/useProjectStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { usePRReviewStore } from '@/stores/usePRReviewStore'
+import { useDiffCommentStore } from '@/stores/useDiffCommentStore'
 import { useFileTreeStore } from '@/stores/useFileTreeStore'
 import { mapOpencodeMessagesToSessionViewMessages } from '@/lib/opencode-transcript'
 import { appendStreamedAssistantFallback } from '@/lib/transcript-refresh'
@@ -78,6 +80,7 @@ import { PermissionPrompt } from './PermissionPrompt'
 import { CommandApprovalPrompt } from './CommandApprovalPrompt'
 import type { ToolStatus, ToolUseInfo } from './ToolCard'
 import { PLAN_MODE_PREFIX, ASK_MODE_PREFIX, stripPlanModePrefix } from '@/lib/constants'
+import type { DiffComment, PRReviewComment } from '@shared/types/git'
 import { SessionCostPill } from './SessionCostPill'
 import { SessionTokenSaverBanner } from './SessionTokenSaverBanner'
 import { QueuedMessagesBar, type QueuedMsg } from './QueuedMessagesBar'
@@ -556,6 +559,34 @@ function ErrorState({ message, onRetry }: ErrorStateProps): React.JSX.Element {
   )
 }
 
+function escapeContextAttribute(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+}
+
+function buildPrReviewCommentContext(comments: PRReviewComment[]): string {
+  if (comments.length === 0) return ''
+  return (
+    comments
+      .map(
+        (comment) =>
+          `<pr-comment author="${escapeContextAttribute(comment.user.login)}" file="${escapeContextAttribute(comment.path)}" line="${comment.line ?? 'file-level'}">\n${comment.body}\n<diff-hunk>${comment.diffHunk}</diff-hunk>\n</pr-comment>`
+      )
+      .join('\n\n') + '\n\n'
+  )
+}
+
+function buildLocalDiffCommentContext(comments: DiffComment[]): string {
+  if (comments.length === 0) return ''
+  return (
+    comments
+      .map(
+        (comment) =>
+          `<diff-comment file="${escapeContextAttribute(comment.filePath)}" line="${comment.lineNumber}" side="${comment.side}" resolved="${comment.resolved}">\n${comment.body}\n</diff-comment>`
+      )
+      .join('\n\n') + '\n\n'
+  )
+}
+
 function PrCommentAttachments(): React.JSX.Element | null {
   const attachedComments = usePRReviewStore((s) => s.attachedComments)
   const removeAttachment = usePRReviewStore((s) => s.removeAttachment)
@@ -595,6 +626,57 @@ function PrCommentAttachments(): React.JSX.Element | null {
           </div>
         )
       })}
+    </div>
+  )
+}
+
+function DiffCommentAttachments(): React.JSX.Element | null {
+  const { t } = useI18n()
+  const attachedComments = useDiffCommentStore((s) => s.attachedComments)
+  const removeAttachment = useDiffCommentStore((s) => s.removeAttachment)
+  const clearAttachments = useDiffCommentStore((s) => s.clearAttachments)
+
+  if (attachedComments.length === 0) return null
+
+  return (
+    <div className="mb-2 flex flex-wrap gap-2">
+      {attachedComments.map((comment) => {
+        const fileName = comment.filePath.split('/').pop() ?? comment.filePath
+        return (
+          <div
+            key={comment.id}
+            className="group relative flex min-w-[220px] max-w-[400px] flex-col gap-1 rounded-lg border border-border bg-background px-3 py-2 text-sm"
+          >
+            <div className="flex items-center gap-2">
+              <MessageSquare className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+              <span className="font-medium text-foreground">{fileName}</span>
+              <button
+                onClick={() => removeAttachment(comment.id)}
+                className="ml-auto shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+                title={t('diffComments.removeAttachment')}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <span className="truncate text-xs text-muted-foreground">
+              {comment.filePath}:{comment.lineNumber}
+            </span>
+            <span className="line-clamp-2 text-xs text-muted-foreground">
+              {comment.body.length > 80 ? comment.body.slice(0, 80) + '...' : comment.body}
+            </span>
+          </div>
+        )
+      })}
+      {attachedComments.length > 1 && (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-8 self-center text-xs"
+          onClick={clearAttachments}
+        >
+          {t('diffComments.clearAttachments')}
+        </Button>
+      )}
     </div>
   )
 }
@@ -3812,21 +3894,15 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           const askModel = settings.getModelForMode('ask') ?? settings.selectedModel
           const selectedModel = askModel || getModelForRequests()
 
-          // Build PR review comment context for /ask
-          const prAskComments = usePRReviewStore.getState().attachedComments
-          let prAskContext = ''
-          if (prAskComments.length > 0) {
-            prAskContext =
-              prAskComments
-                .map(
-                  (c) =>
-                    `<pr-comment author="${c.user.login}" file="${c.path}" line="${c.line ?? 'file-level'}">\n${c.body}\n<diff-hunk>${c.diffHunk}</diff-hunk>\n</pr-comment>`
-                )
-                .join('\n\n') + '\n\n'
-          }
+          const prAskContext = buildPrReviewCommentContext(
+            usePRReviewStore.getState().attachedComments
+          )
+          const diffAskContext = buildLocalDiffCommentContext(
+            useDiffCommentStore.getState().attachedComments
+          )
 
           // Prefix with ASK_MODE_PREFIX to prevent code changes
-          const prefixedQuestion = prAskContext + ASK_MODE_PREFIX + question
+          const prefixedQuestion = prAskContext + diffAskContext + ASK_MODE_PREFIX + question
 
           // Add user message to UI immediately (before response)
           const askFileAttachments = toFilePartsForDisplay(attachments)
@@ -3851,6 +3927,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           const parts = buildMessageParts(attachments, prefixedQuestion)
           clearAttachments()
           usePRReviewStore.getState().clearAttachments()
+          useDiffCommentStore.getState().clearAttachments()
 
           try {
             const result = await window.agentOps.prompt(
@@ -3906,6 +3983,8 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       // Queued messages only go into the queue — don't create a local message or send
       if (isQueuedMessage) {
         clearAttachments()
+        usePRReviewStore.getState().clearAttachments()
+        useDiffCommentStore.getState().clearAttachments()
         return
       }
 
@@ -4027,6 +4106,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               lastSentPromptRef.current = trimmedValue
               clearAttachments()
               usePRReviewStore.getState().clearAttachments()
+              useDiffCommentStore.getState().clearAttachments()
               const result = await window.agentOps.command(
                 worktreePath,
                 opencodeSessionId,
@@ -4044,23 +4124,18 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
               const currentMode = useSessionStore.getState().getSessionMode(sessionId)
               const modePrefix =
                 currentMode === 'plan' && !skipPlanModePrefix ? PLAN_MODE_PREFIX : ''
-              // Build PR review comment context
-              const prAttachedComments = usePRReviewStore.getState().attachedComments
-              let prContext = ''
-              if (prAttachedComments.length > 0) {
-                prContext =
-                  prAttachedComments
-                    .map(
-                      (c) =>
-                        `<pr-comment author="${c.user.login}" file="${c.path}" line="${c.line ?? 'file-level'}">\n${c.body}\n<diff-hunk>${c.diffHunk}</diff-hunk>\n</pr-comment>`
-                    )
-                    .join('\n\n') + '\n\n'
-              }
-              const promptMessage = prContext + modePrefix + trimmedValue
+              const prContext = buildPrReviewCommentContext(
+                usePRReviewStore.getState().attachedComments
+              )
+              const diffContext = buildLocalDiffCommentContext(
+                useDiffCommentStore.getState().attachedComments
+              )
+              const promptMessage = prContext + diffContext + modePrefix + trimmedValue
               lastSentPromptRef.current = promptMessage
               const parts = buildMessageParts(attachments, promptMessage)
               clearAttachments()
               usePRReviewStore.getState().clearAttachments()
+              useDiffCommentStore.getState().clearAttachments()
               const result = await window.agentOps.prompt(
                 worktreePath,
                 opencodeSessionId,
@@ -4078,19 +4153,13 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             // Regular prompt — existing code (with mode prefix, attachments, etc.)
             const currentMode = useSessionStore.getState().getSessionMode(sessionId)
             const modePrefix = currentMode === 'plan' && !skipPlanModePrefix ? PLAN_MODE_PREFIX : ''
-            // Build PR review comment context
-            const prAttachedComments = usePRReviewStore.getState().attachedComments
-            let prContext = ''
-            if (prAttachedComments.length > 0) {
-              prContext =
-                prAttachedComments
-                  .map(
-                    (c) =>
-                      `<pr-comment author="${c.user.login}" file="${c.path}" line="${c.line ?? 'file-level'}">\n${c.body}\n<diff-hunk>${c.diffHunk}</diff-hunk>\n</pr-comment>`
-                  )
-                  .join('\n\n') + '\n\n'
-            }
-            const promptMessage = prContext + modePrefix + trimmedValue
+            const prContext = buildPrReviewCommentContext(
+              usePRReviewStore.getState().attachedComments
+            )
+            const diffContext = buildLocalDiffCommentContext(
+              useDiffCommentStore.getState().attachedComments
+            )
+            const promptMessage = prContext + diffContext + modePrefix + trimmedValue
             // Store the full prompt so the stream handler can detect SDK echoes
             // of the user message (the SDK often re-emits the prompt without a
             // role field, making it indistinguishable from assistant text).
@@ -4098,6 +4167,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             const parts = buildMessageParts(attachments, promptMessage)
             clearAttachments()
             usePRReviewStore.getState().clearAttachments()
+            useDiffCommentStore.getState().clearAttachments()
             const result = await window.agentOps.prompt(
               worktreePath,
               opencodeSessionId,
@@ -4116,6 +4186,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           // No OpenCode connection - show placeholder
           clearAttachments()
           usePRReviewStore.getState().clearAttachments()
+          useDiffCommentStore.getState().clearAttachments()
           console.warn('No OpenCode connection, showing placeholder response')
           setTimeout(() => {
             const placeholderContent = t('sessionView.connection.disconnectedPlaceholder')
@@ -5297,6 +5368,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             />
             {/* PR review comment attachments — above the input container */}
             <PrCommentAttachments />
+            <DiffCommentAttachments />
             {/* Queued follow-up messages — attached above the input box */}
             <QueuedMessagesBar
               messages={queuedMessages}

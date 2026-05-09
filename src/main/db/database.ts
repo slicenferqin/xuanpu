@@ -38,6 +38,7 @@ import type {
   ConnectionMemberCreate,
   ConnectionWithMembers
 } from './types'
+import type { DiffComment, DiffCommentCreate, DiffCommentUpdate } from '@shared/types/git'
 
 export class DatabaseService {
   private db: Database.Database | null = null
@@ -108,6 +109,22 @@ export class DatabaseService {
     } as Worktree
   }
 
+  private mapDiffCommentRow(row: Record<string, unknown>): DiffComment {
+    return {
+      id: row.id as string,
+      worktreeId: row.worktree_id as string,
+      filePath: row.file_path as string,
+      side: row.side as DiffComment['side'],
+      lineNumber: row.line_number as number,
+      compareBranch: (row.compare_branch as string | null) ?? null,
+      staged: ((row.staged as number) ?? 0) === 1,
+      body: row.body as string,
+      resolved: ((row.resolved as number) ?? 0) === 1,
+      createdAt: row.created_at as number,
+      updatedAt: row.updated_at as number
+    }
+  }
+
   private runMigrations(): void {
     const db = this.getDb()
 
@@ -146,6 +163,7 @@ export class DatabaseService {
     this.ensureFieldEventsTable()
     this.ensureEpisodicMemoryTable()
     this.ensureHubTables()
+    this.ensureDiffCommentsTable()
   }
 
   /**
@@ -200,6 +218,29 @@ export class DatabaseService {
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
+    `)
+  }
+
+  private ensureDiffCommentsTable(): void {
+    const db = this.getDb()
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS diff_comments (
+        id TEXT PRIMARY KEY,
+        worktree_id TEXT NOT NULL REFERENCES worktrees(id) ON DELETE CASCADE,
+        file_path TEXT NOT NULL,
+        side TEXT NOT NULL CHECK (side IN ('original', 'modified')),
+        line_number INTEGER NOT NULL,
+        compare_branch TEXT DEFAULT NULL,
+        staged INTEGER NOT NULL DEFAULT 0,
+        body TEXT NOT NULL,
+        resolved INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_diff_comments_worktree_file
+        ON diff_comments(worktree_id, file_path, line_number);
+      CREATE INDEX IF NOT EXISTS idx_diff_comments_worktree_updated
+        ON diff_comments(worktree_id, updated_at DESC);
     `)
   }
 
@@ -2144,6 +2185,108 @@ export class DatabaseService {
     return db
       .prepare('SELECT project_id, space_id FROM project_spaces')
       .all() as ProjectSpaceAssignment[]
+  }
+
+  getDiffComments(worktreeId: string, filePath?: string): DiffComment[] {
+    const db = this.getDb()
+    const rows = filePath
+      ? (db
+          .prepare(
+            `SELECT * FROM diff_comments
+             WHERE worktree_id = ? AND file_path = ?
+             ORDER BY line_number ASC, created_at ASC`
+          )
+          .all(worktreeId, filePath) as Record<string, unknown>[])
+      : (db
+          .prepare(
+            `SELECT * FROM diff_comments
+             WHERE worktree_id = ?
+             ORDER BY file_path ASC, line_number ASC, created_at ASC`
+          )
+          .all(worktreeId) as Record<string, unknown>[])
+
+    return rows.map((row) => this.mapDiffCommentRow(row))
+  }
+
+  createDiffComment(data: DiffCommentCreate): DiffComment {
+    if (!data.worktreeId.trim()) throw new Error('worktreeId is required')
+    if (!data.filePath.trim()) throw new Error('filePath is required')
+    if (!Number.isInteger(data.lineNumber) || data.lineNumber < 1) {
+      throw new Error('lineNumber must be a positive integer')
+    }
+    const body = data.body.trim()
+    if (!body) throw new Error('Comment body is required')
+
+    const db = this.getDb()
+    const id = randomUUID()
+    const now = Date.now()
+    db.prepare(
+      `INSERT INTO diff_comments (
+        id,
+        worktree_id,
+        file_path,
+        side,
+        line_number,
+        compare_branch,
+        staged,
+        body,
+        resolved,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
+    ).run(
+      id,
+      data.worktreeId,
+      data.filePath,
+      data.side,
+      data.lineNumber,
+      data.compareBranch ?? null,
+      data.staged ? 1 : 0,
+      body,
+      now,
+      now
+    )
+
+    return this.getDiffComment(id)!
+  }
+
+  getDiffComment(id: string): DiffComment | null {
+    const db = this.getDb()
+    const row = db.prepare('SELECT * FROM diff_comments WHERE id = ?').get(id) as
+      | Record<string, unknown>
+      | undefined
+    return row ? this.mapDiffCommentRow(row) : null
+  }
+
+  updateDiffComment(id: string, data: DiffCommentUpdate): DiffComment | null {
+    const updates: string[] = []
+    const values: unknown[] = []
+
+    if (data.body !== undefined) {
+      const body = data.body.trim()
+      if (!body) throw new Error('Comment body is required')
+      updates.push('body = ?')
+      values.push(body)
+    }
+    if (data.resolved !== undefined) {
+      updates.push('resolved = ?')
+      values.push(data.resolved ? 1 : 0)
+    }
+
+    if (updates.length === 0) return this.getDiffComment(id)
+
+    updates.push('updated_at = ?')
+    values.push(Date.now(), id)
+
+    const db = this.getDb()
+    db.prepare(`UPDATE diff_comments SET ${updates.join(', ')} WHERE id = ?`).run(...values)
+    return this.getDiffComment(id)
+  }
+
+  deleteDiffComment(id: string): boolean {
+    const db = this.getDb()
+    const result = db.prepare('DELETE FROM diff_comments WHERE id = ?').run(id)
+    return result.changes > 0
   }
 
   // Utility methods

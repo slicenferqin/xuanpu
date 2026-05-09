@@ -70,6 +70,20 @@ interface Worktree {
   last_accessed_at: string
 }
 
+interface DiffComment {
+  id: string
+  worktreeId: string
+  filePath: string
+  side: 'original' | 'modified'
+  lineNumber: number
+  compareBranch: string | null
+  staged: boolean
+  body: string
+  resolved: boolean
+  createdAt: number
+  updatedAt: number
+}
+
 interface Session {
   id: string
   worktree_id: string | null
@@ -310,6 +324,23 @@ declare global {
           pinned: boolean
         ) => Promise<{ success: boolean; error?: string }>
         getPinned: () => Promise<Worktree[]>
+      }
+      diffComment: {
+        list: (worktreeId: string, filePath?: string) => Promise<DiffComment[]>
+        create: (data: {
+          worktreeId: string
+          filePath: string
+          side: 'original' | 'modified'
+          lineNumber: number
+          compareBranch?: string | null
+          staged?: boolean
+          body: string
+        }) => Promise<DiffComment>
+        update: (
+          id: string,
+          data: { body?: string; resolved?: boolean }
+        ) => Promise<DiffComment | null>
+        delete: (id: string) => Promise<boolean>
       }
       session: {
         create: (data: {
