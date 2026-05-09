@@ -36,7 +36,7 @@ import { ForkFromMessageConfirmDialog } from './ForkFromMessageConfirmDialog'
 import { PlanReadyImplementFab } from '../sessions/PlanReadyImplementFab'
 import { ScrollToBottomFab } from '../sessions/ScrollToBottomFab'
 import { useSessionRuntimeStore } from '@/stores/useSessionRuntimeStore'
-import { useSessionStore } from '@/stores/useSessionStore'
+import { useSessionStore, type PendingPromptOptions } from '@/stores/useSessionStore'
 import { useWorktreeStore } from '@/stores'
 import { useContextStore } from '@/stores/useContextStore'
 import { useWorktreeStatusStore } from '@/stores/useWorktreeStatusStore'
@@ -513,6 +513,23 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     }
     return undefined
   }, [agentSdk, goalMode, mode, successCriteria])
+  const buildPendingPromptOptions = useCallback(
+    (options?: PendingPromptOptions): RendererPromptOptions | undefined => {
+      if (agentSdk === 'codex') {
+        return {
+          goalMode: options?.goalMode ?? promptOptions?.goalMode ?? false,
+          successCriteria: options?.successCriteria ?? promptOptions?.successCriteria ?? ''
+        }
+      }
+
+      if (agentSdk === 'opencode') {
+        return { mode: options?.mode ?? mode }
+      }
+
+      return undefined
+    },
+    [agentSdk, mode, promptOptions]
+  )
   const currentModelId = resolvedModel?.modelID ?? ''
   const currentProviderId = resolvedModel?.providerID ?? ''
   const skipForkFromMessageConfirm = useSettingsStore((s) => s.skipForkFromMessageConfirm)
@@ -777,6 +794,90 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       cancelled = true
     }
   }, [sessionId, worktreePath, opcSessionId, agentSdk])
+
+  useEffect(() => {
+    if (!worktreePath || !droidSessionId) return
+
+    const pending = useSessionStore.getState().dequeuePendingMessageWithOptions(sessionId)
+    if (!pending) return
+
+    let cancelled = false
+    const effectivePromptOptions = buildPendingPromptOptions(pending.options)
+    const pendingMode = pending.options?.mode ?? mode
+    const optimisticMessageId = `optimistic-${Date.now()}`
+
+    ;(async () => {
+      try {
+        resetLiveOverlay(true)
+        useSessionStore.getState().markSessionFirstMessage(sessionId)
+        messageSendTimes.set(sessionId, Date.now())
+        lastSendMode.set(sessionId, pendingMode)
+        useWorktreeStatusStore
+          .getState()
+          .setSessionStatus(sessionId, pendingMode === 'plan' ? 'planning' : 'working')
+
+        const optimisticMsg: TimelineMessage = {
+          id: optimisticMessageId,
+          role: 'user',
+          content: pending.message,
+          timestamp: new Date().toISOString()
+        }
+        appendOptimistic(optimisticMsg)
+        timelineMessagesRef.current = [...timelineMessagesRef.current, optimisticMsg]
+        syncOptimisticMessagesToMirror()
+
+        const result = await window.agentOps.prompt(
+          worktreePath,
+          droidSessionId,
+          pending.message,
+          requestModel,
+          effectivePromptOptions
+        )
+
+        if (cancelled) return
+
+        if (!result.success) {
+          throw new Error(result.error || 'Failed to send pending message')
+        }
+
+        void refreshSessionLastMessageAt(sessionId)
+      } catch (err) {
+        console.error('[SessionShell] pending message send failed:', err)
+        useSessionStore
+          .getState()
+          .requeuePendingMessage(sessionId, pending.message, pending.options)
+        optimisticRef.current = optimisticRef.current.filter(
+          (msg) => msg.id !== optimisticMessageId
+        )
+        timelineMessagesRef.current = timelineMessagesRef.current.filter(
+          (msg) => msg.id !== optimisticMessageId
+        )
+        setMessages((prev) => prev.filter((msg) => msg.id !== optimisticMessageId))
+        syncOptimisticMessagesToMirror()
+        useWorktreeStatusStore.getState().clearSessionStatus(sessionId)
+        resetLiveOverlay(false)
+        if (!cancelled) {
+          toast.error(err instanceof Error ? err.message : 'Failed to send pending message')
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    sessionId,
+    worktreePath,
+    droidSessionId,
+    buildPendingPromptOptions,
+    mode,
+    requestModel,
+    appendOptimistic,
+    syncOptimisticMessagesToMirror,
+    optimisticRef,
+    resetLiveOverlay,
+    setMessages
+  ])
 
   useEffect(() => {
     if (!worktreePath || !droidSessionId || !window.agentOps?.getMessages) return
@@ -1464,10 +1565,88 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     promptOptions
   ])
 
-  const handlePlanHandoff = useCallback(() => {
-    // Just clear the pending plan — user will handle it elsewhere
-    useSessionStore.getState().clearPendingPlan(sessionId)
-  }, [sessionId])
+  const handlePlanHandoff = useCallback(async () => {
+    if (!pendingPlan) return
+
+    const planContent = pendingPlan.planContent.trim()
+    if (!planContent) {
+      toast.error(t('sessionView.toasts.noAssistantPlanToHandoff'))
+      return
+    }
+
+    const sourceAgentSdk = sessionRecord?.agent_sdk
+    const handoffPrompt = `Implement the following plan\n${planContent}`
+    const pendingOptions: PendingPromptOptions | undefined =
+      sourceAgentSdk === 'codex' && goalMode
+        ? {
+            goalMode: true,
+            ...(successCriteria.trim() ? { successCriteria: successCriteria.trim() } : {})
+          }
+        : undefined
+
+    const sessionStore = useSessionStore.getState()
+
+    try {
+      let result:
+        | Awaited<ReturnType<typeof sessionStore.createConnectionSession>>
+        | Awaited<ReturnType<typeof sessionStore.createSession>>
+
+      if (connectionId) {
+        result = await sessionStore.createConnectionSession(
+          connectionId,
+          sourceAgentSdk ?? undefined,
+          'build'
+        )
+      } else {
+        const currentWorktreeId = worktreeId
+        const currentProjectId = sessionRecord?.project_id
+        if (!currentWorktreeId || !currentProjectId) {
+          toast.error(t('sessionView.toasts.startHandoffSessionError'))
+          return
+        }
+
+        result = await sessionStore.createSession(
+          currentWorktreeId,
+          currentProjectId,
+          sourceAgentSdk ?? undefined,
+          'build'
+        )
+      }
+
+      if (!result.success || !result.session) {
+        toast.error(result.error ?? t('sessionView.toasts.createHandoffSessionError'))
+        return
+      }
+
+      await sessionStore.setSessionMode(result.session.id, 'build')
+      sessionStore.setPendingMessage(result.session.id, handoffPrompt, pendingOptions)
+
+      if (connectionId) {
+        sessionStore.setActiveConnectionSession(result.session.id)
+      } else {
+        sessionStore.setActiveSession(result.session.id)
+      }
+
+      useSessionStore.getState().clearPendingPlan(sessionId)
+      useSessionRuntimeStore.getState().removeInterrupt(sessionId, pendingPlan.requestId)
+      useWorktreeStatusStore.getState().clearSessionStatus(sessionId)
+    } catch (err) {
+      console.error('[SessionShell] plan handoff failed:', err)
+      toast.error(
+        err instanceof Error ? err.message : t('sessionView.toasts.startHandoffSessionError')
+      )
+    }
+  }, [
+    pendingPlan,
+    sessionRecord?.agent_sdk,
+    sessionRecord?.project_id,
+    goalMode,
+    successCriteria,
+    connectionId,
+    worktreeId,
+    sessionId,
+    t
+  ])
 
   const handlePlanReject = useCallback(async () => {
     if (!pendingPlan) return

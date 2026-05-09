@@ -23,6 +23,17 @@ export interface PendingPlan {
   toolUseID: string
 }
 
+export interface PendingPromptOptions {
+  mode?: SessionMode
+  goalMode?: boolean
+  successCriteria?: string
+}
+
+export interface PendingInitialMessage {
+  message: string
+  options?: PendingPromptOptions
+}
+
 // Session type matching the database schema
 interface Session {
   id: string
@@ -60,6 +71,7 @@ interface SessionState {
   modeBySession: Map<string, SessionMode>
   // Pending initial messages - keyed by session ID (e.g., code review prompts)
   pendingMessages: Map<string, string>
+  pendingMessageOptions: Map<string, PendingPromptOptions>
   // Pending plan approvals - keyed by session ID (from ExitPlanMode blocking tool)
   pendingPlans: Map<string, PendingPlan>
   // Pending follow-up messages - keyed by session ID, ordered queue of messages to auto-send
@@ -132,9 +144,14 @@ interface SessionState {
    * via createSessionMessage / upsertSessionActivity).
    */
   markSessionFirstMessage: (sessionId: string) => void
-  setPendingMessage: (sessionId: string, message: string) => void
+  setPendingMessage: (sessionId: string, message: string, options?: PendingPromptOptions) => void
   dequeuePendingMessage: (sessionId: string) => string | null
-  requeuePendingMessage: (sessionId: string, message: string) => void
+  dequeuePendingMessageWithOptions: (sessionId: string) => PendingInitialMessage | null
+  requeuePendingMessage: (
+    sessionId: string,
+    message: string,
+    options?: PendingPromptOptions
+  ) => void
   consumePendingMessage: (sessionId: string) => string | null
   setPendingFollowUpMessages: (sessionId: string, messages: string[]) => void
   dequeueFollowUpMessage: (sessionId: string) => string | null
@@ -195,6 +212,7 @@ export const useSessionStore = create<SessionState>()(
       tabOrderByWorktree: new Map(),
       modeBySession: new Map(),
       pendingMessages: new Map(),
+      pendingMessageOptions: new Map(),
       pendingPlans: new Map(),
       pendingFollowUpMessages: new Map(),
       isLoading: false,
@@ -1280,11 +1298,17 @@ export const useSessionStore = create<SessionState>()(
       },
 
       // Set a pending initial message for a session (e.g., code review prompt)
-      setPendingMessage: (sessionId: string, message: string) => {
+      setPendingMessage: (sessionId: string, message: string, options?: PendingPromptOptions) => {
         set((state) => {
           const newMap = new Map(state.pendingMessages)
+          const newOptionsMap = new Map(state.pendingMessageOptions)
           newMap.set(sessionId, message)
-          return { pendingMessages: newMap }
+          if (options) {
+            newOptionsMap.set(sessionId, options)
+          } else {
+            newOptionsMap.delete(sessionId)
+          }
+          return { pendingMessages: newMap, pendingMessageOptions: newOptionsMap }
         })
       },
 
@@ -1294,19 +1318,48 @@ export const useSessionStore = create<SessionState>()(
         if (message) {
           set((state) => {
             const newMap = new Map(state.pendingMessages)
+            const newOptionsMap = new Map(state.pendingMessageOptions)
             newMap.delete(sessionId)
-            return { pendingMessages: newMap }
+            newOptionsMap.delete(sessionId)
+            return { pendingMessages: newMap, pendingMessageOptions: newOptionsMap }
           })
         }
         return message
       },
 
-      // Restore a pending message for a session (used when auto-send fails)
-      requeuePendingMessage: (sessionId: string, message: string) => {
+      // Dequeue the pending initial message together with launch-specific prompt options.
+      dequeuePendingMessageWithOptions: (sessionId: string): PendingInitialMessage | null => {
+        const message = get().pendingMessages.get(sessionId) || null
+        if (!message) return null
+
+        const options = get().pendingMessageOptions.get(sessionId)
         set((state) => {
           const newMap = new Map(state.pendingMessages)
+          const newOptionsMap = new Map(state.pendingMessageOptions)
+          newMap.delete(sessionId)
+          newOptionsMap.delete(sessionId)
+          return { pendingMessages: newMap, pendingMessageOptions: newOptionsMap }
+        })
+
+        return options ? { message, options } : { message }
+      },
+
+      // Restore a pending message for a session (used when auto-send fails)
+      requeuePendingMessage: (
+        sessionId: string,
+        message: string,
+        options?: PendingPromptOptions
+      ) => {
+        set((state) => {
+          const newMap = new Map(state.pendingMessages)
+          const newOptionsMap = new Map(state.pendingMessageOptions)
           newMap.set(sessionId, message)
-          return { pendingMessages: newMap }
+          if (options) {
+            newOptionsMap.set(sessionId, options)
+          } else {
+            newOptionsMap.delete(sessionId)
+          }
+          return { pendingMessages: newMap, pendingMessageOptions: newOptionsMap }
         })
       },
 
