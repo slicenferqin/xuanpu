@@ -39,11 +39,7 @@ export interface ComposerBarProps {
   pendingCount: number
   firstInterrupt: InterruptItem | null
   /** Called when user executes the primary action with content */
-  onAction: (
-    action: ComposerAction,
-    content: string,
-    attachments: Attachment[]
-  ) => Promise<boolean>
+  onAction: (action: ComposerAction, content: string, attachments: Attachment[]) => Promise<boolean>
   /** Whether the session is connected and ready to accept input */
   isConnected: boolean
   /** Runtime capability gate for steer */
@@ -101,6 +97,198 @@ function ActionMenuIcon({ action }: { action: ComposerAction }): React.JSX.Eleme
   }
 }
 
+interface ComposerAttachmentsSectionProps {
+  attachments: Attachment[]
+  onRemove: (id: string) => void
+}
+
+const ComposerAttachmentsSection = React.memo(function ComposerAttachmentsSection({
+  attachments,
+  onRemove
+}: ComposerAttachmentsSectionProps): React.JSX.Element {
+  return (
+    <div className="px-4 pt-3 pb-0">
+      <AttachmentPreview attachments={attachments} onRemove={onRemove} />
+    </div>
+  )
+})
+
+interface SuccessCriteriaInputProps {
+  value: string
+  disabled: boolean
+  onChange?: (value: string) => void
+}
+
+const SuccessCriteriaInput = React.memo(function SuccessCriteriaInput({
+  value,
+  disabled,
+  onChange
+}: SuccessCriteriaInputProps): React.JSX.Element {
+  return (
+    <div className="px-4 pb-1">
+      <textarea
+        value={value}
+        onChange={(e) => onChange?.(e.target.value)}
+        placeholder="Success criteria..."
+        disabled={disabled}
+        className={cn(
+          'w-full resize-none rounded-md border border-border/60 bg-background/45 px-2.5 py-1.5',
+          'text-xs placeholder:text-muted-foreground',
+          'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/45',
+          'disabled:cursor-not-allowed disabled:opacity-50',
+          'min-h-[32px] max-h-[88px]'
+        )}
+        rows={1}
+        data-testid="composer-success-criteria"
+      />
+    </div>
+  )
+})
+
+interface ComposerToolbarProps {
+  disabled: boolean
+  pendingPlan?: unknown | null
+  onToggleMode?: () => void
+  mode: 'build' | 'plan'
+  showGoalControls: boolean
+  goalMode: boolean
+  onToggleGoalMode?: () => void
+  availableAlternatives: ComposerAction[]
+  alternativesEnabled: boolean
+  canSend: boolean
+  onActionSelection: (action: ComposerAction) => void
+  onSubmit: () => void
+  buttonEnabled: boolean
+  iconHint: ComposerActionSet['iconHint']
+  primaryLabel: string
+  onAttach: (file: Omit<Attachment, 'id'>) => void
+}
+
+const ComposerToolbar = React.memo(function ComposerToolbar({
+  disabled,
+  pendingPlan,
+  onToggleMode,
+  mode,
+  showGoalControls,
+  goalMode,
+  onToggleGoalMode,
+  availableAlternatives,
+  alternativesEnabled,
+  canSend,
+  onActionSelection,
+  onSubmit,
+  buttonEnabled,
+  iconHint,
+  primaryLabel,
+  onAttach
+}: ComposerToolbarProps): React.JSX.Element {
+  return (
+    <div className="flex items-center gap-2 px-3 pb-3 pt-1">
+      <AttachmentButton onAttach={onAttach} disabled={disabled} />
+
+      {/* Plan mode toggle */}
+      {pendingPlan ? (
+        <span className="text-xs text-muted-foreground">Review the plan above</span>
+      ) : onToggleMode ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className={cn(
+            'h-7 rounded-full border px-2.5 text-xs font-medium transition-[color,background-color,border-color,box-shadow]',
+            mode === 'plan'
+              ? 'border-violet-300/80 bg-violet-500/10 text-violet-700 shadow-[0_0_0_1px_rgba(196,181,253,0.26),0_0_14px_rgba(167,139,250,0.18)] hover:bg-violet-500/14 hover:text-violet-800 dark:border-violet-400/45 dark:bg-violet-500/12 dark:text-violet-200 dark:shadow-[0_0_0_1px_rgba(167,139,250,0.22),0_0_16px_rgba(139,92,246,0.18)]'
+              : 'border-border/70 bg-background/65 text-muted-foreground shadow-none hover:border-border hover:bg-background/85 hover:text-foreground'
+          )}
+          onClick={onToggleMode}
+          title="Toggle Plan Mode (Tab)"
+        >
+          Plan
+        </Button>
+      ) : null}
+
+      {showGoalControls ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className={cn(
+            'h-7 rounded-full border px-2.5 text-xs font-medium transition-[color,background-color,border-color,box-shadow]',
+            goalMode
+              ? 'border-emerald-300/80 bg-emerald-500/10 text-emerald-700 shadow-[0_0_0_1px_rgba(110,231,183,0.22),0_0_12px_rgba(16,185,129,0.16)] hover:bg-emerald-500/14 hover:text-emerald-800 dark:border-emerald-400/45 dark:bg-emerald-500/12 dark:text-emerald-200 dark:shadow-[0_0_0_1px_rgba(52,211,153,0.2),0_0_14px_rgba(5,150,105,0.16)]'
+              : 'border-border/70 bg-background/65 text-muted-foreground shadow-none hover:border-border hover:bg-background/85 hover:text-foreground'
+          )}
+          onClick={onToggleGoalMode}
+          aria-pressed={goalMode}
+          title="Toggle Goal Mode"
+          data-testid="composer-goal-toggle"
+        >
+          Goal
+        </Button>
+      ) : null}
+
+      <div className="flex-1" />
+
+      {availableAlternatives.length > 0 && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 rounded-full border border-border/70 px-2.5"
+              disabled={!alternativesEnabled}
+              aria-label="More send actions"
+              data-testid="composer-action-menu-trigger"
+            >
+              <ChevronDown className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="end"
+            side="top"
+            className="w-52"
+            data-testid="composer-action-menu"
+          >
+            {availableAlternatives.map((action) => (
+              <DropdownMenuItem
+                key={action}
+                onSelect={() => {
+                  onActionSelection(action)
+                }}
+                disabled={!canSend && action !== 'stop_and_send'}
+                data-testid={`composer-action-${action}`}
+              >
+                <ActionMenuIcon action={action} />
+                <span>{getActionLabel(action)}</span>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+
+      {/* Send / Stop icon button */}
+      <button
+        onClick={onSubmit}
+        disabled={!buttonEnabled}
+        className={cn(
+          'h-8 w-8 rounded-full flex items-center justify-center shrink-0 transition-colors',
+          iconHint === 'stop'
+            ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            : buttonEnabled
+              ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+              : 'bg-muted text-muted-foreground cursor-not-allowed'
+        )}
+        aria-label={primaryLabel}
+        title={primaryLabel}
+        data-testid="composer-primary-action"
+      >
+        <SendIcon hint={iconHint} />
+      </button>
+    </div>
+  )
+})
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -129,17 +317,29 @@ export function ComposerBar({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [content, setContent] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
+  const contentRef = useRef('')
+  const attachmentsRef = useRef<Attachment[]>([])
 
   // --- Draft persistence: save input on unmount/switch, restore on mount ---
-  const contentRef = useRef(content)
-  useEffect(() => { contentRef.current = content }, [content])
+  useEffect(() => {
+    contentRef.current = content
+  }, [content])
+  useEffect(() => {
+    attachmentsRef.current = attachments
+  }, [attachments])
 
   // Load draft on session change
   useEffect(() => {
     let cancelled = false
-    window.db.session.getDraft(sessionId).then((draft) => {
-      if (!cancelled && draft) setContent(draft)
-    }).catch(() => {})
+    window.db.session
+      .getDraft(sessionId)
+      .then((draft) => {
+        if (!cancelled && draft) {
+          contentRef.current = draft
+          setContent(draft)
+        }
+      })
+      .catch(() => {})
     return () => {
       cancelled = true
       // Save draft when leaving this session
@@ -148,7 +348,9 @@ export function ComposerBar({
     }
   }, [sessionId])
   // --- Slash commands ---
-  const [slashCommands, setSlashCommands] = useState<{ name: string; description?: string; template: string; agent?: string; builtIn?: boolean }[]>([])
+  const [slashCommands, setSlashCommands] = useState<
+    { name: string; description?: string; template: string; agent?: string; builtIn?: boolean }[]
+  >([])
   const [showSlashCommands, setShowSlashCommands] = useState(false)
   const showSlashCommandsRef = useRef(false)
 
@@ -167,23 +369,33 @@ export function ComposerBar({
   useEffect(() => {
     let mounted = true
     if (!worktreePath || !window.agentOps?.commands) return
-    window.agentOps.commands(worktreePath).then((result) => {
-      if (mounted && result?.success && Array.isArray(result.commands)) {
-        setSlashCommands(result.commands)
-      }
-    }).catch(() => {})
-    return () => { mounted = false }
+    window.agentOps
+      .commands(worktreePath)
+      .then((result) => {
+        if (mounted && result?.success && Array.isArray(result.commands)) {
+          setSlashCommands(result.commands)
+        }
+      })
+      .catch(() => {})
+    return () => {
+      mounted = false
+    }
   }, [worktreePath, commandsVersion])
   const canSend = content.trim().length > 0 || attachments.length > 0
   // Derive available actions from the state machine
-  const actionSet = determineComposerActions({
-    lifecycle,
-    hasInterrupt: firstInterrupt != null,
-    hasPendingMessages: pendingCount > 0,
-    hasDraftContent: canSend,
-    isConnected,
-    supportsSteer
-  })
+  const hasInterrupt = firstInterrupt != null
+  const actionSet = useMemo(
+    () =>
+      determineComposerActions({
+        lifecycle,
+        hasInterrupt,
+        hasPendingMessages: pendingCount > 0,
+        hasDraftContent: canSend,
+        isConnected,
+        supportsSteer
+      }),
+    [canSend, hasInterrupt, isConnected, lifecycle, pendingCount, supportsSteer]
+  )
 
   const isDisabled = !actionSet.inputEnabled
   const availableAlternatives = useMemo(
@@ -209,6 +421,8 @@ export function ComposerBar({
   }, [sessionId])
 
   const clearInput = useCallback(() => {
+    contentRef.current = ''
+    attachmentsRef.current = []
     setContent('')
     setAttachments([])
     window.db.session.updateDraft(sessionId, null).catch(() => {})
@@ -218,7 +432,9 @@ export function ComposerBar({
 
   const handleActionSelection = useCallback(
     async (action: ComposerAction): Promise<void> => {
-      const hasContent = content.trim().length > 0 || attachments.length > 0
+      const currentContent = contentRef.current
+      const currentAttachments = attachmentsRef.current
+      const hasContent = currentContent.trim().length > 0 || currentAttachments.length > 0
 
       if (action === 'stop_and_send' && !hasContent) {
         await onAction('stop_and_send', '', [])
@@ -231,18 +447,19 @@ export function ComposerBar({
       // round-trip can take hundreds of ms to a few seconds (SDK start, app
       // server boot, etc.), and waiting until it resolves leaves the user
       // staring at their own text below the optimistic bubble.
-      const snapshotContent = content.trim()
-      const snapshotAttachments = attachments
+      const snapshotContent = currentContent.trim()
+      const snapshotAttachments = currentAttachments
       clearInput()
 
       const consumed = await onAction(action, snapshotContent, snapshotAttachments)
       if (!consumed) {
         // Send failed — restore the text so the user can retry. Attachments
         // aren't restored (files have been consumed by the optimistic path).
+        contentRef.current = snapshotContent
         setContent(snapshotContent)
       }
     },
-    [attachments, clearInput, content, onAction]
+    [clearInput, onAction]
   )
 
   const handleSubmit = useCallback(async () => {
@@ -273,7 +490,12 @@ export function ComposerBar({
     (file: Omit<Attachment, 'id'>) => {
       setAttachments((prev) => {
         if (prev.length >= maxAttachments) return prev
-        return [...prev, { ...file, id: `att-${Date.now()}-${Math.random().toString(36).slice(2)}` }]
+        const next = [
+          ...prev,
+          { ...file, id: `att-${Date.now()}-${Math.random().toString(36).slice(2)}` }
+        ]
+        attachmentsRef.current = next
+        return next
       })
     },
     [maxAttachments]
@@ -305,10 +527,15 @@ export function ComposerBar({
   )
 
   const handleRemoveAttachment = useCallback((id: string) => {
-    setAttachments((prev) => prev.filter((a) => a.id !== id))
+    setAttachments((prev) => {
+      const next = prev.filter((a) => a.id !== id)
+      attachmentsRef.current = next
+      return next
+    })
   }, [])
 
   const handleContentChange = useCallback((value: string) => {
+    contentRef.current = value
     setContent(value)
     const shouldShowSlash = value.startsWith('/') && !value.includes(' ')
     if (shouldShowSlash !== showSlashCommandsRef.current) {
@@ -318,10 +545,17 @@ export function ComposerBar({
   }, [])
 
   const handleCommandSelect = useCallback((cmd: { name: string; template: string }) => {
-    setContent(`/${cmd.name} `)
+    const nextContent = `/${cmd.name} `
+    contentRef.current = nextContent
+    setContent(nextContent)
     setShowSlashCommands(false)
     showSlashCommandsRef.current = false
     textareaRef.current?.focus()
+  }, [])
+
+  const handleCloseSlashCommands = useCallback(() => {
+    setShowSlashCommands(false)
+    showSlashCommandsRef.current = false
   }, [])
 
   const placeholder = pendingPlan
@@ -339,10 +573,18 @@ export function ComposerBar({
     actionSet.primary != null &&
     (actionSet.iconHint === 'stop' || canSend || actionSet.primary === 'reply_interrupt')
   const alternativesEnabled =
-    availableAlternatives.length > 0 &&
-    (canSend || availableAlternatives.includes('stop_and_send'))
-  const showGoalControls = supportsGoalMode && !pendingPlan && onToggleGoalMode
+    availableAlternatives.length > 0 && (canSend || availableAlternatives.includes('stop_and_send'))
+  const showGoalControls = Boolean(supportsGoalMode && !pendingPlan && onToggleGoalMode)
   const showSuccessCriteria = showGoalControls && goalMode
+  const handleToolbarActionSelection = useCallback(
+    (action: ComposerAction) => {
+      void handleActionSelection(action)
+    },
+    [handleActionSelection]
+  )
+  const handleToolbarSubmit = useCallback(() => {
+    void handleSubmit()
+  }, [handleSubmit])
 
   return (
     <div
@@ -356,13 +598,15 @@ export function ComposerBar({
       )}
     >
       {/* Slash command popover — floats above the card */}
-      <SlashCommandPopover
-        commands={allSlashCommands}
-        filter={content}
-        onSelect={handleCommandSelect}
-        onClose={() => { setShowSlashCommands(false); showSlashCommandsRef.current = false }}
-        visible={showSlashCommands}
-      />
+      {showSlashCommands && (
+        <SlashCommandPopover
+          commands={allSlashCommands}
+          filter={content}
+          onSelect={handleCommandSelect}
+          onClose={handleCloseSlashCommands}
+          visible={showSlashCommands}
+        />
+      )}
 
       {/* Pending message indicator */}
       {pendingCount > 0 && (
@@ -373,12 +617,7 @@ export function ComposerBar({
 
       {/* Attachments preview */}
       {attachments.length > 0 && (
-        <div className="px-4 pt-3 pb-0">
-          <AttachmentPreview
-            attachments={attachments}
-            onRemove={handleRemoveAttachment}
-          />
-        </div>
+        <ComposerAttachmentsSection attachments={attachments} onRemove={handleRemoveAttachment} />
       )}
 
       {/* Textarea — seamlessly fills the card top */}
@@ -403,136 +642,32 @@ export function ComposerBar({
       </div>
 
       {showSuccessCriteria && (
-        <div className="px-4 pb-1">
-          <textarea
-            value={successCriteria}
-            onChange={(e) => onSuccessCriteriaChange?.(e.target.value)}
-            placeholder="Success criteria..."
-            disabled={isDisabled}
-            className={cn(
-              'w-full resize-none rounded-md border border-border/60 bg-background/45 px-2.5 py-1.5',
-              'text-xs placeholder:text-muted-foreground',
-              'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/45',
-              'disabled:cursor-not-allowed disabled:opacity-50',
-              'min-h-[32px] max-h-[88px]'
-            )}
-            rows={1}
-            data-testid="composer-success-criteria"
-          />
-        </div>
+        <SuccessCriteriaInput
+          value={successCriteria}
+          disabled={isDisabled}
+          onChange={onSuccessCriteriaChange}
+        />
       )}
 
       {/* Bottom row: attach + plan + spacer + send */}
-      <div className="flex items-center gap-2 px-3 pb-3 pt-1">
-        <AttachmentButton
-          onAttach={handleAttach}
-          disabled={isDisabled}
-        />
-
-        {/* Plan mode toggle */}
-        {pendingPlan ? (
-          <span className="text-xs text-muted-foreground">
-            Review the plan above
-          </span>
-        ) : onToggleMode ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className={cn(
-              'h-7 rounded-full border px-2.5 text-xs font-medium transition-[color,background-color,border-color,box-shadow]',
-              mode === 'plan'
-                ? 'border-violet-300/80 bg-violet-500/10 text-violet-700 shadow-[0_0_0_1px_rgba(196,181,253,0.26),0_0_14px_rgba(167,139,250,0.18)] hover:bg-violet-500/14 hover:text-violet-800 dark:border-violet-400/45 dark:bg-violet-500/12 dark:text-violet-200 dark:shadow-[0_0_0_1px_rgba(167,139,250,0.22),0_0_16px_rgba(139,92,246,0.18)]'
-                : 'border-border/70 bg-background/65 text-muted-foreground shadow-none hover:border-border hover:bg-background/85 hover:text-foreground'
-            )}
-            onClick={onToggleMode}
-            title="Toggle Plan Mode (Tab)"
-          >
-            Plan
-          </Button>
-        ) : null}
-
-        {showGoalControls ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className={cn(
-              'h-7 rounded-full border px-2.5 text-xs font-medium transition-[color,background-color,border-color,box-shadow]',
-              goalMode
-                ? 'border-emerald-300/80 bg-emerald-500/10 text-emerald-700 shadow-[0_0_0_1px_rgba(110,231,183,0.22),0_0_12px_rgba(16,185,129,0.16)] hover:bg-emerald-500/14 hover:text-emerald-800 dark:border-emerald-400/45 dark:bg-emerald-500/12 dark:text-emerald-200 dark:shadow-[0_0_0_1px_rgba(52,211,153,0.2),0_0_14px_rgba(5,150,105,0.16)]'
-                : 'border-border/70 bg-background/65 text-muted-foreground shadow-none hover:border-border hover:bg-background/85 hover:text-foreground'
-            )}
-            onClick={onToggleGoalMode}
-            aria-pressed={goalMode}
-            title="Toggle Goal Mode"
-            data-testid="composer-goal-toggle"
-          >
-            Goal
-          </Button>
-        ) : null}
-
-        <div className="flex-1" />
-
-        {availableAlternatives.length > 0 && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-8 rounded-full border border-border/70 px-2.5"
-                disabled={!alternativesEnabled}
-                aria-label="More send actions"
-                data-testid="composer-action-menu-trigger"
-              >
-                <ChevronDown className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              side="top"
-              className="w-52"
-              data-testid="composer-action-menu"
-            >
-              {availableAlternatives.map((action) => (
-                <DropdownMenuItem
-                  key={action}
-                  onSelect={() => {
-                    void handleActionSelection(action)
-                  }}
-                  disabled={!canSend && action !== 'stop_and_send'}
-                  data-testid={`composer-action-${action}`}
-                >
-                  <ActionMenuIcon action={action} />
-                  <span>{getActionLabel(action)}</span>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-
-        {/* Send / Stop icon button */}
-        <button
-          onClick={() => {
-            void handleSubmit()
-          }}
-          disabled={!buttonEnabled}
-          className={cn(
-            'h-8 w-8 rounded-full flex items-center justify-center shrink-0 transition-colors',
-            actionSet.iconHint === 'stop'
-              ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
-              : buttonEnabled
-                ? 'bg-primary text-primary-foreground hover:bg-primary/90'
-                : 'bg-muted text-muted-foreground cursor-not-allowed'
-          )}
-          aria-label={actionSet.primaryLabel}
-          title={actionSet.primaryLabel}
-          data-testid="composer-primary-action"
-        >
-          <SendIcon hint={actionSet.iconHint} />
-        </button>
-      </div>
+      <ComposerToolbar
+        disabled={isDisabled}
+        pendingPlan={pendingPlan}
+        onToggleMode={onToggleMode}
+        mode={mode}
+        showGoalControls={showGoalControls}
+        goalMode={goalMode}
+        onToggleGoalMode={onToggleGoalMode}
+        availableAlternatives={availableAlternatives}
+        alternativesEnabled={alternativesEnabled}
+        canSend={canSend}
+        onActionSelection={handleToolbarActionSelection}
+        onSubmit={handleToolbarSubmit}
+        buttonEnabled={buttonEnabled}
+        iconHint={actionSet.iconHint}
+        primaryLabel={actionSet.primaryLabel}
+        onAttach={handleAttach}
+      />
     </div>
   )
 }
