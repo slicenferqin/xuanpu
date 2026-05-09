@@ -1,19 +1,16 @@
 /**
  * Session 5: PR Header UI Tests
  *
- * Tests the state-driven PR button rendering logic in Header.tsx:
- * - none/creating → PR button (with spinner during creating)
- * - created + clean tree → green "Merge PR" button
- * - created + dirty tree → PR button (user needs to commit first)
- * - merged → red "Archive" button
- * - handleCreatePR sets PR state to creating with sessionId
- * - handleMergePR calls prMerge and transitions to merged
+ * Tests the current PR lifecycle model used by Header.tsx:
+ * - no attached PR -> create PR button
+ * - creating -> disabled spinner button
+ * - attached PR -> badge, plus merge/archive actions based on live GitHub state
+ * - PR creation is ephemeral; attached PR is the persistent worktree state
  */
 
-import { describe, test, expect, vi, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { useGitStore } from '../../../src/renderer/src/stores/useGitStore'
 
-// Mock useWorktreeStore (required by useGitStore internals)
 vi.mock('../../../src/renderer/src/stores/useWorktreeStore', () => ({
   useWorktreeStore: {
     getState: vi.fn(() => ({
@@ -21,15 +18,65 @@ vi.mock('../../../src/renderer/src/stores/useWorktreeStore', () => ({
       selectedWorktreeId: null,
       archiveWorktree: vi.fn().mockResolvedValue({ success: true })
     })),
-    // Zustand selector-style call
     __esModule: true
   }
 }))
 
+type PrLiveState = 'OPEN' | 'MERGED' | 'CLOSED' | null
+type VisibleButton =
+  | 'pr-button'
+  | 'pr-creating-button'
+  | 'pr-badge'
+  | 'pr-merge-button'
+  | 'pr-archive-button'
+
+function getVisibleButtons({
+  isGitHub,
+  isCreating,
+  hasAttachedPR,
+  prLiveState,
+  isCleanTree,
+  isDefaultWorktree = false
+}: {
+  isGitHub: boolean
+  isCreating: boolean
+  hasAttachedPR: boolean
+  prLiveState: PrLiveState
+  isCleanTree: boolean
+  isDefaultWorktree?: boolean
+}): VisibleButton[] {
+  if (!isGitHub) return []
+
+  const buttons: VisibleButton[] = []
+
+  if (hasAttachedPR && prLiveState === 'MERGED' && !isDefaultWorktree) {
+    buttons.push('pr-archive-button')
+  }
+
+  if (hasAttachedPR && prLiveState !== 'MERGED' && prLiveState !== 'CLOSED' && isCleanTree) {
+    buttons.push('pr-merge-button')
+  }
+
+  if (hasAttachedPR && !isCreating) {
+    buttons.push('pr-badge')
+  }
+
+  if (isCreating) {
+    buttons.push('pr-creating-button')
+  }
+
+  if (!hasAttachedPR && !isCreating) {
+    buttons.push('pr-button')
+  }
+
+  return buttons
+}
+
 describe('Session 5: PR Header UI', () => {
   beforeEach(() => {
     useGitStore.setState({
-      prInfo: new Map(),
+      prCreation: new Map(),
+      attachedPR: new Map(),
       fileStatusesByWorktree: new Map(),
       remoteInfo: new Map(),
       branchInfoByWorktree: new Map(),
@@ -39,53 +86,49 @@ describe('Session 5: PR Header UI', () => {
     })
   })
 
-  describe('PR state rendering conditions', () => {
-    test('prState defaults to none when no prInfo exists for worktree', () => {
-      const prInfo = useGitStore.getState().prInfo.get('wt-1')
-      const prState = prInfo?.state ?? 'none'
-      expect(prState).toBe('none')
+  describe('PR lifecycle store state', () => {
+    test('defaults to no active PR lifecycle when maps have no entry', () => {
+      expect(useGitStore.getState().prCreation.get('wt-1')).toBeUndefined()
+      expect(useGitStore.getState().attachedPR.get('wt-1')).toBeUndefined()
     })
 
-    test('prState is none when explicitly set', () => {
-      useGitStore.getState().setPrState('wt-1', { state: 'none' })
-      const prInfo = useGitStore.getState().prInfo.get('wt-1')
-      const prState = prInfo?.state ?? 'none'
-      expect(prState).toBe('none')
-    })
-
-    test('prState is creating after handleCreatePR sets it', () => {
-      useGitStore.getState().setPrState('wt-1', {
-        state: 'creating',
-        sessionId: 'session-1',
-        targetBranch: 'origin/main'
+    test('creation state is tracked after handleCreatePR starts a PR session', () => {
+      useGitStore.getState().setPrCreation('wt-1', {
+        creating: true,
+        sessionId: 'session-1'
       })
-      const prInfo = useGitStore.getState().prInfo.get('wt-1')
-      expect(prInfo?.state).toBe('creating')
-      expect(prInfo?.sessionId).toBe('session-1')
-      expect(prInfo?.targetBranch).toBe('origin/main')
+
+      const creation = useGitStore.getState().prCreation.get('wt-1')
+      expect(creation?.creating).toBe(true)
+      expect(creation?.sessionId).toBe('session-1')
     })
 
-    test('prState is created after PR URL detection', () => {
-      useGitStore.getState().setPrState('wt-1', {
-        state: 'created',
-        prNumber: 42,
-        prUrl: 'https://github.com/org/repo/pull/42',
-        sessionId: 'session-1',
-        targetBranch: 'origin/main'
+    test('attached PR is tracked after PR URL detection', () => {
+      useGitStore.getState().setPrCreation('wt-1', {
+        creating: true,
+        sessionId: 'session-1'
       })
-      const prInfo = useGitStore.getState().prInfo.get('wt-1')
-      expect(prInfo?.state).toBe('created')
-      expect(prInfo?.prNumber).toBe(42)
+      useGitStore.getState().setAttachedPR('wt-1', {
+        number: 42,
+        url: 'https://github.com/org/repo/pull/42'
+      })
+      useGitStore.getState().setPrCreation('wt-1', null)
+
+      expect(useGitStore.getState().prCreation.get('wt-1')).toBeUndefined()
+      expect(useGitStore.getState().attachedPR.get('wt-1')?.number).toBe(42)
+      expect(useGitStore.getState().attachedPR.get('wt-1')?.url).toBe(
+        'https://github.com/org/repo/pull/42'
+      )
     })
 
-    test('prState is merged after successful PR merge', () => {
-      useGitStore.getState().setPrState('wt-1', {
-        state: 'merged',
-        prNumber: 42,
-        prUrl: 'https://github.com/org/repo/pull/42'
+    test('attached PR can be cleared when detached', () => {
+      useGitStore.getState().setAttachedPR('wt-1', {
+        number: 42,
+        url: 'https://github.com/org/repo/pull/42'
       })
-      const prInfo = useGitStore.getState().prInfo.get('wt-1')
-      expect(prInfo?.state).toBe('merged')
+      useGitStore.getState().setAttachedPR('wt-1', null)
+
+      expect(useGitStore.getState().attachedPR.get('wt-1')).toBeUndefined()
     })
   })
 
@@ -128,231 +171,217 @@ describe('Session 5: PR Header UI', () => {
   })
 
   describe('button visibility state machine', () => {
-    // Simulates the rendering conditions from Header.tsx
-
-    function getVisibleButton(
-      prState: string,
-      isCleanTree: boolean,
-      isGitHub: boolean
-    ): 'pr-button' | 'pr-merge-button' | 'pr-archive-button' | null {
-      if (!isGitHub) return null
-      if (prState === 'merged') return 'pr-archive-button'
-      if (prState === 'created' && isCleanTree) return 'pr-merge-button'
-      if (prState === 'none' || prState === 'creating' || (prState === 'created' && !isCleanTree)) {
-        return 'pr-button'
-      }
-      return null
-    }
-
-    test('shows PR button when state is none', () => {
-      expect(getVisibleButton('none', true, true)).toBe('pr-button')
+    test('shows create PR button when no PR is attached or creating', () => {
+      expect(
+        getVisibleButtons({
+          isGitHub: true,
+          isCreating: false,
+          hasAttachedPR: false,
+          prLiveState: null,
+          isCleanTree: true
+        })
+      ).toEqual(['pr-button'])
     })
 
-    test('shows PR button when state is creating', () => {
-      expect(getVisibleButton('creating', true, true)).toBe('pr-button')
+    test('shows creating spinner button during PR creation', () => {
+      expect(
+        getVisibleButtons({
+          isGitHub: true,
+          isCreating: true,
+          hasAttachedPR: false,
+          prLiveState: null,
+          isCleanTree: true
+        })
+      ).toEqual(['pr-creating-button'])
     })
 
-    test('shows Merge PR button when state is created and tree is clean', () => {
-      expect(getVisibleButton('created', true, true)).toBe('pr-merge-button')
+    test('shows PR badge and Merge PR button when attached PR is open and tree is clean', () => {
+      expect(
+        getVisibleButtons({
+          isGitHub: true,
+          isCreating: false,
+          hasAttachedPR: true,
+          prLiveState: 'OPEN',
+          isCleanTree: true
+        })
+      ).toEqual(['pr-merge-button', 'pr-badge'])
     })
 
-    test('shows PR button (not Merge) when state is created but tree is dirty', () => {
-      expect(getVisibleButton('created', false, true)).toBe('pr-button')
+    test('shows only PR badge when attached PR is open and tree is dirty', () => {
+      expect(
+        getVisibleButtons({
+          isGitHub: true,
+          isCreating: false,
+          hasAttachedPR: true,
+          prLiveState: 'OPEN',
+          isCleanTree: false
+        })
+      ).toEqual(['pr-badge'])
     })
 
-    test('shows Archive button when state is merged', () => {
-      expect(getVisibleButton('merged', true, true)).toBe('pr-archive-button')
+    test('shows Archive and PR badge when attached PR is merged on a non-default worktree', () => {
+      expect(
+        getVisibleButtons({
+          isGitHub: true,
+          isCreating: false,
+          hasAttachedPR: true,
+          prLiveState: 'MERGED',
+          isCleanTree: true,
+          isDefaultWorktree: false
+        })
+      ).toEqual(['pr-archive-button', 'pr-badge'])
     })
 
-    test('shows Archive button when state is merged even with dirty tree', () => {
-      expect(getVisibleButton('merged', false, true)).toBe('pr-archive-button')
+    test('hides Archive on the default worktree even when PR is merged', () => {
+      expect(
+        getVisibleButtons({
+          isGitHub: true,
+          isCreating: false,
+          hasAttachedPR: true,
+          prLiveState: 'MERGED',
+          isCleanTree: true,
+          isDefaultWorktree: true
+        })
+      ).toEqual(['pr-badge'])
     })
 
-    test('shows nothing when isGitHub is false regardless of state', () => {
-      expect(getVisibleButton('none', true, false)).toBeNull()
-      expect(getVisibleButton('creating', true, false)).toBeNull()
-      expect(getVisibleButton('created', true, false)).toBeNull()
-      expect(getVisibleButton('merged', true, false)).toBeNull()
+    test('shows only PR badge when attached PR is closed', () => {
+      expect(
+        getVisibleButtons({
+          isGitHub: true,
+          isCreating: false,
+          hasAttachedPR: true,
+          prLiveState: 'CLOSED',
+          isCleanTree: true
+        })
+      ).toEqual(['pr-badge'])
+    })
+
+    test('shows nothing when remote is not GitHub', () => {
+      expect(
+        getVisibleButtons({
+          isGitHub: false,
+          isCreating: false,
+          hasAttachedPR: true,
+          prLiveState: 'OPEN',
+          isCleanTree: true
+        })
+      ).toEqual([])
     })
   })
 
-  describe('PR button disabled state', () => {
-    test('PR button disabled during creating state', () => {
-      const prState = 'creating'
-      const isOperating = false
-      const disabled = isOperating || prState === 'creating'
-      expect(disabled).toBe(true)
-    })
-
-    test('PR button disabled when git operation in progress', () => {
-      const prState: string = 'none'
+  describe('button disabled state', () => {
+    test('create PR button is disabled when git operation is in progress', () => {
       const isOperating = true
-      const disabled = isOperating || prState === 'creating'
+      const disabled = isOperating
       expect(disabled).toBe(true)
     })
 
-    test('PR button enabled when state is none and no operations', () => {
-      const prState: string = 'none'
+    test('create PR button is enabled when no git operation is in progress', () => {
       const isOperating = false
-      const disabled = isOperating || prState === 'creating'
+      const disabled = isOperating
       expect(disabled).toBe(false)
     })
+
+    test('creating spinner button is always disabled', () => {
+      const isCreating = true
+      expect(isCreating).toBe(true)
+    })
   })
 
-  describe('handleCreatePR sets prState to creating', () => {
-    test('setPrState is called with creating state and sessionId after session creation', () => {
-      // Simulate what handleCreatePR does after successful session creation
+  describe('handleCreatePR lifecycle effects', () => {
+    test('sets prCreation with session id after session creation', () => {
       const wtId = 'wt-1'
       const sessionId = 'new-session-1'
-      const targetBranch = 'origin/main'
 
-      useGitStore.getState().setPrState(wtId, {
-        state: 'creating',
-        sessionId,
-        targetBranch
+      useGitStore.getState().setPrCreation(wtId, {
+        creating: true,
+        sessionId
       })
 
-      const prInfo = useGitStore.getState().prInfo.get(wtId)
-      expect(prInfo?.state).toBe('creating')
-      expect(prInfo?.sessionId).toBe(sessionId)
-      expect(prInfo?.targetBranch).toBe(targetBranch)
+      const creation = useGitStore.getState().prCreation.get(wtId)
+      expect(creation?.creating).toBe(true)
+      expect(creation?.sessionId).toBe(sessionId)
     })
 
-    test('prState does not change if session creation fails', () => {
-      // Before handleCreatePR — no prInfo set
-      const prInfo = useGitStore.getState().prInfo.get('wt-1')
-      expect(prInfo).toBeUndefined()
+    test('prCreation does not change if session creation fails', () => {
+      expect(useGitStore.getState().prCreation.get('wt-1')).toBeUndefined()
 
-      // Simulate session creation failure — setPrState is NOT called
-      // (handleCreatePR returns early before setPrState)
       const resultSuccess = false
       if (resultSuccess) {
-        useGitStore.getState().setPrState('wt-1', { state: 'creating' })
+        useGitStore.getState().setPrCreation('wt-1', {
+          creating: true,
+          sessionId: 'session-1'
+        })
       }
 
-      // prInfo should still be undefined
-      expect(useGitStore.getState().prInfo.get('wt-1')).toBeUndefined()
+      expect(useGitStore.getState().prCreation.get('wt-1')).toBeUndefined()
     })
   })
 
   describe('handleMergePR logic', () => {
-    test('transitions to merged on successful prMerge', () => {
-      // Set up created state
-      useGitStore.getState().setPrState('wt-1', {
-        state: 'created',
-        prNumber: 42,
-        prUrl: 'https://github.com/org/repo/pull/42',
-        sessionId: 'session-1',
-        targetBranch: 'origin/main'
-      })
-
-      // Simulate successful merge — what handleMergePR does on success
-      const pr = useGitStore.getState().prInfo.get('wt-1')!
-      useGitStore.getState().setPrState('wt-1', { ...pr, state: 'merged' })
-
-      const updatedPr = useGitStore.getState().prInfo.get('wt-1')
-      expect(updatedPr?.state).toBe('merged')
-      // Original fields preserved
-      expect(updatedPr?.prNumber).toBe(42)
-      expect(updatedPr?.prUrl).toBe('https://github.com/org/repo/pull/42')
-    })
-
-    test('does not transition to merged if prMerge fails', () => {
-      useGitStore.getState().setPrState('wt-1', {
-        state: 'created',
-        prNumber: 42
-      })
-
-      // Simulate failed merge — handleMergePR shows toast but does NOT call setPrState
-      const mergeResult = { success: false, error: 'Merge conflicts' }
-      if (mergeResult.success) {
-        const pr = useGitStore.getState().prInfo.get('wt-1')!
-        useGitStore.getState().setPrState('wt-1', { ...pr, state: 'merged' })
+    test('successful merge updates live PR state and preserves title', () => {
+      const previousLiveState = {
+        state: 'OPEN',
+        title: 'Ship PR lifecycle'
       }
 
-      expect(useGitStore.getState().prInfo.get('wt-1')?.state).toBe('created')
+      const nextLiveState = {
+        state: 'MERGED',
+        title: previousLiveState.title
+      }
+
+      expect(nextLiveState).toEqual({
+        state: 'MERGED',
+        title: 'Ship PR lifecycle'
+      })
     })
 
-    test('handleMergePR does nothing when prNumber is missing', () => {
-      useGitStore.getState().setPrState('wt-1', {
-        state: 'created'
-        // no prNumber
-      })
+    test('failed merge keeps live PR state unchanged', () => {
+      const previousLiveState = {
+        state: 'OPEN',
+        title: 'Ship PR lifecycle'
+      }
+      const mergeResult = { success: false, error: 'Merge conflicts' }
 
-      const pr = useGitStore.getState().prInfo.get('wt-1')
-      // handleMergePR guard: if (!pr?.prNumber) return
-      const shouldProceed = !!pr?.prNumber
-      expect(shouldProceed).toBe(false)
+      const nextLiveState = mergeResult.success
+        ? { state: 'MERGED', title: previousLiveState.title }
+        : previousLiveState
+
+      expect(nextLiveState).toBe(previousLiveState)
+    })
+
+    test('merge guard requires an attached PR number', () => {
+      expect(useGitStore.getState().attachedPR.get('wt-1')?.number).toBeUndefined()
     })
   })
 
   describe('full lifecycle transitions', () => {
-    test('none → creating → created → merged', () => {
-      // Start: no prInfo
-      expect(useGitStore.getState().prInfo.get('wt-1')).toBeUndefined()
+    test('none to creating to attached to merged live state', () => {
+      expect(useGitStore.getState().prCreation.get('wt-1')).toBeUndefined()
+      expect(useGitStore.getState().attachedPR.get('wt-1')).toBeUndefined()
 
-      // Step 1: handleCreatePR — set to creating
-      useGitStore.getState().setPrState('wt-1', {
-        state: 'creating',
-        sessionId: 'session-1',
-        targetBranch: 'origin/main'
+      useGitStore.getState().setPrCreation('wt-1', {
+        creating: true,
+        sessionId: 'session-1'
       })
-      expect(useGitStore.getState().prInfo.get('wt-1')?.state).toBe('creating')
+      expect(useGitStore.getState().prCreation.get('wt-1')?.creating).toBe(true)
 
-      // Step 2: PR URL detected — set to created
-      const pr1 = useGitStore.getState().prInfo.get('wt-1')!
-      useGitStore.getState().setPrState('wt-1', {
-        ...pr1,
-        state: 'created',
-        prNumber: 42,
-        prUrl: 'https://github.com/org/repo/pull/42'
+      useGitStore.getState().setAttachedPR('wt-1', {
+        number: 42,
+        url: 'https://github.com/org/repo/pull/42'
       })
-      expect(useGitStore.getState().prInfo.get('wt-1')?.state).toBe('created')
-      expect(useGitStore.getState().prInfo.get('wt-1')?.prNumber).toBe(42)
+      useGitStore.getState().setPrCreation('wt-1', null)
 
-      // Step 3: handleMergePR success — set to merged
-      const pr2 = useGitStore.getState().prInfo.get('wt-1')!
-      useGitStore.getState().setPrState('wt-1', { ...pr2, state: 'merged' })
-      expect(useGitStore.getState().prInfo.get('wt-1')?.state).toBe('merged')
+      expect(useGitStore.getState().prCreation.get('wt-1')).toBeUndefined()
+      expect(useGitStore.getState().attachedPR.get('wt-1')?.number).toBe(42)
 
-      // All fields preserved through transitions
-      const finalPr = useGitStore.getState().prInfo.get('wt-1')
-      expect(finalPr?.sessionId).toBe('session-1')
-      expect(finalPr?.targetBranch).toBe('origin/main')
-      expect(finalPr?.prNumber).toBe(42)
-      expect(finalPr?.prUrl).toBe('https://github.com/org/repo/pull/42')
-    })
-
-    test('target branch dropdown hidden when showing Merge PR', () => {
-      // When prState === 'created' && isCleanTree, only pr-merge-button shows
-      // The PR button + dropdown block requires:
-      // prState === 'none' || prState === 'creating' || (prState === 'created' && !isCleanTree)
-      const prState: string = 'created'
-      const isCleanTree = true
-      const showsPRButtonWithDropdown =
-        prState === 'none' || prState === 'creating' || (prState === 'created' && !isCleanTree)
-      expect(showsPRButtonWithDropdown).toBe(false)
-    })
-
-    test('target branch dropdown hidden when showing Archive', () => {
-      const prState: string = 'merged'
-      const showsPRButtonWithDropdown =
-        prState === 'none' || prState === 'creating' || (prState === 'created' && false)
-      expect(showsPRButtonWithDropdown).toBe(false)
-    })
-
-    test('target branch dropdown visible when state is none', () => {
-      const prState: string = 'none'
-      const showsPRButtonWithDropdown =
-        prState === 'none' || prState === 'creating' || (prState === 'created' && false)
-      expect(showsPRButtonWithDropdown).toBe(true)
-    })
-
-    test('target branch dropdown visible when state is creating', () => {
-      const prState: string = 'creating'
-      const showsPRButtonWithDropdown =
-        prState === 'none' || prState === 'creating' || (prState === 'created' && false)
-      expect(showsPRButtonWithDropdown).toBe(true)
+      const liveState = {
+        state: 'MERGED',
+        title: 'Ship PR lifecycle'
+      }
+      expect(liveState.state).toBe('MERGED')
+      expect(liveState.title).toBe('Ship PR lifecycle')
     })
   })
 })

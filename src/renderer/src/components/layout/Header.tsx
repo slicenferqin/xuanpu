@@ -166,6 +166,7 @@ export function Header(): React.JSX.Element {
   )
   const isCreatingPR = prCreation?.creating ?? false
   const hasAttachedPR = !!attachedPR
+  const attachedPRNumber = attachedPR?.number
 
   // Clean tree detection for merge button visibility
   const fileStatuses = useGitStore((s) =>
@@ -241,7 +242,28 @@ export function Header(): React.JSX.Element {
     Array<{ number: number; title: string; author: string; headRefName: string }>
   >([])
   const [prListLoading, setPrListLoading] = useState(false)
-  const [prLiveState, setPrLiveState] = useState<{ state?: string; title?: string } | null>(null)
+  const [prLiveState, setPrLiveState] = useState<{
+    number?: number
+    state?: string
+    title?: string
+  } | null>(null)
+  const currentPRLiveState = prLiveState?.number === attachedPRNumber ? prLiveState : null
+
+  const refreshAttachedPRState = useCallback(async (): Promise<void> => {
+    if (attachedPRNumber == null || !selectedProject?.path) {
+      setPrLiveState(null)
+      return
+    }
+
+    try {
+      const res = await window.gitOps.getPRState(selectedProject.path, attachedPRNumber)
+      if (res.success) {
+        setPrLiveState({ number: attachedPRNumber, state: res.state, title: res.title })
+      }
+    } catch {
+      /* non-critical */
+    }
+  }, [attachedPRNumber, selectedProject?.path])
 
   useEffect(() => {
     if (!selectedWorktree?.path) {
@@ -255,7 +277,11 @@ export function Header(): React.JSX.Element {
     })
   }, [selectedWorktree?.path])
 
-  // Fetch PR list + live state when picker opens
+  useEffect(() => {
+    void refreshAttachedPRState()
+  }, [refreshAttachedPRState])
+
+  // Fetch PR list when picker opens; refresh the attached PR metadata too.
   useEffect(() => {
     if (!prPickerOpen || !selectedProject?.path) return
     setPrListLoading(true)
@@ -283,27 +309,8 @@ export function Header(): React.JSX.Element {
         setPrPickerOpen(false)
       })
 
-    const fetchState =
-      attachedPR && selectedProject?.path
-        ? window.gitOps
-            .getPRState(selectedProject.path, attachedPR.number)
-            .then((res) => {
-              if (res.success) {
-                setPrLiveState({ state: res.state, title: res.title })
-              }
-            })
-            .catch(() => {
-              /* non-critical */
-            })
-        : Promise.resolve()
-
-    Promise.all([fetchPRs, fetchState]).finally(() => setPrListLoading(false))
-  }, [prPickerOpen, selectedProject?.path, attachedPR, branchInfo?.name, t])
-
-  // Clear live state when attached PR changes
-  useEffect(() => {
-    setPrLiveState(null)
-  }, [attachedPR?.number])
+    Promise.all([fetchPRs, refreshAttachedPRState()]).finally(() => setPrListLoading(false))
+  }, [prPickerOpen, selectedProject?.path, branchInfo?.name, refreshAttachedPRState, t])
 
   const handleCreatePR = useCallback(async () => {
     if (!selectedWorktree?.path) return
@@ -431,7 +438,11 @@ export function Header(): React.JSX.Element {
       const result = await window.gitOps.prMerge(selectedWorktree.path, pr.number)
       if (result.success) {
         toast.success(t('header.toasts.prMergedSuccess'))
-        setPrLiveState({ state: 'MERGED', title: prLiveState?.title })
+        setPrLiveState({
+          number: pr.number,
+          state: 'MERGED',
+          title: currentPRLiveState?.title
+        })
       } else {
         toast.error(t('header.toasts.mergePRErrorWithReason', { error: result.error }))
       }
@@ -440,7 +451,7 @@ export function Header(): React.JSX.Element {
     } finally {
       setIsMergingPR(false)
     }
-  }, [selectedWorktree?.path, selectedWorktreeId, prLiveState?.title, t])
+  }, [selectedWorktree?.path, selectedWorktreeId, currentPRLiveState?.title, t])
 
   const handleArchiveWorktree = useCallback(async () => {
     if (!selectedWorktreeId || !selectedWorktree || !selectedProject) return
@@ -464,12 +475,13 @@ export function Header(): React.JSX.Element {
   }, [selectedWorktreeId, selectedWorktree, selectedProject])
 
   const handleSelectPR = useCallback(
-    (pr: { number: number; headRefName: string }) => {
+    (pr: { number: number; headRefName: string; title?: string }) => {
       if (!selectedWorktreeId || !remoteInfo?.url) return
       // Construct PR URL from remote URL + number
       const cleanUrl = remoteInfo.url.replace(/\.git$/, '')
       const prUrl = `${cleanUrl}/pull/${pr.number}`
       useGitStore.getState().attachPR(selectedWorktreeId, pr.number, prUrl)
+      setPrLiveState({ number: pr.number, state: 'OPEN', title: pr.title })
       setPrPickerOpen(false)
     },
     [selectedWorktreeId, remoteInfo?.url]
@@ -515,6 +527,13 @@ export function Header(): React.JSX.Element {
     conflictFixFlow.worktreePath === selectedWorktree.path
 
   const showFixConflictsButton = hasConflicts || isFixConflictsLoading
+  const attachedPRTitle = currentPRLiveState?.title?.trim() ?? ''
+  const prBadgeTitle =
+    attachedPRNumber == null
+      ? ''
+      : attachedPRTitle
+        ? `PR #${attachedPRNumber}: ${attachedPRTitle}`
+        : `PR #${attachedPRNumber}`
 
   return (
     <header
@@ -572,7 +591,7 @@ export function Header(): React.JSX.Element {
         {!isConnectionMode &&
           isGitHub &&
           hasAttachedPR &&
-          prLiveState?.state === 'MERGED' &&
+          currentPRLiveState?.state === 'MERGED' &&
           !selectedWorktree?.is_default && (
             <Button
               size="sm"
@@ -607,8 +626,8 @@ export function Header(): React.JSX.Element {
         {!isConnectionMode &&
           isGitHub &&
           hasAttachedPR &&
-          prLiveState?.state !== 'MERGED' &&
-          prLiveState?.state !== 'CLOSED' &&
+          currentPRLiveState?.state !== 'MERGED' &&
+          currentPRLiveState?.state !== 'CLOSED' &&
           isCleanTree && (
             <Button
               size="sm"
@@ -706,19 +725,24 @@ export function Header(): React.JSX.Element {
               <Button
                 size="sm"
                 variant="outline"
-                className="h-8 rounded-full px-3 text-[12px] font-medium"
-                title={`PR #${attachedPR!.number}`}
+                className="h-8 max-w-[320px] rounded-full px-3 text-[12px] font-medium"
+                title={prBadgeTitle}
                 data-testid="pr-badge"
               >
                 <GitPullRequest className="h-3.5 w-3.5 mr-1" />
-                PR #{attachedPR!.number}
-                {prLiveState?.state === 'MERGED' && (
-                  <span className="text-muted-foreground ml-1">
+                <span className="shrink-0">PR #{attachedPR!.number}</span>
+                {attachedPRTitle && (
+                  <span className="min-w-0 max-w-[170px] truncate text-muted-foreground">
+                    · {attachedPRTitle}
+                  </span>
+                )}
+                {currentPRLiveState?.state === 'MERGED' && (
+                  <span className="text-muted-foreground ml-1 shrink-0">
                     · {t('header.controls.merged')}
                   </span>
                 )}
-                {prLiveState?.state === 'CLOSED' && (
-                  <span className="text-muted-foreground ml-1">
+                {currentPRLiveState?.state === 'CLOSED' && (
+                  <span className="text-muted-foreground ml-1 shrink-0">
                     · {t('header.controls.closed')}
                   </span>
                 )}
@@ -730,12 +754,12 @@ export function Header(): React.JSX.Element {
                 <div className="text-xs font-medium text-muted-foreground">
                   {t('header.controls.attached')}: #{attachedPR!.number}
                 </div>
-                {prLiveState?.title && (
+                {currentPRLiveState?.title && (
                   <div className="text-sm truncate">
-                    {prLiveState.title}
-                    {prLiveState.state && (
+                    {currentPRLiveState.title}
+                    {currentPRLiveState?.state && (
                       <span className="text-muted-foreground ml-1 text-xs">
-                        ({prLiveState.state.toLowerCase()})
+                        ({currentPRLiveState.state.toLowerCase()})
                       </span>
                     )}
                   </div>

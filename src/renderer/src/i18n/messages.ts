@@ -756,6 +756,13 @@ export const messages: Record<AppLocale, MessageTree> = {
         copyError: 'Failed to copy'
       }
     },
+    planCard: {
+      copyMarkdown: 'Copy plan markdown',
+      toasts: {
+        copied: 'Plan markdown copied to clipboard',
+        copyError: 'Failed to copy plan markdown'
+      }
+    },
     editMessageButton: {
       ariaLabel: 'Edit message',
       save: 'Save',
@@ -3230,6 +3237,13 @@ export const messages: Record<AppLocale, MessageTree> = {
       toasts: {
         copied: '已复制到剪贴板',
         copyError: '复制失败'
+      }
+    },
+    planCard: {
+      copyMarkdown: '复制计划 Markdown',
+      toasts: {
+        copied: '计划 Markdown 已复制到剪贴板',
+        copyError: '复制计划 Markdown 失败'
       }
     },
     editMessageButton: {
