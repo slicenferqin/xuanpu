@@ -11,7 +11,10 @@
  */
 
 import { create } from 'zustand'
-import type { CanonicalAgentEvent } from '@shared/types/agent-protocol'
+import type {
+  AgentSessionGoalState,
+  CanonicalAgentEvent
+} from '@shared/types/agent-protocol'
 import type { StreamingPart } from '@shared/lib/timeline-types'
 
 // ---------------------------------------------------------------------------
@@ -668,6 +671,8 @@ export function resetSessionEventGuardsForTests(): void {
 interface SessionRuntimeStoreState {
   /** Per-session runtime state. */
   sessions: Map<string, SessionRuntimeState>
+  /** Per-session goal snapshot from session.goal_updated events. */
+  goals: Map<string, AgentSessionGoalState>
   /** Per-session HITL interrupt queue (unified: question/permission/approval/plan). */
   interruptQueues: Map<string, InterruptItem[]>
   /** Per-session pending message queue (Phase 5 — composer state machine). */
@@ -685,6 +690,11 @@ interface SessionRuntimeStoreActions {
   setInProgress(sessionId: string, value: boolean): void
   setCommandsAvailable(sessionId: string, value: boolean): void
   touchActivity(sessionId: string): void
+
+  // Goal state (PR 2 foundation)
+  getSessionGoal(sessionId: string): AgentSessionGoalState | null
+  setSessionGoal(sessionId: string, goal: AgentSessionGoalState): void
+  clearSessionGoal(sessionId: string): void
 
   // Unread
   incrementUnread(sessionId: string): void
@@ -745,6 +755,7 @@ function ensureSession(
 export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) => ({
   // -- State --
   sessions: new Map(),
+  goals: new Map(),
   interruptQueues: new Map(),
   pendingMessages: new Map(),
 
@@ -800,6 +811,28 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
       const existing = ensureSession(sessions, sessionId)
       sessions.set(sessionId, { ...existing, lastActivityAt: Date.now() })
       return { sessions }
+    })
+  },
+
+  // -- Goal state --
+  getSessionGoal(sessionId) {
+    return get().goals.get(sessionId) ?? null
+  },
+
+  setSessionGoal(sessionId, goal) {
+    set((state) => {
+      const goals = new Map(state.goals)
+      goals.set(sessionId, goal)
+      return { goals }
+    })
+  },
+
+  clearSessionGoal(sessionId) {
+    set((state) => {
+      if (!state.goals.has(sessionId)) return state
+      const goals = new Map(state.goals)
+      goals.delete(sessionId)
+      return { goals }
     })
   },
 
@@ -980,12 +1013,14 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
     const hadPending = get().pendingMessages.has(sessionId)
     set((state) => {
       const sessions = new Map(state.sessions)
+      const goals = new Map(state.goals)
       const queues = new Map(state.interruptQueues)
       const pending = new Map(state.pendingMessages)
       sessions.delete(sessionId)
+      goals.delete(sessionId)
       queues.delete(sessionId)
       pending.delete(sessionId)
-      return { sessions, interruptQueues: queues, pendingMessages: pending }
+      return { sessions, goals, interruptQueues: queues, pendingMessages: pending }
     })
     _sessionEventCallbacks.delete(sessionId)
     _streamingBuffers.delete(sessionId)

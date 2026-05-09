@@ -160,6 +160,8 @@ describe('normalizeAgentEvent', () => {
         'session.commands_available',
         'session.model_limits',
         'session.context_usage',
+        'session.goal_updated',
+        'session.goal_cleared',
         'message.part.updated',
         'message.updated',
         'question.asked',

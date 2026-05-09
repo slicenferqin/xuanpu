@@ -10,9 +10,12 @@
  * the renderer, hub bridge, and a few tests. Doing it lazily lets each
  * affected file migrate independently without a blocking refactor.
  */
+import type { SharedAgentRuntimeId } from './agent-protocol'
+
 export interface OpenCodeStreamEvent {
   type: string
   sessionId: string
+  runtimeId?: SharedAgentRuntimeId
   data: unknown
   childSessionId?: string
   statusPayload?: {

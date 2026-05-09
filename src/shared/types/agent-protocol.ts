@@ -178,6 +178,25 @@ export interface AgentSessionTurnDiffData {
   diff: string
 }
 
+export interface AgentSessionGoalState {
+  threadId?: string
+  objective: string
+  status: string
+  tokenBudget?: number | null
+  tokensUsed?: number | null
+  timeUsedSeconds?: number | null
+  createdAt?: number | null
+  updatedAt?: number | null
+}
+
+export interface AgentSessionGoalData {
+  goal: AgentSessionGoalState | null
+  status: string
+  threadId?: string
+  turnId?: string
+  source?: 'codex'
+}
+
 export interface AgentMessageUpdatedData {
   id?: string
   requestId?: string
@@ -335,6 +354,13 @@ export type CanonicalAgentEvent = EventEnvelope &
         sessionId: string
         runtimeId?: SharedAgentRuntimeId
         data: AgentSessionTurnDiffData
+        childSessionId?: string
+      }
+    | {
+        type: 'session.goal_updated' | 'session.goal_cleared'
+        sessionId: string
+        runtimeId?: SharedAgentRuntimeId
+        data: AgentSessionGoalData
         childSessionId?: string
       }
     | {
