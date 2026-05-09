@@ -40,7 +40,8 @@ export class CommandFilterService {
   /**
    * Split a bash command chain into individual sub-commands.
    * Properly handles quotes, heredocs, command substitutions, and escapes.
-   * Only splits on && at the top level (not inside strings or command substitutions).
+   * Only splits on top-level &&, ||, |, and ; operators (not inside strings or
+   * command substitutions).
    *
    * Handles:
    * - Single quotes ('...')
@@ -59,15 +60,14 @@ export class CommandFilterService {
     let inSingleQuote = false
     let inDoubleQuote = false
     let inBacktick = false
-    let commandSubDepth = 0  // Tracks $(...) nesting depth
+    let commandSubDepth = 0 // Tracks $(...) nesting depth
     let inHeredoc = false
     let heredocDelimiter = ''
-    let heredocIndented = false  // For <<- style heredocs
 
     // Stack to track quote state at each command substitution level
     // When we enter $(, we push current quote state and start fresh
     // When we exit ), we restore the previous quote state
-    const quoteStack: Array<{inSingleQuote: boolean; inDoubleQuote: boolean}> = []
+    const quoteStack: Array<{ inSingleQuote: boolean; inDoubleQuote: boolean }> = []
 
     while (i < command.length) {
       const char = command[i]
@@ -83,7 +83,6 @@ export class CommandFilterService {
 
           // Extract the delimiter
           let delimEnd = heredocStart
-          let quoted = false
 
           // Skip whitespace
           while (delimEnd < command.length && /\s/.test(command[delimEnd])) {
@@ -92,7 +91,6 @@ export class CommandFilterService {
 
           // Check if delimiter is quoted
           if (command[delimEnd] === "'" || command[delimEnd] === '"') {
-            quoted = true
             const quoteChar = command[delimEnd]
             delimEnd++
             const delimStart = delimEnd
@@ -106,8 +104,7 @@ export class CommandFilterService {
           } else {
             // Unquoted delimiter - ends at whitespace or special chars
             const delimStart = delimEnd
-            while (delimEnd < command.length &&
-                   !/[\s<>|;&()]/.test(command[delimEnd])) {
+            while (delimEnd < command.length && !/[\s<>|;&()]/.test(command[delimEnd])) {
               delimEnd++
             }
             heredocDelimiter = command.slice(delimStart, delimEnd)
@@ -115,7 +112,6 @@ export class CommandFilterService {
 
           if (heredocDelimiter) {
             inHeredoc = true
-            heredocIndented = isIndented
             // Add the heredoc start to current command
             current += command.slice(i, delimEnd)
             i = delimEnd
@@ -150,7 +146,6 @@ export class CommandFilterService {
               // Add only the delimiter to current (newline was already added in previous iteration)
               current += command.slice(i, delimiterEnd)
               heredocDelimiter = ''
-              heredocIndented = false
               i = delimiterEnd
               continue
             }
@@ -206,7 +201,7 @@ export class CommandFilterService {
       if (char === '$' && nextChar === '(' && !inSingleQuote) {
         commandSubDepth++
         // Push current quote state onto stack and reset quotes for the new context
-        quoteStack.push({inSingleQuote, inDoubleQuote})
+        quoteStack.push({ inSingleQuote, inDoubleQuote })
         inSingleQuote = false
         inDoubleQuote = false
         current += char
@@ -228,24 +223,32 @@ export class CommandFilterService {
         continue
       }
 
-      // Check for && operator (only when not in quotes/substitutions/heredocs)
-      if (char === '&' && nextChar === '&' &&
-          !inSingleQuote && !inDoubleQuote && !inBacktick &&
-          commandSubDepth === 0 && !inHeredoc) {
-        // Found a top-level &&
-        // Add current command if not empty
-        const trimmed = current.trim()
-        if (trimmed && trimmed !== '&&') { // Don't add standalone && as a command
-          result.push(trimmed)
+      // Check for top-level command separators.
+      if (!inSingleQuote && !inDoubleQuote && !inBacktick && commandSubDepth === 0 && !inHeredoc) {
+        const operatorLength =
+          char === '&' && nextChar === '&'
+            ? 2
+            : char === '|' && nextChar === '|'
+              ? 2
+              : char === '|' || char === ';'
+                ? 1
+                : 0
+
+        if (operatorLength > 0) {
+          // Add current command if not empty
+          const trimmed = current.trim()
+          if (trimmed) {
+            result.push(trimmed)
+          }
+          // Reset for next command
+          current = ''
+          // Skip the operator and any surrounding whitespace
+          i += operatorLength
+          while (i < command.length && /\s/.test(command[i])) {
+            i++
+          }
+          continue
         }
-        // Reset for next command
-        current = ''
-        // Skip the && and any surrounding whitespace
-        i += 2
-        while (i < command.length && /\s/.test(command[i])) {
-          i++
-        }
-        continue
       }
 
       // Add character to current command
@@ -255,7 +258,7 @@ export class CommandFilterService {
 
     // Add the last command if not empty
     const trimmed = current.trim()
-    if (trimmed && trimmed !== '&&') { // Don't add standalone && as a command
+    if (trimmed) {
       result.push(trimmed)
     }
 
@@ -377,10 +380,10 @@ export class CommandFilterService {
    */
   private matchPattern(command: string, pattern: string): boolean {
     try {
-      // For bash commands, * should match any character including /
-      // because command arguments regularly contain paths with slashes.
-      // The [^/]* behaviour is only useful for file-path patterns (edit:, read:, write:).
-      const isBashPattern = pattern.toLowerCase().startsWith('bash:')
+      // For direct file tools, * stays path-segment scoped. For command-like
+      // tools such as bash/grep/glob, arguments regularly contain paths with
+      // slashes, so * should match across /.
+      const isPathScopedPattern = /^(edit|read|write):/i.test(pattern)
 
       // Escape special regex characters except our wildcards
       const regexPattern = pattern
@@ -388,8 +391,8 @@ export class CommandFilterService {
         .replace(/\*\*/g, '__DOUBLESTAR__')
         // Escape other special regex chars
         .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
-        // Convert * to regex — for bash patterns match everything, for file patterns exclude /
-        .replace(/\*/g, isBashPattern ? '.*' : '[^/]*')
+        // Convert * to regex — for file-path patterns exclude /, otherwise match everything
+        .replace(/\*/g, isPathScopedPattern ? '[^/]*' : '.*')
         // Convert ** back to regex (matches any sequence)
         .replace(/__DOUBLESTAR__/g, '.*')
 

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { migrateSettingsShape } from '../../../src/renderer/src/stores/useSettingsStore'
+import {
+  mergeCommandFilterSettings,
+  migrateSettingsShape
+} from '../../../src/renderer/src/stores/useSettingsStore'
 
 describe('settings runtime migration', () => {
   it('migrates legacy defaultAgentSdk to defaultRuntimeId', () => {
@@ -20,5 +23,26 @@ describe('settings runtime migration', () => {
     })
 
     expect(migrated.defaultRuntimeId).toBe('claude-code')
+  })
+
+  it('adds new default read-only command filter patterns to existing allowlists', () => {
+    const merged = mergeCommandFilterSettings({
+      allowlist: ['bash: git status *'],
+      blocklist: ['bash: rm -rf *'],
+      defaultBehavior: 'ask',
+      enabled: true
+    })
+
+    expect(merged.allowlist).toEqual([
+      'edit: **',
+      'write: **',
+      'read: **',
+      'grep: * in *',
+      'glob: *',
+      'bash: git status *'
+    ])
+    expect(merged.blocklist).toEqual(['bash: rm -rf *'])
+    expect(merged.defaultBehavior).toBe('ask')
+    expect(merged.enabled).toBe(true)
   })
 })

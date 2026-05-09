@@ -1,15 +1,14 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 
 // Mock logger
-const mockLogger = {
+const mockLogger = vi.hoisted(() => ({
   info: () => {},
   warn: () => {},
   error: () => {},
   debug: () => {}
-}
+}))
 
 // Import and mock the logger before importing the service
-import { vi } from 'vitest'
 vi.mock('../src/main/services/logger', () => ({
   createLogger: () => mockLogger
 }))
@@ -65,19 +64,11 @@ describe('CommandFilterService', () => {
       }
 
       // Single command that matches
-      const result1 = service.evaluateToolUse(
-        'Bash',
-        { command: 'git commit -m "test"' },
-        settings
-      )
+      const result1 = service.evaluateToolUse('Bash', { command: 'git commit -m "test"' }, settings)
       expect(result1).toBe('allow')
 
       // Single command that doesn't match
-      const result2 = service.evaluateToolUse(
-        'Bash',
-        { command: 'git add .' },
-        settings
-      )
+      const result2 = service.evaluateToolUse('Bash', { command: 'git add .' }, settings)
       expect(result2).toBe('ask')
 
       // Chain where only one matches (should ask)
@@ -122,6 +113,32 @@ describe('CommandFilterService', () => {
     })
   })
 
+  describe('default read-only allowlist patterns', () => {
+    const settings = {
+      allowlist: ['edit: **', 'write: **', 'read: **', 'grep: * in *', 'glob: *'],
+      blocklist: [],
+      defaultBehavior: 'ask' as const,
+      enabled: true
+    }
+
+    test('allows read tools by default pattern', () => {
+      expect(service.evaluateToolUse('Read', { file_path: 'src/main.ts' }, settings)).toBe('allow')
+      expect(service.evaluateToolUse('Read', { path: '/tmp/project/README.md' }, settings)).toBe(
+        'allow'
+      )
+    })
+
+    test('allows grep tools by default pattern', () => {
+      expect(service.evaluateToolUse('Grep', { pattern: 'TODO', path: 'src/main' }, settings)).toBe(
+        'allow'
+      )
+    })
+
+    test('allows glob tools by default pattern', () => {
+      expect(service.evaluateToolUse('Glob', { pattern: '**/*.ts' }, settings)).toBe('allow')
+    })
+  })
+
   describe('splitBashChain', () => {
     test('splits on && || | and ;', () => {
       expect(service.splitBashChain('cmd1 && cmd2')).toEqual(['cmd1', 'cmd2'])
@@ -132,7 +149,8 @@ describe('CommandFilterService', () => {
     })
 
     test('handles complex git commit command', () => {
-      const cmd = 'git commit -m "Fix: Build Docker image for Linux/amd64 platform GKE requires Linux/amd64 images. Building on Apple Silicon without --platform flag creates arm64 images, causing \'no match for platform in manifest\' errors. Add --platform linux/amd64 to ensure the image works on GKE."'
+      const cmd =
+        'git commit -m "Fix: Build Docker image for Linux/amd64 platform GKE requires Linux/amd64 images. Building on Apple Silicon without --platform flag creates arm64 images, causing \'no match for platform in manifest\' errors. Add --platform linux/amd64 to ensure the image works on GKE."'
       expect(service.splitBashChain(cmd)).toEqual([cmd])
     })
 
