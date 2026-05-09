@@ -82,6 +82,46 @@ function prependToMessage<T extends MessageOrParts>(m: T, prefix: string): T {
   return copy as unknown as T
 }
 
+function parsePromptOptions(
+  rawOptions: Record<string, unknown> | undefined
+): PromptOptions | undefined {
+  if (!rawOptions) return undefined
+
+  const options: PromptOptions = {}
+  if (typeof rawOptions.codexFastMode === 'boolean') {
+    options.codexFastMode = rawOptions.codexFastMode
+  }
+  if (rawOptions.mode === 'build' || rawOptions.mode === 'plan') {
+    options.mode = rawOptions.mode
+  }
+  if (typeof rawOptions.goalMode === 'boolean') {
+    options.goalMode = rawOptions.goalMode
+  }
+  if (typeof rawOptions.successCriteria === 'string') {
+    const successCriteria = rawOptions.successCriteria.trim()
+    if (successCriteria) {
+      options.successCriteria = successCriteria
+    }
+  }
+
+  return Object.keys(options).length > 0 ? options : undefined
+}
+
+function buildGoalObjective(promptText: string, successCriteria?: string): string {
+  const objective = promptText.trim()
+  const criteria = successCriteria?.trim() ?? ''
+
+  if (!objective) {
+    return criteria ? `Success criteria:\n${criteria}` : ''
+  }
+
+  if (!criteria) {
+    return objective
+  }
+
+  return `${objective}\n\nSuccess criteria:\n${criteria}`
+}
+
 // Dedupe concurrent agent:connect calls per hive session. React StrictMode
 // double-invokes the renderer effect in dev, and stray callers may also retry —
 // without dedupe each call spins up a fresh runtime session (e.g. an extra
@@ -226,16 +266,7 @@ export function registerAgentHandlers(
               variant: typeof rawModel.variant === 'string' ? rawModel.variant : undefined
             }
           }
-          const rawOptions = obj.options as Record<string, unknown> | undefined
-          if (rawOptions) {
-            options = {}
-            if (typeof rawOptions.codexFastMode === 'boolean') {
-              options.codexFastMode = rawOptions.codexFastMode
-            }
-            if (rawOptions.mode === 'build' || rawOptions.mode === 'plan') {
-              options.mode = rawOptions.mode
-            }
-          }
+          options = parsePromptOptions(obj.options as Record<string, unknown> | undefined)
         } else {
           // Legacy positional args: (worktreePath, sessionId, message)
           worktreePath = args[0] as string
@@ -253,16 +284,7 @@ export function registerAgentHandlers(
               variant: typeof rawModel.variant === 'string' ? rawModel.variant : undefined
             }
           }
-          const rawOptions = args[4] as Record<string, unknown> | undefined
-          if (rawOptions) {
-            options = {}
-            if (typeof rawOptions.codexFastMode === 'boolean') {
-              options.codexFastMode = rawOptions.codexFastMode
-            }
-            if (rawOptions.mode === 'build' || rawOptions.mode === 'plan') {
-              options.mode = rawOptions.mode
-            }
-          }
+          options = parsePromptOptions(args[4] as Record<string, unknown> | undefined)
         }
 
         // Phase 22A: inject Field Context (working memory snapshot) as a prefix
@@ -278,6 +300,16 @@ export function registerAgentHandlers(
         //   3. Slash commands (/using-superpowers, /compact, /init, ...) are
         //      SDK internals. Prefixing them breaks SDK command detection.
         const originalMessage = messageOrParts
+
+        if (options?.goalMode) {
+          const goalObjective = buildGoalObjective(
+            getFirstText(originalMessage) ?? '',
+            options.successCriteria
+          )
+          if (goalObjective) {
+            options = { ...options, goalObjective }
+          }
+        }
 
         const firstTextRaw = getFirstText(messageOrParts)?.trimStart()
         const isSlashCommand = firstTextRaw?.startsWith('/') ?? false

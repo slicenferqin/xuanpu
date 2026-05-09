@@ -586,7 +586,12 @@ declare global {
         sessionId: string,
         messageOrParts: string | MessagePart[],
         model?: { providerID: string; modelID: string; variant?: string },
-        options?: { codexFastMode?: boolean; mode?: 'build' | 'plan' }
+        options?: {
+          codexFastMode?: boolean
+          mode?: 'build' | 'plan'
+          goalMode?: boolean
+          successCriteria?: string
+        }
       ) => Promise<import('../shared/types/agent-ipc').AgentIpcResult>
       // Abort a streaming session
       abort: (

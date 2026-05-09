@@ -301,9 +301,7 @@ describe('CodexAppServerManager — collaborationMode in sendTurn', () => {
     ])
     expect(params.settings.reasoningEffort).toBe('low')
     expect(params.collaborationMode.mode).toBe('default')
-    expect(params.collaborationMode.settings.developer_instructions).toBe(
-      'Title only instructions'
-    )
+    expect(params.collaborationMode.settings.developer_instructions).toBe('Title only instructions')
     expect(params.collaborationMode.settings.reasoning_effort).toBe('low')
   })
 })
@@ -347,10 +345,7 @@ describe('CodexAppServerManager.steerTurn', () => {
       input: [{ type: 'text', text: 'course correct' }]
     })
 
-    manager.handleStdoutLine(
-      context,
-      JSON.stringify({ id: steerMsg.id, result: { ok: true } })
-    )
+    manager.handleStdoutLine(context, JSON.stringify({ id: steerMsg.id, result: { ok: true } }))
 
     await steerPromise
   })
@@ -369,11 +364,64 @@ describe('CodexAppServerManager.steerTurn', () => {
     const steerMsg = messages.find((message: any) => message.method === 'turn/steer')
     expect(steerMsg?.params.turnId).toBe('turn-override-9')
 
-    manager.handleStdoutLine(
-      context,
-      JSON.stringify({ id: steerMsg.id, result: { ok: true } })
-    )
+    manager.handleStdoutLine(context, JSON.stringify({ id: steerMsg.id, result: { ok: true } }))
 
     await steerPromise
+  })
+})
+
+describe('CodexAppServerManager.setThreadGoal', () => {
+  let manager: CodexAppServerManager
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    manager = new CodexAppServerManager()
+  })
+
+  afterEach(() => {
+    manager.stopAll()
+    manager.removeAllListeners()
+  })
+
+  function seedSession(context: CodexSessionContext): void {
+    const sessionsMap = (manager as any).sessions as Map<string, CodexSessionContext>
+    sessionsMap.set(context.session.threadId!, context)
+  }
+
+  function getWrittenMessages(stdin: { write: ReturnType<typeof vi.fn> }): any[] {
+    return stdin.write.mock.calls.map((call: any[]) => JSON.parse((call[0] as string).trim()))
+  }
+
+  it('sends thread/goal/set with an active goal objective', async () => {
+    const { context, stdin } = createTestContext()
+    seedSession(context)
+
+    const goalPromise = manager.setThreadGoal('thread-123', {
+      objective: 'Finish migration',
+      status: 'active',
+      tokenBudget: null
+    })
+
+    const messages = getWrittenMessages(stdin)
+    const goalMsg = messages.find((message: any) => message.method === 'thread/goal/set')
+    expect(goalMsg).toBeDefined()
+    expect(goalMsg.params).toEqual({
+      threadId: 'thread-123',
+      objective: 'Finish migration',
+      status: 'active',
+      tokenBudget: null
+    })
+
+    manager.handleStdoutLine(
+      context,
+      JSON.stringify({
+        id: goalMsg.id,
+        result: { goal: { objective: 'Finish migration', status: 'active' } }
+      })
+    )
+
+    await expect(goalPromise).resolves.toEqual({
+      goal: { objective: 'Finish migration', status: 'active' }
+    })
   })
 })

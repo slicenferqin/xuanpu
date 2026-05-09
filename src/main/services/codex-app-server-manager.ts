@@ -121,6 +121,18 @@ export interface CodexTurnStartResult {
   resumeCursor?: string
 }
 
+// ── Thread goal input ─────────────────────────────────────────────
+
+export interface CodexThreadGoalSetInput {
+  objective: string
+  status?: string
+  tokenBudget?: number | null
+}
+
+export interface CodexThreadGoalSetResponse {
+  goal?: unknown
+}
+
 // ── Event types ───────────────────────────────────────────────────
 
 export interface CodexManagerEvent {
@@ -625,6 +637,27 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       threadId: context.session.threadId,
       ...(resumeCursor ? { resumeCursor } : {})
     }
+  }
+
+  async setThreadGoal(
+    threadId: string,
+    input: CodexThreadGoalSetInput
+  ): Promise<CodexThreadGoalSetResponse> {
+    const context = this.sessions.get(threadId)
+    if (!context) {
+      throw new Error(`setThreadGoal: no session found for threadId=${threadId}`)
+    }
+
+    if (!context.session.threadId) {
+      throw new Error('setThreadGoal: session has no threadId')
+    }
+
+    return this.sendRequest<CodexThreadGoalSetResponse>(context, 'thread/goal/set', {
+      threadId: context.session.threadId,
+      objective: input.objective,
+      status: input.status ?? 'active',
+      tokenBudget: input.tokenBudget ?? null
+    })
   }
 
   async steerTurn(threadId: string, input: CodexTurnInput, turnId?: string): Promise<void> {

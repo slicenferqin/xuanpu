@@ -56,6 +56,12 @@ export interface ComposerBarProps {
   onToggleMode?: () => void
   /** Pending plan (truthy means plan is ready for review) */
   pendingPlan?: unknown | null
+  /** Codex-only goal launch controls */
+  supportsGoalMode?: boolean
+  goalMode?: boolean
+  onToggleGoalMode?: () => void
+  successCriteria?: string
+  onSuccessCriteriaChange?: (value: string) => void
   /** Worktree path for slash command fetching */
   worktreePath?: string | null
   /** Bumped when session.commands_available fires — triggers re-fetch of SDK commands */
@@ -111,6 +117,11 @@ export function ComposerBar({
   mode = 'build',
   onToggleMode,
   pendingPlan,
+  supportsGoalMode = false,
+  goalMode = false,
+  onToggleGoalMode,
+  successCriteria = '',
+  onSuccessCriteriaChange,
   worktreePath,
   commandsVersion = 0,
   containerRef
@@ -330,6 +341,8 @@ export function ComposerBar({
   const alternativesEnabled =
     availableAlternatives.length > 0 &&
     (canSend || availableAlternatives.includes('stop_and_send'))
+  const showGoalControls = supportsGoalMode && !pendingPlan && onToggleGoalMode
+  const showSuccessCriteria = showGoalControls && goalMode
 
   return (
     <div
@@ -389,6 +402,26 @@ export function ComposerBar({
         />
       </div>
 
+      {showSuccessCriteria && (
+        <div className="px-4 pb-1">
+          <textarea
+            value={successCriteria}
+            onChange={(e) => onSuccessCriteriaChange?.(e.target.value)}
+            placeholder="Success criteria..."
+            disabled={isDisabled}
+            className={cn(
+              'w-full resize-none rounded-md border border-border/60 bg-background/45 px-2.5 py-1.5',
+              'text-xs placeholder:text-muted-foreground',
+              'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/45',
+              'disabled:cursor-not-allowed disabled:opacity-50',
+              'min-h-[32px] max-h-[88px]'
+            )}
+            rows={1}
+            data-testid="composer-success-criteria"
+          />
+        </div>
+      )}
+
       {/* Bottom row: attach + plan + spacer + send */}
       <div className="flex items-center gap-2 px-3 pb-3 pt-1">
         <AttachmentButton
@@ -416,6 +449,26 @@ export function ComposerBar({
             title="Toggle Plan Mode (Tab)"
           >
             Plan
+          </Button>
+        ) : null}
+
+        {showGoalControls ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className={cn(
+              'h-7 rounded-full border px-2.5 text-xs font-medium transition-[color,background-color,border-color,box-shadow]',
+              goalMode
+                ? 'border-emerald-300/80 bg-emerald-500/10 text-emerald-700 shadow-[0_0_0_1px_rgba(110,231,183,0.22),0_0_12px_rgba(16,185,129,0.16)] hover:bg-emerald-500/14 hover:text-emerald-800 dark:border-emerald-400/45 dark:bg-emerald-500/12 dark:text-emerald-200 dark:shadow-[0_0_0_1px_rgba(52,211,153,0.2),0_0_14px_rgba(5,150,105,0.16)]'
+                : 'border-border/70 bg-background/65 text-muted-foreground shadow-none hover:border-border hover:bg-background/85 hover:text-foreground'
+            )}
+            onClick={onToggleGoalMode}
+            aria-pressed={goalMode}
+            title="Toggle Goal Mode"
+            data-testid="composer-goal-toggle"
+          >
+            Goal
           </Button>
         ) : null}
 

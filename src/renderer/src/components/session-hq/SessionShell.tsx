@@ -284,6 +284,12 @@ export interface SessionShellProps {
   sessionId: string
 }
 
+type RendererPromptOptions = {
+  mode?: 'build' | 'plan'
+  goalMode?: boolean
+  successCriteria?: string
+}
+
 export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Element {
   const { t } = useI18n()
   // --- Data sources ---
@@ -373,6 +379,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   // --- Plan mode ---
   const mode = useSessionStore((s) => s.modeBySession?.get(sessionId) ?? 'build')
   const pendingPlan = useSessionStore((s) => s.pendingPlans?.get(sessionId) ?? null)
+  const [goalMode, setGoalMode] = useState(false)
+  const [successCriteria, setSuccessCriteria] = useState('')
   // Claude Code's ExitPlanMode tool_use.input.plan is usually empty — the SDK
   // writes the plan to disk and we read it during canUseTool, then ship it via
   // plan.ready. Expose it by tool_use id so PlanCard can render the real text.
@@ -385,6 +393,14 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   }, [pendingPlan?.toolUseID, pendingPlan?.planContent])
   const toggleMode = useCallback(() => {
     useSessionStore.getState().toggleSessionMode(sessionId)
+  }, [sessionId])
+  const toggleGoalMode = useCallback(() => {
+    setGoalMode((current) => !current)
+  }, [])
+
+  useEffect(() => {
+    setGoalMode(false)
+    setSuccessCriteria('')
   }, [sessionId])
 
   // --- Cost / tokens ---
@@ -486,15 +502,17 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
     return resolvedModel ?? undefined
   }, [resolvedModel, sessionRecord?.model_provider_id, sessionRecord?.model_id])
-  // Phase 1.4.8: OpenCode's plan agent only activates when the prompt body
-  // carries `agent: 'plan'`, which opencode-service.prompt() derives from
-  // PromptOptions.mode. Build the options object here so every send path
-  // (first prompt / queued drain / follow-up / proposed-plan implement)
-  // consistently passes the live session mode.
-  const promptOptions = useMemo(
-    () => (agentSdk === 'opencode' ? { mode } : undefined),
-    [agentSdk, mode]
-  )
+  // Build prompt options once so every send path (first prompt / queued drain /
+  // follow-up / proposed-plan implement) sees the same runtime-specific flags.
+  const promptOptions = useMemo<RendererPromptOptions | undefined>(() => {
+    if (agentSdk === 'codex') {
+      return { goalMode, successCriteria }
+    }
+    if (agentSdk === 'opencode') {
+      return { mode }
+    }
+    return undefined
+  }, [agentSdk, goalMode, mode, successCriteria])
   const currentModelId = resolvedModel?.modelID ?? ''
   const currentProviderId = resolvedModel?.providerID ?? ''
   const skipForkFromMessageConfirm = useSettingsStore((s) => s.skipForkFromMessageConfirm)
@@ -1611,6 +1629,11 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           mode={mode}
           onToggleMode={toggleMode}
           pendingPlan={pendingPlan}
+          supportsGoalMode={agentSdk === 'codex'}
+          goalMode={goalMode}
+          onToggleGoalMode={toggleGoalMode}
+          successCriteria={successCriteria}
+          onSuccessCriteriaChange={setSuccessCriteria}
           worktreePath={worktreePath}
           commandsVersion={commandsVersion}
         />
