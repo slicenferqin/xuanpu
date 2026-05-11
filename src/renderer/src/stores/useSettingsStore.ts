@@ -164,6 +164,8 @@ const DEFAULT_COMMAND_FILTER_ALLOWLIST = [
   'glob: *'
 ]
 
+const LEGACY_COMMAND_FILTER_ALLOWLIST = ['edit: **', 'write: **']
+
 const DEFAULT_SETTINGS: AppSettings = {
   locale: DEFAULT_LOCALE,
   autoStartSession: true,
@@ -220,14 +222,25 @@ const DEFAULT_SETTINGS: AppSettings = {
   sessionUiV2Enabled: true
 }
 
-function mergePatternList(defaultPatterns: string[], persistedPatterns?: string[]): string[] {
-  const merged = [...defaultPatterns]
-  for (const pattern of persistedPatterns ?? []) {
-    if (!merged.includes(pattern)) {
-      merged.push(pattern)
-    }
+function samePatternSet(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false
+  const rightSet = new Set(right)
+  return left.every((pattern) => rightSet.has(pattern))
+}
+
+function resolveCommandFilterAllowlist(persistedPatterns?: string[]): string[] {
+  if (!persistedPatterns) {
+    return [...DEFAULT_SETTINGS.commandFilter.allowlist]
   }
-  return merged
+
+  if (
+    samePatternSet(persistedPatterns, LEGACY_COMMAND_FILTER_ALLOWLIST) ||
+    samePatternSet(persistedPatterns, DEFAULT_SETTINGS.commandFilter.allowlist)
+  ) {
+    return [...DEFAULT_SETTINGS.commandFilter.allowlist]
+  }
+
+  return [...persistedPatterns]
 }
 
 export function mergeCommandFilterSettings(
@@ -236,7 +249,7 @@ export function mergeCommandFilterSettings(
   return {
     ...DEFAULT_SETTINGS.commandFilter,
     ...(persisted || {}),
-    allowlist: mergePatternList(DEFAULT_SETTINGS.commandFilter.allowlist, persisted?.allowlist),
+    allowlist: resolveCommandFilterAllowlist(persisted?.allowlist),
     blocklist: persisted?.blocklist ?? DEFAULT_SETTINGS.commandFilter.blocklist
   }
 }

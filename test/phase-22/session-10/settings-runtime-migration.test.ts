@@ -25,9 +25,9 @@ describe('settings runtime migration', () => {
     expect(migrated.defaultRuntimeId).toBe('claude-code')
   })
 
-  it('adds new default read-only command filter patterns to existing allowlists', () => {
+  it('upgrades the legacy default command filter allowlist', () => {
     const merged = mergeCommandFilterSettings({
-      allowlist: ['bash: git status *'],
+      allowlist: ['edit: **', 'write: **'],
       blocklist: ['bash: rm -rf *'],
       defaultBehavior: 'ask',
       enabled: true
@@ -38,9 +38,22 @@ describe('settings runtime migration', () => {
       'write: **',
       'read: **',
       'grep: * in *',
-      'glob: *',
-      'bash: git status *'
+      'glob: *'
     ])
+    expect(merged.blocklist).toEqual(['bash: rm -rf *'])
+    expect(merged.defaultBehavior).toBe('ask')
+    expect(merged.enabled).toBe(true)
+  })
+
+  it('preserves customized command filter allowlists', () => {
+    const merged = mergeCommandFilterSettings({
+      allowlist: ['bash: git status *'],
+      blocklist: ['bash: rm -rf *'],
+      defaultBehavior: 'ask',
+      enabled: true
+    })
+
+    expect(merged.allowlist).toEqual(['bash: git status *'])
     expect(merged.blocklist).toEqual(['bash: rm -rf *'])
     expect(merged.defaultBehavior).toBe('ask')
     expect(merged.enabled).toBe(true)
