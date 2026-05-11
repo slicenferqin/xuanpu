@@ -9,13 +9,17 @@ import { MonacoDiffToolbar } from './MonacoDiffToolbar'
 import type { MonacoDiffViewMode } from './MonacoDiffToolbar'
 import { HunkActionGutter } from './HunkActionGutter'
 import { PrCommentGutter } from './PrCommentGutter'
+import { DiffCommentGutter } from './DiffCommentGutter'
 import { usePRReviewStore } from '@/stores/usePRReviewStore'
-import type { PRReviewComment } from '@shared/types/git'
+import { diffCommentFileKey, useDiffCommentStore } from '@/stores/useDiffCommentStore'
+import { toast } from '@/lib/toast'
+import type { DiffComment, PRReviewComment } from '@shared/types/git'
 import type { editor } from 'monaco-editor'
 import { useI18n } from '@/i18n/useI18n'
 
 interface MonacoDiffViewProps {
   worktreePath: string
+  worktreeId?: string
   filePath: string
   fileName: string
   staged: boolean
@@ -29,9 +33,11 @@ interface MonacoDiffViewProps {
 }
 
 const EMPTY_COMMENTS: PRReviewComment[] = []
+const EMPTY_DIFF_COMMENTS: DiffComment[] = []
 
 export default function MonacoDiffView({
   worktreePath,
+  worktreeId,
   filePath,
   fileName,
   staged,
@@ -53,6 +59,7 @@ export default function MonacoDiffView({
   )
   const [hunks, setHunks] = useState<Hunk[]>([])
   const [refreshKey, setRefreshKey] = useState(0)
+  const [draftCommentLine, setDraftCommentLine] = useState<number | null>(null)
   const isInitialLoad = useRef(true)
   const recentActionRef = useRef(false)
 
@@ -69,6 +76,28 @@ export default function MonacoDiffView({
     () => (prReviewWorktreeId ? allPrComments.filter((c) => c.path === filePath) : EMPTY_COMMENTS),
     [allPrComments, filePath, prReviewWorktreeId]
   )
+  const diffCommentScope = useMemo(
+    () => ({ staged, compareBranch: compareBranch ?? null }),
+    [compareBranch, staged]
+  )
+  const diffCommentsKey = worktreeId
+    ? diffCommentFileKey(worktreeId, filePath, diffCommentScope)
+    : null
+  const diffComments = useDiffCommentStore(
+    (s) =>
+      (diffCommentsKey ? s.commentsByFile.get(diffCommentsKey) : undefined) ?? EMPTY_DIFF_COMMENTS
+  )
+  const loadDiffComments = useDiffCommentStore((s) => s.loadComments)
+  const createDiffComment = useDiffCommentStore((s) => s.createComment)
+  const updateDiffComment = useDiffCommentStore((s) => s.updateComment)
+  const deleteDiffComment = useDiffCommentStore((s) => s.deleteComment)
+  const attachDiffComment = useDiffCommentStore((s) => s.attachComment)
+
+  useEffect(() => {
+    if (worktreeId) {
+      loadDiffComments(worktreeId, filePath, diffCommentScope)
+    }
+  }, [worktreeId, filePath, diffCommentScope, loadDiffComments])
 
   // Fetch file contents for the diff
   const fetchContent = useCallback(async () => {
@@ -245,6 +274,65 @@ export default function MonacoDiffView({
     }
   }, [worktreePath, filePath, staged, isUntracked, compareBranch])
 
+  const handleAddCommentAtCurrentLine = useCallback(() => {
+    const modEditor = modifiedEditorRef.current
+    const currentLine =
+      modEditor?.getPosition()?.lineNumber ?? hunks[0]?.modifiedStartLine ?? scrollToLine ?? 1
+    setDraftCommentLine(Math.max(1, currentLine))
+    window.requestAnimationFrame(() => {
+      modEditor?.revealLineInCenter(currentLine)
+    })
+  }, [hunks, scrollToLine])
+
+  const handleCreateDiffComment = useCallback(
+    async (lineNumber: number, body: string) => {
+      if (!worktreeId) return
+      await createDiffComment({
+        worktreeId,
+        filePath,
+        side: 'modified',
+        lineNumber,
+        compareBranch: compareBranch ?? null,
+        staged,
+        body
+      })
+      setDraftCommentLine(null)
+      toast.success(t('diffComments.toasts.created'))
+    },
+    [worktreeId, filePath, compareBranch, staged, createDiffComment, t]
+  )
+
+  const handleUpdateDiffComment = useCallback(
+    async (id: string, body: string) => {
+      await updateDiffComment(id, { body })
+      toast.success(t('diffComments.toasts.updated'))
+    },
+    [updateDiffComment, t]
+  )
+
+  const handleDeleteDiffComment = useCallback(
+    async (id: string) => {
+      await deleteDiffComment(id)
+      toast.success(t('diffComments.toasts.deleted'))
+    },
+    [deleteDiffComment, t]
+  )
+
+  const handleToggleDiffCommentResolved = useCallback(
+    async (comment: DiffComment) => {
+      await updateDiffComment(comment.id, { resolved: !comment.resolved })
+    },
+    [updateDiffComment]
+  )
+
+  const handleAttachDiffComment = useCallback(
+    (comment: DiffComment) => {
+      attachDiffComment(comment)
+      toast.success(t('diffComments.toasts.attached'))
+    },
+    [attachDiffComment, t]
+  )
+
   // Trigger re-fetch after hunk actions — suppress watcher duplicate for 500ms
   const handleContentChanged = useCallback(() => {
     recentActionRef.current = true
@@ -257,6 +345,7 @@ export default function MonacoDiffView({
   const language = getMonacoLanguage(filePath)
   const renderSideBySide = viewMode === 'split'
   const hideUnchangedRegions = viewMode === 'hunk'
+  const canUseDiffComments = !!worktreeId
 
   if (isLoading) {
     return (
@@ -268,6 +357,8 @@ export default function MonacoDiffView({
           compareBranch={compareBranch}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
+          commentCount={diffComments.length}
+          onAddComment={canUseDiffComments ? handleAddCommentAtCurrentLine : undefined}
           onPrevHunk={handlePrevHunk}
           onNextHunk={handleNextHunk}
           onCopy={handleCopy}
@@ -290,6 +381,8 @@ export default function MonacoDiffView({
           compareBranch={compareBranch}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
+          commentCount={diffComments.length}
+          onAddComment={canUseDiffComments ? handleAddCommentAtCurrentLine : undefined}
           onPrevHunk={handlePrevHunk}
           onNextHunk={handleNextHunk}
           onCopy={handleCopy}
@@ -314,6 +407,8 @@ export default function MonacoDiffView({
         compareBranch={compareBranch}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
+        commentCount={diffComments.length}
+        onAddComment={canUseDiffComments ? handleAddCommentAtCurrentLine : undefined}
         onPrevHunk={handlePrevHunk}
         onNextHunk={handleNextHunk}
         onCopy={handleCopy}
@@ -382,6 +477,19 @@ export default function MonacoDiffView({
               onZonesReady={() => setZonesReady(true)}
             />
           )}
+        {canUseDiffComments && originalContent !== null && modifiedContent !== null && (
+          <DiffCommentGutter
+            comments={diffComments}
+            modifiedEditor={modifiedEditorRef.current}
+            draftLineNumber={draftCommentLine}
+            onCancelDraft={() => setDraftCommentLine(null)}
+            onCreate={handleCreateDiffComment}
+            onUpdate={handleUpdateDiffComment}
+            onDelete={handleDeleteDiffComment}
+            onToggleResolved={handleToggleDiffCommentResolved}
+            onAttach={handleAttachDiffComment}
+          />
+        )}
       </div>
     </div>
   )

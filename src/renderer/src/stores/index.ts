@@ -50,6 +50,7 @@ export { useUsageAnalyticsStore, type UsageAnalyticsTab } from './useUsageAnalyt
 export { useHintStore } from './useHintStore'
 export { useVimModeStore } from './useVimModeStore'
 export { usePRReviewStore } from './usePRReviewStore'
+export { useDiffCommentStore } from './useDiffCommentStore'
 export { useDropAttachmentStore } from './useDropAttachmentStore'
 export { useDraftAttachmentStore } from './useDraftAttachmentStore'
 export { useFilterStore, COLON_COMMANDS, type ColonCommand } from './useFilterStore'

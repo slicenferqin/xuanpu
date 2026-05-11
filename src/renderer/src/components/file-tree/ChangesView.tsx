@@ -234,8 +234,10 @@ export function ChangesView({
           useFileViewerStore.getState().openFile(fullPath, fileName, worktreeId)
         }
       } else {
+        const worktreeId = useWorktreeStore.getState().selectedWorktreeId
         useFileViewerStore.getState().setActiveDiff({
           worktreePath,
+          worktreeId: worktreeId ?? undefined,
           filePath: file.relativePath,
           fileName: file.relativePath.split('/').pop() || file.relativePath,
           staged: file.staged,
@@ -345,8 +347,12 @@ export function ChangesView({
           useFileViewerStore.getState().openFile(fullPath, fileName, contextId)
         }
       } else {
+        const worktreeId = Array.from(useWorktreeStore.getState().worktreesByProject.values())
+          .flatMap((worktrees) => worktrees)
+          .find((worktree) => worktree.path === memberWorktreePath)?.id
         useFileViewerStore.getState().setActiveDiff({
           worktreePath: memberWorktreePath,
+          worktreeId,
           filePath: file.relativePath,
           fileName: file.relativePath.split('/').pop() || file.relativePath,
           staged: file.staged,

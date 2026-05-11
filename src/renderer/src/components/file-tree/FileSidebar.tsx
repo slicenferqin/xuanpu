@@ -8,6 +8,7 @@ import { FileTree } from './FileTree'
 import { ChangesView } from './ChangesView'
 import { BranchDiffView } from './BranchDiffView'
 import { PrReviewViewer } from '@/components/pr-review/PrReviewViewer'
+import { DiffCommentsViewer } from '@/components/diff-comments/DiffCommentsViewer'
 import { useI18n } from '@/i18n/useI18n'
 
 interface ConnectionMemberInfo {
@@ -53,12 +54,12 @@ export function FileSidebar({
     return () => window.removeEventListener('hive:right-sidebar-tab', handler)
   }, [vimModeEnabled])
 
-  // Switch away from comments tab if PR is detached
+  // Switch away from comments tab if no worktree is selected.
   useEffect(() => {
-    if (!hasAttachedPR && activeTab === 'comments') {
+    if (!selectedWorktreeId && activeTab === 'comments') {
       setActiveTab('changes')
     }
-  }, [hasAttachedPR, activeTab])
+  }, [selectedWorktreeId, activeTab])
 
   return (
     <div className={cn('flex h-full flex-col bg-transparent', className)}>
@@ -116,7 +117,7 @@ export function FileSidebar({
                 t('fileTree.sidebar.diffs')
               )}
             </button>
-            {hasAttachedPR && (
+            {selectedWorktreeId && (
               <button
                 className={cn(
                   'shrink-0 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-colors',
@@ -148,7 +149,14 @@ export function FileSidebar({
 
       <div className="flex flex-1 min-h-0 flex-col overflow-hidden bg-transparent">
         {activeTab === 'comments' && selectedWorktreeId ? (
-          <PrReviewViewer worktreeId={selectedWorktreeId} />
+          <div className="flex min-h-0 flex-1 flex-col">
+            <DiffCommentsViewer
+              worktreeId={selectedWorktreeId}
+              worktreePath={worktreePath}
+              compact={hasAttachedPR}
+            />
+            {hasAttachedPR && <PrReviewViewer worktreeId={selectedWorktreeId} />}
+          </div>
         ) : activeTab === 'changes' ? (
           <ChangesView
             worktreePath={worktreePath}

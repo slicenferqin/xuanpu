@@ -1,5 +1,14 @@
 import { useCallback } from 'react'
-import { ChevronUp, ChevronDown, Columns2, AlignJustify, Copy, X, ListCollapse } from 'lucide-react'
+import {
+  AlignJustify,
+  ChevronDown,
+  ChevronUp,
+  Columns2,
+  Copy,
+  ListCollapse,
+  MessageSquarePlus,
+  X
+} from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { useI18n } from '@/i18n/useI18n'
@@ -14,6 +23,8 @@ interface MonacoDiffToolbarProps {
   compareBranch?: string
   viewMode: MonacoDiffViewMode
   onViewModeChange: (viewMode: MonacoDiffViewMode) => void
+  commentCount?: number
+  onAddComment?: () => void
   onPrevHunk: () => void
   onNextHunk: () => void
   onCopy: () => void
@@ -27,6 +38,8 @@ export function MonacoDiffToolbar({
   compareBranch,
   viewMode,
   onViewModeChange,
+  commentCount = 0,
+  onAddComment,
   onPrevHunk,
   onNextHunk,
   onCopy,
@@ -128,6 +141,25 @@ export function MonacoDiffToolbar({
             <ListCollapse className="h-3.5 w-3.5" />
           </Button>
         </div>
+
+        {onAddComment && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="relative h-6 w-6"
+            onClick={onAddComment}
+            title={t('diffComments.addAtCurrentLine')}
+            aria-label={t('diffComments.addAtCurrentLine')}
+            data-testid="monaco-diff-add-comment"
+          >
+            <MessageSquarePlus className="h-3.5 w-3.5" />
+            {commentCount > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 min-w-3 rounded-full bg-emerald-500 px-0.5 text-[8px] leading-3 text-white">
+                {commentCount}
+              </span>
+            )}
+          </Button>
+        )}
 
         {/* Copy */}
         <Button

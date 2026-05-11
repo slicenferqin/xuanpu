@@ -104,6 +104,26 @@ const db = {
     getPinned: () => ipcRenderer.invoke('db:worktree:getPinned')
   },
 
+  // Local diff comments
+  diffComment: {
+    list: (
+      worktreeId: string,
+      options?: { filePath?: string; compareBranch?: string | null; staged?: boolean }
+    ) => ipcRenderer.invoke('db:diffComment:list', { worktreeId, options }),
+    create: (data: {
+      worktreeId: string
+      filePath: string
+      side: 'original' | 'modified'
+      lineNumber: number
+      compareBranch?: string | null
+      staged?: boolean
+      body: string
+    }) => ipcRenderer.invoke('db:diffComment:create', data),
+    update: (id: string, data: { body?: string; resolved?: boolean }) =>
+      ipcRenderer.invoke('db:diffComment:update', { id, data }),
+    delete: (id: string) => ipcRenderer.invoke('db:diffComment:delete', id)
+  },
+
   // Sessions
   session: {
     create: (data: {
