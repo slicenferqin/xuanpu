@@ -70,6 +70,7 @@ import {
 import { applySessionContextUsage } from '@/lib/context-usage'
 import { mapRawTranscriptToTimeline } from '@shared/lib/timeline-mappers'
 import { lastSendMode, messageSendTimes } from '@/lib/message-send-times'
+import { refreshSessionLastMessageAt } from '@/lib/session-last-message'
 import {
   getMessageDisplayContent,
   getUserMessageForkCutoff,
@@ -121,6 +122,9 @@ function useTimeline(
     agentSdk?: string | null
   }
 ) {
+  const worktreePath = options?.worktreePath
+  const opencodeSessionId = options?.opencodeSessionId
+  const agentSdk = options?.agentSdk
   // Restore optimistic messages from buffer on mount so they survive tab switches
   const initBuffer = getStreamingBuffer(sessionId)
   const [messages, setMessages] = useState<TimelineMessage[]>(
@@ -155,20 +159,21 @@ function useTimeline(
 
       const canFallbackToSdkMessages =
         Boolean(window.agentOps?.getMessages) &&
-        typeof options?.worktreePath === 'string' &&
-        options.worktreePath.length > 0 &&
-        typeof options?.opencodeSessionId === 'string' &&
-        options.opencodeSessionId.length > 0 &&
-        options.agentSdk !== 'codex' &&
-        options.agentSdk !== 'terminal'
+        typeof worktreePath === 'string' &&
+        worktreePath.length > 0 &&
+        typeof opencodeSessionId === 'string' &&
+        opencodeSessionId.length > 0 &&
+        agentSdk !== 'codex' &&
+        agentSdk !== 'terminal'
 
       if (!hasRenderableAssistant && canFallbackToSdkMessages) {
         try {
-          const transcript = await window.agentOps.getMessages(
-            options!.worktreePath!,
-            options!.opencodeSessionId!
-          )
-          if (transcript.success && Array.isArray(transcript.messages) && transcript.messages.length > 0) {
+          const transcript = await window.agentOps.getMessages(worktreePath!, opencodeSessionId!)
+          if (
+            transcript.success &&
+            Array.isArray(transcript.messages) &&
+            transcript.messages.length > 0
+          ) {
             const fallbackMessages = mapRawTranscriptToTimeline(transcript.messages)
             const fallbackHasAssistant = fallbackMessages.some(
               (msg) =>
@@ -225,7 +230,7 @@ function useTimeline(
     } finally {
       setLoading(false)
     }
-  }, [sessionId, options?.worktreePath, options?.opencodeSessionId, options?.agentSdk])
+  }, [sessionId, worktreePath, opencodeSessionId, agentSdk])
 
   useEffect(() => {
     setLoading(true)
@@ -519,7 +524,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       sessionId,
       (current) => ({
         ...current,
-        optimisticMessages: optimisticRef.current.length > 0 ? [...optimisticRef.current] : undefined
+        optimisticMessages:
+          optimisticRef.current.length > 0 ? [...optimisticRef.current] : undefined
       }),
       { notify: 'immediate' }
     )
@@ -938,13 +944,27 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
                 async (wp, sid, message) => {
                   let messageParts: MessagePart[] | undefined
                   if (message.attachments.length > 0) {
-                    messageParts = await buildMessageParts(message.attachments as Attachment[], message.content)
+                    messageParts = await buildMessageParts(
+                      message.attachments as Attachment[],
+                      message.content
+                    )
                   }
-                  return window.agentOps.prompt(wp, sid, messageParts ?? message.content, requestModel, promptOptions)
+                  return window.agentOps.prompt(
+                    wp,
+                    sid,
+                    messageParts ?? message.content,
+                    requestModel,
+                    promptOptions
+                  )
                 },
                 worktreePath,
-                (sid, message) => useSessionRuntimeStore.getState().requeueMessageFront(sid, message)
-              ).catch((err) => console.error('[SessionShell] drainNextPending failed:', err))
+                (sid, message) =>
+                  useSessionRuntimeStore.getState().requeueMessageFront(sid, message)
+              )
+                .then((drained) => {
+                  if (drained) void refreshSessionLastMessageAt(sessionId)
+                })
+                .catch((err) => console.error('[SessionShell] drainNextPending failed:', err))
             }
           }
         }
@@ -1029,7 +1049,11 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
   // --- Composer action handler ---
   const handleComposerAction = useCallback(
-    async (action: ComposerAction, content: string, attachments: Attachment[]): Promise<boolean> => {
+    async (
+      action: ComposerAction,
+      content: string,
+      attachments: Attachment[]
+    ): Promise<boolean> => {
       if (!worktreePath || !droidSessionId) return false
       let optimisticMessageId: string | null = null
 
@@ -1113,12 +1137,17 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         if (!consumed && (action === 'send' || action === 'stop_and_send')) {
           resetLiveOverlay(false)
         }
+        if (consumed) {
+          void refreshSessionLastMessageAt(sessionId)
+        }
 
         return consumed
       } catch (err) {
         console.error('[SessionShell] action failed:', err)
         if (optimisticMessageId) {
-          optimisticRef.current = optimisticRef.current.filter((msg) => msg.id !== optimisticMessageId)
+          optimisticRef.current = optimisticRef.current.filter(
+            (msg) => msg.id !== optimisticMessageId
+          )
           timelineMessagesRef.current = timelineMessagesRef.current.filter(
             (msg) => msg.id !== optimisticMessageId
           )
@@ -1146,11 +1175,11 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
   const canEditUserMessage = useCallback(
     (message: TimelineMessage) =>
-      message.role === 'user'
-      && message.id === lastUserMessageId
-      && !isStreaming
-      && lifecycle !== 'busy'
-      && lifecycle !== 'materializing',
+      message.role === 'user' &&
+      message.id === lastUserMessageId &&
+      !isStreaming &&
+      lifecycle !== 'busy' &&
+      lifecycle !== 'materializing',
     [lastUserMessageId, isStreaming, lifecycle]
   )
 
@@ -1178,8 +1207,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
       setMessages(trimmedMessages)
       timelineMessagesRef.current = trimmedMessages
-      optimisticRef.current = optimisticRef.current.filter(
-        (message) => trimmedMessages.some((candidate) => candidate.id === message.id)
+      optimisticRef.current = optimisticRef.current.filter((message) =>
+        trimmedMessages.some((candidate) => candidate.id === message.id)
       )
       syncOptimisticMessagesToMirror()
       setEditingMessageId(null)
@@ -1201,7 +1230,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         const consumed = await executeSendAction('send', contentToSend, [], {
           worktreePath,
           sessionId: droidSessionId,
-          prompt: (wp, sid, content) => window.agentOps.prompt(wp, sid, content, requestModel, promptOptions),
+          prompt: (wp, sid, content) =>
+            window.agentOps.prompt(wp, sid, content, requestModel, promptOptions),
           abort: (wp, sid) => window.agentOps.abort(wp, sid),
           queueMessage: (sid, msg) => useSessionRuntimeStore.getState().queueMessage(sid, msg)
         })

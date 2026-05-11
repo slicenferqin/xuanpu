@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import React from 'react'
 import {
   RunOutputLine,
@@ -14,9 +14,7 @@ vi.mock('ansi-to-react', () => ({
 describe('RunOutputLine', () => {
   describe('marker lines', () => {
     test('renders truncation marker with \x00TRUNC: prefix', () => {
-      const { container } = render(
-        <RunOutputLine line={'\x00TRUNC:[older output truncated]'} />
-      )
+      const { container } = render(<RunOutputLine line={'\x00TRUNC:[older output truncated]'} />)
       const div = container.firstChild as HTMLElement
       expect(div.textContent).toBe('[older output truncated]')
       expect(div.className).toContain('text-center')
@@ -25,16 +23,12 @@ describe('RunOutputLine', () => {
     })
 
     test('renders custom truncation message', () => {
-      const { container } = render(
-        <RunOutputLine line={'\x00TRUNC:500 lines omitted'} />
-      )
+      const { container } = render(<RunOutputLine line={'\x00TRUNC:500 lines omitted'} />)
       expect(container.textContent).toBe('500 lines omitted')
     })
 
     test('renders CMD marker with $ prefix', () => {
-      const { container } = render(
-        <RunOutputLine line={'\x00CMD:npm run dev'} />
-      )
+      const { container } = render(<RunOutputLine line={'\x00CMD:npm run dev'} />)
       const div = container.firstChild as HTMLElement
       expect(div.textContent).toBe('$ npm run dev')
       expect(div.className).toContain('font-semibold')
@@ -72,6 +66,98 @@ describe('RunOutputLine', () => {
       const ansi = screen.getByTestId('ansi')
       expect(ansi.textContent).toBe(ansiLine)
     })
+
+    test('does not include ANSI reset codes in URL target', () => {
+      const openInChrome = vi.mocked(window.systemOps.openInChrome)
+      openInChrome.mockClear()
+
+      render(<RunOutputLine line={'\x1b[36mhttps://example.com\x1b[0m'} />)
+      const url = screen.getByTestId('run-output-url')
+      fireEvent.click(url, { metaKey: true })
+
+      expect(url.textContent).toBe('https://example.com')
+      expect(openInChrome).toHaveBeenCalledWith('https://example.com')
+    })
+
+    test('linkifies HTTP and HTTPS URLs', () => {
+      const { container } = render(
+        <RunOutputLine line="open https://example.com and http://localhost:3000/path" />
+      )
+
+      const urls = screen.getAllByTestId('run-output-url')
+      expect(urls).toHaveLength(2)
+      expect(urls[0].textContent).toBe('https://example.com')
+      expect(urls[1].textContent).toBe('http://localhost:3000/path')
+      expect(container.textContent).toBe('open https://example.com and http://localhost:3000/path')
+    })
+
+    test('excludes trailing punctuation and unmatched closing brackets from URL target', () => {
+      render(<RunOutputLine line="preview (https://example.com/path)." />)
+
+      const url = screen.getByTestId('run-output-url')
+      expect(url.textContent).toBe('https://example.com/path')
+      expect(document.body.textContent).toBe('preview (https://example.com/path).')
+    })
+
+    test('keeps balanced closing brackets inside URL target', () => {
+      render(<RunOutputLine line="docs https://example.com/path(foo)" />)
+
+      const url = screen.getByTestId('run-output-url')
+      expect(url.textContent).toBe('https://example.com/path(foo)')
+    })
+
+    test('Cmd click opens URL in Chrome', () => {
+      const openInChrome = vi.mocked(window.systemOps.openInChrome)
+      openInChrome.mockClear()
+
+      render(<RunOutputLine line="visit https://example.com" />)
+      fireEvent.click(screen.getByTestId('run-output-url'), { metaKey: true })
+
+      expect(openInChrome).toHaveBeenCalledTimes(1)
+      expect(openInChrome).toHaveBeenCalledWith('https://example.com')
+    })
+
+    test('Ctrl click opens URL in Chrome', () => {
+      const openInChrome = vi.mocked(window.systemOps.openInChrome)
+      openInChrome.mockClear()
+
+      render(<RunOutputLine line="visit https://example.com" />)
+      fireEvent.click(screen.getByTestId('run-output-url'), { ctrlKey: true })
+
+      expect(openInChrome).toHaveBeenCalledTimes(1)
+      expect(openInChrome).toHaveBeenCalledWith('https://example.com')
+    })
+
+    test('plain click and right click do not open URL', () => {
+      const openInChrome = vi.mocked(window.systemOps.openInChrome)
+      openInChrome.mockClear()
+
+      render(<RunOutputLine line="visit https://example.com" />)
+      const url = screen.getByTestId('run-output-url')
+
+      fireEvent.click(url)
+      fireEvent.contextMenu(url)
+
+      expect(openInChrome).not.toHaveBeenCalled()
+    })
+
+    test('modifier hover is the only visibly openable URL state', () => {
+      render(<RunOutputLine line="visit https://example.com" />)
+      const url = screen.getByTestId('run-output-url')
+
+      expect(url.className).toContain('cursor-text')
+      expect(url.className).not.toContain('underline')
+
+      fireEvent.mouseEnter(url, { metaKey: true })
+
+      expect(url.className).toContain('cursor-pointer')
+      expect(url.className).toContain('underline')
+
+      fireEvent.mouseLeave(url)
+
+      expect(url.className).toContain('cursor-text')
+      expect(url.className).not.toContain('underline')
+    })
   })
 
   describe('highlighted lines', () => {
@@ -81,9 +167,7 @@ describe('RunOutputLine', () => {
         matchEnd: 11,
         isCurrent: false
       }
-      const { container } = render(
-        <RunOutputLine line="hello world foo" highlight={highlight} />
-      )
+      const { container } = render(<RunOutputLine line="hello world foo" highlight={highlight} />)
       const marks = container.querySelectorAll('mark')
       expect(marks).toHaveLength(1)
       expect(marks[0].textContent).toBe('world')
@@ -95,9 +179,7 @@ describe('RunOutputLine', () => {
         matchEnd: 5,
         isCurrent: true
       }
-      const { container } = render(
-        <RunOutputLine line="hello world" highlight={highlight} />
-      )
+      const { container } = render(<RunOutputLine line="hello world" highlight={highlight} />)
       const mark = container.querySelector('mark')!
       expect(mark.className).toContain('bg-yellow-400/80')
     })
@@ -108,9 +190,7 @@ describe('RunOutputLine', () => {
         matchEnd: 5,
         isCurrent: false
       }
-      const { container } = render(
-        <RunOutputLine line="hello world" highlight={highlight} />
-      )
+      const { container } = render(<RunOutputLine line="hello world" highlight={highlight} />)
       const mark = container.querySelector('mark')!
       expect(mark.className).toContain('bg-yellow-400/40')
     })
@@ -121,9 +201,7 @@ describe('RunOutputLine', () => {
         matchEnd: 11,
         isCurrent: false
       }
-      const { container } = render(
-        <RunOutputLine line="hello world" highlight={highlight} />
-      )
+      const { container } = render(<RunOutputLine line="hello world" highlight={highlight} />)
       const mark = container.querySelector('mark')!
       expect(mark.textContent).toBe('hello world')
       // No text outside the mark
@@ -137,9 +215,7 @@ describe('RunOutputLine', () => {
         matchEnd: 5,
         isCurrent: false
       }
-      const { container } = render(
-        <RunOutputLine line="hello world" highlight={highlight} />
-      )
+      const { container } = render(<RunOutputLine line="hello world" highlight={highlight} />)
       const mark = container.querySelector('mark')!
       expect(mark.textContent).toBe('hello')
       // The rest should be in a span
@@ -154,9 +230,7 @@ describe('RunOutputLine', () => {
         matchEnd: 11,
         isCurrent: false
       }
-      const { container } = render(
-        <RunOutputLine line="hello world" highlight={highlight} />
-      )
+      const { container } = render(<RunOutputLine line="hello world" highlight={highlight} />)
       const mark = container.querySelector('mark')!
       expect(mark.textContent).toBe('world')
       const spans = container.querySelectorAll('span')
@@ -172,9 +246,7 @@ describe('RunOutputLine', () => {
         matchEnd: 3,
         isCurrent: false
       }
-      const { container } = render(
-        <RunOutputLine line={line} highlight={highlight} />
-      )
+      const { container } = render(<RunOutputLine line={line} highlight={highlight} />)
       const mark = container.querySelector('mark')!
       expect(mark.textContent).toBe('red')
       // "red" is highlighted, " text" is not
@@ -188,10 +260,21 @@ describe('RunOutputLine', () => {
         matchEnd: 5,
         isCurrent: false
       }
-      render(
-        <RunOutputLine line="hello world" highlight={highlight} />
-      )
+      render(<RunOutputLine line="hello world" highlight={highlight} />)
       expect(screen.queryByTestId('ansi')).toBeNull()
+    })
+
+    test('highlighted line does not linkify URLs', () => {
+      const highlight: SearchHighlight = {
+        matchStart: 6,
+        matchEnd: 25,
+        isCurrent: false
+      }
+
+      render(<RunOutputLine line="visit https://example.com" highlight={highlight} />)
+
+      expect(screen.queryByTestId('run-output-url')).toBeNull()
+      expect(screen.getByText('https://example.com')).toBeInTheDocument()
     })
   })
 
@@ -209,9 +292,7 @@ describe('RunOutputLine', () => {
     })
 
     test('re-renders when line changes', () => {
-      const { container, rerender } = render(
-        <RunOutputLine line="first" />
-      )
+      const { container, rerender } = render(<RunOutputLine line="first" />)
       expect(container.textContent).toBe('first')
 
       rerender(<RunOutputLine line="second" />)
@@ -230,9 +311,7 @@ describe('RunOutputLine', () => {
         isCurrent: true
       }
 
-      const { container, rerender } = render(
-        <RunOutputLine line="hello" highlight={hl1} />
-      )
+      const { container, rerender } = render(<RunOutputLine line="hello" highlight={hl1} />)
       const mark1 = container.querySelector('mark')!
       expect(mark1.className).toContain('bg-yellow-400/40')
 

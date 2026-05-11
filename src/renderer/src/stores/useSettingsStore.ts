@@ -156,6 +156,16 @@ export interface AppSettings {
   sessionUiV2Enabled: boolean
 }
 
+const DEFAULT_COMMAND_FILTER_ALLOWLIST = [
+  'edit: **',
+  'write: **',
+  'read: **',
+  'grep: * in *',
+  'glob: *'
+]
+
+const LEGACY_COMMAND_FILTER_ALLOWLIST = ['edit: **', 'write: **']
+
 const DEFAULT_SETTINGS: AppSettings = {
   locale: DEFAULT_LOCALE,
   autoStartSession: true,
@@ -188,7 +198,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   skippedUpdateVersion: null,
   initialSetupComplete: false,
   commandFilter: {
-    allowlist: ['edit: **', 'write: **'],
+    allowlist: DEFAULT_COMMAND_FILTER_ALLOWLIST,
     blocklist: [
       'bash: rm -rf *',
       'bash: sudo rm *',
@@ -210,6 +220,38 @@ const DEFAULT_SETTINGS: AppSettings = {
   uiZoomLevel: 0,
   uiFontScale: 1,
   sessionUiV2Enabled: true
+}
+
+function samePatternSet(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false
+  const rightSet = new Set(right)
+  return left.every((pattern) => rightSet.has(pattern))
+}
+
+function resolveCommandFilterAllowlist(persistedPatterns?: string[]): string[] {
+  if (!persistedPatterns) {
+    return [...DEFAULT_SETTINGS.commandFilter.allowlist]
+  }
+
+  if (
+    samePatternSet(persistedPatterns, LEGACY_COMMAND_FILTER_ALLOWLIST) ||
+    samePatternSet(persistedPatterns, DEFAULT_SETTINGS.commandFilter.allowlist)
+  ) {
+    return [...DEFAULT_SETTINGS.commandFilter.allowlist]
+  }
+
+  return [...persistedPatterns]
+}
+
+export function mergeCommandFilterSettings(
+  persisted?: Partial<CommandFilterSettings> | null
+): CommandFilterSettings {
+  return {
+    ...DEFAULT_SETTINGS.commandFilter,
+    ...(persisted || {}),
+    allowlist: resolveCommandFilterAllowlist(persisted?.allowlist),
+    blocklist: persisted?.blocklist ?? DEFAULT_SETTINGS.commandFilter.blocklist
+  }
 }
 
 interface SettingsState extends AppSettings {
@@ -266,12 +308,9 @@ async function loadSettingsFromDatabase(): Promise<AppSettings | null> {
         return {
           ...DEFAULT_SETTINGS,
           ...parsed,
-          // Deep-merge commandFilter so new fields (e.g. `enabled`) always have defaults
-          // even for users whose saved settings pre-date those fields being added.
-          commandFilter: {
-            ...DEFAULT_SETTINGS.commandFilter,
-            ...(parsed.commandFilter || {})
-          }
+          // Deep-merge commandFilter so new fields and new default allowlist
+          // patterns are present for users whose saved settings pre-date them.
+          commandFilter: mergeCommandFilterSettings(parsed.commandFilter)
         }
       }
     }
@@ -540,7 +579,15 @@ export const useSettingsStore = create<SettingsState>()(
         uiZoomLevel: state.uiZoomLevel,
         uiFontScale: state.uiFontScale,
         sessionUiV2Enabled: state.sessionUiV2Enabled
-      })
+      }),
+      merge: (persistedState, currentState) => {
+        const persisted = persistedState as Partial<SettingsState> | undefined
+        return {
+          ...currentState,
+          ...(persisted || {}),
+          commandFilter: mergeCommandFilterSettings(persisted?.commandFilter)
+        }
+      }
     }
   )
 )

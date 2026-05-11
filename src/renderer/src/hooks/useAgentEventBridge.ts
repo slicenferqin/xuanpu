@@ -45,6 +45,7 @@ import {
 import { applySessionContextUsage } from '@/lib/context-usage'
 import { COMPLETION_WORDS } from '@/lib/format-utils'
 import { messageSendTimes } from '@/lib/message-send-times'
+import { refreshSessionLastMessageAt } from '@/lib/session-last-message'
 import { checkAutoApprove } from '@/lib/permissionUtils'
 import { toast } from 'sonner'
 import type { CanonicalAgentEvent } from '@shared/types/agent-protocol'
@@ -735,6 +736,7 @@ export function useAgentEventBridge(): void {
                 }
 
                 dispatchSucceeded = true
+                void refreshSessionLastMessageAt(sessionId)
               } catch {
                 useSessionStore.getState().requeueFollowUpMessageFront(sessionId, message)
                 markBackgroundSessionCompleted(sessionId)

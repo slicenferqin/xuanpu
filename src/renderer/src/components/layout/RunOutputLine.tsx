@@ -1,6 +1,7 @@
 import React from 'react'
 import Ansi from 'ansi-to-react'
 import { parseAnsiSegments } from '@/lib/ansi-utils'
+import { hasHttpUrl, linkifyHttpUrls } from '@/lib/url-linkify'
 
 export interface SearchHighlight {
   /** Character offset where the match starts (in the stripped-ANSI plain text) */
@@ -66,6 +67,60 @@ function renderHighlightedLine(line: string, highlight: SearchHighlight): React.
   return <div className="whitespace-pre-wrap break-all">{parts}</div>
 }
 
+function RunOutputUrl({ text, url }: { text: string; url: string }): React.JSX.Element {
+  const [isModifierHover, setIsModifierHover] = React.useState(false)
+
+  const updateModifierHover = React.useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    setIsModifierHover(event.metaKey || event.ctrlKey)
+  }, [])
+
+  const handleClick = React.useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      if (!event.metaKey && !event.ctrlKey) return
+
+      event.preventDefault()
+      event.stopPropagation()
+      void window.systemOps.openInChrome(url)
+    },
+    [url]
+  )
+
+  return (
+    <button
+      type="button"
+      className={
+        isModifierHover
+          ? 'inline break-all cursor-pointer bg-transparent p-0 font-[inherit] text-primary underline'
+          : 'inline break-all cursor-text bg-transparent p-0 font-[inherit] text-inherit'
+      }
+      data-testid="run-output-url"
+      onClick={handleClick}
+      onContextMenu={(event) => event.stopPropagation()}
+      onMouseEnter={updateModifierHover}
+      onMouseLeave={() => setIsModifierHover(false)}
+      onMouseMove={updateModifierHover}
+    >
+      {text}
+    </button>
+  )
+}
+
+function renderLinkifiedLine(line: string): React.JSX.Element {
+  const parts = linkifyHttpUrls(line)
+
+  return (
+    <div className="whitespace-pre-wrap break-all [&_code]:all-unset">
+      {parts.map((part, index) => {
+        if (part.type === 'url') {
+          return <RunOutputUrl key={index} text={part.text} url={part.url} />
+        }
+
+        return <Ansi key={index}>{part.text}</Ansi>
+      })}
+    </div>
+  )
+}
+
 function RunOutputLineInner({ line, highlight }: RunOutputLineProps): React.JSX.Element {
   // Truncation marker
   if (line.startsWith('\x00TRUNC:')) {
@@ -89,6 +144,10 @@ function RunOutputLineInner({ line, highlight }: RunOutputLineProps): React.JSX.
   // Normal ANSI line — with or without highlight
   if (highlight) {
     return renderHighlightedLine(line, highlight)
+  }
+
+  if (hasHttpUrl(line)) {
+    return renderLinkifiedLine(line)
   }
 
   return (
