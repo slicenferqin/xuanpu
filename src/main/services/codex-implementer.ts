@@ -113,6 +113,21 @@ function extractProposedPlanMarkdown(text: string): string | null {
   return match ? (match[1]?.trim() ?? null) : null
 }
 
+function buildCodexGoalObjective(promptText: string, successCriteria?: string): string {
+  const objective = promptText.trim()
+  const criteria = successCriteria?.trim() ?? ''
+
+  if (!objective) {
+    return criteria ? `Success criteria:\n${criteria}` : ''
+  }
+
+  if (!criteria) {
+    return objective
+  }
+
+  return `${objective}\n\nSuccess criteria:\n${criteria}`
+}
+
 // ── Immediate title helpers ────────────────────────────────────────────────
 
 const IMMEDIATE_TITLE_LENGTH = 50
@@ -899,6 +914,20 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         } catch {
           // Fall through to default mode
         }
+      }
+
+      if (options?.goalMode) {
+        const objective =
+          options.goalObjective?.trim() || buildCodexGoalObjective(text, options.successCriteria)
+        if (!objective) {
+          throw new Error('Codex goal mode requires a non-empty objective')
+        }
+
+        await this.manager.setThreadGoal(session.threadId, {
+          objective,
+          status: 'active',
+          tokenBudget: null
+        })
       }
 
       await this.manager.sendTurn(session.threadId, {

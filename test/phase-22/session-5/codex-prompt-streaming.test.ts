@@ -1,6 +1,24 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+vi.mock('electron', () => ({
+  BrowserWindow: vi.fn(),
+  Notification: vi.fn().mockImplementation(() => ({
+    show: vi.fn(),
+    on: vi.fn()
+  })),
+  app: {
+    getName: vi.fn(() => 'Xuanpu'),
+    getPath: vi.fn(() => '/tmp')
+  },
+  nativeImage: {
+    createFromPath: vi.fn(() => ({
+      isEmpty: vi.fn(() => false),
+      resize: vi.fn()
+    }))
+  }
+}))
+
 // Mock logger
 vi.mock('../../../src/main/services/logger', () => ({
   createLogger: () => ({
@@ -32,6 +50,7 @@ vi.mock('../../../src/main/services/codex-app-server-manager', () => {
     hasSession: vi.fn().mockReturnValue(false),
     getSession: vi.fn(),
     listSessions: vi.fn().mockReturnValue([]),
+    setThreadGoal: vi.fn(),
     sendTurn: vi.fn(),
     on: vi.fn().mockImplementation((_event: string, handler: any) => {
       eventListeners.push(handler)
@@ -705,6 +724,119 @@ describe('CodexImplementer.prompt()', () => {
       serviceTier: 'fast',
       interactionMode: 'default'
     })
+  })
+
+  // ── goal mode ─────────────────────────────────────────────────
+
+  it('sets a Codex thread goal before sending the turn when goal mode is enabled', async () => {
+    seedSession()
+
+    simulateManagerEvents([
+      {
+        id: 'e1',
+        kind: 'notification',
+        provider: 'codex',
+        threadId: 'thread-1',
+        createdAt: new Date().toISOString(),
+        method: 'turn/completed',
+        payload: { turn: { status: 'completed' } }
+      }
+    ])
+
+    await impl.prompt('/test/project', 'thread-1', 'Ship the migration', undefined, {
+      goalMode: true,
+      successCriteria: 'Focused tests pass'
+    })
+
+    expect(mockManager.setThreadGoal).toHaveBeenCalledWith('thread-1', {
+      objective: 'Ship the migration\n\nSuccess criteria:\nFocused tests pass',
+      status: 'active',
+      tokenBudget: null
+    })
+    expect(mockManager.sendTurn).toHaveBeenCalledWith('thread-1', {
+      text: 'Ship the migration',
+      model: 'gpt-5.4',
+      interactionMode: 'default'
+    })
+    expect(mockManager.setThreadGoal.mock.invocationCallOrder[0]).toBeLessThan(
+      mockManager.sendTurn.mock.invocationCallOrder[0]
+    )
+  })
+
+  it('uses the pre-injection goal objective when provided by IPC', async () => {
+    seedSession()
+
+    simulateManagerEvents([
+      {
+        id: 'e1',
+        kind: 'notification',
+        provider: 'codex',
+        threadId: 'thread-1',
+        createdAt: new Date().toISOString(),
+        method: 'turn/completed',
+        payload: { turn: { status: 'completed' } }
+      }
+    ])
+
+    await impl.prompt(
+      '/test/project',
+      'thread-1',
+      '[Field Context]\nCurrent file: src/a.ts\n\n[User Message]\nShip the migration',
+      undefined,
+      {
+        goalMode: true,
+        successCriteria: 'Focused tests pass',
+        goalObjective: 'Ship the migration\n\nSuccess criteria:\nFocused tests pass'
+      }
+    )
+
+    expect(mockManager.setThreadGoal).toHaveBeenCalledWith('thread-1', {
+      objective: 'Ship the migration\n\nSuccess criteria:\nFocused tests pass',
+      status: 'active',
+      tokenBudget: null
+    })
+  })
+
+  it('does not set a thread goal when goal mode is disabled', async () => {
+    seedSession()
+
+    simulateManagerEvents([
+      {
+        id: 'e1',
+        kind: 'notification',
+        provider: 'codex',
+        threadId: 'thread-1',
+        createdAt: new Date().toISOString(),
+        method: 'turn/completed',
+        payload: { turn: { status: 'completed' } }
+      }
+    ])
+
+    await impl.prompt('/test/project', 'thread-1', 'Regular prompt', undefined, {
+      successCriteria: 'Ignored without goal mode'
+    })
+
+    expect(mockManager.setThreadGoal).not.toHaveBeenCalled()
+    expect(mockManager.sendTurn).toHaveBeenCalled()
+  })
+
+  it('fails the prompt before sendTurn when explicit goal setup fails', async () => {
+    const session = seedSession()
+    mockManager.setThreadGoal.mockRejectedValue(new Error('goal RPC failed'))
+
+    await impl.prompt('/test/project', 'thread-1', 'Ship the migration', undefined, {
+      goalMode: true
+    })
+
+    expect(mockManager.sendTurn).not.toHaveBeenCalled()
+    expect(session.status).toBe('error')
+
+    const errorEvents = mockWindow.webContents.send.mock.calls
+      .filter((c: any[]) => c[0] === 'agent:stream')
+      .map((c: any[]) => c[1])
+      .filter((e: any) => e.type === 'session.error')
+    expect(errorEvents).toHaveLength(1)
+    expect(errorEvents[0].data.error).toBe('goal RPC failed')
   })
 
   // ── plan mode interactionMode ───────────────────────────────
