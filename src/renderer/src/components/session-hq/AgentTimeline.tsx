@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils'
 import { formatMessageTime } from '@/lib/format-time'
 import type { TimelineMessage, StreamingPart, ToolUseInfo } from '@shared/lib/timeline-types'
 import type { MessagePart } from '@shared/types/opencode'
+import type { AgentSessionGoalState } from '@shared/types/agent-protocol'
 import type { SessionLifecycle } from '@/stores/useSessionRuntimeStore'
 import { CopyMessageButton } from '@/components/sessions/CopyMessageButton'
 import { ForkMessageButton } from '@/components/sessions/ForkMessageButton'
@@ -31,7 +32,8 @@ import {
   AskUserCard,
   SubAgentCard,
   TextCard,
-  TodoCard
+  TodoCard,
+  GoalStatusCard
 } from './cards'
 import { ThreadStatusRow, type ThreadStatusRowData } from './ThreadStatusRow'
 import { SystemNotificationBar } from '../sessions/SystemNotificationBar'
@@ -616,6 +618,7 @@ export interface AgentTimelineProps {
    */
   activeRunStartedAt?: number | string | null
   lifecycle: SessionLifecycle
+  sessionGoal?: AgentSessionGoalState | null
   ephemeralStatusRows?: ThreadStatusRowData[]
   /**
    * Live compaction marker that should appear inline at its own timestamp
@@ -673,6 +676,7 @@ export function AgentTimeline({
   isStreaming,
   activeRunStartedAt,
   lifecycle: _lifecycle,
+  sessionGoal = null,
   ephemeralStatusRows = [],
   inflightCompaction = null,
   suppressTodoCards,
@@ -898,6 +902,12 @@ export function AgentTimeline({
           paddingBottom: `${Math.max(bottomFloatingHeight + 88, 360)}px`
         }}
       >
+        {sessionGoal && (
+          <div className="mb-5">
+            <GoalStatusCard goal={sessionGoal} />
+          </div>
+        )}
+
         {/* Inline compaction marker inserted by timestamp. */}
         {inflightCompaction && inflightCompactionInsertAfter === -1 && (
           <ThreadStatusRow key={inflightCompaction.id} status={inflightCompaction} />
@@ -1137,7 +1147,7 @@ export function AgentTimeline({
         ))}
 
         {/* Empty state */}
-        {nodes.length === 0 && ephemeralStatusRows.length === 0 && !isStreaming && (
+        {nodes.length === 0 && ephemeralStatusRows.length === 0 && !isStreaming && !sessionGoal && (
           <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
             <MessageSquare className="h-10 w-10 mb-3 opacity-30" />
             <div className="text-sm font-medium">No messages yet</div>

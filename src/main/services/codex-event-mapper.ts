@@ -1,6 +1,7 @@
 import type { OpenCodeStreamEvent } from '@shared/types/opencode'
 import type {
   CanonicalToolName,
+  AgentSessionGoalState,
   ToolStatus,
   ToolPart,
   ToolState,
@@ -195,6 +196,56 @@ export function buildCodexPlanUpdateSummary(todos: CodexPlanTodo[]): string {
   if (inProgress > 0) fragments.push(`${inProgress} in progress`)
   if (cancelled > 0) fragments.push(`${cancelled} cancelled`)
   return fragments.join(', ')
+}
+
+// ── Goal helpers ─────────────────────────────────────────────────
+
+function asNumberOrNull(value: unknown): number | null | undefined {
+  if (value === null) return null
+  return asNumber(value)
+}
+
+function maybeAssignNumberOrNull(
+  target: Record<string, unknown>,
+  key: keyof AgentSessionGoalState,
+  value: unknown
+): void {
+  const normalized = asNumberOrNull(value)
+  if (normalized !== undefined) {
+    target[key] = normalized
+  }
+}
+
+export function normalizeCodexThreadGoal(
+  value: unknown,
+  fallbackThreadId?: string
+): AgentSessionGoalState | null {
+  const goal = asObject(value)
+  if (!goal) return null
+
+  const objective = asString(goal.objective)?.trim()
+  if (!objective) return null
+
+  const status = asString(goal.status)?.trim() || 'active'
+  const normalized: Record<string, unknown> = {
+    objective,
+    status
+  }
+  const threadId = asString(goal.threadId) ?? fallbackThreadId
+  if (threadId) normalized.threadId = threadId
+
+  maybeAssignNumberOrNull(normalized, 'tokenBudget', goal.tokenBudget)
+  maybeAssignNumberOrNull(normalized, 'tokensUsed', goal.tokensUsed)
+  maybeAssignNumberOrNull(normalized, 'timeUsedSeconds', goal.timeUsedSeconds)
+  maybeAssignNumberOrNull(normalized, 'createdAt', goal.createdAt)
+  maybeAssignNumberOrNull(normalized, 'updatedAt', goal.updatedAt)
+
+  return normalized as AgentSessionGoalState
+}
+
+function extractTurnId(event: CodexManagerEvent): string | undefined {
+  const payload = asObject(event.payload)
+  return event.turnId ?? asString(payload?.turnId) ?? asString(asObject(payload?.turn)?.id)
 }
 
 // ── Status normalization ─────────────────────────────────────────
@@ -596,6 +647,49 @@ export function mapCodexEventToStreamEvents(
   // ── Stderr is informational ──────────────────────────────────
   if (method === 'process/stderr') {
     return []
+  }
+
+  // ── Thread goal lifecycle ─────────────────────────────────────
+  if (method === 'thread/goal/updated') {
+    const payload = asObject(event.payload)
+    const threadId = asString(payload?.threadId) ?? event.threadId
+    const goal = normalizeCodexThreadGoal(payload?.goal, threadId)
+    if (!goal) return []
+    const turnId = extractTurnId(event)
+    return [
+      {
+        type: 'session.goal_updated',
+        sessionId: hiveSessionId,
+        runtimeId: 'codex',
+        data: {
+          goal,
+          status: goal.status,
+          threadId: goal.threadId ?? threadId,
+          ...(turnId ? { turnId } : {}),
+          source: 'codex'
+        }
+      }
+    ]
+  }
+
+  if (method === 'thread/goal/cleared') {
+    const payload = asObject(event.payload)
+    const threadId = asString(payload?.threadId) ?? event.threadId
+    const turnId = extractTurnId(event)
+    return [
+      {
+        type: 'session.goal_cleared',
+        sessionId: hiveSessionId,
+        runtimeId: 'codex',
+        data: {
+          goal: null,
+          status: 'cleared',
+          ...(threadId ? { threadId } : {}),
+          ...(turnId ? { turnId } : {}),
+          source: 'codex'
+        }
+      }
+    ]
   }
 
   // ── Content deltas ───────────────────────────────────────────

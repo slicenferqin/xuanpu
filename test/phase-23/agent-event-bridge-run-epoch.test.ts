@@ -197,6 +197,21 @@ function makePartEvent(
   }
 }
 
+function makeGoalEvent(
+  type: 'session.goal_updated' | 'session.goal_cleared',
+  data: Record<string, unknown> = {}
+): CanonicalAgentEvent {
+  return {
+    type,
+    sessionId: 'sess-1',
+    runEpoch: 1,
+    sessionSequence: type === 'session.goal_updated' ? 1 : 2,
+    eventId: type,
+    sourceChannel: 'agent:stream',
+    data
+  } as unknown as CanonicalAgentEvent
+}
+
 describe('session event run guard', () => {
   beforeEach(() => {
     resetSessionEventGuardsForTests()
@@ -314,5 +329,41 @@ describe('useAgentEventBridge runEpoch guard', () => {
     for (const unsubscribe of unsubscribers) {
       unsubscribe()
     }
+  })
+
+  test('updates and clears renderer goal state from goal events', () => {
+    renderHook(() => useAgentEventBridge())
+    expect(streamCallback).not.toBeNull()
+
+    streamCallback!(makeGoalEvent('session.goal_updated', {
+      goal: {
+        threadId: 'thread-1',
+        objective: 'Build the goal foundation',
+        status: 'active',
+        tokenBudget: null,
+        tokensUsed: 42,
+        timeUsedSeconds: 12,
+        createdAt: 100,
+        updatedAt: 200
+      },
+      status: 'active',
+      threadId: 'thread-1',
+      source: 'codex'
+    }))
+
+    expect(useSessionRuntimeStore.getState().getSessionGoal('sess-1')).toEqual({
+      threadId: 'thread-1',
+      objective: 'Build the goal foundation',
+      status: 'active',
+      tokenBudget: null,
+      tokensUsed: 42,
+      timeUsedSeconds: 12,
+      createdAt: 100,
+      updatedAt: 200
+    })
+
+    streamCallback!(makeGoalEvent('session.goal_cleared'))
+
+    expect(useSessionRuntimeStore.getState().getSessionGoal('sess-1')).toBeNull()
   })
 })

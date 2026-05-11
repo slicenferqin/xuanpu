@@ -468,6 +468,93 @@ describe('turn/diff/updated', () => {
 })
 
 // ────────────────────────────────────────────────────────────────────
+// thread/goal notifications → session goal events
+// ────────────────────────────────────────────────────────────────────
+describe('thread/goal notifications', () => {
+  it('maps thread/goal/updated to session.goal_updated', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
+        method: 'thread/goal/updated',
+        turnId: 'turn-4',
+        payload: {
+          threadId: 'thread-1',
+          goal: {
+            threadId: 'thread-1',
+            objective: 'Finish the migration',
+            status: 'active',
+            tokenBudget: 50000,
+            tokensUsed: 1200,
+            timeUsedSeconds: 90,
+            createdAt: 10,
+            updatedAt: 20
+          }
+        }
+      }),
+      HIVE
+    )
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({
+      type: 'session.goal_updated',
+      sessionId: HIVE,
+      runtimeId: 'codex',
+      data: {
+        status: 'active',
+        threadId: 'thread-1',
+        turnId: 'turn-4',
+        source: 'codex',
+        goal: {
+          threadId: 'thread-1',
+          objective: 'Finish the migration',
+          status: 'active',
+          tokenBudget: 50000,
+          tokensUsed: 1200,
+          timeUsedSeconds: 90,
+          createdAt: 10,
+          updatedAt: 20
+        }
+      }
+    })
+  })
+
+  it('maps thread/goal/cleared to session.goal_cleared', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
+        method: 'thread/goal/cleared',
+        payload: { threadId: 'thread-1' }
+      }),
+      HIVE
+    )
+
+    expect(result).toEqual([
+      {
+        type: 'session.goal_cleared',
+        sessionId: HIVE,
+        runtimeId: 'codex',
+        data: {
+          goal: null,
+          status: 'cleared',
+          threadId: 'thread-1',
+          source: 'codex'
+        }
+      }
+    ])
+  })
+
+  it('drops goal updates without an objective', () => {
+    expect(
+      mapCodexEventToStreamEvents(
+        makeEvent({
+          method: 'thread/goal/updated',
+          payload: { threadId: 'thread-1', goal: { status: 'active' } }
+        }),
+        HIVE
+      )
+    ).toEqual([])
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────
 // thread/tokenUsage/updated → session.context_usage
 // ────────────────────────────────────────────────────────────────────
 describe('thread/tokenUsage/updated', () => {

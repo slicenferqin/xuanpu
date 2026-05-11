@@ -4,6 +4,7 @@ import { asObject, asString } from './codex-utils'
 import {
   buildCodexPlanUpdateSummary,
   buildCodexUpdatePlanCallId,
+  normalizeCodexThreadGoal,
   normalizeCodexPlanUpdateTodos
 } from './codex-event-mapper'
 
@@ -193,6 +194,50 @@ export function mapCodexManagerEventToActivity(
           tool: 'update_plan',
           callID: buildCodexUpdatePlanCallId(event),
           todos
+        }
+      )
+    }
+
+    case 'thread/goal/updated': {
+      const threadId = asString(payload?.threadId) ?? event.threadId
+      const goal = normalizeCodexThreadGoal(payload?.goal, threadId)
+      if (!goal) return null
+
+      return buildActivity(
+        sessionId,
+        agentSessionId,
+        event,
+        'session.info',
+        'info',
+        `Goal updated: ${goal.objective}`,
+        {
+          ...(payload ?? {}),
+          kind: 'goal.updated',
+          source: 'codex',
+          goal,
+          status: goal.status,
+          threadId: goal.threadId ?? threadId
+        }
+      )
+    }
+
+    case 'thread/goal/cleared': {
+      const threadId = asString(payload?.threadId) ?? event.threadId
+
+      return buildActivity(
+        sessionId,
+        agentSessionId,
+        event,
+        'session.info',
+        'info',
+        'Goal cleared',
+        {
+          ...(payload ?? {}),
+          kind: 'goal.cleared',
+          source: 'codex',
+          goal: null,
+          status: 'cleared',
+          threadId
         }
       )
     }

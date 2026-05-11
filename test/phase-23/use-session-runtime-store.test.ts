@@ -124,6 +124,61 @@ describe('useSessionRuntimeStore', () => {
     })
   })
 
+  describe('session goal', () => {
+    it('sets and returns goal state for a session', () => {
+      useSessionRuntimeStore.getState().setSessionGoal('sess-1', {
+        threadId: 'thread-1',
+        objective: 'Ship Codex goal foundation',
+        status: 'active',
+        tokenBudget: null,
+        tokensUsed: 1200,
+        timeUsedSeconds: 90,
+        createdAt: 10,
+        updatedAt: 20
+      })
+
+      const goal = useSessionRuntimeStore.getState().getSessionGoal('sess-1')
+      expect(goal).toEqual({
+        threadId: 'thread-1',
+        objective: 'Ship Codex goal foundation',
+        status: 'active',
+        tokenBudget: null,
+        tokensUsed: 1200,
+        timeUsedSeconds: 90,
+        createdAt: 10,
+        updatedAt: 20
+      })
+    })
+
+    it('keeps goal state isolated by session', () => {
+      const store = useSessionRuntimeStore.getState()
+      store.setSessionGoal('sess-A', { objective: 'Goal A', status: 'active' })
+      store.setSessionGoal('sess-B', { objective: 'Goal B', status: 'active' })
+
+      expect(store.getSessionGoal('sess-A')?.objective).toBe('Goal A')
+      expect(store.getSessionGoal('sess-B')?.objective).toBe('Goal B')
+    })
+
+    it('clears a single session goal', () => {
+      const store = useSessionRuntimeStore.getState()
+      store.setSessionGoal('sess-A', { objective: 'Goal A', status: 'active' })
+      store.setSessionGoal('sess-B', { objective: 'Goal B', status: 'active' })
+      store.clearSessionGoal('sess-A')
+
+      expect(store.getSessionGoal('sess-A')).toBeNull()
+      expect(store.getSessionGoal('sess-B')?.objective).toBe('Goal B')
+    })
+
+    it('clearSession removes goal state', () => {
+      const store = useSessionRuntimeStore.getState()
+      store.setSessionGoal('sess-1', { objective: 'Goal to clear', status: 'active' })
+      store.clearSession('sess-1')
+
+      expect(store.getSessionGoal('sess-1')).toBeNull()
+      expect(useSessionRuntimeStore.getState().goals.has('sess-1')).toBe(false)
+    })
+  })
+
   describe('interrupt queue', () => {
     it('pushes and retrieves interrupts', () => {
       useSessionRuntimeStore.getState().pushInterrupt('sess-1', {
@@ -518,10 +573,17 @@ describe('useSessionRuntimeStore', () => {
       const snapshot = getStreamingBufferSnapshot('sess-idle')
       expect(snapshot.activeRunEpoch).toBe(4)
       expect(snapshot.lastAppliedSequence).toBe(18)
-      expect(snapshot.streamingContent).toBe('')
-      expect(snapshot.parts).toEqual([])
+      expect(snapshot.streamingContent).toBe('background reply')
+      expect(snapshot.parts).toEqual([{ type: 'text', text: 'background reply' }])
       expect(snapshot.isStreaming).toBe(false)
-      expect(snapshot.optimisticMessages).toBeUndefined()
+      expect(snapshot.optimisticMessages).toEqual([
+        {
+          id: 'optimistic-1',
+          role: 'user',
+          content: 'queued',
+          timestamp: '2026-04-19T00:00:00.000Z'
+        }
+      ])
       expect(snapshot.compactionState).toEqual({
         phase: 'running',
         timestamp: 456

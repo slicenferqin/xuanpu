@@ -278,6 +278,20 @@ export function useAgentEventBridge(): void {
           // Always touch activity
           runtime.touchActivity(sessionId)
 
+          // ----- Session goal (Codex /goal foundation) -----
+          if (event.type === 'session.goal_updated') {
+            const goal = event.data.goal
+            if (goal) {
+              runtime.setSessionGoal(sessionId, goal)
+            }
+            return
+          }
+
+          if (event.type === 'session.goal_cleared') {
+            runtime.clearSessionGoal(sessionId)
+            return
+          }
+
           // ----- Model limits -----
           if (event.type === 'session.model_limits') {
             const models = event.data?.models as

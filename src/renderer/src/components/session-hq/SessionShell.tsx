@@ -261,10 +261,11 @@ function useTimeline(
 
 function useSessionRuntime(sessionId: string) {
   const lifecycle = useSessionRuntimeStore((s) => s.getSession(sessionId).lifecycle)
+  const goal = useSessionRuntimeStore((s) => s.getSessionGoal(sessionId))
   const interruptQueue = useSessionRuntimeStore((s) => s.getInterruptQueue(sessionId))
   const pendingCount = useSessionRuntimeStore((s) => s.getPendingCount(sessionId))
 
-  return { lifecycle, interruptQueue, pendingCount }
+  return { lifecycle, goal, interruptQueue, pendingCount }
 }
 
 function useStreamingMirror(sessionId: string) {
@@ -365,7 +366,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     opencodeSessionId: opcSessionId ?? droidSessionId,
     agentSdk
   })
-  const { lifecycle, interruptQueue, pendingCount } = useSessionRuntime(sessionId)
+  const { lifecycle, goal, interruptQueue, pendingCount } = useSessionRuntime(sessionId)
 
   // --- Connect or reconnect to agent runtime on mount ---
 
@@ -1548,6 +1549,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           isStreaming={isStreaming}
           activeRunStartedAt={runStartedAt}
           lifecycle={lifecycle}
+          sessionGoal={goal}
           ephemeralStatusRows={ephemeralStatusRows}
           inflightCompaction={inflightCompactionRow}
           suppressTodoCards={missionVisible}
