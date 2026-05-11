@@ -1,16 +1,19 @@
 import { useCallback } from 'react'
-import { ChevronUp, ChevronDown, Columns2, AlignJustify, Copy, X } from 'lucide-react'
+import { ChevronUp, ChevronDown, Columns2, AlignJustify, Copy, X, ListCollapse } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { useI18n } from '@/i18n/useI18n'
+import { cn } from '@/lib/utils'
+
+export type MonacoDiffViewMode = 'split' | 'inline' | 'hunk'
 
 interface MonacoDiffToolbarProps {
   fileName: string
   staged: boolean
   isUntracked: boolean
   compareBranch?: string
-  sideBySide: boolean
-  onToggleSideBySide: () => void
+  viewMode: MonacoDiffViewMode
+  onViewModeChange: (viewMode: MonacoDiffViewMode) => void
   onPrevHunk: () => void
   onNextHunk: () => void
   onCopy: () => void
@@ -22,8 +25,8 @@ export function MonacoDiffToolbar({
   staged,
   isUntracked,
   compareBranch,
-  sideBySide,
-  onToggleSideBySide,
+  viewMode,
+  onViewModeChange,
   onPrevHunk,
   onNextHunk,
   onCopy,
@@ -76,25 +79,55 @@ export function MonacoDiffToolbar({
 
         <div className="w-px h-4 bg-border mx-1" />
 
-        {/* View mode toggle */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6"
-          onClick={onToggleSideBySide}
-          title={
-            sideBySide
-              ? t('diffUi.actions.switchToInlineView')
-              : t('diffUi.actions.switchToSideBySideView')
-          }
-          data-testid="monaco-diff-view-toggle"
+        <div
+          className="flex items-center rounded-md border border-border/60 bg-background/70 p-0.5"
+          role="group"
+          aria-label={t('diffUi.actions.viewModeGroup')}
+          data-testid="monaco-diff-view-mode-group"
         >
-          {sideBySide ? (
-            <AlignJustify className="h-3.5 w-3.5" />
-          ) : (
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              'h-5 w-5 rounded-[5px]',
+              viewMode === 'split' && 'bg-accent text-accent-foreground'
+            )}
+            onClick={() => onViewModeChange('split')}
+            title={t('diffUi.actions.switchToSideBySideView')}
+            aria-label={t('diffUi.actions.switchToSideBySideView')}
+            data-testid="monaco-diff-view-split"
+          >
             <Columns2 className="h-3.5 w-3.5" />
-          )}
-        </Button>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              'h-5 w-5 rounded-[5px]',
+              viewMode === 'inline' && 'bg-accent text-accent-foreground'
+            )}
+            onClick={() => onViewModeChange('inline')}
+            title={t('diffUi.actions.switchToInlineView')}
+            aria-label={t('diffUi.actions.switchToInlineView')}
+            data-testid="monaco-diff-view-inline"
+          >
+            <AlignJustify className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              'h-5 w-5 rounded-[5px]',
+              viewMode === 'hunk' && 'bg-accent text-accent-foreground'
+            )}
+            onClick={() => onViewModeChange('hunk')}
+            title={t('diffUi.actions.switchToHunkView')}
+            aria-label={t('diffUi.actions.switchToHunkView')}
+            data-testid="monaco-diff-view-hunk"
+          >
+            <ListCollapse className="h-3.5 w-3.5" />
+          </Button>
+        </div>
 
         {/* Copy */}
         <Button

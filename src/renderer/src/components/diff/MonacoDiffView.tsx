@@ -6,6 +6,7 @@ import { registerHiveTheme, HIVE_THEME_NAME } from '@/lib/monaco-theme'
 import { parseHunks, getMonacoLanguage } from '@/lib/diff-utils'
 import type { Hunk } from '@/lib/diff-utils'
 import { MonacoDiffToolbar } from './MonacoDiffToolbar'
+import type { MonacoDiffViewMode } from './MonacoDiffToolbar'
 import { HunkActionGutter } from './HunkActionGutter'
 import { PrCommentGutter } from './PrCommentGutter'
 import { usePRReviewStore } from '@/stores/usePRReviewStore'
@@ -46,8 +47,10 @@ export default function MonacoDiffView({
   const [modifiedContent, setModifiedContent] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  // PR review diffs always use inline mode so view zones render naturally
-  const [sideBySide, setSideBySide] = useState(!prReviewWorktreeId)
+  // PR review diffs default to inline mode so comment view zones render naturally.
+  const [viewMode, setViewMode] = useState<MonacoDiffViewMode>(
+    prReviewWorktreeId ? 'inline' : 'split'
+  )
   const [hunks, setHunks] = useState<Hunk[]>([])
   const [refreshKey, setRefreshKey] = useState(0)
   const isInitialLoad = useRef(true)
@@ -226,11 +229,6 @@ export default function MonacoDiffView({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [onClose, handleNextHunk, handlePrevHunk])
 
-  // Toggle side-by-side / inline
-  const handleToggleSideBySide = useCallback(() => {
-    setSideBySide((prev) => !prev)
-  }, [])
-
   // Copy diff content
   const handleCopy = useCallback(async () => {
     if (compareBranch) {
@@ -257,6 +255,8 @@ export default function MonacoDiffView({
   }, [])
 
   const language = getMonacoLanguage(filePath)
+  const renderSideBySide = viewMode === 'split'
+  const hideUnchangedRegions = viewMode === 'hunk'
 
   if (isLoading) {
     return (
@@ -266,8 +266,8 @@ export default function MonacoDiffView({
           staged={staged}
           isUntracked={isUntracked}
           compareBranch={compareBranch}
-          sideBySide={sideBySide}
-          onToggleSideBySide={handleToggleSideBySide}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
           onPrevHunk={handlePrevHunk}
           onNextHunk={handleNextHunk}
           onCopy={handleCopy}
@@ -288,8 +288,8 @@ export default function MonacoDiffView({
           staged={staged}
           isUntracked={isUntracked}
           compareBranch={compareBranch}
-          sideBySide={sideBySide}
-          onToggleSideBySide={handleToggleSideBySide}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
           onPrevHunk={handlePrevHunk}
           onNextHunk={handleNextHunk}
           onCopy={handleCopy}
@@ -312,8 +312,8 @@ export default function MonacoDiffView({
         staged={staged}
         isUntracked={isUntracked}
         compareBranch={compareBranch}
-        sideBySide={sideBySide}
-        onToggleSideBySide={handleToggleSideBySide}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
         onPrevHunk={handlePrevHunk}
         onNextHunk={handleNextHunk}
         onCopy={handleCopy}
@@ -330,12 +330,18 @@ export default function MonacoDiffView({
           options={{
             readOnly: true,
             originalEditable: false,
-            renderSideBySide: sideBySide,
+            renderSideBySide,
             enableSplitViewResizing: true,
             ignoreTrimWhitespace: false,
             renderIndicators: true,
             renderMarginRevertIcon: false,
             diffAlgorithm: 'advanced',
+            hideUnchangedRegions: {
+              enabled: hideUnchangedRegions,
+              contextLineCount: 3,
+              minimumLineCount: 4,
+              revealLineCount: 16
+            },
             minimap: { enabled: false },
             scrollBeyondLastLine: false,
             fontSize: 12,
