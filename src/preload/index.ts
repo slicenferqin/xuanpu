@@ -106,8 +106,10 @@ const db = {
 
   // Local diff comments
   diffComment: {
-    list: (worktreeId: string, filePath?: string) =>
-      ipcRenderer.invoke('db:diffComment:list', { worktreeId, filePath }),
+    list: (
+      worktreeId: string,
+      options?: { filePath?: string; compareBranch?: string | null; staged?: boolean }
+    ) => ipcRenderer.invoke('db:diffComment:list', { worktreeId, options }),
     create: (data: {
       worktreeId: string
       filePath: string

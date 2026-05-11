@@ -2187,23 +2187,38 @@ export class DatabaseService {
       .all() as ProjectSpaceAssignment[]
   }
 
-  getDiffComments(worktreeId: string, filePath?: string): DiffComment[] {
+  getDiffComments(
+    worktreeId: string,
+    options: { filePath?: string; compareBranch?: string | null; staged?: boolean } = {}
+  ): DiffComment[] {
     const db = this.getDb()
-    const rows = filePath
-      ? (db
-          .prepare(
-            `SELECT * FROM diff_comments
-             WHERE worktree_id = ? AND file_path = ?
-             ORDER BY line_number ASC, created_at ASC`
-          )
-          .all(worktreeId, filePath) as Record<string, unknown>[])
-      : (db
-          .prepare(
-            `SELECT * FROM diff_comments
-             WHERE worktree_id = ?
-             ORDER BY file_path ASC, line_number ASC, created_at ASC`
-          )
-          .all(worktreeId) as Record<string, unknown>[])
+    const filters = ['worktree_id = ?']
+    const values: unknown[] = [worktreeId]
+
+    if (options.filePath) {
+      filters.push('file_path = ?')
+      values.push(options.filePath)
+    }
+    if (options.staged !== undefined) {
+      filters.push('staged = ?')
+      values.push(options.staged ? 1 : 0)
+    }
+    if (Object.prototype.hasOwnProperty.call(options, 'compareBranch')) {
+      if (options.compareBranch == null) {
+        filters.push('compare_branch IS NULL')
+      } else {
+        filters.push('compare_branch = ?')
+        values.push(options.compareBranch)
+      }
+    }
+
+    const rows = db
+      .prepare(
+        `SELECT * FROM diff_comments
+         WHERE ${filters.join(' AND ')}
+         ORDER BY file_path ASC, line_number ASC, created_at ASC`
+      )
+      .all(...values) as Record<string, unknown>[]
 
     return rows.map((row) => this.mapDiffCommentRow(row))
   }

@@ -23,7 +23,11 @@ import type {
   SpaceCreate,
   SpaceUpdate
 } from '../db'
-import type { DiffCommentCreate, DiffCommentUpdate } from '@shared/types/git'
+import type {
+  DiffCommentCreate,
+  DiffCommentListOptions,
+  DiffCommentUpdate
+} from '@shared/types/git'
 
 const log = createLogger({ component: 'DatabaseHandlers' })
 
@@ -290,8 +294,8 @@ export function registerDatabaseHandlers(): void {
   // Local diff comments
   ipcMain.handle(
     'db:diffComment:list',
-    (_event, { worktreeId, filePath }: { worktreeId: string; filePath?: string }) => {
-      return getDatabase().getDiffComments(worktreeId, filePath)
+    (_event, { worktreeId, options }: { worktreeId: string; options?: DiffCommentListOptions }) => {
+      return getDatabase().getDiffComments(worktreeId, options)
     }
   )
 

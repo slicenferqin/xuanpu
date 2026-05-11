@@ -63,6 +63,7 @@ export interface ComposerBarProps {
   /** Bumped when session.commands_available fires — triggers re-fetch of SDK commands */
   commandsVersion?: number
   containerRef?: React.RefObject<HTMLDivElement | null>
+  contextAttachmentSlot?: React.ReactNode
 }
 
 // ---------------------------------------------------------------------------
@@ -312,7 +313,8 @@ export function ComposerBar({
   onSuccessCriteriaChange,
   worktreePath,
   commandsVersion = 0,
-  containerRef
+  containerRef,
+  contextAttachmentSlot
 }: ComposerBarProps): React.JSX.Element {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [content, setContent] = useState('')
@@ -614,6 +616,8 @@ export function ComposerBar({
           {pendingCount} message{pendingCount > 1 ? 's' : ''} queued
         </div>
       )}
+
+      {contextAttachmentSlot}
 
       {/* Attachments preview */}
       {attachments.length > 0 && (

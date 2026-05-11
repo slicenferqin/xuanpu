@@ -47,6 +47,11 @@ describe('diff comments workflow', () => {
   test('loads and mutates file-scoped diff comments through the preload API', async () => {
     await useDiffCommentStore.getState().loadComments('wt-1', 'src/App.tsx')
 
+    expect(window.db.diffComment.list).toHaveBeenCalledWith('wt-1', {
+      filePath: 'src/App.tsx',
+      staged: false,
+      compareBranch: null
+    })
     expect(useDiffCommentStore.getState().getFileComments('wt-1', 'src/App.tsx')).toEqual([
       baseComment
     ])
@@ -82,6 +87,62 @@ describe('diff comments workflow', () => {
     expect(useDiffCommentStore.getState().attachedComments).toHaveLength(0)
   })
 
+  test('keeps comments isolated by staged state and compare branch', async () => {
+    const stagedComment: DiffComment = { ...baseComment, id: 'comment-staged', staged: true }
+    const branchComment: DiffComment = {
+      ...baseComment,
+      id: 'comment-branch',
+      compareBranch: 'main'
+    }
+    const list = vi.fn().mockImplementation(
+      (
+        _worktreeId: string,
+        options?: {
+          filePath?: string
+          staged?: boolean
+          compareBranch?: string | null
+        }
+      ) => {
+        if (options?.staged) return Promise.resolve([stagedComment])
+        if (options?.compareBranch === 'main') return Promise.resolve([branchComment])
+        return Promise.resolve([baseComment])
+      }
+    )
+    installDbMock({ list })
+
+    await useDiffCommentStore.getState().loadComments('wt-1', 'src/App.tsx', {
+      staged: false,
+      compareBranch: null
+    })
+    await useDiffCommentStore.getState().loadComments('wt-1', 'src/App.tsx', {
+      staged: true,
+      compareBranch: null
+    })
+    await useDiffCommentStore.getState().loadComments('wt-1', 'src/App.tsx', {
+      staged: false,
+      compareBranch: 'main'
+    })
+
+    expect(
+      useDiffCommentStore.getState().getFileComments('wt-1', 'src/App.tsx', {
+        staged: false,
+        compareBranch: null
+      })
+    ).toEqual([baseComment])
+    expect(
+      useDiffCommentStore.getState().getFileComments('wt-1', 'src/App.tsx', {
+        staged: true,
+        compareBranch: null
+      })
+    ).toEqual([stagedComment])
+    expect(
+      useDiffCommentStore.getState().getFileComments('wt-1', 'src/App.tsx', {
+        staged: false,
+        compareBranch: 'main'
+      })
+    ).toEqual([branchComment])
+  })
+
   test('Monaco and SessionView are wired to create and send diff comment context', async () => {
     const fs = await import('fs')
     const path = await import('path')
@@ -93,6 +154,10 @@ describe('diff comments workflow', () => {
       path.resolve(__dirname, '../../src/renderer/src/components/sessions/SessionView.tsx'),
       'utf-8'
     )
+    const sessionShellSource = fs.readFileSync(
+      path.resolve(__dirname, '../../src/renderer/src/components/session-hq/SessionShell.tsx'),
+      'utf-8'
+    )
     const sidebarSource = fs.readFileSync(
       path.resolve(__dirname, '../../src/renderer/src/components/file-tree/FileSidebar.tsx'),
       'utf-8'
@@ -102,6 +167,10 @@ describe('diff comments workflow', () => {
     expect(monacoSource).toContain('onAddComment={canUseDiffComments')
     expect(sessionSource).toContain('<diff-comment file=')
     expect(sessionSource).toContain('<DiffCommentAttachments />')
+    expect(sessionShellSource).toContain('buildLocalDiffCommentContext')
+    expect(sessionShellSource).toContain('const contentToSend = diffCommentContext + content')
+    expect(sessionShellSource).toContain('<DiffCommentAttachments />')
+    expect(sessionShellSource).toContain('contextAttachmentSlot={<DiffCommentAttachments />}')
     expect(sidebarSource).toContain('<DiffCommentsViewer')
   })
 })

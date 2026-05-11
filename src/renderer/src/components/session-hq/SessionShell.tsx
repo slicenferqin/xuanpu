@@ -40,11 +40,13 @@ import { useSessionStore, type PendingPromptOptions } from '@/stores/useSessionS
 import { useWorktreeStore } from '@/stores'
 import { useContextStore } from '@/stores/useContextStore'
 import { useWorktreeStatusStore } from '@/stores/useWorktreeStatusStore'
+import { useDiffCommentStore } from '@/stores/useDiffCommentStore'
 import { useSettingsStore, resolveModelForSdk } from '@/stores/useSettingsStore'
-import { Loader2 } from 'lucide-react'
+import { Loader2, MessageSquare, X } from 'lucide-react'
 import type { TimelineMessage } from '@shared/lib/timeline-types'
 import type { Attachment } from '../sessions/AttachmentPreview'
 import type { MessagePart } from '@shared/types/opencode'
+import type { DiffComment } from '@shared/types/git'
 import { buildMessageParts } from '@/lib/file-attachment-utils'
 import type { CanonicalAgentEvent } from '@shared/types/agent-protocol'
 import type { StreamingPart as SharedStreamingPart } from '@shared/lib/timeline-types'
@@ -108,6 +110,77 @@ function extractMissionTasks(messages: TimelineMessage[]): MissionTask[] {
   }
 
   return []
+}
+
+function escapeContextAttribute(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+}
+
+function buildLocalDiffCommentContext(comments: DiffComment[]): string {
+  if (comments.length === 0) return ''
+  return (
+    comments
+      .map((comment) => {
+        const compareBranch = comment.compareBranch
+          ? ` compareBranch="${escapeContextAttribute(comment.compareBranch)}"`
+          : ''
+        return `<diff-comment file="${escapeContextAttribute(comment.filePath)}" line="${comment.lineNumber}" side="${comment.side}" staged="${comment.staged}" resolved="${comment.resolved}"${compareBranch}>\n${comment.body}\n</diff-comment>`
+      })
+      .join('\n\n') + '\n\n'
+  )
+}
+
+function DiffCommentAttachments(): React.JSX.Element | null {
+  const { t } = useI18n()
+  const attachedComments = useDiffCommentStore((s) => s.attachedComments)
+  const removeAttachment = useDiffCommentStore((s) => s.removeAttachment)
+  const clearAttachments = useDiffCommentStore((s) => s.clearAttachments)
+
+  if (attachedComments.length === 0) return null
+
+  return (
+    <div className="px-4 pt-3 pb-0">
+      <div className="flex flex-wrap gap-2">
+        {attachedComments.map((comment) => {
+          const fileName = comment.filePath.split('/').pop() ?? comment.filePath
+          return (
+            <div
+              key={comment.id}
+              className="group relative flex min-w-[180px] max-w-[320px] flex-col gap-1 rounded-md border border-border/70 bg-background/75 px-3 py-2 text-xs"
+            >
+              <div className="flex items-center gap-2">
+                <MessageSquare className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                  {fileName}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeAttachment(comment.id)}
+                  className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+                  aria-label={t('diffComments.removeAttachment')}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <span className="truncate font-mono text-[11px] text-muted-foreground">
+                {comment.filePath}:{comment.lineNumber}
+              </span>
+              <span className="line-clamp-2 text-muted-foreground">{comment.body}</span>
+            </div>
+          )
+        })}
+        {attachedComments.length > 1 && (
+          <button
+            type="button"
+            onClick={clearAttachments}
+            className="self-center rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            {t('diffComments.clearAttachments')}
+          </button>
+        )}
+      </div>
+    </div>
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -1207,6 +1280,11 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         return false
       }
 
+      const diffCommentContext = buildLocalDiffCommentContext(
+        useDiffCommentStore.getState().attachedComments
+      )
+      const contentToSend = diffCommentContext + content
+
       if (action === 'send' || action === 'stop_and_send' || action === 'steer') {
         resetLiveOverlay(true)
         // Lock provider/model selectors immediately. Main process also stamps
@@ -1217,7 +1295,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
       // Optimistic insert — show user message immediately in the timeline
       if (
-        (content.trim() || attachments.length > 0) &&
+        (contentToSend.trim() || attachments.length > 0) &&
         (action === 'send' || action === 'stop_and_send' || action === 'steer')
       ) {
         const optimisticAttachments: MessagePart[] = attachments
@@ -1226,7 +1304,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         const optimisticMsg: TimelineMessage = {
           id: `optimistic-${Date.now()}`,
           role: 'user',
-          content: content.trim(),
+          content: contentToSend.trim(),
           timestamp: new Date().toISOString(),
           ...(optimisticAttachments.length > 0 ? { attachments: optimisticAttachments } : {})
         }
@@ -1239,7 +1317,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       }
 
       try {
-        const consumed = await executeSendAction(action, content, attachments, {
+        const consumed = await executeSendAction(action, contentToSend, attachments, {
           worktreePath,
           sessionId: droidSessionId,
           prompt: async (wp, sid, c) => {
@@ -1259,6 +1337,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         }
         if (consumed) {
           void refreshSessionLastMessageAt(sessionId)
+          useDiffCommentStore.getState().clearAttachments()
         }
 
         return consumed
@@ -1815,6 +1894,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           onSuccessCriteriaChange={setSuccessCriteria}
           worktreePath={worktreePath}
           commandsVersion={commandsVersion}
+          contextAttachmentSlot={<DiffCommentAttachments />}
         />
 
         {/* v1.4.2: User-facing Memory panel — Pinned Facts / Observed

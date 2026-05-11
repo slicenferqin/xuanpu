@@ -76,7 +76,13 @@ export default function MonacoDiffView({
     () => (prReviewWorktreeId ? allPrComments.filter((c) => c.path === filePath) : EMPTY_COMMENTS),
     [allPrComments, filePath, prReviewWorktreeId]
   )
-  const diffCommentsKey = worktreeId ? diffCommentFileKey(worktreeId, filePath) : null
+  const diffCommentScope = useMemo(
+    () => ({ staged, compareBranch: compareBranch ?? null }),
+    [compareBranch, staged]
+  )
+  const diffCommentsKey = worktreeId
+    ? diffCommentFileKey(worktreeId, filePath, diffCommentScope)
+    : null
   const diffComments = useDiffCommentStore(
     (s) =>
       (diffCommentsKey ? s.commentsByFile.get(diffCommentsKey) : undefined) ?? EMPTY_DIFF_COMMENTS
@@ -89,9 +95,9 @@ export default function MonacoDiffView({
 
   useEffect(() => {
     if (worktreeId) {
-      loadDiffComments(worktreeId, filePath)
+      loadDiffComments(worktreeId, filePath, diffCommentScope)
     }
-  }, [worktreeId, filePath, loadDiffComments])
+  }, [worktreeId, filePath, diffCommentScope, loadDiffComments])
 
   // Fetch file contents for the diff
   const fetchContent = useCallback(async () => {

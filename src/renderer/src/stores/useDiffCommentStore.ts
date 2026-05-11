@@ -1,8 +1,35 @@
 import { create } from 'zustand'
 import type { DiffComment, DiffCommentCreate, DiffCommentUpdate } from '@shared/types/git'
 
-export function diffCommentFileKey(worktreeId: string, filePath: string): string {
-  return `${worktreeId}\u0000${filePath}`
+export interface DiffCommentScope {
+  compareBranch?: string | null
+  staged?: boolean
+}
+
+function normalizeScope(scope?: DiffCommentScope): {
+  compareBranch: string | null
+  staged: boolean
+} {
+  return {
+    compareBranch: scope?.compareBranch ?? null,
+    staged: scope?.staged ?? false
+  }
+}
+
+export function diffCommentFileKey(
+  worktreeId: string,
+  filePath: string,
+  scope?: DiffCommentScope
+): string {
+  const normalized = normalizeScope(scope)
+  return `${worktreeId}\u0000${filePath}\u0000${normalized.staged ? 'staged' : 'unstaged'}\u0000${normalized.compareBranch ?? ''}`
+}
+
+function diffCommentKeyForComment(comment: DiffComment): string {
+  return diffCommentFileKey(comment.worktreeId, comment.filePath, {
+    staged: comment.staged,
+    compareBranch: comment.compareBranch
+  })
 }
 
 function sortComments(comments: DiffComment[]): DiffComment[] {
@@ -20,7 +47,7 @@ interface DiffCommentStoreState {
   errorByKey: Map<string, string | null>
   attachedComments: DiffComment[]
 
-  loadComments: (worktreeId: string, filePath: string) => Promise<void>
+  loadComments: (worktreeId: string, filePath: string, scope?: DiffCommentScope) => Promise<void>
   loadWorktreeComments: (worktreeId: string) => Promise<void>
   createComment: (data: DiffCommentCreate) => Promise<DiffComment>
   updateComment: (id: string, data: DiffCommentUpdate) => Promise<DiffComment | null>
@@ -28,7 +55,7 @@ interface DiffCommentStoreState {
   attachComment: (comment: DiffComment) => void
   removeAttachment: (id: string) => void
   clearAttachments: () => void
-  getFileComments: (worktreeId: string, filePath: string) => DiffComment[]
+  getFileComments: (worktreeId: string, filePath: string, scope?: DiffCommentScope) => DiffComment[]
 }
 
 function upsertCommentInArray(comments: DiffComment[], comment: DiffComment): DiffComment[] {
@@ -47,8 +74,9 @@ export const useDiffCommentStore = create<DiffCommentStoreState>((set, get) => (
   errorByKey: new Map(),
   attachedComments: [],
 
-  loadComments: async (worktreeId, filePath) => {
-    const key = diffCommentFileKey(worktreeId, filePath)
+  loadComments: async (worktreeId, filePath, scope) => {
+    const normalized = normalizeScope(scope)
+    const key = diffCommentFileKey(worktreeId, filePath, normalized)
     set((state) => {
       const loadingKeys = new Set(state.loadingKeys)
       loadingKeys.add(key)
@@ -58,7 +86,11 @@ export const useDiffCommentStore = create<DiffCommentStoreState>((set, get) => (
     })
 
     try {
-      const comments = await window.db.diffComment.list(worktreeId, filePath)
+      const comments = await window.db.diffComment.list(worktreeId, {
+        filePath,
+        staged: normalized.staged,
+        compareBranch: normalized.compareBranch
+      })
       set((state) => {
         const commentsByFile = new Map(state.commentsByFile)
         commentsByFile.set(key, sortComments(comments))
@@ -95,12 +127,13 @@ export const useDiffCommentStore = create<DiffCommentStoreState>((set, get) => (
         const commentsByFile = new Map(state.commentsByFile)
         const byFile = new Map<string, DiffComment[]>()
         for (const comment of comments) {
-          const next = byFile.get(comment.filePath) ?? []
+          const key = diffCommentKeyForComment(comment)
+          const next = byFile.get(key) ?? []
           next.push(comment)
-          byFile.set(comment.filePath, next)
+          byFile.set(key, next)
         }
-        for (const [filePath, fileComments] of byFile) {
-          commentsByFile.set(diffCommentFileKey(worktreeId, filePath), sortComments(fileComments))
+        for (const [key, fileComments] of byFile) {
+          commentsByFile.set(key, sortComments(fileComments))
         }
         const loadingKeys = new Set(state.loadingKeys)
         loadingKeys.delete(key)
@@ -121,7 +154,7 @@ export const useDiffCommentStore = create<DiffCommentStoreState>((set, get) => (
     const comment = await window.db.diffComment.create(data)
     set((state) => {
       const commentsByFile = new Map(state.commentsByFile)
-      const key = diffCommentFileKey(comment.worktreeId, comment.filePath)
+      const key = diffCommentKeyForComment(comment)
       commentsByFile.set(key, upsertCommentInArray(commentsByFile.get(key) ?? [], comment))
 
       const worktreeComments = new Map(state.worktreeComments)
@@ -140,7 +173,7 @@ export const useDiffCommentStore = create<DiffCommentStoreState>((set, get) => (
 
     set((state) => {
       const commentsByFile = new Map(state.commentsByFile)
-      const key = diffCommentFileKey(updated.worktreeId, updated.filePath)
+      const key = diffCommentKeyForComment(updated)
       commentsByFile.set(key, upsertCommentInArray(commentsByFile.get(key) ?? [], updated))
 
       const worktreeComments = new Map(state.worktreeComments)
@@ -203,8 +236,8 @@ export const useDiffCommentStore = create<DiffCommentStoreState>((set, get) => (
     set({ attachedComments: [] })
   },
 
-  getFileComments: (worktreeId, filePath) => {
-    return get().commentsByFile.get(diffCommentFileKey(worktreeId, filePath)) ?? []
+  getFileComments: (worktreeId, filePath, scope) => {
+    return get().commentsByFile.get(diffCommentFileKey(worktreeId, filePath, scope)) ?? []
   }
 }))
 

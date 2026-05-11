@@ -58,6 +58,12 @@ export interface DiffComment {
   updatedAt: number
 }
 
+export interface DiffCommentListOptions {
+  filePath?: string
+  compareBranch?: string | null
+  staged?: boolean
+}
+
 export interface DiffCommentCreate {
   worktreeId: string
   filePath: string

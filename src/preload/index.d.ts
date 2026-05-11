@@ -326,7 +326,10 @@ declare global {
         getPinned: () => Promise<Worktree[]>
       }
       diffComment: {
-        list: (worktreeId: string, filePath?: string) => Promise<DiffComment[]>
+        list: (
+          worktreeId: string,
+          options?: { filePath?: string; compareBranch?: string | null; staged?: boolean }
+        ) => Promise<DiffComment[]>
         create: (data: {
           worktreeId: string
           filePath: string
