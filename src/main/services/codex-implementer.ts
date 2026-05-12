@@ -128,6 +128,36 @@ function buildCodexGoalObjective(promptText: string, successCriteria?: string): 
   return `${objective}\n\nSuccess criteria:\n${criteria}`
 }
 
+function isCodexGoalUnavailableError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  const lowered = message.toLowerCase()
+
+  if (lowered.includes('goals feature is disabled')) return true
+  if (!lowered.includes('thread/goal/set') && !lowered.includes('setthreadgoal')) return false
+
+  return (
+    lowered.includes('method not found') ||
+    lowered.includes('unknown method') ||
+    lowered.includes('no such method') ||
+    lowered.includes('not supported') ||
+    lowered.includes('unsupported') ||
+    lowered.includes('feature is disabled')
+  )
+}
+
+function appendCodexGoalFallbackPrompt(promptText: string, goalObjective: string): string {
+  const prompt = promptText.trimEnd()
+  const objective = goalObjective.trim()
+
+  if (!objective) return prompt
+
+  if (objective === promptText.trim()) {
+    return `${prompt}\n\n[Xuanpu Goal]\nTreat the user message above as the objective and completion contract for this turn.`
+  }
+
+  return `${prompt}\n\n[Xuanpu Goal]\nTreat this goal and any success criteria as the completion contract for this turn:\n${objective}`
+}
+
 // ── Immediate title helpers ────────────────────────────────────────────────
 
 const IMMEDIATE_TITLE_LENGTH = 50
@@ -916,6 +946,8 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         }
       }
 
+      let turnText = text
+
       if (options?.goalMode) {
         const objective =
           options.goalObjective?.trim() || buildCodexGoalObjective(text, options.successCriteria)
@@ -923,15 +955,29 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
           throw new Error('Codex goal mode requires a non-empty objective')
         }
 
-        await this.manager.setThreadGoal(session.threadId, {
-          objective,
-          status: 'active',
-          tokenBudget: null
-        })
+        try {
+          await this.manager.setThreadGoal(session.threadId, {
+            objective,
+            status: 'active',
+            tokenBudget: null
+          })
+        } catch (goalError) {
+          if (!isCodexGoalUnavailableError(goalError)) {
+            throw goalError
+          }
+
+          const errorMessage = goalError instanceof Error ? goalError.message : String(goalError)
+          turnText = appendCodexGoalFallbackPrompt(text, objective)
+          log.warn('Codex native goal unavailable; falling back to prompt goal instructions', {
+            worktreePath,
+            agentSessionId,
+            error: errorMessage
+          })
+        }
       }
 
       await this.manager.sendTurn(session.threadId, {
-        text,
+        text: turnText,
         model,
         ...(options?.codexFastMode ? { serviceTier: 'fast' } : {}),
         interactionMode

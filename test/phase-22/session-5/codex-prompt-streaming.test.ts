@@ -797,6 +797,57 @@ describe('CodexImplementer.prompt()', () => {
     })
   })
 
+  it('falls back to prompt goal instructions when Codex goals are disabled', async () => {
+    const session = seedSession()
+    mockManager.setThreadGoal.mockRejectedValue(
+      new Error('thread/goal/set failed: goals feature is disabled')
+    )
+
+    simulateManagerEvents([
+      {
+        id: 'e1',
+        kind: 'notification',
+        provider: 'codex',
+        threadId: 'thread-1',
+        createdAt: new Date().toISOString(),
+        method: 'turn/completed',
+        payload: { turn: { status: 'completed' } }
+      }
+    ])
+
+    await impl.prompt(
+      '/test/project',
+      'thread-1',
+      '[Field Context]\nCurrent file: src/a.ts\n\n[User Message]\nShip the migration',
+      undefined,
+      {
+        goalMode: true,
+        successCriteria: 'Focused tests pass',
+        goalObjective: 'Ship the migration\n\nSuccess criteria:\nFocused tests pass'
+      }
+    )
+
+    expect(mockManager.setThreadGoal).toHaveBeenCalledWith('thread-1', {
+      objective: 'Ship the migration\n\nSuccess criteria:\nFocused tests pass',
+      status: 'active',
+      tokenBudget: null
+    })
+    expect(mockManager.sendTurn).toHaveBeenCalledTimes(1)
+
+    const turnInput = mockManager.sendTurn.mock.calls[0][1]
+    expect(turnInput.text).toContain('[Field Context]')
+    expect(turnInput.text).toContain('[Xuanpu Goal]')
+    expect(turnInput.text).toContain('Ship the migration')
+    expect(turnInput.text).toContain('Focused tests pass')
+    expect(session.status).toBe('ready')
+
+    const errorEvents = mockWindow.webContents.send.mock.calls
+      .filter((c: any[]) => c[0] === 'agent:stream')
+      .map((c: any[]) => c[1])
+      .filter((e: any) => e.type === 'session.error')
+    expect(errorEvents).toHaveLength(0)
+  })
+
   it('does not set a thread goal when goal mode is disabled', async () => {
     seedSession()
 
