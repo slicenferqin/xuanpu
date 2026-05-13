@@ -21,7 +21,8 @@ vi.mock('../../../src/main/services/claude-transcript-reader', async () => {
 
   return {
     ...actual,
-    readClaudeTranscript: vi.fn().mockResolvedValue([])
+    readClaudeTranscript: vi.fn().mockResolvedValue([]),
+    readClaudeGoalStatus: vi.fn().mockResolvedValue(null)
   }
 })
 
@@ -39,8 +40,10 @@ import {
   type ClaudeSessionState
 } from '../../../src/main/services/claude-code-implementer'
 import { readClaudeTranscript } from '../../../src/main/services/claude-transcript-reader'
+import { readClaudeGoalStatus } from '../../../src/main/services/claude-transcript-reader'
 
 const readClaudeTranscriptMock = vi.mocked(readClaudeTranscript)
+const readClaudeGoalStatusMock = vi.mocked(readClaudeGoalStatus)
 
 function createMockWindow(): BrowserWindow {
   return {
@@ -81,6 +84,7 @@ describe('ClaudeCodeImplementer – prompt streaming (Session 4)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     readClaudeTranscriptMock.mockResolvedValue([])
+    readClaudeGoalStatusMock.mockResolvedValue(null)
     impl = new ClaudeCodeImplementer()
     sessions = (impl as any).sessions
     mockWindow = createMockWindow()
@@ -155,6 +159,116 @@ describe('ClaudeCodeImplementer – prompt streaming (Session 4)', () => {
       const state = sessions.get(newKey)!
       expect(state.claudeSessionId).toBe('sdk-real-abc')
       expect(state.materialized).toBe(true)
+    })
+
+    it('sets Claude /goal before the real prompt and mirrors the Goal card state', async () => {
+      const { sessionId } = await impl.connect('/proj', 'hive-goal')
+
+      mockQuery
+        .mockReturnValueOnce(
+          createMockQueryIterator([
+            {
+              type: 'system',
+              subtype: 'local_command_output',
+              session_id: 'sdk-goal-1',
+              content: 'Goal active'
+            }
+          ])
+        )
+        .mockReturnValueOnce(
+          createMockQueryIterator([
+            {
+              type: 'assistant',
+              session_id: 'sdk-goal-1',
+              content: [{ type: 'text', text: 'Working on it.' }]
+            }
+          ])
+        )
+
+      await impl.prompt('/proj', sessionId, 'Review and fix the bug', undefined, {
+        goalMode: true,
+        goalObjective: 'Review and fix the bug\n\nSuccess criteria:\nFocused tests pass'
+      })
+
+      expect(mockQuery).toHaveBeenCalled()
+      expect(mockQuery.mock.calls[0][0].prompt).toBe(
+        '/goal Review and fix the bug | Success criteria: | Focused tests pass'
+      )
+      expect(mockQuery.mock.calls[1][0].prompt).toBe('Review and fix the bug')
+      expect(mockQuery.mock.calls[1][0].options.resume).toBe('sdk-goal-1')
+
+      const events = getStreamEvents(mockWindow)
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: 'session.goal_updated',
+          sessionId: 'hive-goal',
+          runtimeId: 'claude-code',
+          data: expect.objectContaining({
+            source: 'claude-code',
+            status: 'active',
+            goal: expect.objectContaining({
+              objective: 'Review and fix the bug',
+              successCriteria: 'Focused tests pass'
+            })
+          })
+        })
+      )
+    })
+
+    it('marks Claude goal completed from transcript goal_status attachments', async () => {
+      const { sessionId } = await impl.connect('/proj', 'hive-goal-done')
+
+      readClaudeGoalStatusMock.mockResolvedValueOnce(null).mockResolvedValueOnce({
+        occurredAt: '2026-05-13T02:09:56.940Z',
+        met: true,
+        sentinel: false,
+        condition: 'Review and fix the bug | Success criteria: | Focused tests pass',
+        reason: 'The condition has been satisfied.'
+      })
+
+      mockQuery
+        .mockReturnValueOnce(
+          createMockQueryIterator([
+            {
+              type: 'system',
+              subtype: 'local_command_output',
+              session_id: 'sdk-goal-complete-1',
+              content: 'Goal set: Review and fix the bug | Success criteria: | Focused tests pass'
+            }
+          ])
+        )
+        .mockReturnValueOnce(
+          createMockQueryIterator([
+            {
+              type: 'assistant',
+              session_id: 'sdk-goal-complete-1',
+              content: [{ type: 'text', text: 'Done.' }]
+            }
+          ])
+        )
+
+      await impl.prompt('/proj', sessionId, 'Review and fix the bug', undefined, {
+        goalMode: true,
+        goalObjective: 'Review and fix the bug\n\nSuccess criteria:\nFocused tests pass'
+      })
+
+      const events = getStreamEvents(mockWindow)
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: 'session.goal_updated',
+          sessionId: 'hive-goal-done',
+          runtimeId: 'claude-code',
+          data: expect.objectContaining({
+            source: 'claude-code',
+            status: 'completed',
+            goal: expect.objectContaining({
+              objective: 'Review and fix the bug',
+              successCriteria: 'Focused tests pass',
+              status: 'completed'
+            })
+          })
+        })
+      )
     })
 
     it('emits message.updated for a completed assistant message', async () => {

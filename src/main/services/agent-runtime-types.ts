@@ -18,9 +18,9 @@ export interface PromptOptions {
   codexFastMode?: boolean
   /** Session mode — used by OpenCode to select the agent (e.g. 'plan' → agent:'plan') */
   mode?: 'build' | 'plan'
-  /** Codex-only: set an app-server thread goal before starting the next turn. */
+  /** Set a native/runtime-backed goal before starting the next turn when supported. */
   goalMode?: boolean
-  /** Codex-only: optional success criteria appended to the goal objective. */
+  /** Optional success criteria appended to the goal objective. */
   successCriteria?: string
   /** Main-process internal objective derived before Field Context injection. */
   goalObjective?: string

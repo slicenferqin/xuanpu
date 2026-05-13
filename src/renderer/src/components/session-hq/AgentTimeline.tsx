@@ -75,6 +75,17 @@ type CardType =
   | 'tool-call'
   | 'text'
 
+function isBashToolName(name: string): boolean {
+  const lower = name.toLowerCase()
+  return (
+    lower === 'bash' ||
+    lower === 'execute_command' ||
+    lower.includes('bash') ||
+    lower.includes('shell') ||
+    lower.includes('exec')
+  )
+}
+
 interface TimelineNode {
   key: string
   cardType: CardType
@@ -123,14 +134,16 @@ function messageToNodes(message: TimelineMessage): TimelineNode[] {
       return nodes
     }
 
-    return [{
-      key: `${message.id}-user`,
-      cardType: 'user-message',
-      message,
-      textContent: message.content,
-      attachments: message.attachments,
-      isLastInMessage: true
-    }]
+    return [
+      {
+        key: `${message.id}-user`,
+        cardType: 'user-message',
+        message,
+        textContent: message.content,
+        attachments: message.attachments,
+        isLastInMessage: true
+      }
+    ]
   }
 
   // System messages → skip
@@ -143,23 +156,27 @@ function messageToNodes(message: TimelineMessage): TimelineNode[] {
   // of leaking the compressed summary text into the timeline
   const hasCompaction = parts.some((p) => p.type === 'compaction')
   if (hasCompaction) {
-    return [{
-      key: `${message.id}-compaction`,
-      cardType: 'system' as CardType,
-      message,
-      textContent: '',
-      isLastInMessage: true
-    }]
+    return [
+      {
+        key: `${message.id}-compaction`,
+        cardType: 'system' as CardType,
+        message,
+        textContent: '',
+        isLastInMessage: true
+      }
+    ]
   }
 
   if (parts.length === 0 && message.content.trim()) {
-    return [{
-      key: `${message.id}-text`,
-      cardType: 'text',
-      message,
-      textContent: message.content,
-      isLastInMessage: true
-    }]
+    return [
+      {
+        key: `${message.id}-text`,
+        cardType: 'text',
+        message,
+        textContent: message.content,
+        isLastInMessage: true
+      }
+    ]
   }
 
   const nodes: TimelineNode[] = []
@@ -203,19 +220,24 @@ function messageToNodes(message: TimelineMessage): TimelineNode[] {
       const toolName = part.toolUse.name?.toLowerCase() ?? ''
       let cardType: CardType = 'tool-call'
 
-      if (toolName === 'bash' || toolName === 'execute_command') {
+      if (isBashToolName(toolName)) {
         cardType = 'bash'
       } else if (toolName === 'read' || toolName === 'readfile' || toolName === 'read_file') {
         cardType = 'file-read'
       } else if (
-        toolName === 'write' || toolName === 'edit' ||
-        toolName === 'writefile' || toolName === 'write_file' ||
-        toolName === 'editfile' || toolName === 'edit_file'
+        toolName === 'write' ||
+        toolName === 'edit' ||
+        toolName === 'writefile' ||
+        toolName === 'write_file' ||
+        toolName === 'editfile' ||
+        toolName === 'edit_file'
       ) {
         cardType = 'file-write'
       } else if (
-        toolName === 'grep' || toolName === 'glob' ||
-        toolName === 'search' || toolName === 'codebase_search'
+        toolName === 'grep' ||
+        toolName === 'glob' ||
+        toolName === 'search' ||
+        toolName === 'codebase_search'
       ) {
         cardType = 'search'
       } else if (toolName === 'agent' || toolName === 'subagent' || toolName === 'dispatch_agent') {
@@ -226,10 +248,14 @@ function messageToNodes(message: TimelineMessage): TimelineNode[] {
         cardType = 'ask-user'
       } else if (
         isTodoWriteTool(toolName) ||
-        toolName === 'taskcreate' || toolName === 'task_create' ||
-        toolName === 'taskupdate' || toolName === 'task_update' ||
-        toolName === 'todoread' || toolName === 'todo_read' ||
-        toolName === 'tasklist' || toolName === 'task_list'
+        toolName === 'taskcreate' ||
+        toolName === 'task_create' ||
+        toolName === 'taskupdate' ||
+        toolName === 'task_update' ||
+        toolName === 'todoread' ||
+        toolName === 'todo_read' ||
+        toolName === 'tasklist' ||
+        toolName === 'task_list'
       ) {
         cardType = 'todo'
       }
@@ -278,20 +304,44 @@ interface IconConfig {
 }
 
 const ICON_MAP: Record<CardType, IconConfig> = {
-  'user-message': { icon: User, colorClass: 'text-blue-600 dark:text-blue-400', bgClass: 'bg-blue-500/15' },
-  'system': { icon: MessageSquare, colorClass: 'text-muted-foreground', bgClass: 'bg-muted' },
-  'task-notification': { icon: MessageSquare, colorClass: 'text-muted-foreground', bgClass: 'bg-muted' },
-  'thinking': { icon: Brain, colorClass: 'text-muted-foreground', bgClass: 'bg-muted' },
-  'bash': { icon: Terminal, colorClass: 'text-celadon', bgClass: 'bg-celadon/15' },
+  'user-message': {
+    icon: User,
+    colorClass: 'text-blue-600 dark:text-blue-400',
+    bgClass: 'bg-blue-500/15'
+  },
+  system: { icon: MessageSquare, colorClass: 'text-muted-foreground', bgClass: 'bg-muted' },
+  'task-notification': {
+    icon: MessageSquare,
+    colorClass: 'text-muted-foreground',
+    bgClass: 'bg-muted'
+  },
+  thinking: { icon: Brain, colorClass: 'text-muted-foreground', bgClass: 'bg-muted' },
+  bash: { icon: Terminal, colorClass: 'text-celadon', bgClass: 'bg-celadon/15' },
   'file-read': { icon: FileText, colorClass: 'text-celadon', bgClass: 'bg-celadon/15' },
-  'file-write': { icon: Pencil, colorClass: 'text-blue-600 dark:text-blue-400', bgClass: 'bg-blue-500/15' },
-  'search': { icon: Search, colorClass: 'text-celadon', bgClass: 'bg-celadon/15' },
-  'sub-agent': { icon: Users, colorClass: 'text-purple-600 dark:text-purple-400', bgClass: 'bg-purple-500/15' },
-  'plan': { icon: ClipboardList, colorClass: 'text-purple-600 dark:text-purple-400', bgClass: 'bg-purple-500/15' },
-  'ask-user': { icon: HelpCircle, colorClass: 'text-amber-600 dark:text-amber-400', bgClass: 'bg-amber-500/15' },
-  'todo': { icon: CheckSquare, colorClass: 'text-celadon', bgClass: 'bg-celadon/15' },
+  'file-write': {
+    icon: Pencil,
+    colorClass: 'text-blue-600 dark:text-blue-400',
+    bgClass: 'bg-blue-500/15'
+  },
+  search: { icon: Search, colorClass: 'text-celadon', bgClass: 'bg-celadon/15' },
+  'sub-agent': {
+    icon: Users,
+    colorClass: 'text-purple-600 dark:text-purple-400',
+    bgClass: 'bg-purple-500/15'
+  },
+  plan: {
+    icon: ClipboardList,
+    colorClass: 'text-purple-600 dark:text-purple-400',
+    bgClass: 'bg-purple-500/15'
+  },
+  'ask-user': {
+    icon: HelpCircle,
+    colorClass: 'text-amber-600 dark:text-amber-400',
+    bgClass: 'bg-amber-500/15'
+  },
+  todo: { icon: CheckSquare, colorClass: 'text-celadon', bgClass: 'bg-celadon/15' },
   'tool-call': { icon: Terminal, colorClass: 'text-muted-foreground', bgClass: 'bg-muted' },
-  'text': { icon: MessageSquare, colorClass: 'text-foreground', bgClass: 'bg-muted' }
+  text: { icon: MessageSquare, colorClass: 'text-foreground', bgClass: 'bg-muted' }
 }
 
 // ---------------------------------------------------------------------------
@@ -305,7 +355,11 @@ function getGenericToolLabel(name: string, input?: Record<string, unknown>): str
     return `/${input.skill as string}`
   }
   if ((lower === 'webfetch' || lower === 'web_fetch') && input?.url) {
-    try { return new URL(input.url as string).hostname } catch { return name }
+    try {
+      return new URL(input.url as string).hostname
+    } catch {
+      return name
+    }
   }
   if ((lower === 'websearch' || lower === 'web_search') && input?.query) {
     const q = String(input.query)
@@ -356,8 +410,12 @@ function TimelineNodeView({
   switch (node.cardType) {
     case 'user-message': {
       type FilePart = Extract<MessagePart, { type: 'file' }>
-      const images = (node.attachments?.filter((a) => a.type === 'file' && a.mime.startsWith('image/')) ?? []) as FilePart[]
-      const files = (node.attachments?.filter((a) => a.type === 'file' && !a.mime.startsWith('image/')) ?? []) as FilePart[]
+      const images = (node.attachments?.filter(
+        (a) => a.type === 'file' && a.mime.startsWith('image/')
+      ) ?? []) as FilePart[]
+      const files = (node.attachments?.filter(
+        (a) => a.type === 'file' && !a.mime.startsWith('image/')
+      ) ?? []) as FilePart[]
       const displayText = getMessageDisplayContent(node.textContent ?? '')
       const isEditing = editingMessageId === node.message.id
       const canEdit = canEditUserMessage?.(node.message) ?? false
@@ -443,7 +501,11 @@ function TimelineNodeView({
             className="mt-1.5 flex items-center justify-end gap-1.5 text-xs text-muted-foreground"
             data-testid={`timeline-user-actions-${node.message.id}`}
           >
-            {timestampLabel && <span data-testid={`timeline-user-timestamp-${node.message.id}`}>{timestampLabel}</span>}
+            {timestampLabel && (
+              <span data-testid={`timeline-user-timestamp-${node.message.id}`}>
+                {timestampLabel}
+              </span>
+            )}
             {!isEditing && (
               <>
                 <CopyMessageButton
@@ -523,9 +585,11 @@ function TimelineNodeView({
               description: (node.toolUse.input?.description as string) ?? 'Delegated task',
               agent: (node.toolUse.input?.subagent_type as string) ?? 'Agent',
               parts: [],
-              status: (node.toolUse.status === 'success' ? 'completed'
-                : node.toolUse.status === 'error' ? 'error'
-                : 'running') as 'running' | 'completed' | 'error'
+              status: (node.toolUse.status === 'success'
+                ? 'completed'
+                : node.toolUse.status === 'error'
+                  ? 'error'
+                  : 'running') as 'running' | 'completed' | 'error'
             }
           : null
       if (!subtaskData) return null
@@ -539,10 +603,10 @@ function TimelineNodeView({
       const inputPlan = node.toolUse?.input?.plan as string | undefined
       const output = node.toolUse?.output as string | undefined
       const content =
-        (overrideContent && overrideContent.length > 0 ? overrideContent : undefined)
-        ?? (inputPlan && inputPlan.length > 0 ? inputPlan : undefined)
-        ?? output
-        ?? ''
+        (overrideContent && overrideContent.length > 0 ? overrideContent : undefined) ??
+        (inputPlan && inputPlan.length > 0 ? inputPlan : undefined) ??
+        output ??
+        ''
       return (
         <PlanCard
           content={content}
@@ -554,12 +618,15 @@ function TimelineNodeView({
     case 'ask-user':
       return (
         <AskUserCard
-          question={
-            (node.toolUse?.input?.question as string) ?? ''
-          }
+          question={(node.toolUse?.input?.question as string) ?? ''}
           questions={
             Array.isArray(node.toolUse?.input?.questions)
-              ? (node.toolUse!.input!.questions as Array<{ question: string; options?: Array<{ label: string; description?: string }>; header?: string; multiple?: boolean }>)
+              ? (node.toolUse!.input!.questions as Array<{
+                  question: string
+                  options?: Array<{ label: string; description?: string }>
+                  header?: string
+                  multiple?: boolean
+                }>)
               : undefined
           }
           isPending={node.toolUse?.status === 'pending' || node.toolUse?.status === 'running'}
@@ -584,7 +651,13 @@ function TimelineNodeView({
           <div className="flex items-center gap-2 text-sm">
             <span className="font-medium text-foreground">{label}</span>
             <span className="text-xs text-muted-foreground">
-              {isRunning ? 'Running...' : isError ? 'Error' : isSuccess ? 'Done' : node.toolUse.status}
+              {isRunning
+                ? 'Running...'
+                : isError
+                  ? 'Error'
+                  : isSuccess
+                    ? 'Done'
+                    : node.toolUse.status}
             </span>
           </div>
         </div>
@@ -619,6 +692,7 @@ export interface AgentTimelineProps {
   activeRunStartedAt?: number | string | null
   lifecycle: SessionLifecycle
   sessionGoal?: AgentSessionGoalState | null
+  onDismissSessionGoal?: () => void
   ephemeralStatusRows?: ThreadStatusRowData[]
   /**
    * Live compaction marker that should appear inline at its own timestamp
@@ -677,6 +751,7 @@ export function AgentTimeline({
   activeRunStartedAt,
   lifecycle: _lifecycle,
   sessionGoal = null,
+  onDismissSessionGoal,
   ephemeralStatusRows = [],
   inflightCompaction = null,
   suppressTodoCards,
@@ -720,9 +795,7 @@ export function AgentTimeline({
 
     const hasStructuredPart = (msg: TimelineMessage): boolean => {
       if (!msg.parts || msg.parts.length === 0) return false
-      return msg.parts.some(
-        (part) => part.type !== 'text' && part.type !== 'reasoning'
-      )
+      return msg.parts.some((part) => part.type !== 'text' && part.type !== 'reasoning')
     }
 
     const filteredMessages =
@@ -736,7 +809,8 @@ export function AgentTimeline({
           })
         : timelineMessages
 
-    return filteredMessages.flatMap((msg) => messageToNodes(msg))
+    return filteredMessages
+      .flatMap((msg) => messageToNodes(msg))
       .filter((node) => {
         // Suppress inline TodoCards when MissionControl handles tasks
         if (suppressTodoCards && node.cardType === 'todo') return false
@@ -826,33 +900,47 @@ export function AgentTimeline({
         const toolName = sp.toolUse.name?.toLowerCase() ?? ''
         let cardType: CardType = 'tool-call'
 
-        if (toolName === 'bash' || toolName === 'execute_command') {
+        if (isBashToolName(toolName)) {
           cardType = 'bash'
         } else if (toolName === 'read' || toolName === 'readfile' || toolName === 'read_file') {
           cardType = 'file-read'
         } else if (
-          toolName === 'write' || toolName === 'edit' ||
-          toolName === 'writefile' || toolName === 'write_file' ||
-          toolName === 'editfile' || toolName === 'edit_file'
+          toolName === 'write' ||
+          toolName === 'edit' ||
+          toolName === 'writefile' ||
+          toolName === 'write_file' ||
+          toolName === 'editfile' ||
+          toolName === 'edit_file'
         ) {
           cardType = 'file-write'
         } else if (
-          toolName === 'grep' || toolName === 'glob' ||
-          toolName === 'search' || toolName === 'codebase_search'
+          toolName === 'grep' ||
+          toolName === 'glob' ||
+          toolName === 'search' ||
+          toolName === 'codebase_search'
         ) {
           cardType = 'search'
-        } else if (toolName === 'agent' || toolName === 'subagent' || toolName === 'dispatch_agent') {
+        } else if (
+          toolName === 'agent' ||
+          toolName === 'subagent' ||
+          toolName === 'dispatch_agent'
+        ) {
           cardType = 'sub-agent'
         } else if (toolName === 'exitplanmode' || toolName === 'exit_plan_mode') {
           cardType = 'plan'
         } else if (toolName === 'askuserquestion' || toolName === 'ask_user') {
           cardType = 'ask-user'
         } else if (
-          toolName === 'todowrite' || toolName === 'todo_write' ||
-          toolName === 'taskcreate' || toolName === 'task_create' ||
-          toolName === 'taskupdate' || toolName === 'task_update' ||
-          toolName === 'todoread' || toolName === 'todo_read' ||
-          toolName === 'tasklist' || toolName === 'task_list'
+          toolName === 'todowrite' ||
+          toolName === 'todo_write' ||
+          toolName === 'taskcreate' ||
+          toolName === 'task_create' ||
+          toolName === 'taskupdate' ||
+          toolName === 'task_update' ||
+          toolName === 'todoread' ||
+          toolName === 'todo_read' ||
+          toolName === 'tasklist' ||
+          toolName === 'task_list'
         ) {
           cardType = 'todo'
         }
@@ -903,8 +991,8 @@ export function AgentTimeline({
         }}
       >
         {sessionGoal && (
-          <div className="mb-5">
-            <GoalStatusCard goal={sessionGoal} />
+          <div className="sticky top-3 z-20 mb-5" data-testid="goal-status-sticky">
+            <GoalStatusCard goal={sessionGoal} onDismiss={onDismissSessionGoal} />
           </div>
         )}
 
@@ -922,9 +1010,9 @@ export function AgentTimeline({
           // before a user message or end of timeline (not on every message).
           const nextNode = nodes[index + 1]
           const showTimestamp =
-            node.cardType !== 'user-message'
-            && node.isLastInMessage
-            && (!nextNode || nextNode.cardType === 'user-message')
+            node.cardType !== 'user-message' &&
+            node.isLastInMessage &&
+            (!nextNode || nextNode.cardType === 'user-message')
 
           const compactionSuffix =
             inflightCompaction && inflightCompactionInsertAfter === index ? (
@@ -1012,7 +1100,8 @@ export function AgentTimeline({
                   className={cn(
                     'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
                     'flex items-center justify-center z-10',
-                    iconCfg.bgClass, iconCfg.colorClass
+                    iconCfg.bgClass,
+                    iconCfg.colorClass
                   )}
                 >
                   <Icon className="h-3 w-3" />
@@ -1055,7 +1144,8 @@ export function AgentTimeline({
               className={cn(
                 'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
                 'flex items-center justify-center z-10',
-                ICON_MAP.todo.bgClass, ICON_MAP.todo.colorClass
+                ICON_MAP.todo.bgClass,
+                ICON_MAP.todo.colorClass
               )}
             >
               <CheckSquare className="h-3 w-3" />
@@ -1065,12 +1155,37 @@ export function AgentTimeline({
         )}
 
         {/* Live streaming parts — real-time tool/text/reasoning rendering */}
-        {isStreaming && streamingNodes.length > 0 && streamingNodes.map((node, idx) => {
-          const iconCfg = ICON_MAP[node.cardType]
-          const Icon = iconCfg.icon
-          const isLastStreamNode = idx === streamingNodes.length - 1
+        {isStreaming &&
+          streamingNodes.length > 0 &&
+          streamingNodes.map((node, idx) => {
+            const iconCfg = ICON_MAP[node.cardType]
+            const Icon = iconCfg.icon
+            const isLastStreamNode = idx === streamingNodes.length - 1
 
-          if (node.cardType === 'text') {
+            if (node.cardType === 'text') {
+              return (
+                <div key={node.key} className="relative pl-10 mb-4">
+                  <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border" />
+                  <div
+                    className={cn(
+                      'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
+                      'flex items-center justify-center z-10',
+                      isLastStreamNode
+                        ? 'bg-muted text-foreground'
+                        : iconCfg.bgClass + ' ' + iconCfg.colorClass
+                    )}
+                  >
+                    {isLastStreamNode ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Icon className="h-3 w-3" />
+                    )}
+                  </div>
+                  <TextCard content={node.textContent ?? ''} isStreaming={isLastStreamNode} />
+                </div>
+              )
+            }
+
             return (
               <div key={node.key} className="relative pl-10 mb-4">
                 <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border" />
@@ -1078,51 +1193,32 @@ export function AgentTimeline({
                   className={cn(
                     'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
                     'flex items-center justify-center z-10',
-                    isLastStreamNode ? 'bg-muted text-foreground' : iconCfg.bgClass + ' ' + iconCfg.colorClass
+                    iconCfg.bgClass,
+                    iconCfg.colorClass
                   )}
                 >
-                  {isLastStreamNode
-                    ? <Loader2 className="h-3 w-3 animate-spin" />
-                    : <Icon className="h-3 w-3" />
-                  }
+                  <Icon className="h-3 w-3" />
                 </div>
-                <TextCard content={node.textContent ?? ''} isStreaming={isLastStreamNode} />
+                <TimelineNodeView
+                  node={node}
+                  sessionId={sessionId}
+                  worktreePath={worktreePath}
+                  childPartsMap={childPartsMap}
+                  planContentByToolUseId={planContentByToolUseId}
+                  canEditUserMessage={canEditUserMessage}
+                  editingMessageId={editingMessageId}
+                  editingContent={editingContent}
+                  onEditingContentChange={onEditingContentChange}
+                  onSaveUserMessageEdit={onSaveUserMessageEdit}
+                  onCancelUserMessageEdit={onCancelUserMessageEdit}
+                  onCopyUserMessage={onCopyUserMessage}
+                  onEditUserMessage={onEditUserMessage}
+                  onForkUserMessage={onForkUserMessage}
+                  forkingMessageId={forkingMessageId}
+                />
               </div>
             )
-          }
-
-          return (
-            <div key={node.key} className="relative pl-10 mb-4">
-              <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border" />
-              <div
-                className={cn(
-                  'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
-                  'flex items-center justify-center z-10',
-                  iconCfg.bgClass, iconCfg.colorClass
-                )}
-              >
-                <Icon className="h-3 w-3" />
-              </div>
-              <TimelineNodeView
-                node={node}
-                sessionId={sessionId}
-                worktreePath={worktreePath}
-                childPartsMap={childPartsMap}
-                planContentByToolUseId={planContentByToolUseId}
-                canEditUserMessage={canEditUserMessage}
-                editingMessageId={editingMessageId}
-                editingContent={editingContent}
-                onEditingContentChange={onEditingContentChange}
-                onSaveUserMessageEdit={onSaveUserMessageEdit}
-                onCancelUserMessageEdit={onCancelUserMessageEdit}
-                onCopyUserMessage={onCopyUserMessage}
-                onEditUserMessage={onEditUserMessage}
-                onForkUserMessage={onForkUserMessage}
-                forkingMessageId={forkingMessageId}
-              />
-            </div>
-          )
-        })}
+          })}
 
         {/* Streaming with no content yet — show pulse */}
         {isStreaming && streamingNodes.length === 0 && !streamingContent && (
@@ -1136,9 +1232,7 @@ export function AgentTimeline({
             >
               <Loader2 className="h-3 w-3 animate-spin" />
             </div>
-            <div className="text-sm text-muted-foreground italic">
-              Thinking…
-            </div>
+            <div className="text-sm text-muted-foreground italic">Thinking…</div>
           </div>
         )}
 

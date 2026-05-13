@@ -60,7 +60,7 @@ describe('SessionShell plan implement flow (source verification)', () => {
     expect(source).toContain('requeuePendingMessage(sessionId, pending.message, pending.options)')
   })
 
-  test('new UI handoff creates a build session and carries Codex goal options', async () => {
+  test('new UI handoff creates a build session and carries goal options', async () => {
     const fs = await import('fs')
     const path = await import('path')
     const source = fs.readFileSync(
@@ -72,11 +72,27 @@ describe('SessionShell plan implement flow (source verification)', () => {
     expect(source).toContain(
       'const handoffPrompt = `Implement the following plan\\n${planContent}`'
     )
-    expect(source).toContain("sourceAgentSdk === 'codex' && goalMode")
+    expect(source).toContain("sourceAgentSdk === 'codex' || sourceAgentSdk === 'claude-code'")
     expect(source).toContain('goalMode: true')
     expect(source).toContain(
       'sessionStore.setPendingMessage(result.session.id, handoffPrompt, pendingOptions)'
     )
     expect(source).toContain("sessionStore.setSessionMode(result.session.id, 'build')")
+  })
+
+  test('composer send success clears transient runtime goal input state', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../../src/renderer/src/components/session-hq/SessionShell.tsx'),
+      'utf-8'
+    )
+
+    expect(source).toContain('const shouldClearGoalComposer =')
+    expect(source).toContain('supportsSessionGoalMode &&')
+    expect(source).toContain("action === 'send' || action === 'stop_and_send'")
+    expect(source).toContain('if (shouldClearGoalComposer) {')
+    expect(source).toContain('setGoalMode(false)')
+    expect(source).toContain("setSuccessCriteria('')")
   })
 })

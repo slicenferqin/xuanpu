@@ -24,6 +24,7 @@ vi.mock('../src/main/services/logger', () => ({
 
 vi.mock('../src/main/services/claude-transcript-reader', () => ({
   readClaudeTranscript: vi.fn().mockResolvedValue([]),
+  readClaudeGoalStatus: vi.fn().mockResolvedValue(null),
   translateEntry: vi.fn()
 }))
 

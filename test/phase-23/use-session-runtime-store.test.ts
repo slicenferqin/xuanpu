@@ -25,6 +25,9 @@ beforeEach(() => {
   for (const sessionId of state.interruptQueues.keys()) {
     state.clearSession(sessionId)
   }
+  for (const sessionId of state.dismissedGoalSignatures.keys()) {
+    state.clearSession(sessionId)
+  }
 })
 
 describe('useSessionRuntimeStore', () => {
@@ -177,6 +180,25 @@ describe('useSessionRuntimeStore', () => {
       expect(store.getSessionGoal('sess-1')).toBeNull()
       expect(useSessionRuntimeStore.getState().goals.has('sess-1')).toBe(false)
     })
+
+    it('stores dismissed completed-goal signatures per session', () => {
+      const store = useSessionRuntimeStore.getState()
+      store.dismissGoalSignature('sess-1', 'goal-signature-1')
+
+      expect(store.getDismissedGoalSignature('sess-1')).toBe('goal-signature-1')
+    })
+
+    it('clears dismissed completed-goal signatures when a new active goal arrives', () => {
+      const store = useSessionRuntimeStore.getState()
+      store.dismissGoalSignature('sess-1', 'goal-signature-1')
+      store.setSessionGoal('sess-1', {
+        objective: 'Goal A',
+        successCriteria: 'Done',
+        status: 'active'
+      })
+
+      expect(store.getDismissedGoalSignature('sess-1')).toBeNull()
+    })
   })
 
   describe('interrupt queue', () => {
@@ -273,9 +295,7 @@ describe('useSessionRuntimeStore', () => {
         sessionId: 'sess-1',
         data: {}
       })
-      const questions = useSessionRuntimeStore
-        .getState()
-        .getInterruptsByType('sess-1', 'question')
+      const questions = useSessionRuntimeStore.getState().getInterruptsByType('sess-1', 'question')
       expect(questions).toHaveLength(2)
       expect(questions.map((q) => q.id)).toEqual(['q-1', 'q-2'])
     })
@@ -314,12 +334,10 @@ describe('useSessionRuntimeStore', () => {
       })
       expect(useSessionRuntimeStore.getState().getInterruptQueue('sess-A')).toHaveLength(1)
       expect(useSessionRuntimeStore.getState().getInterruptQueue('sess-B')).toHaveLength(1)
-      expect(
-        useSessionRuntimeStore.getState().getInterruptQueue('sess-A')[0].type
-      ).toBe('question')
-      expect(
-        useSessionRuntimeStore.getState().getInterruptQueue('sess-B')[0].type
-      ).toBe('permission')
+      expect(useSessionRuntimeStore.getState().getInterruptQueue('sess-A')[0].type).toBe('question')
+      expect(useSessionRuntimeStore.getState().getInterruptQueue('sess-B')[0].type).toBe(
+        'permission'
+      )
     })
 
     it('removeInterrupt cleans up empty queue', () => {
@@ -426,7 +444,9 @@ describe('useSessionRuntimeStore', () => {
       })
 
       const before = getStreamingBufferSnapshot('sess-noop')
-      const after = updateStreamingBuffer('sess-noop', (current) => current, { notify: 'immediate' })
+      const after = updateStreamingBuffer('sess-noop', (current) => current, {
+        notify: 'immediate'
+      })
 
       expect(after).toBe(before)
       expect(getStreamingBufferSnapshot('sess-noop')).toBe(before)

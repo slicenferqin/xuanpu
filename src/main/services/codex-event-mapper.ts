@@ -177,8 +177,7 @@ export function normalizeCodexPlanUpdateTodos(payload: unknown): CodexPlanTodo[]
 
 export function buildCodexUpdatePlanCallId(event: CodexManagerEvent): string {
   const payload = asObject(event.payload)
-  const turnId =
-    event.turnId ?? asString(payload?.turnId) ?? asString(asObject(payload?.turn)?.id)
+  const turnId = event.turnId ?? asString(payload?.turnId) ?? asString(asObject(payload?.turn)?.id)
   return `update_plan-${turnId ?? event.threadId}`
 }
 
@@ -216,6 +215,25 @@ function maybeAssignNumberOrNull(
   }
 }
 
+function splitGoalObjective(rawObjective: string): {
+  objective: string
+  successCriteria?: string
+} {
+  const trimmed = rawObjective.trim()
+  const markerMatch = trimmed.match(/\n\s*Success criteria:\s*\n?/i)
+  if (!markerMatch || markerMatch.index == null) {
+    return { objective: trimmed }
+  }
+
+  const objective = trimmed.slice(0, markerMatch.index).trim()
+  const successCriteria = trimmed.slice(markerMatch.index + markerMatch[0].length).trim()
+
+  return {
+    objective: objective || trimmed,
+    ...(successCriteria ? { successCriteria } : {})
+  }
+}
+
 export function normalizeCodexThreadGoal(
   value: unknown,
   fallbackThreadId?: string
@@ -223,13 +241,17 @@ export function normalizeCodexThreadGoal(
   const goal = asObject(value)
   if (!goal) return null
 
-  const objective = asString(goal.objective)?.trim()
-  if (!objective) return null
+  const rawObjective = asString(goal.objective)?.trim()
+  if (!rawObjective) return null
+  const { objective, successCriteria } = splitGoalObjective(rawObjective)
 
   const status = asString(goal.status)?.trim() || 'active'
   const normalized: Record<string, unknown> = {
     objective,
     status
+  }
+  if (successCriteria) {
+    normalized.successCriteria = successCriteria
   }
   const threadId = asString(goal.threadId) ?? fallbackThreadId
   if (threadId) normalized.threadId = threadId
@@ -339,7 +361,11 @@ interface ClassifyCommandLocal {
 function classifyCommand(item: Record<string, unknown>): ClassifyCommandLocal {
   // Reuse the shared classifier (it returns Read/Grep/Bash for commandExecution).
   const classified = classifyCodexItem({ ...item, type: 'commandExecution' })
-  if (classified && classified.tool && (classified.tool === 'Read' || classified.tool === 'Grep' || classified.tool === 'Bash')) {
+  if (
+    classified &&
+    classified.tool &&
+    (classified.tool === 'Read' || classified.tool === 'Grep' || classified.tool === 'Bash')
+  ) {
     return { tool: classified.tool, input: classified.input ?? {} }
   }
   // Fallback (should not happen in practice).
@@ -530,7 +556,15 @@ function itemToolPart(
     default: {
       // Unknown item type → surface as Unknown so it's visible in UI rather
       // than silently dropped. This helps catch protocol additions.
-      const toolState = buildToolState(status, undefined, undefined, undefined, undefined, undefined, start)
+      const toolState = buildToolState(
+        status,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        start
+      )
       if (isTerminal) clearStart(state, callID)
       return {
         type: 'tool',
@@ -556,10 +590,7 @@ function toReasoningPart(text: string): {
   return { part: { type: 'reasoning', text }, delta: text }
 }
 
-function emitToolPart(
-  hiveSessionId: string,
-  toolPart: ToolPart
-): OpenCodeStreamEvent {
+function emitToolPart(hiveSessionId: string, toolPart: ToolPart): OpenCodeStreamEvent {
   return {
     type: 'message.part.updated',
     sessionId: hiveSessionId,
@@ -754,8 +785,7 @@ export function mapCodexEventToStreamEvents(
   ) {
     const item = asObject(asObject(event.payload)?.item)
     if (!item) return []
-    const isCompleted =
-      method === 'item/completed' || method === 'item.completed'
+    const isCompleted = method === 'item/completed' || method === 'item.completed'
     const isStarted = method === 'item/started' || method === 'item.started'
     let status: ToolStatus
     if (isCompleted) {

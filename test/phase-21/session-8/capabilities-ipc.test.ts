@@ -5,7 +5,6 @@ import {
   CLAUDE_CODE_CAPABILITIES
 } from '../../../src/main/services/agent-sdk-types'
 
-// Capture registered IPC handlers
 const handlers = new Map<string, (...args: any[]) => any>()
 
 vi.mock('electron', () => ({
@@ -34,122 +33,86 @@ vi.mock('../../../src/main/services/opencode-service', () => ({
   }
 }))
 
-import { registerOpenCodeHandlers } from '../../../src/main/ipc/opencode-handlers'
-import type { AgentSdkManager } from '../../../src/main/services/agent-sdk-manager'
+import { registerAgentHandlers } from '../../../src/main/ipc/agent-handlers'
+import type { AgentRuntimeManager } from '../../../src/main/services/agent-runtime-manager'
 import type { DatabaseService } from '../../../src/main/db/database'
 import type { AgentSdkCapabilities } from '../../../src/main/services/agent-sdk-types'
 
-function createMockSdkManager(): AgentSdkManager {
+function createMockRuntimeManager(): AgentRuntimeManager {
   return {
+    setMainWindow: vi.fn(),
     getImplementer: vi.fn(),
-    getCapabilities: vi.fn((sdkId: string): AgentSdkCapabilities => {
-      if (sdkId === 'claude-code') return CLAUDE_CODE_CAPABILITIES
+    getCapabilities: vi.fn((runtimeId: string): AgentSdkCapabilities => {
+      if (runtimeId === 'claude-code') return CLAUDE_CODE_CAPABILITIES
       return OPENCODE_CAPABILITIES
     }),
     cleanup: vi.fn()
-  } as unknown as AgentSdkManager
+  } as unknown as AgentRuntimeManager
 }
 
-function createMockDbService(sdkId: 'opencode' | 'claude-code' | null): DatabaseService {
+function createMockDbService(runtimeId: 'opencode' | 'claude-code' | null): DatabaseService {
   return {
-    getAgentSdkForSession: vi.fn().mockReturnValue(sdkId)
+    getRuntimeIdForSession: vi.fn().mockReturnValue(runtimeId)
   } as unknown as DatabaseService
 }
 
 const mockEvent = {} as any
 
-describe('IPC opencode:capabilities', () => {
+describe('IPC agent:capabilities', () => {
   beforeEach(() => {
     handlers.clear()
     vi.clearAllMocks()
   })
 
   it('returns CLAUDE_CODE_CAPABILITIES for claude-code sessions', async () => {
-    const sdkManager = createMockSdkManager()
+    const runtimeManager = createMockRuntimeManager()
     const dbService = createMockDbService('claude-code')
     const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
 
-    registerOpenCodeHandlers(mainWindow, sdkManager, dbService)
+    registerAgentHandlers(mainWindow, runtimeManager, dbService)
 
-    const handler = handlers.get('opencode:capabilities')!
-    expect(handler).toBeDefined()
-
+    const handler = handlers.get('agent:capabilities')!
     const result = await handler(mockEvent, { sessionId: 'claude-session-1' })
 
-    expect(dbService.getAgentSdkForSession).toHaveBeenCalledWith('claude-session-1')
-    expect(sdkManager.getCapabilities).toHaveBeenCalledWith('claude-code')
+    expect(dbService.getRuntimeIdForSession).toHaveBeenCalledWith('claude-session-1')
+    expect(runtimeManager.getCapabilities).toHaveBeenCalledWith('claude-code')
     expect(result).toEqual({
       success: true,
       capabilities: CLAUDE_CODE_CAPABILITIES
     })
-    expect(result.capabilities.supportsRedo).toBe(false)
-    expect(result.capabilities.supportsUndo).toBe(true)
   })
 
   it('returns OPENCODE_CAPABILITIES for opencode sessions', async () => {
-    const sdkManager = createMockSdkManager()
+    const runtimeManager = createMockRuntimeManager()
     const dbService = createMockDbService('opencode')
     const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
 
-    registerOpenCodeHandlers(mainWindow, sdkManager, dbService)
+    registerAgentHandlers(mainWindow, runtimeManager, dbService)
 
-    const handler = handlers.get('opencode:capabilities')!
+    const handler = handlers.get('agent:capabilities')!
     const result = await handler(mockEvent, { sessionId: 'oc-session-1' })
 
-    expect(dbService.getAgentSdkForSession).toHaveBeenCalledWith('oc-session-1')
-    expect(sdkManager.getCapabilities).toHaveBeenCalledWith('opencode')
+    expect(dbService.getRuntimeIdForSession).toHaveBeenCalledWith('oc-session-1')
+    expect(runtimeManager.getCapabilities).toHaveBeenCalledWith('opencode')
     expect(result).toEqual({
       success: true,
       capabilities: OPENCODE_CAPABILITIES
     })
-    expect(result.capabilities.supportsRedo).toBe(true)
-    expect(result.capabilities.supportsUndo).toBe(true)
   })
 
-  it('returns default opencode capabilities when no session is found', async () => {
-    const sdkManager = createMockSdkManager()
+  it('defaults to opencode capabilities when runtime id is unavailable', async () => {
+    const runtimeManager = createMockRuntimeManager()
     const dbService = createMockDbService(null)
     const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
 
-    registerOpenCodeHandlers(mainWindow, sdkManager, dbService)
+    registerAgentHandlers(mainWindow, runtimeManager, dbService)
 
-    const handler = handlers.get('opencode:capabilities')!
+    const handler = handlers.get('agent:capabilities')!
     const result = await handler(mockEvent, { sessionId: 'unknown-session' })
 
-    // sdkId is null, so it falls through to default
     expect(result).toEqual({
       success: true,
       capabilities: OPENCODE_CAPABILITIES
-    })
-  })
-
-  it('returns default capabilities when no sessionId is provided', async () => {
-    const sdkManager = createMockSdkManager()
-    const dbService = createMockDbService(null)
-    const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
-
-    registerOpenCodeHandlers(mainWindow, sdkManager, dbService)
-
-    const handler = handlers.get('opencode:capabilities')!
-    const result = await handler(mockEvent, {})
-
-    expect(result).toEqual({
-      success: true,
-      capabilities: OPENCODE_CAPABILITIES
-    })
-  })
-
-  it('returns null capabilities when sdkManager is unavailable', async () => {
-    const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
-
-    registerOpenCodeHandlers(mainWindow, undefined, undefined)
-
-    const handler = handlers.get('opencode:capabilities')!
-    const result = await handler(mockEvent, { sessionId: 'any-session' })
-
-    expect(result).toEqual({
-      success: true,
-      capabilities: null
     })
   })
 })

@@ -1,7 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// Capture registered IPC handlers
 const handlers = new Map<string, (...args: any[]) => any>()
 
 vi.mock('electron', () => ({
@@ -26,24 +25,25 @@ vi.mock('../../../src/main/services/logger', () => ({
 
 vi.mock('../../../src/main/services/opencode-service', () => ({
   openCodeService: {
-    setMainWindow: vi.fn(),
-    undo: vi.fn().mockResolvedValue({ revertMessageID: 'oc-revert-1', restoredPrompt: 'hi' }),
-    redo: vi.fn().mockResolvedValue({ revertMessageID: null })
+    setMainWindow: vi.fn()
   }
 }))
 
-import { registerOpenCodeHandlers } from '../../../src/main/ipc/opencode-handlers'
-import { openCodeService } from '../../../src/main/services/opencode-service'
-import type { AgentSdkManager } from '../../../src/main/services/agent-sdk-manager'
+import { registerAgentHandlers } from '../../../src/main/ipc/agent-handlers'
+import type { AgentRuntimeManager } from '../../../src/main/services/agent-runtime-manager'
 import type { DatabaseService } from '../../../src/main/db/database'
 import type { AgentSdkImplementer } from '../../../src/main/services/agent-sdk-types'
 
-function createMockClaudeImpl(): AgentSdkImplementer {
+function createMockImplementer(id: 'claude-code' | 'opencode'): AgentSdkImplementer & {
+  undo: ReturnType<typeof vi.fn>
+  redo: ReturnType<typeof vi.fn>
+} {
   return {
-    id: 'claude-code' as const,
+    id,
     capabilities: {
       supportsUndo: true,
-      supportsRedo: false,
+      supportsRedo: id === 'opencode',
+      supportsSteer: false,
       supportsCommands: true,
       supportsPermissionRequests: true,
       supportsQuestionPrompts: true,
@@ -55,216 +55,155 @@ function createMockClaudeImpl(): AgentSdkImplementer {
     reconnect: vi.fn(),
     disconnect: vi.fn(),
     cleanup: vi.fn(),
-    prompt: vi.fn().mockResolvedValue(undefined),
-    abort: vi.fn().mockResolvedValue(true),
-    getMessages: vi.fn().mockResolvedValue([]),
+    prompt: vi.fn(),
+    abort: vi.fn(),
+    getMessages: vi.fn(),
     getAvailableModels: vi.fn(),
     getModelInfo: vi.fn(),
     setSelectedModel: vi.fn(),
+    clearSelectedModel: vi.fn(),
     getSessionInfo: vi.fn(),
     questionReply: vi.fn(),
     questionReject: vi.fn(),
     permissionReply: vi.fn(),
     permissionList: vi.fn(),
     undo: vi.fn().mockResolvedValue({
-      revertMessageID: 'claude-revert-1',
-      restoredPrompt: 'original prompt',
-      revertDiff: '2 file(s) changed, +10 -5'
+      revertMessageID: `${id}-revert-1`,
+      restoredPrompt: `${id} prompt`,
+      revertDiff: `${id} diff`
     }),
-    redo: vi.fn().mockRejectedValue(new Error('Redo is not supported for Claude Code sessions')),
+    redo:
+      id === 'claude-code'
+        ? vi.fn().mockRejectedValue(new Error('Redo is not supported for Claude Code sessions'))
+        : vi.fn().mockResolvedValue({ revertMessageID: null }),
     listCommands: vi.fn(),
     sendCommand: vi.fn(),
     renameSession: vi.fn(),
     setMainWindow: vi.fn()
+  } as unknown as AgentSdkImplementer & {
+    undo: ReturnType<typeof vi.fn>
+    redo: ReturnType<typeof vi.fn>
   }
 }
 
-function createMockSdkManager(claudeImpl: AgentSdkImplementer): AgentSdkManager {
+function createMockRuntimeManager(
+  claudeImpl: AgentSdkImplementer,
+  opencodeImpl: AgentSdkImplementer
+): AgentRuntimeManager {
   return {
-    getImplementer: vi.fn((id: string) => {
-      if (id === 'claude-code') return claudeImpl
-      throw new Error(`Unknown agent SDK: ${id}`)
+    setMainWindow: vi.fn(),
+    getImplementer: vi.fn((runtimeId: string) => {
+      if (runtimeId === 'claude-code') return claudeImpl
+      if (runtimeId === 'opencode') return opencodeImpl
+      throw new Error(`Unknown runtime: ${runtimeId}`)
     }),
     getCapabilities: vi.fn(),
     cleanup: vi.fn()
-  } as unknown as AgentSdkManager
+  } as unknown as AgentRuntimeManager
 }
 
-function createMockDbService(sdkId: 'opencode' | 'claude-code' | null): DatabaseService {
+function createMockDbService(runtimeId: 'opencode' | 'claude-code'): DatabaseService {
   return {
-    getAgentSdkForSession: vi.fn().mockReturnValue(sdkId)
+    getRuntimeIdForSession: vi.fn().mockReturnValue(runtimeId)
   } as unknown as DatabaseService
 }
 
 const mockEvent = {} as any
 
-describe('IPC opencode:undo SDK-aware routing', () => {
-  let claudeImpl: AgentSdkImplementer
+describe('IPC agent:undo / agent:redo routing', () => {
+  let claudeImpl: ReturnType<typeof createMockImplementer>
+  let opencodeImpl: ReturnType<typeof createMockImplementer>
 
   beforeEach(() => {
     handlers.clear()
     vi.clearAllMocks()
-    claudeImpl = createMockClaudeImpl()
+    claudeImpl = createMockImplementer('claude-code')
+    opencodeImpl = createMockImplementer('opencode')
   })
 
-  it('routes to Claude implementer when dbService returns claude-code', async () => {
-    const sdkManager = createMockSdkManager(claudeImpl)
+  it('routes undo to the Claude implementer', async () => {
+    const runtimeManager = createMockRuntimeManager(claudeImpl, opencodeImpl)
     const dbService = createMockDbService('claude-code')
     const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
 
-    registerOpenCodeHandlers(mainWindow, sdkManager, dbService)
+    registerAgentHandlers(mainWindow, runtimeManager, dbService)
 
-    const handler = handlers.get('opencode:undo')!
-    expect(handler).toBeDefined()
-
+    const handler = handlers.get('agent:undo')!
     const result = await handler(mockEvent, {
       worktreePath: '/project',
       sessionId: 'claude-session-1'
     })
 
-    expect(dbService.getAgentSdkForSession).toHaveBeenCalledWith('claude-session-1')
-    expect(sdkManager.getImplementer).toHaveBeenCalledWith('claude-code')
+    expect(dbService.getRuntimeIdForSession).toHaveBeenCalledWith('claude-session-1')
+    expect(runtimeManager.getImplementer).toHaveBeenCalledWith('claude-code')
     expect(claudeImpl.undo).toHaveBeenCalledWith('/project', 'claude-session-1', '')
-    expect(openCodeService.undo).not.toHaveBeenCalled()
+    expect(opencodeImpl.undo).not.toHaveBeenCalled()
     expect(result).toEqual({
       success: true,
-      revertMessageID: 'claude-revert-1',
-      restoredPrompt: 'original prompt',
-      revertDiff: '2 file(s) changed, +10 -5'
+      revertMessageID: 'claude-code-revert-1',
+      restoredPrompt: 'claude-code prompt',
+      revertDiff: 'claude-code diff'
     })
   })
 
-  it('falls through to openCodeService when SDK is opencode', async () => {
-    const sdkManager = createMockSdkManager(claudeImpl)
+  it('routes undo to the OpenCode implementer', async () => {
+    const runtimeManager = createMockRuntimeManager(claudeImpl, opencodeImpl)
     const dbService = createMockDbService('opencode')
     const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
 
-    registerOpenCodeHandlers(mainWindow, sdkManager, dbService)
+    registerAgentHandlers(mainWindow, runtimeManager, dbService)
 
-    const handler = handlers.get('opencode:undo')!
+    const handler = handlers.get('agent:undo')!
     const result = await handler(mockEvent, {
       worktreePath: '/project',
       sessionId: 'oc-session-1'
     })
 
-    expect(dbService.getAgentSdkForSession).toHaveBeenCalledWith('oc-session-1')
-    expect(claudeImpl.undo).not.toHaveBeenCalled()
-    expect(openCodeService.undo).toHaveBeenCalledWith('/project', 'oc-session-1')
+    expect(runtimeManager.getImplementer).toHaveBeenCalledWith('opencode')
+    expect(opencodeImpl.undo).toHaveBeenCalledWith('/project', 'oc-session-1', '')
     expect(result).toEqual({
       success: true,
-      revertMessageID: 'oc-revert-1',
-      restoredPrompt: 'hi'
+      revertMessageID: 'opencode-revert-1',
+      restoredPrompt: 'opencode prompt',
+      revertDiff: 'opencode diff'
     })
   })
 
-  it('falls through to openCodeService when sdkManager is unavailable', async () => {
-    const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
-
-    registerOpenCodeHandlers(mainWindow, undefined, undefined)
-
-    const handler = handlers.get('opencode:undo')!
-    const result = await handler(mockEvent, {
-      worktreePath: '/project',
-      sessionId: 'any-session'
-    })
-
-    expect(claudeImpl.undo).not.toHaveBeenCalled()
-    expect(openCodeService.undo).toHaveBeenCalledWith('/project', 'any-session')
-    expect(result).toEqual({
-      success: true,
-      revertMessageID: 'oc-revert-1',
-      restoredPrompt: 'hi'
-    })
-  })
-
-  it('falls through to openCodeService when dbService returns null SDK', async () => {
-    const sdkManager = createMockSdkManager(claudeImpl)
-    const dbService = createMockDbService(null)
-    const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
-
-    registerOpenCodeHandlers(mainWindow, sdkManager, dbService)
-
-    const handler = handlers.get('opencode:undo')!
-    const result = await handler(mockEvent, {
-      worktreePath: '/project',
-      sessionId: 'unknown-session'
-    })
-
-    expect(claudeImpl.undo).not.toHaveBeenCalled()
-    expect(openCodeService.undo).toHaveBeenCalledWith('/project', 'unknown-session')
-    expect(result.success).toBe(true)
-  })
-})
-
-describe('IPC opencode:redo SDK-aware routing', () => {
-  let claudeImpl: AgentSdkImplementer
-
-  beforeEach(() => {
-    handlers.clear()
-    vi.clearAllMocks()
-    claudeImpl = createMockClaudeImpl()
-  })
-
-  it('routes to Claude implementer which throws, caught as error response', async () => {
-    const sdkManager = createMockSdkManager(claudeImpl)
+  it('surfaces the Claude redo unsupported error through the handler envelope', async () => {
+    const runtimeManager = createMockRuntimeManager(claudeImpl, opencodeImpl)
     const dbService = createMockDbService('claude-code')
     const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
 
-    registerOpenCodeHandlers(mainWindow, sdkManager, dbService)
+    registerAgentHandlers(mainWindow, runtimeManager, dbService)
 
-    const handler = handlers.get('opencode:redo')!
-    expect(handler).toBeDefined()
-
+    const handler = handlers.get('agent:redo')!
     const result = await handler(mockEvent, {
       worktreePath: '/project',
       sessionId: 'claude-session-1'
     })
 
-    expect(dbService.getAgentSdkForSession).toHaveBeenCalledWith('claude-session-1')
-    expect(sdkManager.getImplementer).toHaveBeenCalledWith('claude-code')
     expect(claudeImpl.redo).toHaveBeenCalledWith('/project', 'claude-session-1', '')
-    expect(openCodeService.redo).not.toHaveBeenCalled()
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       success: false,
-      error: 'Redo is not supported for Claude Code sessions'
+      error: 'Redo is not supported for Claude Code sessions',
+      errorCode: 'INTERNAL_ERROR'
     })
   })
 
-  it('falls through to openCodeService for opencode sessions', async () => {
-    const sdkManager = createMockSdkManager(claudeImpl)
+  it('routes redo to the OpenCode implementer', async () => {
+    const runtimeManager = createMockRuntimeManager(claudeImpl, opencodeImpl)
     const dbService = createMockDbService('opencode')
     const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
 
-    registerOpenCodeHandlers(mainWindow, sdkManager, dbService)
+    registerAgentHandlers(mainWindow, runtimeManager, dbService)
 
-    const handler = handlers.get('opencode:redo')!
+    const handler = handlers.get('agent:redo')!
     const result = await handler(mockEvent, {
       worktreePath: '/project',
       sessionId: 'oc-session-1'
     })
 
-    expect(dbService.getAgentSdkForSession).toHaveBeenCalledWith('oc-session-1')
-    expect(claudeImpl.redo).not.toHaveBeenCalled()
-    expect(openCodeService.redo).toHaveBeenCalledWith('/project', 'oc-session-1')
-    expect(result).toEqual({
-      success: true,
-      revertMessageID: null
-    })
-  })
-
-  it('falls through to openCodeService when sdkManager is unavailable', async () => {
-    const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
-
-    registerOpenCodeHandlers(mainWindow, undefined, undefined)
-
-    const handler = handlers.get('opencode:redo')!
-    const result = await handler(mockEvent, {
-      worktreePath: '/project',
-      sessionId: 'any-session'
-    })
-
-    expect(claudeImpl.redo).not.toHaveBeenCalled()
-    expect(openCodeService.redo).toHaveBeenCalledWith('/project', 'any-session')
+    expect(opencodeImpl.redo).toHaveBeenCalledWith('/project', 'oc-session-1', '')
     expect(result).toEqual({
       success: true,
       revertMessageID: null

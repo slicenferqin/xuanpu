@@ -83,6 +83,22 @@ import { useSessionSmartScroll } from '@/hooks/useSessionSmartScroll'
 import { toast } from 'sonner'
 import { isTodoWriteTool } from '@/components/sessions/tools/todo-utils'
 
+function getGoalSignature(goal: {
+  threadId?: string
+  objective: string
+  successCriteria?: string
+  status: string
+  createdAt?: number | null
+}): string {
+  return [
+    goal.threadId?.trim() ?? '',
+    goal.objective.trim(),
+    goal.successCriteria?.trim() ?? '',
+    goal.status.trim().toLowerCase(),
+    goal.createdAt ?? ''
+  ].join('|')
+}
+
 // ---------------------------------------------------------------------------
 // Extract mission tasks from committed timeline messages
 // ---------------------------------------------------------------------------
@@ -335,10 +351,13 @@ function useTimeline(
 function useSessionRuntime(sessionId: string) {
   const lifecycle = useSessionRuntimeStore((s) => s.getSession(sessionId).lifecycle)
   const goal = useSessionRuntimeStore((s) => s.getSessionGoal(sessionId))
+  const dismissedGoalSignature = useSessionRuntimeStore((s) =>
+    s.getDismissedGoalSignature(sessionId)
+  )
   const interruptQueue = useSessionRuntimeStore((s) => s.getInterruptQueue(sessionId))
   const pendingCount = useSessionRuntimeStore((s) => s.getPendingCount(sessionId))
 
-  return { lifecycle, goal, interruptQueue, pendingCount }
+  return { lifecycle, goal, dismissedGoalSignature, interruptQueue, pendingCount }
 }
 
 function useStreamingMirror(sessionId: string) {
@@ -445,7 +464,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     opencodeSessionId: opcSessionId ?? droidSessionId,
     agentSdk
   })
-  const { lifecycle, goal, interruptQueue, pendingCount } = useSessionRuntime(sessionId)
+  const { lifecycle, goal, dismissedGoalSignature, interruptQueue, pendingCount } =
+    useSessionRuntime(sessionId)
 
   // --- Connect or reconnect to agent runtime on mount ---
 
@@ -454,6 +474,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   const pendingPlan = useSessionStore((s) => s.pendingPlans?.get(sessionId) ?? null)
   const [goalMode, setGoalMode] = useState(false)
   const [successCriteria, setSuccessCriteria] = useState('')
+  const supportsSessionGoalMode = agentSdk === 'codex' || agentSdk === 'claude-code'
   // Claude Code's ExitPlanMode tool_use.input.plan is usually empty — the SDK
   // writes the plan to disk and we read it during canUseTool, then ship it via
   // plan.ready. Expose it by tool_use id so PlanCard can render the real text.
@@ -475,6 +496,19 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     setGoalMode(false)
     setSuccessCriteria('')
   }, [sessionId])
+
+  const visibleSessionGoal = useMemo(() => {
+    if (!goal) return null
+    if (goal.status.trim().toLowerCase() !== 'completed') return goal
+    const signature = getGoalSignature(goal)
+    if (dismissedGoalSignature === signature) return null
+    return goal
+  }, [goal, dismissedGoalSignature])
+
+  const dismissGoalCard = useCallback(() => {
+    if (!goal || goal.status.trim().toLowerCase() !== 'completed') return
+    useSessionRuntimeStore.getState().dismissGoalSignature(sessionId, getGoalSignature(goal))
+  }, [goal, sessionId])
 
   // --- Cost / tokens ---
   const sessionCost = useContextStore((s) => s.costBySession?.[sessionId] ?? 0)
@@ -578,17 +612,17 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   // Build prompt options once so every send path (first prompt / queued drain /
   // follow-up / proposed-plan implement) sees the same runtime-specific flags.
   const promptOptions = useMemo<RendererPromptOptions | undefined>(() => {
-    if (agentSdk === 'codex') {
+    if (supportsSessionGoalMode) {
       return { goalMode, successCriteria }
     }
     if (agentSdk === 'opencode') {
       return { mode }
     }
     return undefined
-  }, [agentSdk, goalMode, mode, successCriteria])
+  }, [agentSdk, goalMode, mode, successCriteria, supportsSessionGoalMode])
   const buildPendingPromptOptions = useCallback(
     (options?: PendingPromptOptions): RendererPromptOptions | undefined => {
-      if (agentSdk === 'codex') {
+      if (supportsSessionGoalMode) {
         return {
           goalMode: options?.goalMode ?? promptOptions?.goalMode ?? false,
           successCriteria: options?.successCriteria ?? promptOptions?.successCriteria ?? ''
@@ -601,7 +635,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
       return undefined
     },
-    [agentSdk, mode, promptOptions]
+    [agentSdk, mode, promptOptions, supportsSessionGoalMode]
   )
   const currentModelId = resolvedModel?.modelID ?? ''
   const currentProviderId = resolvedModel?.providerID ?? ''
@@ -1249,6 +1283,10 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     ): Promise<boolean> => {
       if (!worktreePath || !droidSessionId) return false
       let optimisticMessageId: string | null = null
+      const shouldClearGoalComposer =
+        supportsSessionGoalMode && goalMode && (action === 'send' || action === 'stop_and_send')
+      const previousGoalMode = goalMode
+      const previousSuccessCriteria = successCriteria
 
       // Pure stop (no content) — abort, then optimistically clear the live
       // overlay so the streaming tool / text cards disappear immediately. The
@@ -1291,6 +1329,11 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         // first_message_at via createSessionMessage / upsertSessionActivity,
         // but the UI shouldn't wait for the round-trip.
         useSessionStore.getState().markSessionFirstMessage(sessionId)
+      }
+
+      if (shouldClearGoalComposer) {
+        setGoalMode(false)
+        setSuccessCriteria('')
       }
 
       // Optimistic insert — show user message immediately in the timeline
@@ -1339,6 +1382,10 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           void refreshSessionLastMessageAt(sessionId)
           useDiffCommentStore.getState().clearAttachments()
         }
+        if (!consumed && shouldClearGoalComposer) {
+          setGoalMode(previousGoalMode)
+          setSuccessCriteria(previousSuccessCriteria)
+        }
 
         return consumed
       } catch (err) {
@@ -1353,6 +1400,10 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           setMessages((prev) => prev.filter((msg) => msg.id !== optimisticMessageId))
           syncOptimisticMessagesToMirror()
         }
+        if (shouldClearGoalComposer) {
+          setGoalMode(previousGoalMode)
+          setSuccessCriteria(previousSuccessCriteria)
+        }
         toast.error(err instanceof Error ? err.message : 'Failed to send message')
         resetLiveOverlay(false)
         return false
@@ -1364,6 +1415,9 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       sessionId,
       appendOptimistic,
       optimisticRef,
+      goalMode,
+      successCriteria,
+      supportsSessionGoalMode,
       requestModel,
       promptOptions,
       resetLiveOverlay,
@@ -1656,7 +1710,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     const sourceAgentSdk = sessionRecord?.agent_sdk
     const handoffPrompt = `Implement the following plan\n${planContent}`
     const pendingOptions: PendingPromptOptions | undefined =
-      sourceAgentSdk === 'codex' && goalMode
+      (sourceAgentSdk === 'codex' || sourceAgentSdk === 'claude-code') && goalMode
         ? {
             goalMode: true,
             ...(successCriteria.trim() ? { successCriteria: successCriteria.trim() } : {})
@@ -1825,7 +1879,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           isStreaming={isStreaming}
           activeRunStartedAt={runStartedAt}
           lifecycle={lifecycle}
-          sessionGoal={goal}
+          sessionGoal={visibleSessionGoal}
+          onDismissSessionGoal={dismissGoalCard}
           ephemeralStatusRows={ephemeralStatusRows}
           inflightCompaction={inflightCompactionRow}
           suppressTodoCards={missionVisible}
@@ -1887,7 +1942,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           mode={mode}
           onToggleMode={toggleMode}
           pendingPlan={pendingPlan}
-          supportsGoalMode={agentSdk === 'codex'}
+          supportsGoalMode={supportsSessionGoalMode}
           goalMode={goalMode}
           onToggleGoalMode={toggleGoalMode}
           successCriteria={successCriteria}

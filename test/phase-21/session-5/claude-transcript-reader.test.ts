@@ -15,6 +15,7 @@ import { readFile, stat } from 'fs/promises'
 import {
   readClaudeTranscript,
   readClaudeTranscriptUsage,
+  readClaudeGoalStatus,
   encodePath,
   translateEntry,
   translateContentBlock
@@ -132,6 +133,62 @@ describe('claude-transcript-reader', () => {
 
       const result = await readClaudeTranscript('/path', 'sid')
       expect(result).toHaveLength(2)
+    })
+
+    it('excludes internal /goal slash command prompts', async () => {
+      const jsonl = buildJsonl(
+        makeUserEntry({
+          uuid: 'goal-command',
+          message: {
+            role: 'user',
+            content: [{ type: 'text', text: '/goal Review and fix the bug' }]
+          }
+        }),
+        makeUserEntry({ uuid: 'real-user' })
+      )
+      mockReadFile.mockResolvedValue(jsonl)
+
+      const result = await readClaudeTranscript('/path', 'sid')
+      expect(result).toHaveLength(1)
+      expect((result[0] as any).id).toBe('real-user')
+    })
+
+    it('reads latest goal_status attachment from transcript', async () => {
+      const jsonl = buildJsonl(
+        {
+          type: 'attachment',
+          uuid: 'goal-sentinel',
+          timestamp: '2026-05-13T02:09:40.544Z',
+          attachment: {
+            type: 'goal_status',
+            met: false,
+            sentinel: true,
+            condition: 'Review and fix the bug | Success criteria: | Focused tests pass'
+          }
+        },
+        {
+          type: 'attachment',
+          uuid: 'goal-met',
+          timestamp: '2026-05-13T02:09:56.940Z',
+          attachment: {
+            type: 'goal_status',
+            met: true,
+            condition: 'Review and fix the bug | Success criteria: | Focused tests pass',
+            reason: 'The condition has been satisfied.'
+          }
+        }
+      )
+      mockReadFile.mockResolvedValue(jsonl)
+
+      const result = await readClaudeGoalStatus('/path', 'sid')
+      expect(result).toEqual({
+        uuid: 'goal-met',
+        occurredAt: '2026-05-13T02:09:56.940Z',
+        met: true,
+        sentinel: false,
+        condition: 'Review and fix the bug | Success criteria: | Focused tests pass',
+        reason: 'The condition has been satisfied.'
+      })
     })
   })
 

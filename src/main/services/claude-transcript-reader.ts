@@ -17,7 +17,13 @@ export function encodePath(worktreePath: string): string {
 }
 
 export function getClaudeTranscriptPath(worktreePath: string, claudeSessionId: string): string {
-  return join(homedir(), '.claude', 'projects', encodePath(worktreePath), `${claudeSessionId}.jsonl`)
+  return join(
+    homedir(),
+    '.claude',
+    'projects',
+    encodePath(worktreePath),
+    `${claudeSessionId}.jsonl`
+  )
 }
 
 interface ClaudeContentBlock {
@@ -40,6 +46,17 @@ interface ClaudeJsonlEntry {
   uuid?: string
   requestId?: string
   timestamp?: string
+  attachment?: {
+    type?: string
+    met?: boolean
+    sentinel?: boolean
+    condition?: string
+    reason?: string
+    iterations?: number
+    durationMs?: number
+    tokens?: number
+    [key: string]: unknown
+  }
   message?: {
     id?: string
     role?: string
@@ -62,6 +79,15 @@ export interface ClaudeTranscriptUsageEntry {
   cacheReadTokens: number
   totalTokens: number
   cost: number
+}
+
+export interface ClaudeTranscriptGoalStatus {
+  uuid?: string
+  occurredAt: string
+  met: boolean
+  sentinel: boolean
+  condition?: string
+  reason?: string
 }
 
 const CONTINUATION_PREFIX = 'This session is being continued from a previous conversation'
@@ -359,6 +385,25 @@ function buildFinalAssistantMaps(entries: ClaudeJsonlEntry[]): {
   return { finalCostByUuid, finalUsageByMessageId }
 }
 
+function extractGoalStatus(entry: ClaudeJsonlEntry): ClaudeTranscriptGoalStatus | null {
+  if (entry.type !== 'attachment') return null
+  const attachment = entry.attachment
+  if (!attachment || attachment.type !== 'goal_status') return null
+
+  return {
+    uuid: entry.uuid,
+    occurredAt: entry.timestamp ?? new Date(0).toISOString(),
+    met: attachment.met === true,
+    sentinel: attachment.sentinel === true,
+    ...(typeof attachment.condition === 'string' && attachment.condition.trim()
+      ? { condition: attachment.condition.trim() }
+      : {}),
+    ...(typeof attachment.reason === 'string' && attachment.reason.trim()
+      ? { reason: attachment.reason.trim() }
+      : {})
+  }
+}
+
 function shouldSkipEntry(entry: ClaudeJsonlEntry): boolean {
   if (entry.parent_tool_use_id) return true
   if (entry.isCompactSummary === true) return true
@@ -371,7 +416,9 @@ function shouldSkipEntry(entry: ClaudeJsonlEntry): boolean {
     const trimmed = text.trimStart()
     if (
       trimmed.startsWith('<local-command-stdout>') ||
-      trimmed.startsWith('<system-reminder>')
+      trimmed.startsWith('<system-reminder>') ||
+      trimmed === '/goal' ||
+      trimmed.startsWith('/goal ')
     ) {
       return true
     }
@@ -470,6 +517,29 @@ export async function readClaudeTranscriptUsage(
       mtimeMs: null
     }
   }
+}
+
+export async function readClaudeGoalStatus(
+  worktreePath: string,
+  claudeSessionId: string
+): Promise<ClaudeTranscriptGoalStatus | null> {
+  const filePath = getClaudeTranscriptPath(worktreePath, claudeSessionId)
+
+  try {
+    const { lines } = await readTranscriptLines(filePath, MAX_TAIL_LINES)
+    const entries = await parseEntries(lines)
+    for (let index = entries.length - 1; index >= 0; index--) {
+      const status = extractGoalStatus(entries[index])
+      if (status) return status
+    }
+  } catch (error) {
+    log.debug('Transcript goal status file not found or unreadable', {
+      filePath,
+      error: error instanceof Error ? error.message : String(error)
+    })
+  }
+
+  return null
 }
 
 export { extractTextFromContent, translateContentBlock, translateEntry }

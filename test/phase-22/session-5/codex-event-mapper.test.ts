@@ -174,9 +174,7 @@ describe('item lifecycle → tool parts', () => {
             type: 'commandExecution',
             id: 'call-2',
             command: 'cat README.md',
-            commandActions: [
-              { type: 'read', name: 'README.md', path: '/abs/README.md' }
-            ],
+            commandActions: [{ type: 'read', name: 'README.md', path: '/abs/README.md' }],
             status: 'inProgress'
           }
         }
@@ -199,7 +197,7 @@ describe('item lifecycle → tool parts', () => {
           item: {
             type: 'commandExecution',
             id: 'call-3',
-            command: "rg foo",
+            command: 'rg foo',
             commandActions: [{ type: 'search', query: 'foo', path: '/abs' }],
             status: 'inProgress'
           }
@@ -459,10 +457,7 @@ describe('turn/diff/updated', () => {
 
   it('drops if diff or turnId missing', () => {
     expect(
-      mapCodexEventToStreamEvents(
-        makeEvent({ method: 'turn/diff/updated', payload: {} }),
-        HIVE
-      )
+      mapCodexEventToStreamEvents(makeEvent({ method: 'turn/diff/updated', payload: {} }), HIVE)
     ).toEqual([])
   })
 })
@@ -512,6 +507,35 @@ describe('thread/goal notifications', () => {
           timeUsedSeconds: 90,
           createdAt: 10,
           updatedAt: 20
+        }
+      }
+    })
+  })
+
+  it('splits success criteria out of the Codex goal objective for display', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
+        method: 'thread/goal/updated',
+        payload: {
+          threadId: 'thread-1',
+          goal: {
+            threadId: 'thread-1',
+            objective: 'Review and fix the bug\n\nSuccess criteria:\nFocused tests pass',
+            status: 'active'
+          }
+        }
+      }),
+      HIVE
+    )
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({
+      type: 'session.goal_updated',
+      data: {
+        goal: {
+          objective: 'Review and fix the bug',
+          successCriteria: 'Focused tests pass',
+          status: 'active'
         }
       }
     })
@@ -665,10 +689,7 @@ describe('error & drop paths', () => {
 
   it('non-fatal error events drop', () => {
     expect(
-      mapCodexEventToStreamEvents(
-        makeEvent({ kind: 'error', method: 'protocol/parseError' }),
-        HIVE
-      )
+      mapCodexEventToStreamEvents(makeEvent({ kind: 'error', method: 'protocol/parseError' }), HIVE)
     ).toEqual([])
   })
 
@@ -717,10 +738,7 @@ describe('error & drop paths', () => {
 // ────────────────────────────────────────────────────────────────────
 describe('session ID passthrough', () => {
   it('uses provided hiveSessionId in all events', () => {
-    const result = mapCodexEventToStreamEvents(
-      makeEvent({ method: 'turn/started' }),
-      'hive-XYZ'
-    )
+    const result = mapCodexEventToStreamEvents(makeEvent({ method: 'turn/started' }), 'hive-XYZ')
     for (const ev of result) {
       expect(ev.sessionId).toBe('hive-XYZ')
     }
@@ -745,9 +763,7 @@ describe('plan helpers (preserved API)', () => {
   })
 
   it('buildCodexUpdatePlanCallId uses turnId', () => {
-    const id = buildCodexUpdatePlanCallId(
-      makeEvent({ method: 'turn/plan/updated', turnId: 'T-7' })
-    )
+    const id = buildCodexUpdatePlanCallId(makeEvent({ method: 'turn/plan/updated', turnId: 'T-7' }))
     expect(id).toBe('update_plan-T-7')
   })
 })

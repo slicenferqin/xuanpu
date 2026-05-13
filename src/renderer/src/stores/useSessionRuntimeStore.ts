@@ -11,10 +11,7 @@
  */
 
 import { create } from 'zustand'
-import type {
-  AgentSessionGoalState,
-  CanonicalAgentEvent
-} from '@shared/types/agent-protocol'
+import type { AgentSessionGoalState, CanonicalAgentEvent } from '@shared/types/agent-protocol'
 import type { StreamingPart } from '@shared/lib/timeline-types'
 
 // ---------------------------------------------------------------------------
@@ -94,7 +91,13 @@ export interface StreamingBuffer {
     timestamp: number
   } | null
   /** Optimistic user messages not yet persisted to DB */
-  optimisticMessages?: Array<{ id: string; role: string; content: string; timestamp: string; attachments?: unknown[] }>
+  optimisticMessages?: Array<{
+    id: string
+    role: string
+    content: string
+    timestamp: string
+    attachments?: unknown[]
+  }>
 }
 
 const _streamingBuffers = new Map<string, StreamingBuffer>()
@@ -147,7 +150,9 @@ function resetStreamingBufferOverlayState(
     activeRunEpoch: current.activeRunEpoch,
     lastAppliedSequence: current.lastAppliedSequence,
     mirrorVersion: current.mirrorVersion,
-    optimisticMessages: options?.preserveOptimisticMessages ? current.optimisticMessages : undefined,
+    optimisticMessages: options?.preserveOptimisticMessages
+      ? current.optimisticMessages
+      : undefined,
     compactionState: options?.preserveCompactionState ? current.compactionState : null
   })
 }
@@ -188,9 +193,7 @@ function scheduleStreamingBufferFlush(sessionId: string): void {
   })
 }
 
-function mapPartStatus(
-  value: unknown
-): 'pending' | 'running' | 'success' | 'error' {
+function mapPartStatus(value: unknown): 'pending' | 'running' | 'success' | 'error' {
   if (value === 'pending' || value === 'running') return value
   if (value === 'completed' || value === 'success') return 'success'
   if (value === 'error') return 'error'
@@ -220,7 +223,10 @@ export function resetStreamingBuffersForTests(): void {
   _streamingBufferCallbacks.clear()
 }
 
-export function subscribeToStreamingBuffer(sessionId: string, cb: StreamingBufferCallback): () => void {
+export function subscribeToStreamingBuffer(
+  sessionId: string,
+  cb: StreamingBufferCallback
+): () => void {
   let callbackSet = _streamingBufferCallbacks.get(sessionId)
   if (!callbackSet) {
     callbackSet = new Set()
@@ -363,18 +369,18 @@ export function writeEventToStreamingBuffer(
               type: 'tool_use',
               toolUse: {
                 id: toolId,
-                name: toolName !== 'unknown' ? toolName : previous?.name ?? toolName,
+                name: toolName !== 'unknown' ? toolName : (previous?.name ?? toolName),
                 input: (state.input as Record<string, unknown>) ?? previous?.input ?? {},
                 status: nextStatus,
                 startTime: stateTime?.start || previous?.startTime || Date.now(),
                 endTime: stateTime?.end ?? previous?.endTime,
                 output:
                   nextStatus === 'success' || nextStatus === 'error'
-                    ? (state.output as string) ?? previous?.output
+                    ? ((state.output as string) ?? previous?.output)
                     : previous?.output,
                 error:
                   nextStatus === 'error'
-                    ? (state.error as string) ?? previous?.error
+                    ? ((state.error as string) ?? previous?.error)
                     : previous?.error
               }
             }
@@ -435,18 +441,18 @@ export function writeEventToStreamingBuffer(
             type: 'tool_use',
             toolUse: {
               id: toolId,
-              name: toolName !== 'unknown' ? toolName : previous?.name ?? toolName,
+              name: toolName !== 'unknown' ? toolName : (previous?.name ?? toolName),
               input: (state.input as Record<string, unknown>) ?? previous?.input ?? {},
               status: nextStatus,
               startTime: stateTime?.start || previous?.startTime || Date.now(),
               endTime: stateTime?.end ?? previous?.endTime,
               output:
                 nextStatus === 'success' || nextStatus === 'error'
-                  ? (state.output as string) ?? previous?.output
+                  ? ((state.output as string) ?? previous?.output)
                   : previous?.output,
               error:
                 nextStatus === 'error'
-                  ? (state.error as string) ?? previous?.error
+                  ? ((state.error as string) ?? previous?.error)
                   : previous?.error
             }
           }
@@ -512,8 +518,11 @@ export function writeEventToStreamingBuffer(
       if (event.type === 'session.status') {
         const statusType =
           (event.statusPayload as { type?: string } | undefined)?.type ??
-          ((event.data as Record<string, unknown> | undefined)?.status as { type?: string } | undefined)
-            ?.type
+          (
+            (event.data as Record<string, unknown> | undefined)?.status as
+              | { type?: string }
+              | undefined
+          )?.type
 
         if (statusType === 'busy' || statusType === 'materializing') {
           return {
@@ -673,6 +682,8 @@ interface SessionRuntimeStoreState {
   sessions: Map<string, SessionRuntimeState>
   /** Per-session goal snapshot from session.goal_updated events. */
   goals: Map<string, AgentSessionGoalState>
+  /** Per-session dismissed completed-goal signature. */
+  dismissedGoalSignatures: Map<string, string>
   /** Per-session HITL interrupt queue (unified: question/permission/approval/plan). */
   interruptQueues: Map<string, InterruptItem[]>
   /** Per-session pending message queue (Phase 5 — composer state machine). */
@@ -695,6 +706,9 @@ interface SessionRuntimeStoreActions {
   getSessionGoal(sessionId: string): AgentSessionGoalState | null
   setSessionGoal(sessionId: string, goal: AgentSessionGoalState): void
   clearSessionGoal(sessionId: string): void
+  getDismissedGoalSignature(sessionId: string): string | null
+  dismissGoalSignature(sessionId: string, signature: string): void
+  clearDismissedGoalSignature(sessionId: string): void
 
   // Unread
   incrementUnread(sessionId: string): void
@@ -756,6 +770,7 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
   // -- State --
   sessions: new Map(),
   goals: new Map(),
+  dismissedGoalSignatures: new Map(),
   interruptQueues: new Map(),
   pendingMessages: new Map(),
 
@@ -822,17 +837,44 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
   setSessionGoal(sessionId, goal) {
     set((state) => {
       const goals = new Map(state.goals)
+      const dismissedGoalSignatures = new Map(state.dismissedGoalSignatures)
       goals.set(sessionId, goal)
-      return { goals }
+      if (goal.status.trim().toLowerCase() !== 'completed') {
+        dismissedGoalSignatures.delete(sessionId)
+      }
+      return { goals, dismissedGoalSignatures }
     })
   },
 
   clearSessionGoal(sessionId) {
     set((state) => {
-      if (!state.goals.has(sessionId)) return state
+      if (!state.goals.has(sessionId) && !state.dismissedGoalSignatures.has(sessionId)) return state
       const goals = new Map(state.goals)
+      const dismissedGoalSignatures = new Map(state.dismissedGoalSignatures)
       goals.delete(sessionId)
-      return { goals }
+      dismissedGoalSignatures.delete(sessionId)
+      return { goals, dismissedGoalSignatures }
+    })
+  },
+
+  getDismissedGoalSignature(sessionId) {
+    return get().dismissedGoalSignatures.get(sessionId) ?? null
+  },
+
+  dismissGoalSignature(sessionId, signature) {
+    set((state) => {
+      const dismissedGoalSignatures = new Map(state.dismissedGoalSignatures)
+      dismissedGoalSignatures.set(sessionId, signature)
+      return { dismissedGoalSignatures }
+    })
+  },
+
+  clearDismissedGoalSignature(sessionId) {
+    set((state) => {
+      if (!state.dismissedGoalSignatures.has(sessionId)) return state
+      const dismissedGoalSignatures = new Map(state.dismissedGoalSignatures)
+      dismissedGoalSignatures.delete(sessionId)
+      return { dismissedGoalSignatures }
     })
   },
 
@@ -1014,13 +1056,21 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
     set((state) => {
       const sessions = new Map(state.sessions)
       const goals = new Map(state.goals)
+      const dismissedGoalSignatures = new Map(state.dismissedGoalSignatures)
       const queues = new Map(state.interruptQueues)
       const pending = new Map(state.pendingMessages)
       sessions.delete(sessionId)
       goals.delete(sessionId)
+      dismissedGoalSignatures.delete(sessionId)
       queues.delete(sessionId)
       pending.delete(sessionId)
-      return { sessions, goals, interruptQueues: queues, pendingMessages: pending }
+      return {
+        sessions,
+        goals,
+        dismissedGoalSignatures,
+        interruptQueues: queues,
+        pendingMessages: pending
+      }
     })
     _sessionEventCallbacks.delete(sessionId)
     _streamingBuffers.delete(sessionId)

@@ -18,7 +18,8 @@ vi.mock('../../../src/main/services/claude-transcript-reader', async (importOrig
   const actual = (await importOriginal()) as Record<string, unknown>
   return {
     ...actual,
-    readClaudeTranscript: vi.fn().mockResolvedValue([])
+    readClaudeTranscript: vi.fn().mockResolvedValue([]),
+    readClaudeGoalStatus: vi.fn().mockResolvedValue(null)
   }
 })
 

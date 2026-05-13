@@ -19,6 +19,7 @@ vi.mock('../../../src/main/services/logger', () => ({
 
 vi.mock('../../../src/main/services/claude-transcript-reader', () => ({
   readClaudeTranscript: vi.fn().mockResolvedValue([]),
+  readClaudeGoalStatus: vi.fn().mockResolvedValue(null),
   translateEntry: vi.fn().mockReturnValue(null)
 }))
 
@@ -34,17 +35,18 @@ describe('Session 10 production readiness verification', () => {
       expect(OPENCODE_CAPABILITIES.supportsRedo).toBe(true)
     })
 
-    it('CLAUDE_CODE_CAPABILITIES declares all 8 capability fields', () => {
+    it('CLAUDE_CODE_CAPABILITIES declares all current capability fields', () => {
       const keys = Object.keys(CLAUDE_CODE_CAPABILITIES)
       expect(keys).toContain('supportsUndo')
       expect(keys).toContain('supportsRedo')
+      expect(keys).toContain('supportsSteer')
       expect(keys).toContain('supportsCommands')
       expect(keys).toContain('supportsPermissionRequests')
       expect(keys).toContain('supportsQuestionPrompts')
       expect(keys).toContain('supportsModelSelection')
       expect(keys).toContain('supportsReconnect')
       expect(keys).toContain('supportsPartialStreaming')
-      expect(keys).toHaveLength(8)
+      expect(keys).toHaveLength(9)
     })
   })
 

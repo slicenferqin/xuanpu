@@ -22,6 +22,7 @@ vi.mock('../../../src/main/services/claude-sdk-loader', () => ({
 
 vi.mock('../../../src/main/services/claude-transcript-reader', () => ({
   readClaudeTranscript: vi.fn().mockResolvedValue([]),
+  readClaudeGoalStatus: vi.fn().mockResolvedValue(null),
   translateEntry: vi.fn().mockReturnValue(null)
 }))
 

@@ -181,6 +181,7 @@ export interface AgentSessionTurnDiffData {
 export interface AgentSessionGoalState {
   threadId?: string
   objective: string
+  successCriteria?: string
   status: string
   tokenBudget?: number | null
   tokensUsed?: number | null
@@ -194,7 +195,7 @@ export interface AgentSessionGoalData {
   status: string
   threadId?: string
   turnId?: string
-  source?: 'codex'
+  source?: 'codex' | 'claude-code'
 }
 
 export interface AgentMessageUpdatedData {

@@ -8,11 +8,19 @@ import { asObject, asString } from './codex-utils'
 import { notificationService } from './notification-service'
 import { loadClaudeSDK } from './claude-sdk-loader'
 import { maybeWithClaudeProjectMemory } from './claude-project-memory-loader'
-import type { AgentSdkCapabilities, AgentSdkImplementer } from './agent-runtime-types'
+import type {
+  AgentSdkCapabilities,
+  AgentSdkImplementer,
+  PromptOptions
+} from './agent-runtime-types'
 import type { AgentRuntimeAdapter } from './agent-runtime-types'
 import { CLAUDE_CODE_CAPABILITIES } from './agent-runtime-types'
 import type { DatabaseService } from '../db/database'
-import { readClaudeTranscript, translateEntry } from './claude-transcript-reader'
+import {
+  readClaudeGoalStatus,
+  readClaudeTranscript,
+  translateEntry
+} from './claude-transcript-reader'
 import { generateSessionTitle } from './claude-session-title'
 import { autoRenameWorktreeBranch } from './git-service'
 import { getEventBus } from '../../server/event-bus'
@@ -26,6 +34,7 @@ import { XUANPU_SYSTEM_CONTEXT } from './xuanpu-system-context'
 import { APP_SETTINGS_DB_KEY } from '@shared/types/settings'
 import { getActiveAppHomeDir } from '@shared/app-identity'
 import { beginSessionRun, emitAgentEvent } from '@shared/lib/normalize-agent-event'
+import type { AgentSessionGoalState } from '@shared/types/agent-protocol'
 import { resolveRuntimeModelId } from '@shared/usage/models'
 import { calculateUsageCost, resolvePricingModelKey } from '@shared/usage/pricing'
 
@@ -57,6 +66,96 @@ const CLAUDE_MODELS = [
     defaultVariant: 'high'
   }
 ]
+
+function asNumberOrNull(value: unknown): number | null | undefined {
+  if (value === null) return null
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function splitClaudeGoalObjective(rawObjective: string): {
+  objective: string
+  successCriteria?: string
+} {
+  const trimmed = rawObjective.trim()
+  const markerMatch = trimmed.match(/\n\s*Success criteria:\s*\n?/i)
+  if (markerMatch?.index != null) {
+    const objective = trimmed.slice(0, markerMatch.index).trim()
+    const successCriteria = trimmed.slice(markerMatch.index + markerMatch[0].length).trim()
+    return {
+      objective: objective || trimmed,
+      ...(successCriteria ? { successCriteria } : {})
+    }
+  }
+
+  const pipeMarkerMatch = trimmed.match(/\s*\|\s*Success criteria:\s*\|\s*/i)
+  if (pipeMarkerMatch?.index != null) {
+    const objective = trimmed.slice(0, pipeMarkerMatch.index).trim()
+    const successCriteria = trimmed.slice(pipeMarkerMatch.index + pipeMarkerMatch[0].length).trim()
+    return {
+      objective: objective || trimmed,
+      ...(successCriteria ? { successCriteria } : {})
+    }
+  }
+
+  return { objective: trimmed }
+}
+
+function formatClaudeGoalCommandArgument(goalObjective: string): string {
+  return goalObjective
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(' | ')
+}
+
+function appendClaudeGoalFallbackSystemPrompt(
+  current: string | undefined,
+  goalObjective: string
+): string {
+  const goalBlock = [
+    '[Xuanpu Goal]',
+    'The user has set a session goal for this turn. Treat it as the target outcome and use the success criteria to decide when the task is complete.',
+    '',
+    goalObjective.trim()
+  ].join('\n')
+  return current?.trim() ? `${current.trim()}\n\n${goalBlock}` : goalBlock
+}
+
+function readStringField(
+  record: Record<string, unknown> | undefined,
+  keys: string[]
+): string | undefined {
+  if (!record) return undefined
+  for (const key of keys) {
+    const value = asString(record[key])
+    if (value?.trim()) return value.trim()
+  }
+  return undefined
+}
+
+function normalizeClaudeGoalStatus(
+  rawStatus: string | undefined,
+  messageKind: string | undefined,
+  goalMet?: unknown
+): string {
+  const status = rawStatus?.trim().toLowerCase()
+  if (goalMet === true || messageKind?.includes('achieved')) return 'completed'
+  if (!status) return 'active'
+  if (status === 'goal_met' || status === 'achieved' || status === 'complete') return 'completed'
+  if (status === 'goal_set') return 'active'
+  return status
+}
+
+function isClaudeGoalClearedStatus(status: string | undefined): boolean {
+  const normalized = status?.trim().toLowerCase()
+  return (
+    normalized === 'cleared' ||
+    normalized === 'clear' ||
+    normalized === 'none' ||
+    normalized === 'no_goal' ||
+    normalized === 'unset'
+  )
+}
 
 export interface ClaudeQuery {
   interrupt(): Promise<void>
@@ -168,6 +267,8 @@ export interface ClaudeSessionState {
   pendingPlanApproval: PendingPlanApprovalState | null
   /** Current revert boundary message ID (hive-side), set by undo */
   revertMessageID: string | null
+  /** Last Goal state mirrored into Xuanpu's sticky Goal card. */
+  currentGoal: AgentSessionGoalState | null
   /** SDK UUID of the reverted checkpoint, used for boundary lookups in subsequent undos */
   revertCheckpointUuid: string | null
   /** Diff string from last rewindFiles result */
@@ -273,6 +374,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       pendingQuestion: null,
       pendingPlanApproval: null,
       revertMessageID: null,
+      currentGoal: null,
       revertCheckpointUuid: null,
       revertDiff: null,
       pendingFork: false,
@@ -308,6 +410,14 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         hiveSessionId,
         sessionStatus
       })
+      if (!existing.query) {
+        this.emitClaudeGoalFromTranscript(existing).catch((err) => {
+          log.debug('Reconnect: goal status sync failed', {
+            hiveSessionId,
+            error: err instanceof Error ? err.message : String(err)
+          })
+        })
+      }
       return { success: true, sessionStatus, revertMessageID: existing.revertMessageID ?? null }
     }
 
@@ -332,6 +442,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       pendingQuestion: null,
       pendingPlanApproval: null,
       revertMessageID: null,
+      currentGoal: null,
       revertCheckpointUuid: null,
       revertDiff: null,
       pendingFork: false,
@@ -375,6 +486,12 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
     }
 
     log.info('Reconnected (restored from DB)', { worktreePath, agentSessionId, hiveSessionId })
+    this.emitClaudeGoalFromTranscript(state).catch((err) => {
+      log.debug('Reconnect: goal status sync failed', {
+        hiveSessionId,
+        error: err instanceof Error ? err.message : String(err)
+      })
+    })
     return { success: true, sessionStatus: 'idle', revertMessageID: null }
   }
 
@@ -477,7 +594,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
           | { type: 'file'; mime: string; url: string; filename?: string }
         >,
     modelOverride?: { providerID: string; modelID: string; variant?: string },
-    _options?: { codexFastMode?: boolean }
+    promptOptions?: PromptOptions
   ): Promise<void> {
     const session = this.getSession(worktreePath, agentSessionId)
     if (!session) {
@@ -537,21 +654,6 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         promptLength: prompt.length,
         promptPreview: prompt.slice(0, 100)
       })
-
-      // If title generation was deferred (e.g. first prompt was /using-superpowers),
-      // fire it now on the first real user message.
-      if (
-        session.materialized &&
-        session.titleDeferred &&
-        !prompt.trimStart().startsWith('/using-superpowers')
-      ) {
-        session.titleDeferred = false
-        this.handleTitleGeneration(session, prompt).catch(() => {})
-        log.info('Prompt: firing deferred title generation', {
-          hiveSessionId: session.hiveSessionId,
-          promptPreview: prompt.slice(0, 80)
-        })
-      }
 
       // After undo, the fork creates a new session branch.  Clear the
       // in-memory messages so the new branch starts fresh — the SDK will
@@ -714,7 +816,17 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       // verbose output before it reaches the API and archives the original
       // locally. When enabled we suppress the built-in Bash so the agent only
       // sees ours. Best-effort: failure to attach falls through to native Bash.
-      if (isTokenSaverEnabled()) {
+      let tokenSaverEnabled = false
+      try {
+        tokenSaverEnabled = isTokenSaverEnabled()
+      } catch (err) {
+        log.warn('Token Saver: failed to read setting, falling back to native Bash', {
+          hiveSessionId: session.hiveSessionId,
+          error: err instanceof Error ? err.message : String(err)
+        })
+      }
+
+      if (tokenSaverEnabled) {
         try {
           const tokenSaverServer = await createXuanpuToolsMcpServerConfig({
             sessionId: session.hiveSessionId,
@@ -754,6 +866,51 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
           options.resumeSessionAt = session.pendingResumeSessionAt
           session.pendingResumeSessionAt = null
         }
+      }
+
+      const requestedGoalObjective =
+        promptOptions?.goalMode === true ? promptOptions.goalObjective?.trim() || prompt.trim() : ''
+      const wasMaterializedBeforeGoal = session.materialized
+      if (requestedGoalObjective) {
+        const nativeGoalObserved = await this.setClaudeGoalBeforePrompt(
+          sdk,
+          session,
+          requestedGoalObjective,
+          options
+        )
+        if (!nativeGoalObserved) {
+          options.appendSystemPrompt = appendClaudeGoalFallbackSystemPrompt(
+            options.appendSystemPrompt,
+            requestedGoalObjective
+          )
+        }
+        if (!options.forkSession && session.materialized && !options.resume) {
+          options.resume = session.claudeSessionId
+        }
+        if (session.abortController?.signal.aborted) {
+          return
+        }
+      }
+
+      const materializedByGoalCommand =
+        requestedGoalObjective.length > 0 && !wasMaterializedBeforeGoal && session.materialized
+      if (materializedByGoalCommand && prompt.trimStart().startsWith('/using-superpowers')) {
+        session.titleDeferred = true
+        log.info('Prompt: deferring title generation after goal command', {
+          hiveSessionId: session.hiveSessionId
+        })
+      } else if (
+        (materializedByGoalCommand || session.titleDeferred) &&
+        session.materialized &&
+        !prompt.trimStart().startsWith('/using-superpowers')
+      ) {
+        session.titleDeferred = false
+        this.handleTitleGeneration(session, prompt).catch(() => {})
+        log.info('Prompt: firing title generation', {
+          hiveSessionId: session.hiveSessionId,
+          promptPreview: prompt.slice(0, 80),
+          reason: materializedByGoalCommand ? 'goal-command-materialized' : 'deferred'
+        })
       }
 
       log.info('Prompt: calling sdk.query()', {
@@ -910,77 +1067,28 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         // Materialize pending:: to real SDK session ID from first message,
         // or capture a new session ID after a fork (forkSession: true returns a new ID)
         const sdkSessionId = sdkMessage.session_id as string | undefined
-        if (
-          sdkSessionId &&
-          (session.claudeSessionId.startsWith('pending::') ||
-            sdkSessionId !== session.claudeSessionId)
-        ) {
-          const wasPending = session.claudeSessionId.startsWith('pending::')
-          const oldKey = this.getSessionKey(worktreePath, session.claudeSessionId)
-          session.claudeSessionId = sdkSessionId
-          session.materialized = true
-          this.sessions.delete(oldKey)
-          const newKey = this.getSessionKey(worktreePath, sdkSessionId)
-          this.sessions.set(newKey, session)
-          log.info(wasPending ? 'Materialized session ID' : 'Forked session ID', {
-            oldKey,
-            newKey
-          })
-
-          // When forking (not initial materialization), reset checkpoints
-          // since the new fork starts with its own checkpoint space
-          if (!wasPending) {
-            session.checkpoints = new Map()
-            session.checkpointCounter = 0
-            log.info('Reset checkpoints for forked session', {
-              hiveSessionId: session.hiveSessionId,
-              newSessionId: sdkSessionId
+        const materialization = this.materializeSessionFromSdkMessage(
+          session,
+          worktreePath,
+          sdkSessionId,
+          wasForkRequest
+        )
+        if (materialization?.wasPending) {
+          if (prompt.trimStart().startsWith('/using-superpowers')) {
+            session.titleDeferred = true
+            log.info('Prompt: deferring title generation (superpowers hook)', {
+              hiveSessionId: session.hiveSessionId
+            })
+          } else {
+            this.handleTitleGeneration(session, prompt).catch(() => {
+              // Swallowed — handleTitleGeneration already logs internally
             })
           }
+        }
 
-          // Update DB so future IPC calls with the new ID resolve correctly
-          if (this.dbService) {
-            try {
-              this.dbService.updateSession(session.hiveSessionId, {
-                opencode_session_id: sdkSessionId
-              })
-              log.info('Updated DB opencode_session_id', {
-                hiveSessionId: session.hiveSessionId,
-                newAgentSessionId: sdkSessionId
-              })
-            } catch (err) {
-              const error = err instanceof Error ? err : new Error(String(err))
-              log.error('Failed to update opencode_session_id in DB', error, {
-                hiveSessionId: session.hiveSessionId
-              })
-            }
-          }
-
-          // Notify renderer so it updates its opencodeSessionId state
-          // (otherwise loadMessages() after idle will use the stale pending:: ID).
-          // Include wasFork so the renderer knows whether to clear old messages.
-          // wasFork is true ONLY for explicit fork requests (undo+resend), not
-          // for normal SDK session ID changes during resume.
-          emitAgentEvent(this.mainWindow, {
-            type: 'session.materialized',
-            sessionId: session.hiveSessionId,
-            data: { newSessionId: sdkSessionId, wasFork: !wasPending && wasForkRequest }
-          })
-
-          // Fire-and-forget: generate a title for brand-new sessions only.
-          // wasPending is only true on initial materialization, not forks.
-          if (wasPending) {
-            if (prompt.trimStart().startsWith('/using-superpowers')) {
-              session.titleDeferred = true
-              log.info('Prompt: deferring title generation (superpowers hook)', {
-                hiveSessionId: session.hiveSessionId
-              })
-            } else {
-              this.handleTitleGeneration(session, prompt).catch(() => {
-                // Swallowed — handleTitleGeneration already logs internally
-              })
-            }
-          }
+        if (this.emitClaudeGoalFromSdkMessage(session, sdkMessage)) {
+          messageIndex++
+          continue
         }
 
         // Accumulate translated messages in-memory for getMessages()
@@ -1178,10 +1286,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
                 // where session.messages was hydrated from transcript).
                 for (let i = 0; i < session.messages.length; i++) {
                   const candidate = session.messages[i] as Record<string, unknown>
-                  if (
-                    candidate.role === 'user' &&
-                    candidate._pendingSdkEcho === true
-                  ) {
+                  if (candidate.role === 'user' && candidate._pendingSdkEcho === true) {
                     optimisticIndex = i
                     break
                   }
@@ -1272,6 +1377,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         totalMessages: messageIndex,
         aborted: session.abortController?.signal.aborted ?? false
       })
+      await this.emitClaudeGoalFromTranscript(session)
       await this.reconcileSessionMessagesFromTranscript(session)
       this.persistMessagesToDB(session)
     } catch (error) {
@@ -1300,7 +1406,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         session.query = null
         session.stderrBuffer = []
         session.abortController = new AbortController()
-        return this.prompt(worktreePath, agentSessionId, message, modelOverride)
+        return this.prompt(worktreePath, agentSessionId, message, modelOverride, promptOptions)
       }
 
       // Capture any extra properties the SDK may attach to the error
@@ -1349,6 +1455,325 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       // finally to emit idle (to avoid racing with persist).
       this.emitStatus(session.hiveSessionId, 'idle')
     }
+  }
+
+  private materializeSessionFromSdkMessage(
+    session: ClaudeSessionState,
+    worktreePath: string,
+    sdkSessionId: string | undefined,
+    wasForkRequest: boolean
+  ): { wasPending: boolean; sdkSessionId: string } | null {
+    if (!sdkSessionId) return null
+    if (
+      !session.claudeSessionId.startsWith('pending::') &&
+      sdkSessionId === session.claudeSessionId
+    ) {
+      return null
+    }
+
+    const wasPending = session.claudeSessionId.startsWith('pending::')
+    const oldKey = this.getSessionKey(worktreePath, session.claudeSessionId)
+    session.claudeSessionId = sdkSessionId
+    session.materialized = true
+    this.sessions.delete(oldKey)
+    const newKey = this.getSessionKey(worktreePath, sdkSessionId)
+    this.sessions.set(newKey, session)
+    log.info(wasPending ? 'Materialized session ID' : 'Forked session ID', {
+      oldKey,
+      newKey
+    })
+
+    if (!wasPending) {
+      session.checkpoints = new Map()
+      session.checkpointCounter = 0
+      log.info('Reset checkpoints for forked session', {
+        hiveSessionId: session.hiveSessionId,
+        newSessionId: sdkSessionId
+      })
+    }
+
+    if (this.dbService) {
+      try {
+        this.dbService.updateSession(session.hiveSessionId, {
+          opencode_session_id: sdkSessionId
+        })
+        log.info('Updated DB opencode_session_id', {
+          hiveSessionId: session.hiveSessionId,
+          newAgentSessionId: sdkSessionId
+        })
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err))
+        log.error('Failed to update opencode_session_id in DB', error, {
+          hiveSessionId: session.hiveSessionId
+        })
+      }
+    }
+
+    emitAgentEvent(this.mainWindow, {
+      type: 'session.materialized',
+      sessionId: session.hiveSessionId,
+      data: { newSessionId: sdkSessionId, wasFork: !wasPending && wasForkRequest }
+    })
+
+    return { wasPending, sdkSessionId }
+  }
+
+  private async setClaudeGoalBeforePrompt(
+    sdk: Awaited<ReturnType<typeof loadClaudeSDK>>,
+    session: ClaudeSessionState,
+    goalObjective: string,
+    options: Options
+  ): Promise<boolean> {
+    const objective = goalObjective.trim()
+    if (!objective) return false
+
+    this.emitClaudeGoalUpdated(session, objective, 'active')
+
+    if (options.forkSession) {
+      log.warn('Claude Goal: skipping native /goal during forked prompt; using Xuanpu mirror', {
+        hiveSessionId: session.hiveSessionId
+      })
+      return false
+    }
+
+    const commandArgument = formatClaudeGoalCommandArgument(objective)
+    if (!commandArgument) return false
+
+    const goalOptionsBase: Options = { ...options }
+    delete goalOptionsBase.forkSession
+    delete goalOptionsBase.resumeSessionAt
+    const goalOptions: Options = {
+      ...goalOptionsBase,
+      ...(session.materialized ? { resume: session.claudeSessionId } : {})
+    }
+
+    let observedNativeGoal = false
+    let goalQuery: ClaudeQuery | null = null
+    try {
+      const queryData = sdk.query({
+        prompt: `/goal ${commandArgument}`,
+        options: goalOptions
+      }) as AsyncIterable<Record<string, unknown>>
+      goalQuery = queryData as unknown as ClaudeQuery
+      session.query = goalQuery
+
+      for await (const sdkMessage of queryData) {
+        if (session.abortController?.signal.aborted) break
+
+        const msgType = asString(sdkMessage.type)
+        const msgSubtype = asString(sdkMessage.subtype)
+        const sdkSessionId = asString(sdkMessage.session_id)
+        this.materializeSessionFromSdkMessage(session, session.worktreePath, sdkSessionId, false)
+
+        if (msgType === 'system' && msgSubtype === 'init') {
+          this.cacheClaudeInitSlashCommands(session, session.worktreePath, sdkMessage)
+          continue
+        }
+
+        observedNativeGoal =
+          this.emitClaudeGoalFromSdkMessage(session, sdkMessage, objective) || observedNativeGoal
+      }
+      observedNativeGoal = (await this.emitClaudeGoalFromTranscript(session)) || observedNativeGoal
+    } catch (err) {
+      log.warn('Claude Goal: native /goal command failed, using Xuanpu fallback', {
+        hiveSessionId: session.hiveSessionId,
+        error: err instanceof Error ? err.message : String(err)
+      })
+      return false
+    } finally {
+      if (goalQuery) {
+        session.lastQuery = goalQuery
+      }
+      session.query = null
+    }
+
+    return observedNativeGoal && session.materialized
+  }
+
+  private async emitClaudeGoalFromTranscript(session: ClaudeSessionState): Promise<boolean> {
+    if (!session.materialized || session.claudeSessionId.startsWith('pending::')) return false
+
+    const status = await readClaudeGoalStatus(session.worktreePath, session.claudeSessionId)
+    if (!status) return false
+
+    const objective = status.condition ?? session.currentGoal?.objective
+    if (!objective) return false
+
+    this.emitClaudeGoalUpdated(session, objective, status.met ? 'completed' : 'active')
+    log.info('Claude Goal: mirrored transcript goal_status', {
+      hiveSessionId: session.hiveSessionId,
+      met: status.met,
+      sentinel: status.sentinel,
+      condition: status.condition ?? null
+    })
+    return true
+  }
+
+  private cacheClaudeInitSlashCommands(
+    session: ClaudeSessionState,
+    worktreePath: string,
+    initMsg: Record<string, unknown>
+  ): void {
+    const initSlashCommandNames = initMsg.slash_commands as string[] | undefined
+    if (initSlashCommandNames && Array.isArray(initSlashCommandNames)) {
+      const minimal = initSlashCommandNames
+        .filter((name): name is string => typeof name === 'string')
+        .map((name) => ({
+          name,
+          description: '',
+          argumentHint: ''
+        }))
+      this.cachedSlashCommands.set(worktreePath, minimal)
+      this.persistCommandsToDb(worktreePath)
+      log.info('Prompt: cached slash command names from init', {
+        count: minimal.length,
+        names: minimal.map((c) => c.name)
+      })
+    }
+
+    emitAgentEvent(this.mainWindow, {
+      type: 'session.commands_available',
+      sessionId: session.hiveSessionId,
+      data: {}
+    })
+
+    emitAgentEvent(this.mainWindow, {
+      type: 'session.model_limits',
+      sessionId: session.hiveSessionId,
+      data: {
+        models: CLAUDE_MODELS.map((m) => ({
+          modelID: m.id,
+          providerID: 'anthropic',
+          contextLimit: m.limit.context
+        }))
+      }
+    })
+  }
+
+  private emitClaudeGoalFromSdkMessage(
+    session: ClaudeSessionState,
+    sdkMessage: Record<string, unknown>,
+    fallbackObjective?: string
+  ): boolean {
+    const msgType = asString(sdkMessage.type)
+    const msgSubtype = asString(sdkMessage.subtype)
+    const kind = [msgType, msgSubtype].filter(Boolean).join(':').toLowerCase()
+
+    if (msgType === 'system' && msgSubtype === 'local_command_output') {
+      const content = asString(sdkMessage.content)?.trim() ?? ''
+      if (!content) return false
+
+      if (/no goal set/i.test(content)) {
+        this.emitClaudeGoalCleared(session)
+        return true
+      }
+
+      if (/goal achieved/i.test(content)) {
+        const objective = session.currentGoal?.objective ?? fallbackObjective
+        if (!objective) return false
+        this.emitClaudeGoalUpdated(session, objective, 'completed')
+        return true
+      }
+
+      if (/goal active|goal set/i.test(content)) {
+        const objective = fallbackObjective ?? session.currentGoal?.objective
+        if (!objective) return false
+        this.emitClaudeGoalUpdated(session, objective, 'active')
+        return true
+      }
+
+      if (/only available|can't run|unknown command/i.test(content)) {
+        log.warn('Claude Goal: /goal command output did not confirm native support', {
+          hiveSessionId: session.hiveSessionId,
+          content
+        })
+      }
+      return false
+    }
+
+    const goalRecord =
+      asObject(sdkMessage.goal) ??
+      asObject(sdkMessage.active_goal) ??
+      asObject(sdkMessage.activeGoal)
+    const hasGoalSignal =
+      kind.includes('goal') ||
+      !!goalRecord ||
+      typeof sdkMessage.goal === 'string' ||
+      typeof sdkMessage.active_goal === 'string' ||
+      typeof sdkMessage.activeGoal === 'string'
+
+    if (!hasGoalSignal) return false
+
+    const rawStatus =
+      readStringField(goalRecord, ['status', 'state']) ??
+      readStringField(sdkMessage, ['status', 'goal_status', 'state'])
+    const status = normalizeClaudeGoalStatus(rawStatus, kind, sdkMessage.goal_met)
+    if (isClaudeGoalClearedStatus(status) || kind.includes('goal_clear')) {
+      this.emitClaudeGoalCleared(session)
+      return true
+    }
+
+    const rawObjective =
+      readStringField(goalRecord, ['objective', 'goal', 'condition', 'text', 'prompt']) ??
+      readStringField(sdkMessage, ['objective', 'goal', 'condition', 'active_goal', 'activeGoal'])
+    const objective = rawObjective ?? fallbackObjective ?? session.currentGoal?.objective
+    if (!objective) return false
+
+    this.emitClaudeGoalUpdated(session, objective, status, goalRecord ?? sdkMessage)
+    return true
+  }
+
+  private emitClaudeGoalUpdated(
+    session: ClaudeSessionState,
+    rawObjective: string,
+    status: string,
+    metadata?: Record<string, unknown>
+  ): void {
+    const { objective, successCriteria } = splitClaudeGoalObjective(rawObjective)
+    if (!objective) return
+
+    const goal: AgentSessionGoalState = {
+      objective,
+      ...(successCriteria ? { successCriteria } : {}),
+      status
+    }
+
+    const tokenBudget = asNumberOrNull(metadata?.tokenBudget ?? metadata?.token_budget)
+    if (tokenBudget !== undefined) goal.tokenBudget = tokenBudget
+    const tokensUsed = asNumberOrNull(metadata?.tokensUsed ?? metadata?.tokens_used)
+    if (tokensUsed !== undefined) goal.tokensUsed = tokensUsed
+    const timeUsedSeconds = asNumberOrNull(metadata?.timeUsedSeconds ?? metadata?.time_used_seconds)
+    if (timeUsedSeconds !== undefined) goal.timeUsedSeconds = timeUsedSeconds
+    const createdAt = asNumberOrNull(metadata?.createdAt ?? metadata?.created_at)
+    if (createdAt !== undefined) goal.createdAt = createdAt
+    const updatedAt = asNumberOrNull(metadata?.updatedAt ?? metadata?.updated_at)
+    if (updatedAt !== undefined) goal.updatedAt = updatedAt
+
+    session.currentGoal = goal
+    emitAgentEvent(this.mainWindow, {
+      type: 'session.goal_updated',
+      sessionId: session.hiveSessionId,
+      runtimeId: 'claude-code',
+      data: {
+        goal,
+        status: goal.status,
+        source: 'claude-code'
+      }
+    })
+  }
+
+  private emitClaudeGoalCleared(session: ClaudeSessionState): void {
+    session.currentGoal = null
+    emitAgentEvent(this.mainWindow, {
+      type: 'session.goal_cleared',
+      sessionId: session.hiveSessionId,
+      runtimeId: 'claude-code',
+      data: {
+        goal: null,
+        status: 'cleared',
+        source: 'claude-code'
+      }
+    })
   }
 
   async abort(worktreePath: string, agentSessionId: string): Promise<boolean> {
@@ -1493,9 +1918,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
     }
   }
 
-  private async reconcileSessionMessagesFromTranscript(
-    session: ClaudeSessionState
-  ): Promise<void> {
+  private async reconcileSessionMessagesFromTranscript(session: ClaudeSessionState): Promise<void> {
     if (!session.materialized) return
     if (!session.claudeSessionId || session.claudeSessionId.startsWith('pending::')) return
     if (session.messages.length === 0) return
@@ -2484,7 +2907,6 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         hasPlanContent: planContent.length > 0
       })
 
-
       // If the session is aborted while waiting, auto-reject and notify renderer
       const onAbort = (): void => {
         if (session.pendingPlanApproval?.requestId === requestId) {
@@ -2578,7 +3000,6 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       return ''
     }
   }
-
 
   /**
    * Creates a canUseTool callback for the Claude Agent SDK.

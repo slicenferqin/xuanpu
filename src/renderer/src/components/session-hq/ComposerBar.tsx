@@ -52,7 +52,7 @@ export interface ComposerBarProps {
   onToggleMode?: () => void
   /** Pending plan (truthy means plan is ready for review) */
   pendingPlan?: unknown | null
-  /** Codex-only goal launch controls */
+  /** Runtime-backed goal launch controls */
   supportsGoalMode?: boolean
   goalMode?: boolean
   onToggleGoalMode?: () => void
