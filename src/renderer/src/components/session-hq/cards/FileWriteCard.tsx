@@ -13,6 +13,7 @@ import { ActionCard } from './ActionCard'
 import { Check, X, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ToolUseInfo } from '@shared/lib/timeline-types'
+import { useI18n } from '@/i18n/useI18n'
 
 interface FileWriteCardProps {
   toolUse: ToolUseInfo
@@ -56,13 +57,12 @@ function readWriteContent(input: Record<string, unknown>): string {
 
 function resolveWriteFilePath(toolUse: ToolUseInfo, fallback?: string): string {
   const input = (toolUse.input ?? {}) as Record<string, unknown>
-  const direct =
-    (input.filePath ||
-      input.file_path ||
-      input.path ||
-      input.displayName ||
-      input.filename ||
-      '') as string
+  const direct = (input.filePath ||
+    input.file_path ||
+    input.path ||
+    input.displayName ||
+    input.filename ||
+    '') as string
   if (direct) return direct
   const paths = input.paths
   if (Array.isArray(paths) && typeof paths[0] === 'string') return paths[0]
@@ -221,6 +221,7 @@ interface DiffPreviewProps {
 }
 
 function DiffPreview({ lines }: DiffPreviewProps): React.JSX.Element {
+  const { t } = useI18n()
   const [expanded, setExpanded] = useState(false)
   const overflow = lines.length > PREVIEW_LINE_LIMIT
   const visible = expanded ? lines : lines.slice(0, PREVIEW_LINE_LIMIT)
@@ -254,7 +255,15 @@ function DiffPreview({ lines }: DiffPreviewProps): React.JSX.Element {
           }}
           className="w-full text-[11px] py-1 border-t border-border/40 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
         >
-          {expanded ? '收起' : `展开全部（还有 ${hiddenCount} 行）`}
+          {expanded
+            ? t('sessionHq.cards.fileWrite.collapse')
+            : t('sessionHq.cards.fileWrite.expandAllMore', {
+                count: hiddenCount,
+                label:
+                  hiddenCount === 1
+                    ? t('sessionHq.cards.fileWrite.lineSingular')
+                    : t('sessionHq.cards.fileWrite.linePlural')
+              })}
         </button>
       )}
     </div>
@@ -262,11 +271,10 @@ function DiffPreview({ lines }: DiffPreviewProps): React.JSX.Element {
 }
 
 export function FileWriteCard({ toolUse }: FileWriteCardProps): React.JSX.Element {
+  const { t } = useI18n()
   const codexChanges = getCodexChanges(toolUse)
   const filePath =
-    resolveWriteFilePath(toolUse, codexChanges?.[0]?.path) ||
-    codexChanges?.[0]?.path ||
-    ''
+    resolveWriteFilePath(toolUse, codexChanges?.[0]?.path) || codexChanges?.[0]?.path || ''
   // Codex emits 'Edit' for both pure edits and full rewrites; treat as Edit.
   const isEdit =
     toolUse.name === 'Edit' ||
@@ -286,7 +294,9 @@ export function FileWriteCard({ toolUse }: FileWriteCardProps): React.JSX.Elemen
       headerLeft={
         <div className="flex items-center gap-2 min-w-0">
           <span className="font-semibold text-foreground shrink-0">
-            {isEdit ? 'Edit' : 'Write File'}
+            {isEdit
+              ? t('sessionHq.cards.fileWrite.edit')
+              : t('sessionHq.cards.fileWrite.writeFile')}
           </span>
           <span className="font-mono text-xs text-blue-500 bg-blue-500/10 px-1.5 py-0.5 rounded truncate">
             {filePath}
@@ -308,8 +318,8 @@ export function FileWriteCard({ toolUse }: FileWriteCardProps): React.JSX.Elemen
               )}
             </div>
           )}
-          {isRunning && <span>Writing...</span>}
-          {isError && <span>Error</span>}
+          {isRunning && <span>{t('sessionHq.cards.fileWrite.writing')}</span>}
+          {isError && <span>{t('sessionHq.cards.fileWrite.error')}</span>}
         </div>
       }
       // Default collapsed — click the header to expand the diff preview

@@ -10,6 +10,7 @@ import React from 'react'
 import { ActionCard } from './ActionCard'
 import { CheckCircle2, Circle, Loader2, AlertCircle } from 'lucide-react'
 import type { ToolUseInfo } from '@shared/lib/timeline-types'
+import { useI18n } from '@/i18n/useI18n'
 
 interface TodoCardPropsToolUse {
   toolUse: ToolUseInfo
@@ -81,17 +82,22 @@ function StatusIcon({ status }: { status?: string }): React.JSX.Element {
 }
 
 function TaskRow({ item, index }: { item: TodoItem; index: number }): React.JSX.Element {
+  const { t } = useI18n()
+
   return (
     <div className="flex items-center gap-2 py-0.5">
       <StatusIcon status={item.status} />
       <div className="flex-1 min-w-0">
         <div className="text-sm text-foreground">
-          {item.step ?? item.content ?? item.subject ?? item.activeForm ?? item.description ?? `Task ${index + 1}`}
+          {item.step ??
+            item.content ??
+            item.subject ??
+            item.activeForm ??
+            item.description ??
+            t('sessionHq.cards.todo.taskFallback', { index: index + 1 })}
         </div>
         {(item.subject || item.content || item.step) && item.description && (
-          <div className="text-xs text-muted-foreground mt-0.5 truncate">
-            {item.description}
-          </div>
+          <div className="text-xs text-muted-foreground mt-0.5 truncate">{item.description}</div>
         )}
       </div>
     </div>
@@ -99,6 +105,8 @@ function TaskRow({ item, index }: { item: TodoItem; index: number }): React.JSX.
 }
 
 export function TodoCard(props: TodoCardProps): React.JSX.Element {
+  const { t } = useI18n()
+
   // --- Aggregated tasks mode ---
   if (props.tasks) {
     const allDone = props.tasks.every((t) => t.status === 'completed')
@@ -106,8 +114,10 @@ export function TodoCard(props: TodoCardProps): React.JSX.Element {
       <ActionCard
         accentClass="border-celadon/30"
         headerClass="border-b-celadon/20 text-celadon"
-        headerLeft={<span className="font-semibold">Task List</span>}
-        headerRight={allDone ? 'Done' : 'In progress'}
+        headerLeft={<span className="font-semibold">{t('sessionHq.cards.todo.title')}</span>}
+        headerRight={
+          allDone ? t('sessionHq.cards.todo.done') : t('sessionHq.cards.todo.inProgress')
+        }
         defaultExpanded
         collapsible={props.tasks.length > 5}
       >
@@ -130,9 +140,9 @@ export function TodoCard(props: TodoCardProps): React.JSX.Element {
   const lowerToolName = toolUse.name.toLowerCase()
   const toolLabel =
     toolUse.name === 'TodoWrite'
-      ? 'Task List'
+      ? t('sessionHq.cards.todo.title')
       : lowerToolName === 'update_plan'
-        ? 'Plan Update'
+        ? t('sessionHq.cards.todo.planUpdate')
         : toolUse.name
 
   return (
@@ -141,9 +151,11 @@ export function TodoCard(props: TodoCardProps): React.JSX.Element {
       headerClass="border-b-green-500/20 text-green-700 dark:text-green-400"
       headerLeft={<span className="font-semibold">{toolLabel}</span>}
       headerRight={
-        toolUse.status === 'running' ? 'Running...'
-          : toolUse.status === 'success' ? 'Done'
-          : toolUse.status
+        toolUse.status === 'running'
+          ? t('sessionHq.cards.todo.running')
+          : toolUse.status === 'success'
+            ? t('sessionHq.cards.todo.done')
+            : toolUse.status
       }
       defaultExpanded
       collapsible={items.length > 5}
@@ -156,7 +168,7 @@ export function TodoCard(props: TodoCardProps): React.JSX.Element {
         </div>
       ) : (
         <div className="text-sm text-muted-foreground">
-          {toolUse.output ? toolUse.output.slice(0, 200) : 'No tasks'}
+          {toolUse.output ? toolUse.output.slice(0, 200) : t('sessionHq.cards.todo.noTasks')}
         </div>
       )}
     </ActionCard>

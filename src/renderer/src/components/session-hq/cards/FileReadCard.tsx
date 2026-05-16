@@ -5,6 +5,7 @@
 import React from 'react'
 import { ActionCard } from './ActionCard'
 import type { ToolUseInfo } from '@shared/lib/timeline-types'
+import { useI18n } from '@/i18n/useI18n'
 
 interface FileReadCardProps {
   toolUse: ToolUseInfo
@@ -12,9 +13,12 @@ interface FileReadCardProps {
 
 function resolveReadFilePath(toolUse: ToolUseInfo): string {
   const input = (toolUse.input ?? {}) as Record<string, unknown>
-  const direct =
-    (input.filePath || input.file_path || input.path || input.displayName || input.filename ||
-      '') as string
+  const direct = (input.filePath ||
+    input.file_path ||
+    input.path ||
+    input.displayName ||
+    input.filename ||
+    '') as string
   if (direct) return direct
   const paths = input.paths
   if (Array.isArray(paths) && typeof paths[0] === 'string') return paths[0]
@@ -50,6 +54,7 @@ function resolveReadLineCount(toolUse: ToolUseInfo): number | undefined {
 }
 
 export function FileReadCard({ toolUse }: FileReadCardProps): React.JSX.Element {
+  const { t } = useI18n()
   const filePath = resolveReadFilePath(toolUse)
   const lineCount = resolveReadLineCount(toolUse)
 
@@ -57,13 +62,25 @@ export function FileReadCard({ toolUse }: FileReadCardProps): React.JSX.Element 
     <ActionCard
       headerLeft={
         <div className="flex items-center gap-2 min-w-0">
-          <span className="font-semibold text-foreground shrink-0">Read File</span>
+          <span className="font-semibold text-foreground shrink-0">
+            {t('sessionHq.cards.fileRead.title')}
+          </span>
           <span className="font-mono text-xs text-blue-500 bg-blue-500/10 px-1.5 py-0.5 rounded truncate min-w-0">
             {filePath}
           </span>
         </div>
       }
-      headerRight={lineCount ? `${lineCount} lines` : undefined}
+      headerRight={
+        lineCount
+          ? t('sessionHq.cards.fileRead.lineCount', {
+              count: lineCount,
+              label:
+                lineCount === 1
+                  ? t('sessionHq.cards.fileRead.lineSingular')
+                  : t('sessionHq.cards.fileRead.linePlural')
+            })
+          : undefined
+      }
     />
   )
 }

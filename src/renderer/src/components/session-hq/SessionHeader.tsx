@@ -6,7 +6,15 @@
  */
 
 import { useMemo, useState } from 'react'
-import { DollarSign, Clock3, Layers3, TriangleAlert, Lock, TerminalSquare, Check } from 'lucide-react'
+import {
+  DollarSign,
+  Clock3,
+  Layers3,
+  TriangleAlert,
+  Lock,
+  TerminalSquare,
+  Check
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ModelSelector } from '../sessions/ModelSelector'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -32,16 +40,38 @@ type AgentSdk = 'opencode' | 'claude-code' | 'codex' | 'terminal'
 const PROVIDER_LABELS: Record<string, string> = {
   'claude-code': 'Claude',
   opencode: 'OpenCode',
-  codex: 'Codex',
-  terminal: 'Terminal'
+  codex: 'Codex'
 }
 
-const LIFECYCLE_META: Record<SessionLifecycle, { label: string; dotClass: string }> = {
-  idle: { label: 'Idle', dotClass: 'bg-muted-foreground/50' },
-  busy: { label: 'Working', dotClass: 'bg-celadon animate-pulse' },
-  retry: { label: 'Retrying', dotClass: 'bg-yellow-500 animate-pulse' },
-  error: { label: 'Error', dotClass: 'bg-red-500' },
-  materializing: { label: 'Starting', dotClass: 'bg-blue-500 animate-pulse' }
+function getProviderLabel(sdk: string, t: ReturnType<typeof useI18n>['t']): string {
+  if (sdk === 'terminal') return t('bottomPanel.tabs.terminal')
+  return PROVIDER_LABELS[sdk] ?? sdk
+}
+
+function getLifecycleLabel(
+  lifecycle: SessionLifecycle,
+  t: ReturnType<typeof useI18n>['t']
+): string {
+  switch (lifecycle) {
+    case 'idle':
+      return t('sessionHq.header.lifecycle.idle')
+    case 'busy':
+      return t('sessionHq.header.lifecycle.busy')
+    case 'retry':
+      return t('sessionHq.header.lifecycle.retry')
+    case 'error':
+      return t('sessionHq.header.lifecycle.error')
+    case 'materializing':
+      return t('sessionHq.header.lifecycle.materializing')
+  }
+}
+
+const LIFECYCLE_META: Record<SessionLifecycle, { dotClass: string }> = {
+  idle: { dotClass: 'bg-muted-foreground/50' },
+  busy: { dotClass: 'bg-celadon animate-pulse' },
+  retry: { dotClass: 'bg-yellow-500 animate-pulse' },
+  error: { dotClass: 'bg-red-500' },
+  materializing: { dotClass: 'bg-blue-500 animate-pulse' }
 }
 
 function formatNumber(n: number): string {
@@ -86,7 +116,8 @@ function ProviderCapsule({
   locked: boolean
 }): React.JSX.Element {
   const { t } = useI18n()
-  const label = PROVIDER_LABELS[sdk] ?? sdk
+  const label = getProviderLabel(sdk, t)
+  const lifecycleLabel = getLifecycleLabel(lifecycle, t)
   const meta = LIFECYCLE_META[lifecycle] ?? LIFECYCLE_META.idle
   const availableAgentSdks = useSettingsStore((s) => s.availableAgentSdks)
   const [open, setOpen] = useState(false)
@@ -107,6 +138,7 @@ function ProviderCapsule({
           <span
             className="inline-flex items-center gap-1.5 border border-border/40 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground cursor-default"
             data-testid="provider-capsule-locked"
+            title={lifecycleLabel}
           >
             <span className={cn('h-1.5 w-1.5 rounded-full', meta.dotClass)} />
             {label}
@@ -130,7 +162,7 @@ function ProviderCapsule({
       agentSdk: next
     })
     if (!result.success) {
-      toast.error(result.error || 'Failed to update provider')
+      toast.error(result.error || t('sessionHq.header.providerUpdateError'))
     }
   }
 
@@ -141,6 +173,7 @@ function ProviderCapsule({
           type="button"
           className="inline-flex items-center gap-1.5 border border-border/40 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted/40 hover:text-foreground transition-colors cursor-pointer"
           data-testid="provider-capsule"
+          title={lifecycleLabel}
         >
           <span className={cn('h-1.5 w-1.5 rounded-full', meta.dotClass)} />
           {label}
@@ -158,14 +191,12 @@ function ProviderCapsule({
               }}
               className={cn(
                 'flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs transition-colors',
-                active
-                  ? 'bg-primary/10 text-primary'
-                  : 'text-foreground hover:bg-muted/60'
+                active ? 'bg-primary/10 text-primary' : 'text-foreground hover:bg-muted/60'
               )}
             >
               <span className="flex items-center gap-1.5">
                 {s === 'terminal' && <TerminalSquare className="h-3.5 w-3.5 text-emerald-500" />}
-                {PROVIDER_LABELS[s] ?? s}
+                {getProviderLabel(s, t)}
               </span>
               {active && <Check className="h-3.5 w-3.5" />}
             </button>
@@ -185,6 +216,8 @@ function ContextCapsule({
   modelId: string
   providerId: string
 }): React.JSX.Element | null {
+  const { t } = useI18n()
+
   // useShallow + field picking is required: getContextUsage() returns a fresh
   // object each call, and some fields (model, cost, rawMaxTokens) can also be
   // freshly-allocated — a naive selector would loop useSyncExternalStore.
@@ -228,10 +261,10 @@ function ContextCapsule({
       </TooltipTrigger>
       <TooltipContent side="bottom" sideOffset={8} className="max-w-[260px]">
         <div className="space-y-1.5">
-          <div className="font-medium">Context Window</div>
+          <div className="font-medium">{t('contextIndicator.title')}</div>
           <div>
             {formatNumber(used)}
-            {limit ? ` / ${formatNumber(limit)}` : ''} tokens
+            {limit ? ` / ${formatNumber(limit)}` : ''} {t('sessionHq.header.tokens')}
           </div>
           {categories && categories.length > 0 ? (
             <div className="border-t border-background/20 pt-1.5 space-y-0.5 text-[10px] opacity-80">
@@ -244,22 +277,36 @@ function ContextCapsule({
             </div>
           ) : (
             <div className="border-t border-background/20 pt-1.5 space-y-0.5 text-[10px] opacity-80">
-              <div className="text-[10px] opacity-100">Latest turn API usage</div>
-              <div>Input: {formatNumber(tokens.input)}</div>
-              <div>Cache read: {formatNumber(tokens.cacheRead)}</div>
-              <div>Cache write: {formatNumber(tokens.cacheWrite)}</div>
+              <div className="text-[10px] opacity-100">{t('contextIndicator.latestTurn')}</div>
+              <div>
+                {t('contextIndicator.labels.input')}: {formatNumber(tokens.input)}
+              </div>
+              <div>
+                {t('contextIndicator.labels.cacheRead')}: {formatNumber(tokens.cacheRead)}
+              </div>
+              <div>
+                {t('contextIndicator.labels.cacheWrite')}: {formatNumber(tokens.cacheWrite)}
+              </div>
             </div>
           )}
           {(tokens.output > 0 || tokens.reasoning > 0) && (
             <div className="border-t border-background/20 pt-1.5 space-y-0.5 text-[10px] opacity-60">
-              <div className="text-[10px]">Generated</div>
-              {tokens.output > 0 && <div>Output: {formatNumber(tokens.output)}</div>}
-              {tokens.reasoning > 0 && <div>Reasoning: {formatNumber(tokens.reasoning)}</div>}
+              <div className="text-[10px]">{t('contextIndicator.generated.title')}</div>
+              {tokens.output > 0 && (
+                <div>
+                  {t('contextIndicator.generated.output')}: {formatNumber(tokens.output)}
+                </div>
+              )}
+              {tokens.reasoning > 0 && (
+                <div>
+                  {t('contextIndicator.generated.reasoning')}: {formatNumber(tokens.reasoning)}
+                </div>
+              )}
             </div>
           )}
           {isRefreshing && (
             <div className="border-t border-background/20 pt-1.5 text-[10px] opacity-70">
-              Compressing context...
+              {t('sessionHq.header.compressingContext')}
             </div>
           )}
         </div>
@@ -277,6 +324,7 @@ function CostCapsule({
   fallbackCost: number
   fallbackTokens: { input: number; output: number; cacheRead: number; cacheWrite: number } | null
 }): React.JSX.Element | null {
+  const { t } = useI18n()
   const totalCost = Math.max(summary?.total_cost ?? 0, fallbackCost ?? 0)
   const hasSummaryTokens = (summary?.total_tokens ?? 0) > 0
   const totalTokens = summary?.total_tokens ?? 0
@@ -300,33 +348,37 @@ function CostCapsule({
         <PopoverHeader className="gap-2">
           <PopoverTitle className="flex items-center gap-2 text-sm">
             <DollarSign className="h-4 w-4 text-muted-foreground" />
-            Session Cost
+            {t('sessionView.costPill.title')}
           </PopoverTitle>
         </PopoverHeader>
         <div className="mt-3 space-y-2 text-xs">
           <div className="flex items-center justify-between gap-3">
-            <span className="text-muted-foreground">Total cost</span>
+            <span className="text-muted-foreground">{t('sessionView.costPill.totalCost')}</span>
             <span className="font-mono font-medium">{formatCurrency(totalCost)}</span>
           </div>
           <div className="flex items-center justify-between gap-3">
-            <span className="text-muted-foreground">Total tokens</span>
+            <span className="text-muted-foreground">{t('sessionView.costPill.totalTokens')}</span>
             {hasSummaryTokens ? (
               <span className="font-mono">{formatTokensShort(totalTokens)}</span>
             ) : (
-              <span className="text-muted-foreground">Session totals are syncing…</span>
+              <span className="text-muted-foreground">
+                {t('sessionView.costPill.totalsSyncing')}
+              </span>
             )}
           </div>
           {hasSummaryTokens ? (
             <div className="grid grid-cols-2 gap-2 border-t border-border/70 pt-2">
               <div className="rounded-lg bg-muted/45 px-2 py-1.5">
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Input</div>
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  {t('sessionView.costPill.input')}
+                </div>
                 <div className="mt-1 font-mono">
                   {formatTokensShort(summary?.input_tokens ?? 0)}
                 </div>
               </div>
               <div className="rounded-lg bg-muted/45 px-2 py-1.5">
                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                  Output
+                  {t('sessionView.costPill.output')}
                 </div>
                 <div className="mt-1 font-mono">
                   {formatTokensShort(summary?.output_tokens ?? 0)}
@@ -334,7 +386,7 @@ function CostCapsule({
               </div>
               <div className="rounded-lg bg-muted/45 px-2 py-1.5">
                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                  Cache write
+                  {t('sessionView.costPill.cacheWrite')}
                 </div>
                 <div className="mt-1 font-mono">
                   {formatTokensShort(summary?.cache_write_tokens ?? 0)}
@@ -342,7 +394,7 @@ function CostCapsule({
               </div>
               <div className="rounded-lg bg-muted/45 px-2 py-1.5">
                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                  Cache read
+                  {t('sessionView.costPill.cacheRead')}
                 </div>
                 <div className="mt-1 font-mono">
                   {formatTokensShort(summary?.cache_read_tokens ?? 0)}
@@ -354,7 +406,7 @@ function CostCapsule({
             <div className="flex items-center justify-between gap-3 border-t border-border/70 pt-2">
               <span className="flex items-center gap-1.5 text-muted-foreground">
                 <Layers3 className="h-3.5 w-3.5" />
-                Model
+                {t('sessionView.costPill.model')}
               </span>
               <span className="truncate font-medium" title={modelSummary.full}>
                 {modelSummary.short}
@@ -365,7 +417,7 @@ function CostCapsule({
             <div className="flex items-center justify-between gap-3">
               <span className="flex items-center gap-1.5 text-muted-foreground">
                 <Clock3 className="h-3.5 w-3.5" />
-                Duration
+                {t('sessionView.costPill.duration')}
               </span>
               <span className="font-mono">{formatDuration(summary.duration_seconds)}</span>
             </div>
@@ -373,7 +425,7 @@ function CostCapsule({
           {summary?.partial && (
             <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-700 dark:text-amber-300">
               <TriangleAlert className="inline h-3 w-3 mr-1" />
-              Partial data — some usage may not be reflected yet.
+              {t('sessionView.costPill.partialData')}
             </div>
           )}
         </div>
@@ -421,13 +473,7 @@ export function SessionHeader({
         lifecycle={lifecycle}
         locked={locked}
       />
-      {!isTerminal && (
-        <ModelSelector
-          sessionId={sessionId}
-          compact
-          showProviderPrefix={false}
-        />
-      )}
+      {!isTerminal && <ModelSelector sessionId={sessionId} compact showProviderPrefix={false} />}
 
       <div className="flex-1" />
 

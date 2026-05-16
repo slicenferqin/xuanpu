@@ -8,12 +8,14 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/i18n/useI18n'
 
 interface ThinkingCardProps {
   content: string
 }
 
 export function ThinkingCard({ content }: ThinkingCardProps): React.JSX.Element {
+  const { t } = useI18n()
   const [expanded, setExpanded] = useState(false)
   const [isOverflowing, setIsOverflowing] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -28,7 +30,7 @@ export function ThinkingCard({ content }: ThinkingCardProps): React.JSX.Element 
   return (
     <div className="border-l-[3px] border-border pl-3.5 py-1">
       <div className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5 mb-1.5">
-        Thinking Process
+        {t('sessionHq.cards.thinking.title')}
       </div>
       <div
         ref={contentRef}
@@ -45,12 +47,9 @@ export function ThinkingCard({ content }: ThinkingCardProps): React.JSX.Element 
           className="text-[11px] text-muted-foreground/60 hover:text-muted-foreground mt-1.5 cursor-pointer select-none flex items-center gap-1 transition-colors"
         >
           <ChevronDown
-            className={cn(
-              'h-3 w-3 transition-transform duration-200',
-              expanded && 'rotate-180'
-            )}
+            className={cn('h-3 w-3 transition-transform duration-200', expanded && 'rotate-180')}
           />
-          {expanded ? 'Show less' : 'Show more'}
+          {expanded ? t('toolViews.common.showLess') : t('sessionHq.cards.thinking.showMore')}
         </button>
       )}
     </div>

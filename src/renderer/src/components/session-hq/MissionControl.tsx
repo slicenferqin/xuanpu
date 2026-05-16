@@ -20,6 +20,7 @@ import {
   Loader2,
   User
 } from 'lucide-react'
+import { useI18n } from '@/i18n/useI18n'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -67,6 +68,7 @@ export function MissionControl({
   allComplete,
   isStreaming
 }: MissionControlProps): React.JSX.Element | null {
+  const { t } = useI18n()
   const [expanded, setExpanded] = useState(false)
   const [leaving, setLeaving] = useState(false)
 
@@ -86,13 +88,8 @@ export function MissionControl({
     [tasks]
   )
   const totalCount = tasks.length
-  const progressPercent = totalCount > 0
-    ? Math.round((completedCount / totalCount) * 100)
-    : 0
-  const activeTask = useMemo(
-    () => tasks.find((t) => t.status === 'in_progress'),
-    [tasks]
-  )
+  const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0
+  const activeTask = useMemo(() => tasks.find((t) => t.status === 'in_progress'), [tasks])
 
   // Don't render when not visible and not animating out
   if (!visible && !leaving) return null
@@ -146,10 +143,13 @@ export function MissionControl({
         {/* Current task / summary */}
         <span className="text-sm font-medium text-foreground truncate flex-1">
           {allComplete
-            ? 'All tasks completed'
+            ? t('sessionHq.missionControl.allTasksCompleted')
             : activeTask
               ? activeTask.content
-              : `${completedCount}/${totalCount} tasks`}
+              : t('sessionHq.missionControl.taskCount', {
+                  completed: completedCount,
+                  total: totalCount
+                })}
         </span>
 
         {/* Progress track */}

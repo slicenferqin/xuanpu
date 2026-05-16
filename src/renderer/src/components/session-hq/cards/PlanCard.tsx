@@ -53,10 +53,14 @@ export function PlanCard({
       key={isPending ? 'pending' : 'resolved'}
       accentClass="border-purple-500"
       headerClass="bg-purple-500/10 text-purple-600 dark:text-purple-400 border-b-purple-500/20"
-      headerLeft={<span className="font-semibold">Proposed Execution Plan</span>}
+      headerLeft={<span className="font-semibold">{t('sessionHq.cards.plan.title')}</span>}
       headerRight={
         <div className="flex items-center gap-2">
-          <span>{isPending ? 'Requires Approval' : 'Approved'}</span>
+          <span>
+            {isPending
+              ? t('sessionHq.cards.plan.requiresApproval')
+              : t('sessionHq.cards.plan.approved')}
+          </span>
           {hasCopyableContent && (
             <Button
               type="button"
@@ -91,7 +95,7 @@ export function PlanCard({
               onClick={onReject}
               className="px-4 py-1.5 rounded-md border border-border text-sm font-medium hover:bg-muted transition-colors"
             >
-              Reject / Modify
+              {t('sessionHq.cards.plan.rejectModify')}
             </button>
           )}
           {onApprove && (
@@ -99,7 +103,7 @@ export function PlanCard({
               onClick={onApprove}
               className="px-4 py-1.5 rounded-md bg-blue-500 text-white text-sm font-medium hover:opacity-90 transition-opacity"
             >
-              Approve & Start
+              {t('sessionHq.cards.plan.approveStart')}
             </button>
           )}
         </div>

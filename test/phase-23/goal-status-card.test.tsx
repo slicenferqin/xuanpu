@@ -40,7 +40,7 @@ describe('GoalStatusCard', () => {
       />
     )
 
-    expect(screen.getByTestId('goal-status-card')).toHaveTextContent('completed')
+    expect(screen.getByTestId('goal-status-card')).toHaveTextContent('Completed')
     expect(screen.getByTestId('goal-dismiss-button')).toBeInTheDocument()
 
     await user.click(screen.getByTestId('goal-dismiss-button'))
