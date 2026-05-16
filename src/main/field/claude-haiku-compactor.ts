@@ -307,9 +307,6 @@ function truncate(s: string, max: number): string {
   return single.length <= max ? single : single.slice(0, Math.max(0, max - 1)) + '…'
 }
 
-const SECRET_INLINE_REGEX =
-  /(api[_-]?key|password|token|secret|authorization|bearer)\s*[:=]?\s*\S+/gi
-
 // NOTE: This local regex is no longer used at runtime — sharedRedactSecrets
 // from `./redact` is the real implementation. The wrapper preserves the old
 // exported test surface (`__HAIKU_COMPACTOR_TUNABLES_FOR_TEST.redactSecrets`).

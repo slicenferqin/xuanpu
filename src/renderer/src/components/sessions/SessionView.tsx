@@ -691,7 +691,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   const [isSending, setIsSending] = useState(false)
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [editingContent, setEditingContent] = useState<string>('')
-  const [_editingAttachments, _setEditingAttachments] = useState<MessagePart[]>([])
+  const [, setEditingAttachments] = useState<MessagePart[]>([])
   const [queuedMessages, setQueuedMessages] = useState<QueuedMsg[]>([])
   const [attachments, setAttachments] = useState<Attachment[]>(() =>
     useDraftAttachmentStore.getState().restore(sessionId)
@@ -1258,6 +1258,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   }, [
     getModelForRequests,
     sessionId,
+    sessionAgentSdk,
     sessionRecord?.model_provider_id,
     sessionRecord?.model_id,
     sessionRecord?.model_variant
@@ -4323,13 +4324,13 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         ? message.content.slice(ASK_MODE_PREFIX.length)
         : message.content
     setEditingContent(displayContent)
-    _setEditingAttachments(message.attachments ?? [])
+    setEditingAttachments(message.attachments ?? [])
   }, [])
 
   const handleCancelEdit = useCallback(() => {
     setEditingMessageId(null)
     setEditingContent('')
-    _setEditingAttachments([])
+    setEditingAttachments([])
   }, [])
 
   const handleSaveEdit = useCallback(
@@ -4351,7 +4352,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
 
       setEditingMessageId(null)
       setEditingContent('')
-      _setEditingAttachments([])
+      setEditingAttachments([])
 
       await handleSend(contentToSend)
     },

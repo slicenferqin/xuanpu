@@ -112,45 +112,6 @@ export function ConnectionItem({
 
   const isSelected = selectedConnectionId === connection.id
 
-  // Derive display status text + color
-  const { displayStatus, statusClass } =
-    connectionStatus === 'answering'
-      ? { displayStatus: t('pinned.status.answering'), statusClass: 'font-semibold text-amber-500' }
-      : connectionStatus === 'command_approval'
-        ? {
-            displayStatus: t('pinned.status.commandApproval'),
-            statusClass: 'font-semibold text-orange-500'
-          }
-        : connectionStatus === 'permission'
-          ? {
-              displayStatus: t('pinned.status.permission'),
-              statusClass: 'font-semibold text-amber-500'
-            }
-          : connectionStatus === 'planning'
-            ? {
-                displayStatus: t('pinned.status.planning'),
-                statusClass: 'font-semibold text-blue-400'
-              }
-            : connectionStatus === 'working'
-              ? {
-                  displayStatus: t('pinned.status.working'),
-                  statusClass: 'font-semibold text-primary'
-                }
-              : connectionStatus === 'plan_ready'
-                ? {
-                    displayStatus: t('pinned.status.planReady'),
-                    statusClass: 'font-semibold text-blue-400'
-                  }
-                : connectionStatus === 'completed'
-                  ? {
-                      displayStatus: t('pinned.status.ready'),
-                      statusClass: 'font-semibold text-green-400'
-                    }
-                  : {
-                      displayStatus: t('pinned.status.ready'),
-                      statusClass: 'text-muted-foreground'
-                    }
-
   // Marquee animation state for overflowing display name
   const containerRef = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLSpanElement>(null)

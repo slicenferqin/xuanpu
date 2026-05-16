@@ -11,7 +11,6 @@ vi.mock('../../../src/main/services/logger', () => ({
 
 import { AgentRuntimeManager } from '../../../src/main/services/agent-runtime-manager'
 import type { AgentRuntimeAdapter } from '../../../src/main/services/agent-runtime-types'
-import type { DatabaseService } from '../../../src/main/db/database'
 
 function createMockOpenCodeImpl(): AgentRuntimeAdapter {
   return {
@@ -50,22 +49,13 @@ function createMockOpenCodeImpl(): AgentRuntimeAdapter {
   }
 }
 
-function createMockDbService(): DatabaseService {
-  return {
-    getRuntimeIdForSession: vi.fn().mockReturnValue('opencode'),
-    getAgentSdkForSession: vi.fn().mockReturnValue('opencode')
-  } as unknown as DatabaseService
-}
-
 describe('OpenCode Canonical Protocol Routing', () => {
   let manager: AgentRuntimeManager
   let mockOC: AgentRuntimeAdapter
-  let mockDb: DatabaseService
 
   beforeEach(() => {
     mockOC = createMockOpenCodeImpl()
     manager = new AgentRuntimeManager([mockOC])
-    mockDb = createMockDbService()
   })
 
   it('should route agent:connect to OpenCode implementer', async () => {

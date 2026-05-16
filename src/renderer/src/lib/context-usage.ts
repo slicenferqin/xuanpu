@@ -1,5 +1,5 @@
 import type { AgentSessionContextUsageData } from '@shared/types/agent-protocol'
-import type { ContextUsageCategory, SessionModelRef, TokenInfo } from '@/stores/useContextStore'
+import type { ContextUsageCategory, TokenInfo } from '@/stores/useContextStore'
 import { useContextStore } from '@/stores/useContextStore'
 
 function normalizeTokens(

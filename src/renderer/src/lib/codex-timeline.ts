@@ -94,10 +94,6 @@ function parsePlanPart(activity: SessionActivity): StreamingPart | null {
   }
 }
 
-function hasCanonicalTurnScopedId(messageId: string | null | undefined): boolean {
-  return typeof messageId === 'string' && /:user(?::|$)|:assistant(?::|$)/.test(messageId)
-}
-
 function extractAssistantTurnId(messageId: string): string | null {
   const assistantMatch = messageId.match(/^(.*):assistant(?::.*)?$/)
   return assistantMatch?.[1] ?? null
