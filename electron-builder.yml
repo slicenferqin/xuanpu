@@ -61,6 +61,7 @@ mac:
   # loopback HTTP/WS server and cloudflared child process can open sockets.
   extendInfo:
     NSLocalNetworkUsageDescription: 玄圃需要在本机网络上运行 Hub 服务，以便手机远程访问您的会话。
+    NSMicrophoneUsageDescription: 玄圃需要使用麦克风将语音转写为会话输入文本。
   # Signing & notarization disabled until Apple Developer certificate is set up.
   # To enable: set CSC_LINK, CSC_KEY_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD,
   # APPLE_TEAM_ID in GitHub Secrets, then uncomment the lines below.

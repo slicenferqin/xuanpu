@@ -23,6 +23,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         usage: 'Usage',
         archivedChats: 'Archived Chats',
         skills: 'Skills',
+        voice: 'Voice',
         hub: 'Hub (Mobile)',
         shortcuts: 'Shortcuts',
         updates: 'Updates'
@@ -268,7 +269,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         bashOutputCapture: {
           label: 'Capture agent Bash stdout/stderr',
           description:
-            "When the agent runs a shell command, also store the first 1 KB of stdout and last 1 KB of stderr in the local event log. Default OFF because command output often contains API keys, env dumps, or error stacks with tokens. The command text itself is always captured regardless of this setting."
+            'When the agent runs a shell command, also store the first 1 KB of stdout and last 1 KB of stderr in the local event log. Default OFF because command output often contains API keys, env dumps, or error stacks with tokens. The command text itself is always captured regardless of this setting.'
         },
         tokenSaver: {
           label: 'Token Saver',
@@ -447,7 +448,7 @@ export const messages: Record<AppLocale, MessageTree> = {
           restoreFailed: 'Failed to restore session',
           readOnly: 'Opening archived session in read-only mode.'
         }
-        },
+      },
       skills: {
         title: 'Skill Management',
         description: 'Manage installed skills and browse new ones from remote hubs.',
@@ -516,7 +517,8 @@ export const messages: Record<AppLocale, MessageTree> = {
         },
         install: {
           dialogTitle: 'Install "{name}"',
-          dialogSubtitle: 'Choose where this skill should be installed and which providers can use it.',
+          dialogSubtitle:
+            'Choose where this skill should be installed and which providers can use it.',
           providerLabel: 'Providers',
           providerNotInstalled: 'Not available in this app yet',
           providerUnsupportedScope: 'Available, but not for this scope',
@@ -537,7 +539,7 @@ export const messages: Record<AppLocale, MessageTree> = {
           providerTab: '{name}',
           empty: 'No skills installed for {provider} at this scope'
         }
-      },
+      }
     },
     fileSearch: {
       ariaLabel: 'File search',
@@ -1152,8 +1154,7 @@ export const messages: Record<AppLocale, MessageTree> = {
       },
       providers: {
         title: 'AI agents',
-        description:
-          'Install, sign in, and pick a default. You can change this later in Settings.',
+        description: 'Install, sign in, and pick a default. You can change this later in Settings.',
         actions: {
           install: 'Install',
           login: 'Sign in',
@@ -1604,7 +1605,7 @@ export const messages: Record<AppLocale, MessageTree> = {
       description:
         'Permanent facts about this worktree. Injected verbatim into every AI session as part of the Field Context.',
       placeholder:
-        'Write permanent facts about this worktree, one per line.\n\nExamples:\n- Use pnpm, not npm\n- DB lives at ~/.xuanpu/xuanpu.db\n- Don\'t add comments to generated code',
+        "Write permanent facts about this worktree, one per line.\n\nExamples:\n- Use pnpm, not npm\n- DB lives at ~/.xuanpu/xuanpu.db\n- Don't add comments to generated code",
       empty: 'No pinned facts yet. Click in the box above to start adding.',
       save: 'Save',
       saving: 'Saving…',
@@ -1633,10 +1634,8 @@ export const messages: Record<AppLocale, MessageTree> = {
       empty: {
         pinned: 'No pinned facts yet.',
         observed: 'No summary yet — about 20 events will trigger one automatically.',
-        semantic:
-          'No memory.md found. Create one to give the agent permanent project rules.',
-        checkpoint:
-          'Aborting the current session will record a checkpoint here for next time.'
+        semantic: 'No memory.md found. Create one to give the agent permanent project rules.',
+        checkpoint: 'Aborting the current session will record a checkpoint here for next time.'
       },
       semanticPath: '`{path}` ({age})',
       semanticNeverEdited: 'never edited',
@@ -2167,7 +2166,8 @@ export const messages: Record<AppLocale, MessageTree> = {
     },
     newSessionDialog: {
       title: 'New session',
-      description: 'Pick a provider and model. You can change them until the first message is sent.',
+      description:
+        'Pick a provider and model. You can change them until the first message is sent.',
       fields: {
         name: 'Name',
         provider: 'Provider',
@@ -2554,6 +2554,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         usage: '使用统计',
         archivedChats: '已归档聊天',
         skills: 'Skill Hub',
+        voice: '语音输入',
         hub: '远程访问',
         shortcuts: '快捷键',
         updates: '更新'
@@ -2958,7 +2959,7 @@ export const messages: Record<AppLocale, MessageTree> = {
           restoreFailed: '恢复会话失败',
           readOnly: '将以只读模式打开已归档会话。'
         }
-        },
+      },
       skills: {
         title: 'Skill 管理中心',
         description: '管理已安装的 skills，并从远程 Hub 浏览安装新技能。',
@@ -3048,7 +3049,7 @@ export const messages: Record<AppLocale, MessageTree> = {
           providerTab: '{name}',
           empty: '当前范围下 {provider} 未安装任何 skill'
         }
-      },
+      }
     },
     fileSearch: {
       ariaLabel: '文件搜索',
@@ -3693,7 +3694,8 @@ export const messages: Record<AppLocale, MessageTree> = {
           fileSearch: '查找文件'
         },
         importTitle: '从你的编辑器导入',
-        importDescription: '我们可以读取 VS Code 或 Cursor 的 keybindings.json，把能识别的命令直接搬过来。',
+        importDescription:
+          '我们可以读取 VS Code 或 Cursor 的 keybindings.json，把能识别的命令直接搬过来。',
         importEmpty: '本机没有检测到 VS Code 或 Cursor 的设置。',
         importNotFound: '没找到 keybindings.json：\n{path}',
         importBusy: '正在导入…',

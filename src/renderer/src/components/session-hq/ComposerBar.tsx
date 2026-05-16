@@ -28,6 +28,17 @@ import {
   type ComposerAction,
   type ComposerActionSet
 } from '@/lib/session-send-actions'
+import { useSettingsStore } from '@/stores/useSettingsStore'
+import { useVoiceInput, type VoiceInputState } from '@/hooks/useVoiceInput'
+import { insertVoiceText } from '@/lib/voice/insert-text'
+import {
+  isPushToTalkStartEvent,
+  isPushToTalkStopEvent,
+  PUSH_TO_TALK_HOLD_DELAY_MS,
+  shouldCancelPushToTalkPendingStart
+} from '@/lib/voice/push-to-talk'
+import { VoiceRecorderButton } from '@/components/voice/VoiceRecorderButton'
+import type { VoiceRuntimeProgress } from '@shared/types/voice'
 
 // ---------------------------------------------------------------------------
 // Props
@@ -114,6 +125,75 @@ const ComposerAttachmentsSection = React.memo(function ComposerAttachmentsSectio
   )
 })
 
+const VOICE_WAVE_BARS = [14, 26, 18, 34, 22, 42, 24, 32, 16, 28, 20]
+
+interface ComposerVoiceCapturePanelProps {
+  state: VoiceInputState
+  partialText: string
+  progress: VoiceRuntimeProgress | null
+}
+
+const ComposerVoiceCapturePanel = React.memo(function ComposerVoiceCapturePanel({
+  state,
+  partialText,
+  progress
+}: ComposerVoiceCapturePanelProps): React.JSX.Element {
+  const preparing = state === 'preparing' || state === 'stopping'
+  const label = preparing
+    ? state === 'stopping'
+      ? 'Finishing voice input'
+      : progress?.message || 'Preparing voice engine'
+    : 'Listening'
+
+  return (
+    <div
+      className="pointer-events-none absolute inset-x-4 top-2 z-10 rounded-xl border border-cyan-300/30 bg-background/80 px-3 py-2 shadow-[0_18px_50px_rgba(6,182,212,0.14)] backdrop-blur-md dark:bg-background/70"
+      data-testid="composer-voice-capture-panel"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="relative flex h-2.5 w-2.5 shrink-0">
+            {!preparing && (
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-300 opacity-80" />
+            )}
+            <span
+              className={cn(
+                'relative inline-flex h-2.5 w-2.5 rounded-full',
+                preparing ? 'bg-amber-400' : 'bg-cyan-400'
+              )}
+            />
+          </span>
+          <span className="truncate text-xs font-medium text-foreground">{label}</span>
+        </div>
+        <span className="shrink-0 rounded-full border border-cyan-300/30 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.18em] text-cyan-700 dark:text-cyan-200">
+          Hold Ctrl
+        </span>
+      </div>
+
+      <div className="mt-2 flex h-10 items-center justify-center gap-1.5 overflow-hidden rounded-lg bg-cyan-500/[0.06]">
+        {VOICE_WAVE_BARS.map((height, index) => (
+          <span
+            key={`${height}-${index}`}
+            className={cn(
+              'w-1 rounded-full bg-cyan-400/75 shadow-[0_0_12px_rgba(34,211,238,0.55)]',
+              preparing ? 'animate-pulse opacity-45' : 'animate-pulse'
+            )}
+            style={{
+              height,
+              animationDelay: `${index * 70}ms`,
+              animationDuration: `${720 + index * 35}ms`
+            }}
+          />
+        ))}
+      </div>
+
+      <div className="mt-2 min-h-5 truncate text-xs text-muted-foreground">
+        {partialText || 'Speak naturally. Release Ctrl or click the mic to finish.'}
+      </div>
+    </div>
+  )
+})
+
 interface SuccessCriteriaInputProps {
   value: string
   disabled: boolean
@@ -163,6 +243,7 @@ interface ComposerToolbarProps {
   iconHint: ComposerActionSet['iconHint']
   primaryLabel: string
   onAttach: (file: Omit<Attachment, 'id'>) => void
+  voiceSlot?: React.ReactNode
 }
 
 const ComposerToolbar = React.memo(function ComposerToolbar({
@@ -181,11 +262,13 @@ const ComposerToolbar = React.memo(function ComposerToolbar({
   buttonEnabled,
   iconHint,
   primaryLabel,
-  onAttach
+  onAttach,
+  voiceSlot
 }: ComposerToolbarProps): React.JSX.Element {
   return (
     <div className="flex items-center gap-2 px-3 pb-3 pt-1">
       <AttachmentButton onAttach={onAttach} disabled={disabled} />
+      {voiceSlot}
 
       {/* Plan mode toggle */}
       {pendingPlan ? (
@@ -321,6 +404,7 @@ export function ComposerBar({
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const contentRef = useRef('')
   const attachmentsRef = useRef<Attachment[]>([])
+  const voiceInputEnabled = useSettingsStore((s) => s.voiceInput.enabled)
 
   // --- Draft persistence: save input on unmount/switch, restore on mount ---
   useEffect(() => {
@@ -546,6 +630,106 @@ export function ComposerBar({
     }
   }, [])
 
+  const handleVoiceFinalText = useCallback(
+    (text: string) => {
+      const textarea = textareaRef.current
+      const selectionStart = textarea?.selectionStart ?? contentRef.current.length
+      const selectionEnd = textarea?.selectionEnd ?? selectionStart
+      const result = insertVoiceText({
+        current: contentRef.current,
+        insert: text,
+        selectionStart,
+        selectionEnd
+      })
+      handleContentChange(result.value)
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus()
+        textareaRef.current?.setSelectionRange(result.cursor, result.cursor)
+      })
+    },
+    [handleContentChange]
+  )
+  const voice = useVoiceInput(handleVoiceFinalText)
+  const voiceStateRef = useRef<VoiceInputState>(voice.state)
+  const voiceStartRef = useRef(voice.start)
+  const voiceStopRef = useRef(voice.stop)
+  const pushToTalkRef = useRef<{ timer: number | null; active: boolean }>({
+    timer: null,
+    active: false
+  })
+
+  useEffect(() => {
+    voiceStateRef.current = voice.state
+    voiceStartRef.current = voice.start
+    voiceStopRef.current = voice.stop
+  }, [voice.start, voice.state, voice.stop])
+
+  useEffect(() => {
+    if (!voiceInputEnabled || isDisabled) return
+
+    const isComposerHotkeyContext = (): boolean => {
+      const activeElement = document.activeElement
+      if (!(activeElement instanceof HTMLElement)) return false
+      return (
+        activeElement === textareaRef.current ||
+        containerRef?.current?.contains(activeElement) === true
+      )
+    }
+
+    const clearPendingStart = (): void => {
+      if (pushToTalkRef.current.timer == null) return
+      window.clearTimeout(pushToTalkRef.current.timer)
+      pushToTalkRef.current.timer = null
+    }
+
+    const stopPushToTalk = (): void => {
+      clearPendingStart()
+      if (!pushToTalkRef.current.active) return
+      pushToTalkRef.current.active = false
+      const state = voiceStateRef.current
+      if (state === 'preparing' || state === 'recording' || state === 'error') {
+        void voiceStopRef.current()
+      }
+    }
+
+    const handleGlobalKeyDown = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented) return
+      if (!isComposerHotkeyContext()) return
+
+      if (isPushToTalkStartEvent(event)) {
+        if (pushToTalkRef.current.timer != null || pushToTalkRef.current.active) return
+        pushToTalkRef.current.timer = window.setTimeout(() => {
+          pushToTalkRef.current.timer = null
+          if (voiceStateRef.current !== 'idle') return
+          pushToTalkRef.current.active = true
+          void voiceStartRef.current()
+        }, PUSH_TO_TALK_HOLD_DELAY_MS)
+        return
+      }
+
+      if (pushToTalkRef.current.timer != null && shouldCancelPushToTalkPendingStart(event)) {
+        clearPendingStart()
+      }
+    }
+
+    const handleGlobalKeyUp = (event: KeyboardEvent): void => {
+      if (isPushToTalkStopEvent(event)) {
+        stopPushToTalk()
+      }
+    }
+
+    window.addEventListener('keydown', handleGlobalKeyDown, true)
+    window.addEventListener('keyup', handleGlobalKeyUp, true)
+    window.addEventListener('blur', stopPushToTalk)
+
+    return () => {
+      window.removeEventListener('keydown', handleGlobalKeyDown, true)
+      window.removeEventListener('keyup', handleGlobalKeyUp, true)
+      window.removeEventListener('blur', stopPushToTalk)
+      stopPushToTalk()
+    }
+  }, [containerRef, isDisabled, voiceInputEnabled])
+
   const handleCommandSelect = useCallback((cmd: { name: string; template: string }) => {
     const nextContent = `/${cmd.name} `
     contentRef.current = nextContent
@@ -587,6 +771,12 @@ export function ComposerBar({
   const handleToolbarSubmit = useCallback(() => {
     void handleSubmit()
   }, [handleSubmit])
+  const voiceCaptureVisible =
+    voiceInputEnabled &&
+    (voice.state === 'preparing' ||
+      voice.state === 'recording' ||
+      voice.state === 'stopping' ||
+      voice.partialText.length > 0)
 
   return (
     <div
@@ -596,9 +786,18 @@ export function ComposerBar({
         'w-[85%] ml-[5%]',
         'rounded-2xl border border-border/50',
         'bg-background/70 backdrop-blur-xl',
-        'shadow-lg shadow-black/5 dark:shadow-black/20'
+        'shadow-lg shadow-black/5 dark:shadow-black/20',
+        voiceCaptureVisible &&
+          'border-cyan-300/50 bg-cyan-500/[0.035] shadow-[0_0_0_1px_rgba(103,232,249,0.14),0_20px_70px_rgba(6,182,212,0.16)] dark:border-cyan-300/30 dark:bg-cyan-400/[0.045]'
       )}
     >
+      {voiceCaptureVisible && (
+        <div
+          className="pointer-events-none absolute inset-0 rounded-2xl bg-[radial-gradient(circle_at_18%_0%,rgba(34,211,238,0.18),transparent_30%),radial-gradient(circle_at_82%_100%,rgba(14,165,233,0.14),transparent_34%)]"
+          data-testid="composer-voice-field-aura"
+        />
+      )}
+
       {/* Slash command popover — floats above the card */}
       {showSlashCommands && (
         <SlashCommandPopover
@@ -625,7 +824,14 @@ export function ComposerBar({
       )}
 
       {/* Textarea — seamlessly fills the card top */}
-      <div className="px-4 pt-3 pb-1">
+      <div className={cn('relative px-4 pt-3 pb-1', voiceCaptureVisible && 'min-h-[116px] pb-3')}>
+        {voiceCaptureVisible && (
+          <ComposerVoiceCapturePanel
+            state={voice.state}
+            partialText={voice.partialText}
+            progress={voice.progress}
+          />
+        )}
         <textarea
           ref={textareaRef}
           value={content}
@@ -635,11 +841,12 @@ export function ComposerBar({
           placeholder={placeholder}
           disabled={isDisabled}
           className={cn(
-            'w-full resize-none bg-transparent border-0 outline-none',
+            'relative z-0 w-full resize-none bg-transparent border-0 outline-none',
             'text-sm placeholder:text-muted-foreground',
             'focus-visible:outline-none focus-visible:ring-0',
             'disabled:cursor-not-allowed disabled:opacity-50',
-            'min-h-[36px] max-h-[200px]'
+            'min-h-[36px] max-h-[200px]',
+            voiceCaptureVisible && 'text-foreground/35 placeholder:text-transparent'
           )}
           rows={1}
         />
@@ -671,6 +878,22 @@ export function ComposerBar({
         iconHint={actionSet.iconHint}
         primaryLabel={actionSet.primaryLabel}
         onAttach={handleAttach}
+        voiceSlot={
+          voiceInputEnabled ? (
+            <VoiceRecorderButton
+              state={voice.state}
+              partialText={voice.partialText}
+              progress={voice.progress}
+              disabled={isDisabled}
+              onStart={() => {
+                void voice.start()
+              }}
+              onStop={() => {
+                void voice.stop()
+              }}
+            />
+          ) : null
+        }
       />
     </div>
   )

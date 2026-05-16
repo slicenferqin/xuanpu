@@ -1,6 +1,13 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { APP_SETTINGS_DB_KEY } from '@shared/types/settings'
+import {
+  DEFAULT_DOCKER_FUNASR_HOST_PORT,
+  DEFAULT_DOCKER_FUNASR_WS_URL,
+  DEFAULT_FUNASR_IMAGE,
+  DEFAULT_VOICE_INPUT_SETTINGS,
+  type VoiceInputSettings
+} from '@shared/types/voice'
 import { DEFAULT_LOCALE, type AppLocale } from '@/i18n/messages'
 import { applyFontScale } from '@/lib/font-size'
 
@@ -152,6 +159,9 @@ export interface AppSettings {
   uiZoomLevel: number
   uiFontScale: number
 
+  // Voice input
+  voiceInput: VoiceInputSettings
+
   // Experimental — Phase 7 feature flag
   sessionUiV2Enabled: boolean
 }
@@ -219,6 +229,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   keepAwakeEnabled: false,
   uiZoomLevel: 0,
   uiFontScale: 1,
+  voiceInput: DEFAULT_VOICE_INPUT_SETTINGS,
   sessionUiV2Enabled: true
 }
 
@@ -251,6 +262,42 @@ export function mergeCommandFilterSettings(
     ...(persisted || {}),
     allowlist: resolveCommandFilterAllowlist(persisted?.allowlist),
     blocklist: persisted?.blocklist ?? DEFAULT_SETTINGS.commandFilter.blocklist
+  }
+}
+
+export function mergeVoiceInputSettings(
+  persisted?: Partial<VoiceInputSettings> | null
+): VoiceInputSettings {
+  const persistedFunasr = persisted?.funasr
+  const shouldMigrateLegacyDockerDefault =
+    persisted?.runtimeProvider === 'docker' &&
+    (!persistedFunasr?.wsUrl || persistedFunasr.wsUrl === DEFAULT_DOCKER_FUNASR_WS_URL) &&
+    (!persistedFunasr?.hostPort || persistedFunasr.hostPort === DEFAULT_DOCKER_FUNASR_HOST_PORT) &&
+    (!persistedFunasr?.image || persistedFunasr.image === DEFAULT_FUNASR_IMAGE)
+
+  if (shouldMigrateLegacyDockerDefault) {
+    return {
+      ...DEFAULT_VOICE_INPUT_SETTINGS,
+      ...(persisted || {}),
+      runtimeProvider: 'managed',
+      funasr: {
+        ...DEFAULT_VOICE_INPUT_SETTINGS.funasr,
+        ...(persistedFunasr || {}),
+        wsUrl: DEFAULT_VOICE_INPUT_SETTINGS.funasr.wsUrl,
+        hostPort: DEFAULT_VOICE_INPUT_SETTINGS.funasr.hostPort,
+        hotwords: persistedFunasr?.hotwords ?? DEFAULT_VOICE_INPUT_SETTINGS.funasr.hotwords
+      }
+    }
+  }
+
+  return {
+    ...DEFAULT_VOICE_INPUT_SETTINGS,
+    ...(persisted || {}),
+    funasr: {
+      ...DEFAULT_VOICE_INPUT_SETTINGS.funasr,
+      ...(persisted?.funasr || {}),
+      hotwords: persisted?.funasr?.hotwords ?? DEFAULT_VOICE_INPUT_SETTINGS.funasr.hotwords
+    }
   }
 }
 
@@ -310,7 +357,8 @@ async function loadSettingsFromDatabase(): Promise<AppSettings | null> {
           ...parsed,
           // Deep-merge commandFilter so new fields and new default allowlist
           // patterns are present for users whose saved settings pre-date them.
-          commandFilter: mergeCommandFilterSettings(parsed.commandFilter)
+          commandFilter: mergeCommandFilterSettings(parsed.commandFilter),
+          voiceInput: mergeVoiceInputSettings(parsed.voiceInput)
         }
       }
     }
@@ -359,6 +407,7 @@ function extractSettings(state: SettingsState): AppSettings {
     keepAwakeEnabled: state.keepAwakeEnabled,
     uiZoomLevel: state.uiZoomLevel,
     uiFontScale: state.uiFontScale,
+    voiceInput: state.voiceInput,
     sessionUiV2Enabled: state.sessionUiV2Enabled
   }
 }
@@ -578,6 +627,7 @@ export const useSettingsStore = create<SettingsState>()(
         keepAwakeEnabled: state.keepAwakeEnabled,
         uiZoomLevel: state.uiZoomLevel,
         uiFontScale: state.uiFontScale,
+        voiceInput: state.voiceInput,
         sessionUiV2Enabled: state.sessionUiV2Enabled
       }),
       merge: (persistedState, currentState) => {
@@ -585,7 +635,8 @@ export const useSettingsStore = create<SettingsState>()(
         return {
           ...currentState,
           ...(persisted || {}),
-          commandFilter: mergeCommandFilterSettings(persisted?.commandFilter)
+          commandFilter: mergeCommandFilterSettings(persisted?.commandFilter),
+          voiceInput: mergeVoiceInputSettings(persisted?.voiceInput)
         }
       }
     }
