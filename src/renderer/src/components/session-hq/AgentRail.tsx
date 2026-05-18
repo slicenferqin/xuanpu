@@ -9,6 +9,7 @@ import React from 'react'
 import { cn } from '@/lib/utils'
 import type { SessionRuntimeState, InterruptItem } from '@/stores/useSessionRuntimeStore'
 import { Wrench, AlertCircle, MessageCircle, CheckCircle } from 'lucide-react'
+import { useI18n } from '@/i18n/useI18n'
 
 // ---------------------------------------------------------------------------
 // Props
@@ -29,6 +30,7 @@ export interface AgentRailProps {
 // ---------------------------------------------------------------------------
 
 function InterruptQueueItem({ item }: { item: InterruptItem }): React.JSX.Element {
+  const { t } = useI18n()
   const iconMap = {
     question: <MessageCircle className="h-3.5 w-3.5 text-blue-400" />,
     permission: <AlertCircle className="h-3.5 w-3.5 text-yellow-400" />,
@@ -37,10 +39,10 @@ function InterruptQueueItem({ item }: { item: InterruptItem }): React.JSX.Elemen
   }
 
   const labelMap = {
-    question: 'Question pending',
-    permission: 'Permission needed',
-    command_approval: 'Command approval',
-    plan: 'Plan approval'
+    question: t('sessionHq.agentRail.interrupts.question'),
+    permission: t('sessionHq.agentRail.interrupts.permission'),
+    command_approval: t('sessionHq.agentRail.interrupts.commandApproval'),
+    plan: t('sessionHq.agentRail.interrupts.plan')
   }
 
   return (
@@ -61,12 +63,11 @@ export function AgentRail({
   unreadCount,
   collapsed = false
 }: AgentRailProps): React.JSX.Element | null {
+  const { t } = useI18n()
+
   // Don't render the rail when there's nothing to show
   const hasContent =
-    interruptQueue.length > 0 ||
-    unreadCount > 0 ||
-    lifecycle === 'busy' ||
-    lifecycle === 'retry'
+    interruptQueue.length > 0 || unreadCount > 0 || lifecycle === 'busy' || lifecycle === 'retry'
 
   if (collapsed || !hasContent) return null
 
@@ -82,7 +83,11 @@ export function AgentRail({
         <div className="px-3 py-3 border-b border-border">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Wrench className="h-3.5 w-3.5 animate-spin" />
-            <span>{lifecycle === 'busy' ? 'Working...' : 'Retrying...'}</span>
+            <span>
+              {lifecycle === 'busy'
+                ? t('sessionHq.agentRail.status.working')
+                : t('sessionHq.agentRail.status.retrying')}
+            </span>
           </div>
         </div>
       )}
@@ -91,7 +96,7 @@ export function AgentRail({
       {interruptQueue.length > 0 && (
         <div className="px-3 py-3 space-y-2">
           <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-            Pending ({interruptQueue.length})
+            {t('sessionHq.agentRail.pending', { count: interruptQueue.length })}
           </div>
           {interruptQueue.map((item) => (
             <InterruptQueueItem key={item.id} item={item} />
@@ -102,7 +107,13 @@ export function AgentRail({
       {/* Unread count */}
       {unreadCount > 0 && (
         <div className="px-3 py-2 text-xs text-muted-foreground">
-          {unreadCount} unread {unreadCount === 1 ? 'message' : 'messages'}
+          {t('sessionHq.agentRail.unread', {
+            count: unreadCount,
+            label:
+              unreadCount === 1
+                ? t('sessionHq.agentRail.messageSingular')
+                : t('sessionHq.agentRail.messagePlural')
+          })}
         </div>
       )}
     </div>

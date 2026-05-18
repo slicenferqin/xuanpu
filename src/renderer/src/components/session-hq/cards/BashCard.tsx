@@ -110,6 +110,7 @@ function OriginalOutputButton({ archivePath }: { archivePath: string }): React.J
 }
 
 export function BashCard({ toolUse }: BashCardProps): React.JSX.Element {
+  const { t } = useI18n()
   const command = extractCommandText(toolUse.input) || toolUse.name
   const description =
     typeof toolUse.input?.description === 'string' ? toolUse.input.description.trim() : ''
@@ -134,10 +135,16 @@ export function BashCard({ toolUse }: BashCardProps): React.JSX.Element {
           {isSuccess && <Check className="h-3.5 w-3.5 text-celadon" />}
           {isError && <X className="h-3.5 w-3.5 text-red-500" />}
           {isRunning && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
-          <span>{isRunning ? 'Running...' : isError ? 'Error' : 'Exit 0'}</span>
+          <span>
+            {isRunning
+              ? t('sessionHq.cards.bash.running')
+              : isError
+                ? t('sessionHq.cards.bash.error')
+                : t('sessionHq.cards.bash.exitZero')}
+          </span>
           {parsed && (
             <span className="rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
-              Token Saver -{parsed.savedPercent}%
+              {t('sessionHq.cards.bash.tokenSaverCompact', { percent: parsed.savedPercent })}
             </span>
           )}
         </div>
@@ -153,7 +160,7 @@ export function BashCard({ toolUse }: BashCardProps): React.JSX.Element {
           {cleanOutput && (
             <pre className="max-h-[220px] overflow-y-auto whitespace-pre-wrap break-all font-mono text-xs text-muted-foreground">
               {cleanOutput.length > 2000
-                ? cleanOutput.slice(0, 2000) + '\n... (truncated)'
+                ? `${cleanOutput.slice(0, 2000)}\n${t('sessionHq.cards.bash.truncated')}`
                 : cleanOutput}
             </pre>
           )}

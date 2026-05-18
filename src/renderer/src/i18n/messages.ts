@@ -1348,45 +1348,6 @@ export const messages: Record<AppLocale, MessageTree> = {
         microphonePermissionDenied: 'Microphone permission was not granted'
       }
     },
-    sessionHq: {
-      composer: {
-        reviewPlan: 'Review the plan above',
-        plan: 'Plan',
-        goal: 'Goal',
-        togglePlanMode: 'Toggle Plan Mode (Tab)',
-        toggleGoalMode: 'Toggle Goal Mode',
-        moreSendActions: 'More send actions',
-        queuedMessages: '{count} message(s) queued',
-        placeholders: {
-          successCriteria: 'Success criteria...',
-          planFeedback: 'Provide feedback on the plan...',
-          reply: 'Type your reply...',
-          queueFollowUp: 'Type a follow-up to queue after the current run...',
-          stopAndSend: 'Type to stop and send...',
-          message: 'Type a message...'
-        },
-        actions: {
-          disconnected: 'Disconnected',
-          send: 'Send',
-          sendQueued: 'Send (queued)',
-          queueLater: 'Queue for later',
-          steer: 'Steer (redirect agent)',
-          stopAndSend: 'Stop & Send',
-          reply: 'Reply'
-        },
-        voice: {
-          finishing: 'Finishing voice input',
-          preparing: 'Preparing voice engine',
-          listening: 'Listening',
-          holdCtrl: 'Hold Ctrl',
-          hint: 'Speak naturally. Release Ctrl or click the mic to finish.',
-          recordingTitle: 'Recording. Click to stop, or release Ctrl if using push-to-talk.',
-          idleTitle: 'Voice input. Click once to record, or hold Ctrl to speak.',
-          stopAriaLabel: 'Stop voice input',
-          startAriaLabel: 'Start voice input'
-        }
-      }
-    },
     sessionView: {
       compacting: 'Compressing context...',
       tokenSaverBanner: {
@@ -1514,6 +1475,189 @@ export const messages: Record<AppLocale, MessageTree> = {
         createSuperchargeSessionError: 'Failed to create supercharge session',
         startLocalSuperchargeSessionError: 'Could not start local supercharge session',
         createLocalSuperchargeSessionError: 'Failed to create local supercharge session'
+      }
+    },
+    sessionHq: {
+      composer: {
+        reviewPlan: 'Review the plan above',
+        plan: 'Plan',
+        goal: 'Goal',
+        togglePlanMode: 'Toggle Plan Mode (Tab)',
+        toggleGoalMode: 'Toggle Goal Mode',
+        moreSendActions: 'More send actions',
+        successCriteriaPlaceholder: 'Success criteria...',
+        reviewPlanAbove: 'Review the plan above',
+        togglePlanTitle: 'Toggle Plan Mode (Tab)',
+        toggleGoalTitle: 'Toggle Goal Mode',
+        planLabel: 'Plan',
+        goalLabel: 'Goal',
+        moreActions: 'More send actions',
+        planFeedbackPlaceholder: 'Provide feedback on the plan...',
+        interruptReplyPlaceholder: 'Type your reply...',
+        queuePlaceholder: 'Type a follow-up to queue after the current run...',
+        stopAndSendPlaceholder: 'Type to stop and send...',
+        messagePlaceholder: 'Type a message...',
+        queuedMessages: '{count} message(s) queued',
+        messageSingular: 'message',
+        messagePlural: 'messages',
+        placeholders: {
+          successCriteria: 'Success criteria...',
+          planFeedback: 'Provide feedback on the plan...',
+          reply: 'Type your reply...',
+          queueFollowUp: 'Type a follow-up to queue after the current run...',
+          stopAndSend: 'Type to stop and send...',
+          message: 'Type a message...'
+        },
+        actions: {
+          disconnected: 'Disconnected',
+          reply: 'Reply',
+          send: 'Send',
+          sendQueued: 'Send (queued)',
+          queue: 'Queue',
+          queueLater: 'Queue for later',
+          steer: 'Steer (redirect agent)',
+          stop: 'Stop',
+          stopAndSend: 'Stop & Send'
+        },
+        voice: {
+          finishing: 'Finishing voice input',
+          preparing: 'Preparing voice engine',
+          listening: 'Listening',
+          holdCtrl: 'Hold Ctrl',
+          hint: 'Speak naturally. Release Ctrl or click the mic to finish.',
+          recordingTitle: 'Recording. Click to stop, or release Ctrl if using push-to-talk.',
+          idleTitle: 'Voice input. Click once to record, or hold Ctrl to speak.',
+          stopAriaLabel: 'Stop voice input',
+          startAriaLabel: 'Start voice input'
+        }
+      },
+      timeline: {
+        thinking: 'Thinking…',
+        emptyTitle: 'No messages yet',
+        emptySubtitle: 'Send a message to start the conversation',
+        steered: 'STEERED',
+        genericToolStatus: {
+          running: 'Running...',
+          error: 'Error',
+          done: 'Done'
+        }
+      },
+      header: {
+        providerUpdateError: 'Failed to update provider',
+        lifecycle: {
+          idle: 'Idle',
+          busy: 'Working',
+          retry: 'Retrying',
+          error: 'Error',
+          materializing: 'Starting'
+        },
+        tokens: 'tokens',
+        compressingContext: 'Compressing context...'
+      },
+      agentRail: {
+        status: {
+          working: 'Working...',
+          retrying: 'Retrying...'
+        },
+        pending: 'Pending ({count})',
+        unread: '{count} unread {label}',
+        messageSingular: 'message',
+        messagePlural: 'messages',
+        interrupts: {
+          question: 'Question pending',
+          permission: 'Permission needed',
+          commandApproval: 'Command approval',
+          plan: 'Plan approval'
+        }
+      },
+      missionControl: {
+        allTasksCompleted: 'All tasks completed',
+        taskCount: '{completed}/{total} tasks'
+      },
+      cards: {
+        plan: {
+          title: 'Proposed Execution Plan',
+          requiresApproval: 'Requires Approval',
+          approved: 'Approved',
+          rejectModify: 'Reject / Modify',
+          approveStart: 'Approve & Start'
+        },
+        askUser: {
+          title: 'Question for you',
+          answered: 'Answered',
+          waitingForReply: 'Waiting for reply',
+          other: 'Other...',
+          ok: 'OK',
+          waitingForInput: 'Waiting for input...'
+        },
+        todo: {
+          title: 'Task List',
+          done: 'Done',
+          inProgress: 'In progress',
+          planUpdate: 'Plan Update',
+          running: 'Running...',
+          taskFallback: 'Task {index}',
+          noTasks: 'No tasks'
+        },
+        bash: {
+          running: 'Running...',
+          error: 'Error',
+          exitZero: 'Exit 0',
+          tokenSaverCompact: 'Token Saver -{percent}%',
+          truncated: '... (truncated)'
+        },
+        search: {
+          title: 'Codebase Search',
+          resultCount: '{count} {label}',
+          resultSingular: 'result',
+          resultPlural: 'results',
+          query: 'Query:'
+        },
+        thinking: {
+          title: 'Thinking Process',
+          showMore: 'Show more'
+        },
+        goal: {
+          defaultTitle: 'Session goal',
+          active: 'Active',
+          completed: 'Completed',
+          tokens: 'tokens',
+          dismissCompleted: 'Dismiss completed goal',
+          criteria: 'Criteria'
+        },
+        fileRead: {
+          title: 'Read File',
+          lineCount: '{count} {label}',
+          lineSingular: 'line',
+          linePlural: 'lines'
+        },
+        fileWrite: {
+          edit: 'Edit',
+          writeFile: 'Write File',
+          writing: 'Writing...',
+          error: 'Error',
+          collapse: 'Collapse',
+          expandAllMore: 'Show all ({count} more {label})',
+          lineSingular: 'line',
+          linePlural: 'lines'
+        },
+        subAgent: {
+          delegatedTo: 'Delegated to {agent}',
+          defaultDescription: 'Delegated task',
+          agentFallback: 'Agent',
+          actionCount: '{count} {label}',
+          itemCount: '{count} {label}',
+          actionSingular: 'action',
+          actionPlural: 'actions',
+          itemSingular: 'item',
+          itemPlural: 'items',
+          running: 'running',
+          show: 'Show',
+          hide: 'Hide',
+          readPrefix: 'Read {name}',
+          editPrefix: 'Edit {name}',
+          searchPrefix: 'Search: {query}'
+        }
       }
     },
     sessionTerminalView: {
@@ -3993,45 +4137,6 @@ export const messages: Record<AppLocale, MessageTree> = {
         microphonePermissionDenied: '麦克风权限未授权'
       }
     },
-    sessionHq: {
-      composer: {
-        reviewPlan: '请先查看上方计划',
-        plan: '计划',
-        goal: '目标',
-        togglePlanMode: '切换 Plan 模式（Tab）',
-        toggleGoalMode: '切换 Goal 模式',
-        moreSendActions: '更多发送操作',
-        queuedMessages: '已排队 {count} 条消息',
-        placeholders: {
-          successCriteria: '成功标准...',
-          planFeedback: '输入对计划的反馈...',
-          reply: '输入你的回复...',
-          queueFollowUp: '输入要在当前执行后排队的后续消息...',
-          stopAndSend: '输入内容以停止并发送...',
-          message: '输入消息...'
-        },
-        actions: {
-          disconnected: '未连接',
-          send: '发送',
-          sendQueued: '发送（已排队）',
-          queueLater: '稍后排队',
-          steer: '转向（重定向 Agent）',
-          stopAndSend: '停止并发送',
-          reply: '回复'
-        },
-        voice: {
-          finishing: '正在结束语音输入',
-          preparing: '正在准备语音引擎',
-          listening: '正在聆听',
-          holdCtrl: '按住 Ctrl',
-          hint: '自然说话即可。松开 Ctrl 或点击麦克风结束。',
-          recordingTitle: '正在录音。点击停止；如果是按住说话，松开 Ctrl 即可结束。',
-          idleTitle: '语音输入。点击一次开始录音，或按住 Ctrl 说话。',
-          stopAriaLabel: '停止语音输入',
-          startAriaLabel: '开始语音输入'
-        }
-      }
-    },
     sessionView: {
       compacting: '正在压缩上下文窗口...',
       tokenSaverBanner: {
@@ -4158,6 +4263,189 @@ export const messages: Record<AppLocale, MessageTree> = {
         createSuperchargeSessionError: '创建 supercharge 会话失败',
         startLocalSuperchargeSessionError: '无法启动本地 supercharge 会话',
         createLocalSuperchargeSessionError: '创建本地 supercharge 会话失败'
+      }
+    },
+    sessionHq: {
+      composer: {
+        reviewPlan: '请先查看上方计划',
+        plan: '计划',
+        goal: '目标',
+        togglePlanMode: '切换 Plan 模式（Tab）',
+        toggleGoalMode: '切换 Goal 模式',
+        moreSendActions: '更多发送操作',
+        successCriteriaPlaceholder: '成功标准...',
+        reviewPlanAbove: '请先审阅上方计划',
+        togglePlanTitle: '切换 Plan 模式（Tab）',
+        toggleGoalTitle: '切换目标模式',
+        planLabel: '计划',
+        goalLabel: '目标',
+        moreActions: '更多发送操作',
+        planFeedbackPlaceholder: '输入对计划的反馈...',
+        interruptReplyPlaceholder: '输入你的回复...',
+        queuePlaceholder: '输入要排队到本轮之后的后续消息...',
+        stopAndSendPlaceholder: '输入内容以停止并发送...',
+        messagePlaceholder: '输入消息...',
+        queuedMessages: '已排队 {count} 条消息',
+        messageSingular: '消息',
+        messagePlural: '消息',
+        placeholders: {
+          successCriteria: '成功标准...',
+          planFeedback: '输入对计划的反馈...',
+          reply: '输入你的回复...',
+          queueFollowUp: '输入要在当前执行后排队的后续消息...',
+          stopAndSend: '输入内容以停止并发送...',
+          message: '输入消息...'
+        },
+        actions: {
+          disconnected: '未连接',
+          reply: '回复',
+          send: '发送',
+          sendQueued: '发送（已排队）',
+          queue: '排队',
+          queueLater: '稍后发送',
+          steer: '引导当前 Agent',
+          stop: '停止',
+          stopAndSend: '停止并发送'
+        },
+        voice: {
+          finishing: '正在结束语音输入',
+          preparing: '正在准备语音引擎',
+          listening: '正在聆听',
+          holdCtrl: '按住 Ctrl',
+          hint: '自然说话即可。松开 Ctrl 或点击麦克风结束。',
+          recordingTitle: '正在录音。点击停止；如果是按住说话，松开 Ctrl 即可结束。',
+          idleTitle: '语音输入。点击一次开始录音，或按住 Ctrl 说话。',
+          stopAriaLabel: '停止语音输入',
+          startAriaLabel: '开始语音输入'
+        }
+      },
+      timeline: {
+        thinking: '思考中…',
+        emptyTitle: '暂无消息',
+        emptySubtitle: '发送一条消息以开始对话',
+        steered: '已引导',
+        genericToolStatus: {
+          running: '运行中...',
+          error: '错误',
+          done: '完成'
+        }
+      },
+      header: {
+        providerUpdateError: '更新提供方失败',
+        lifecycle: {
+          idle: '空闲',
+          busy: '执行中',
+          retry: '重试中',
+          error: '错误',
+          materializing: '启动中'
+        },
+        tokens: 'tokens',
+        compressingContext: '正在压缩上下文...'
+      },
+      agentRail: {
+        status: {
+          working: '执行中...',
+          retrying: '重试中...'
+        },
+        pending: '待处理（{count}）',
+        unread: '{count} 条未读{label}',
+        messageSingular: '消息',
+        messagePlural: '消息',
+        interrupts: {
+          question: '有待回答的问题',
+          permission: '需要授权',
+          commandApproval: '需要命令审批',
+          plan: '需要批准计划'
+        }
+      },
+      missionControl: {
+        allTasksCompleted: '全部任务已完成',
+        taskCount: '{completed}/{total} 个任务'
+      },
+      cards: {
+        plan: {
+          title: '待执行计划',
+          requiresApproval: '需要批准',
+          approved: '已批准',
+          rejectModify: '拒绝 / 修改',
+          approveStart: '批准并开始'
+        },
+        askUser: {
+          title: '需要你回答',
+          answered: '已回答',
+          waitingForReply: '等待回复',
+          other: '其他...',
+          ok: '确定',
+          waitingForInput: '等待输入...'
+        },
+        todo: {
+          title: '任务列表',
+          done: '完成',
+          inProgress: '进行中',
+          planUpdate: '计划更新',
+          running: '运行中...',
+          taskFallback: '任务 {index}',
+          noTasks: '没有任务'
+        },
+        bash: {
+          running: '运行中...',
+          error: '错误',
+          exitZero: '退出 0',
+          tokenSaverCompact: 'Token 节省 -{percent}%',
+          truncated: '...（已截断）'
+        },
+        search: {
+          title: '代码搜索',
+          resultCount: '{count} {label}',
+          resultSingular: '条结果',
+          resultPlural: '条结果',
+          query: '查询：'
+        },
+        thinking: {
+          title: '思考过程',
+          showMore: '展开'
+        },
+        goal: {
+          defaultTitle: '会话目标',
+          active: '进行中',
+          completed: '已完成',
+          tokens: 'tokens',
+          dismissCompleted: '关闭已完成目标',
+          criteria: '标准'
+        },
+        fileRead: {
+          title: '读取文件',
+          lineCount: '{count} {label}',
+          lineSingular: '行',
+          linePlural: '行'
+        },
+        fileWrite: {
+          edit: '编辑',
+          writeFile: '写入文件',
+          writing: '写入中...',
+          error: '错误',
+          collapse: '收起',
+          expandAllMore: '展开全部（还有 {count} {label}）',
+          lineSingular: '行',
+          linePlural: '行'
+        },
+        subAgent: {
+          delegatedTo: '委托给 {agent}',
+          defaultDescription: '委托任务',
+          agentFallback: 'Agent',
+          actionCount: '{count} 个{label}',
+          itemCount: '{count} 个{label}',
+          actionSingular: '操作',
+          actionPlural: '操作',
+          itemSingular: '项目',
+          itemPlural: '项目',
+          running: '运行中',
+          show: '显示',
+          hide: '隐藏',
+          readPrefix: '读取 {name}',
+          editPrefix: '编辑 {name}',
+          searchPrefix: '搜索：{query}'
+        }
       }
     },
     sessionTerminalView: {

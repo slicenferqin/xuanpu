@@ -3,6 +3,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ComposerBar } from '../../src/renderer/src/components/session-hq/ComposerBar'
+
+vi.mock('react-syntax-highlighter', () => ({
+  Prism: ({ children }: { children: unknown }) => <pre>{children as string}</pre>
+}))
+
+vi.mock('react-syntax-highlighter/dist/esm/styles/prism', () => ({
+  oneDark: {}
+}))
+
 ;(
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true
@@ -24,6 +33,24 @@ beforeEach(() => {
     configurable: true,
     value: {
       commands: vi.fn().mockResolvedValue({ success: true, commands: [] })
+    }
+  })
+
+  Object.defineProperty(window, 'voiceOps', {
+    writable: true,
+    configurable: true,
+    value: {
+      onRuntimeProgress: vi.fn().mockReturnValue(() => {}),
+      onTranscript: vi.fn().mockReturnValue(() => {}),
+      onVoiceError: vi.fn().mockReturnValue(() => {}),
+      disconnectTranscription: vi.fn().mockResolvedValue(undefined),
+      finishUtterance: vi.fn().mockResolvedValue(undefined),
+      ensureRuntime: vi.fn().mockResolvedValue({ status: 'ready', wsUrl: 'ws://127.0.0.1:10095' }),
+      detectRuntime: vi.fn().mockResolvedValue({ status: 'ready', wsUrl: 'ws://127.0.0.1:10095' }),
+      getMicrophonePermissionStatus: vi.fn().mockResolvedValue('granted'),
+      requestMicrophonePermission: vi.fn().mockResolvedValue('granted'),
+      connectTranscription: vi.fn().mockResolvedValue({ sessionId: 'voice-session-1' }),
+      sendAudioChunk: vi.fn().mockResolvedValue(undefined)
     }
   })
 })

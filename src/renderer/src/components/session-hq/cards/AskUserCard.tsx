@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Check, Pencil, ChevronRight } from 'lucide-react'
 import { isComposingKeyboardEvent } from '@/lib/message-composer-shortcuts'
+import { useI18n } from '@/i18n/useI18n'
 
 interface AskUserCardProps {
   question: string
@@ -41,13 +42,12 @@ export function AskUserCard({
   worktreePath,
   answer
 }: AskUserCardProps): React.JSX.Element {
+  const { t } = useI18n()
   const questionsList = questions ?? []
   const isMultiQuestion = questionsList.length > 1
 
   // Interactive state — only used when isPending
-  const [answers, setAnswers] = useState<string[][]>(() =>
-    questionsList.map(() => [])
-  )
+  const [answers, setAnswers] = useState<string[][]>(() => questionsList.map(() => []))
   const [currentTab, setCurrentTab] = useState(0)
   const [editingCustom, setEditingCustom] = useState(false)
   const [customInput, setCustomInput] = useState('')
@@ -74,32 +74,35 @@ export function AskUserCard({
     }
   }, [customInput])
 
-  const handleOptionClick = useCallback((label: string) => {
-    if (sending) return
-    if (isMultiple) {
-      setAnswers((prev) => {
-        const updated = [...prev]
-        const current = updated[currentTab] ?? []
-        updated[currentTab] = current.includes(label)
-          ? current.filter((l) => l !== label)
-          : [...current, label]
-        return updated
-      })
-    } else {
-      setAnswers((prev) => {
-        const updated = [...prev]
-        updated[currentTab] = [label]
-        return updated
-      })
-      // Auto-advance for single-choice multi-question
-      if (isMultiQuestion && !isLastTab) {
-        setTimeout(() => {
-          setCurrentTab((t) => t + 1)
-          setEditingCustom(false)
-        }, 150)
+  const handleOptionClick = useCallback(
+    (label: string) => {
+      if (sending) return
+      if (isMultiple) {
+        setAnswers((prev) => {
+          const updated = [...prev]
+          const current = updated[currentTab] ?? []
+          updated[currentTab] = current.includes(label)
+            ? current.filter((l) => l !== label)
+            : [...current, label]
+          return updated
+        })
+      } else {
+        setAnswers((prev) => {
+          const updated = [...prev]
+          updated[currentTab] = [label]
+          return updated
+        })
+        // Auto-advance for single-choice multi-question
+        if (isMultiQuestion && !isLastTab) {
+          setTimeout(() => {
+            setCurrentTab((t) => t + 1)
+            setEditingCustom(false)
+          }, 150)
+        }
       }
-    }
-  }, [sending, isMultiple, currentTab, isMultiQuestion, isLastTab])
+    },
+    [sending, isMultiple, currentTab, isMultiQuestion, isLastTab]
+  )
 
   const handleCustomSubmit = useCallback(() => {
     const text = customInput.trim()
@@ -147,8 +150,8 @@ export function AskUserCard({
         key="answered"
         accentClass="border-amber-500 bg-amber-500/5"
         headerClass="border-b-amber-500/20 text-amber-700 dark:text-amber-400"
-        headerLeft={<span className="font-semibold">Question for you</span>}
-        headerRight="Answered"
+        headerLeft={<span className="font-semibold">{t('sessionHq.cards.askUser.title')}</span>}
+        headerRight={t('sessionHq.cards.askUser.answered')}
         defaultExpanded={false}
         collapsible
       >
@@ -175,15 +178,17 @@ export function AskUserCard({
                             <span className="text-muted-foreground/40 shrink-0">&middot;</span>
                           )}
                           <div>
-                            <span className={cn(
-                              selected
-                                ? 'text-foreground font-semibold'
-                                : 'text-muted-foreground'
-                            )}>
+                            <span
+                              className={cn(
+                                selected ? 'text-foreground font-semibold' : 'text-muted-foreground'
+                              )}
+                            >
                               {opt.label}
                             </span>
                             {opt.description && (
-                              <span className="text-muted-foreground ml-1.5">&mdash; {opt.description}</span>
+                              <span className="text-muted-foreground ml-1.5">
+                                &mdash; {opt.description}
+                              </span>
                             )}
                           </div>
                         </div>
@@ -191,14 +196,18 @@ export function AskUserCard({
                     })}
 
                     {/* Custom answer — shown when user typed "Other" instead of picking a predefined option */}
-                    {answer && q.options && !q.options.some((opt) => isSelectedAnswer(opt.label)) && (
-                      <div className="mt-1 rounded-lg bg-amber-500/10 px-2.5 py-1.5 -mx-1">
-                        <div className="flex items-start gap-2 text-sm">
-                          <Check className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
-                          <span className="text-foreground font-semibold whitespace-pre-wrap">{answer}</span>
+                    {answer &&
+                      q.options &&
+                      !q.options.some((opt) => isSelectedAnswer(opt.label)) && (
+                        <div className="mt-1 rounded-lg bg-amber-500/10 px-2.5 py-1.5 -mx-1">
+                          <div className="flex items-start gap-2 text-sm">
+                            <Check className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                            <span className="text-foreground font-semibold whitespace-pre-wrap">
+                              {answer}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )}
                   </div>
                 )}
               </div>
@@ -218,8 +227,8 @@ export function AskUserCard({
       key="pending"
       accentClass="border-amber-500 bg-amber-500/5"
       headerClass="border-b-amber-500/20 text-amber-700 dark:text-amber-400"
-      headerLeft={<span className="font-semibold">Question for you</span>}
-      headerRight="Waiting for reply"
+      headerLeft={<span className="font-semibold">{t('sessionHq.cards.askUser.title')}</span>}
+      headerRight={t('sessionHq.cards.askUser.waitingForReply')}
       defaultExpanded
       collapsible={false}
     >
@@ -229,7 +238,10 @@ export function AskUserCard({
           {questionsList.map((q, i) => (
             <button
               key={i}
-              onClick={() => { setCurrentTab(i); setEditingCustom(false) }}
+              onClick={() => {
+                setCurrentTab(i)
+                setEditingCustom(false)
+              }}
               className={cn(
                 'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
                 i === currentTab
@@ -247,9 +259,7 @@ export function AskUserCard({
       {/* Current question */}
       {currentQuestion ? (
         <>
-          <p className="text-sm font-medium text-foreground mb-3">
-            {currentQuestion.question}
-          </p>
+          <p className="text-sm font-medium text-foreground mb-3">{currentQuestion.question}</p>
 
           {/* Clickable option buttons */}
           {currentQuestion.options && currentQuestion.options.length > 0 && (
@@ -321,7 +331,7 @@ export function AskUserCard({
                 >
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <Pencil className="h-3.5 w-3.5 shrink-0" />
-                    <span className="text-sm">Other...</span>
+                    <span className="text-sm">{t('sessionHq.cards.askUser.other')}</span>
                   </div>
                 </button>
               )}
@@ -334,8 +344,12 @@ export function AskUserCard({
                     autoFocus
                     value={customInput}
                     onChange={(e) => setCustomInput(e.target.value)}
-                    onCompositionStart={() => { isImeComposingRef.current = true }}
-                    onCompositionEnd={() => { isImeComposingRef.current = false }}
+                    onCompositionStart={() => {
+                      isImeComposingRef.current = true
+                    }}
+                    onCompositionEnd={() => {
+                      isImeComposingRef.current = false
+                    }}
                     onKeyDown={(e) => {
                       if (
                         e.key === 'Enter' &&
@@ -350,7 +364,7 @@ export function AskUserCard({
                       }
                     }}
                     className="min-h-[44px] max-h-[200px] w-full resize-none rounded-lg border border-border/70 bg-background px-3 py-2 text-sm transition-colors focus:border-amber-400/70 focus:outline-none"
-                    placeholder="Type your answer..."
+                    placeholder={t('questionPrompt.custom.placeholder')}
                     rows={1}
                     disabled={sending}
                   />
@@ -360,7 +374,7 @@ export function AskUserCard({
                       onClick={handleCustomSubmit}
                       disabled={!customInput.trim() || sending}
                     >
-                      OK
+                      {t('sessionHq.cards.askUser.ok')}
                     </Button>
                     <Button
                       size="sm"
@@ -368,7 +382,7 @@ export function AskUserCard({
                       onClick={() => setEditingCustom(false)}
                       disabled={sending}
                     >
-                      Cancel
+                      {t('questionPrompt.actions.cancel')}
                     </Button>
                   </div>
                 </div>
@@ -379,7 +393,9 @@ export function AskUserCard({
       ) : question ? (
         <div className="text-foreground text-sm whitespace-pre-wrap">{question}</div>
       ) : (
-        <div className="text-muted-foreground text-sm italic">Waiting for input...</div>
+        <div className="text-muted-foreground text-sm italic">
+          {t('sessionHq.cards.askUser.waitingForInput')}
+        </div>
       )}
 
       {/* Action bar */}
@@ -390,11 +406,14 @@ export function AskUserCard({
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => { setCurrentTab((t) => t - 1); setEditingCustom(false) }}
+                onClick={() => {
+                  setCurrentTab((t) => t - 1)
+                  setEditingCustom(false)
+                }}
                 disabled={sending}
                 className="rounded-full px-3"
               >
-                Back
+                {t('questionPrompt.actions.back')}
               </Button>
             )}
             <Button
@@ -402,15 +421,22 @@ export function AskUserCard({
               onClick={
                 isLastTab
                   ? handleSubmit
-                  : () => { setCurrentTab((t) => t + 1); setEditingCustom(false) }
+                  : () => {
+                      setCurrentTab((t) => t + 1)
+                      setEditingCustom(false)
+                    }
               }
-              disabled={
-                (isLastTab && !allAnswered) || (!isLastTab && !hasCurrentAnswer) || sending
-              }
+              disabled={(isLastTab && !allAnswered) || (!isLastTab && !hasCurrentAnswer) || sending}
               className="rounded-full px-4"
             >
-              {sending ? 'Sending...' : isLastTab ? 'Submit' : (
-                <>Next <ChevronRight className="h-3.5 w-3.5" /></>
+              {sending ? (
+                t('questionPrompt.actions.sending')
+              ) : isLastTab ? (
+                t('questionPrompt.actions.submit')
+              ) : (
+                <>
+                  {t('questionPrompt.actions.next')} <ChevronRight className="h-3.5 w-3.5" />
+                </>
               )}
             </Button>
           </>
@@ -421,7 +447,7 @@ export function AskUserCard({
             disabled={!hasCurrentAnswer || sending}
             className="rounded-full px-4"
           >
-            {sending ? 'Sending...' : 'Submit'}
+            {sending ? t('questionPrompt.actions.sending') : t('questionPrompt.actions.submit')}
           </Button>
         )}
         <Button
@@ -431,7 +457,7 @@ export function AskUserCard({
           disabled={sending}
           className="rounded-full px-3 text-muted-foreground"
         >
-          Dismiss
+          {t('questionPrompt.actions.dismiss')}
         </Button>
       </div>
     </ActionCard>

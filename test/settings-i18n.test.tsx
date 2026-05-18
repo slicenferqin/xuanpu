@@ -242,6 +242,21 @@ describe('Settings i18n', () => {
     expect(translate('zh-CN', 'contextIndicator.cost.session', { cost: '$1.2345' })).toBe(
       '会话成本：$1.2345'
     )
+    expect(translate('zh-CN', 'sessionHq.composer.successCriteriaPlaceholder')).toBe('成功标准...')
+    expect(translate('zh-CN', 'sessionHq.composer.queuePlaceholder')).toBe(
+      '输入要排队到本轮之后的后续消息...'
+    )
+    expect(translate('zh-CN', 'sessionHq.timeline.emptyTitle')).toBe('暂无消息')
+    expect(translate('zh-CN', 'sessionHq.header.providerUpdateError')).toBe('更新提供方失败')
+    expect(translate('zh-CN', 'sessionHq.agentRail.interrupts.commandApproval')).toBe(
+      '需要命令审批'
+    )
+    expect(translate('zh-CN', 'sessionHq.missionControl.allTasksCompleted')).toBe('全部任务已完成')
+    expect(translate('zh-CN', 'sessionHq.cards.plan.requiresApproval')).toBe('需要批准')
+    expect(translate('zh-CN', 'sessionHq.cards.askUser.waitingForReply')).toBe('等待回复')
+    expect(translate('zh-CN', 'sessionHq.cards.bash.truncated')).toBe('...（已截断）')
+    expect(translate('zh-CN', 'sessionHq.cards.search.query')).toBe('查询：')
+    expect(translate('zh-CN', 'sessionHq.cards.goal.dismissCompleted')).toBe('关闭已完成目标')
     expect(translate('zh-CN', 'helpOverlay.title')).toBe('键盘快捷键')
     expect(translate('zh-CN', 'helpOverlay.panels.setup')).toBe('启动脚本')
     expect(translate('zh-CN', 'helpOverlay.dynamic.pinnedPrefix', { name: 'foo' })).toBe(

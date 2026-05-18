@@ -3,15 +3,18 @@ import { CheckCircle2, Target, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { AgentSessionGoalState } from '@shared/types/agent-protocol'
 import { Button } from '@/components/ui/button'
+import { useI18n } from '@/i18n/useI18n'
 
 interface GoalStatusCardProps {
   goal: AgentSessionGoalState
   onDismiss?: () => void
 }
 
-function getGoalTitle(goal: AgentSessionGoalState): string {
+type TFunction = ReturnType<typeof useI18n>['t']
+
+function getGoalTitle(goal: AgentSessionGoalState, t: TFunction): string {
   if (goal.objective.trim()) return goal.objective.trim()
-  return 'Session goal'
+  return t('sessionHq.cards.goal.defaultTitle')
 }
 
 function getSuccessCriteria(goal: AgentSessionGoalState): string | null {
@@ -38,14 +41,16 @@ function formatDuration(seconds: number): string {
   return `${minutes}m ${remainingSeconds}s`
 }
 
-function getGoalDetails(goal: AgentSessionGoalState): string | null {
+function getGoalDetails(goal: AgentSessionGoalState, t: TFunction): string | null {
   const details: string[] = []
   if (typeof goal.tokensUsed === 'number') {
     const used = formatCompactNumber(goal.tokensUsed)
     if (typeof goal.tokenBudget === 'number') {
-      details.push(`${used} / ${formatCompactNumber(goal.tokenBudget)} tokens`)
+      details.push(
+        `${used} / ${formatCompactNumber(goal.tokenBudget)} ${t('sessionHq.cards.goal.tokens')}`
+      )
     } else {
-      details.push(`${used} tokens`)
+      details.push(`${used} ${t('sessionHq.cards.goal.tokens')}`)
     }
   }
   if (typeof goal.timeUsedSeconds === 'number') {
@@ -54,10 +59,13 @@ function getGoalDetails(goal: AgentSessionGoalState): string | null {
   return details.length > 0 ? details.join(' · ') : null
 }
 
-function getGoalStatus(goal: AgentSessionGoalState): string {
+function getGoalStatus(goal: AgentSessionGoalState, t: TFunction): string {
   const status = goal.status
+  const normalized = status.trim().toLowerCase()
+  if (normalized === 'active') return t('sessionHq.cards.goal.active')
+  if (normalized === 'completed') return t('sessionHq.cards.goal.completed')
   if (status.trim()) return status.trim()
-  return 'Active'
+  return t('sessionHq.cards.goal.active')
 }
 
 function isCompletedGoal(goal: AgentSessionGoalState): boolean {
@@ -65,7 +73,8 @@ function isCompletedGoal(goal: AgentSessionGoalState): boolean {
 }
 
 export function GoalStatusCard({ goal, onDismiss }: GoalStatusCardProps): React.JSX.Element {
-  const details = getGoalDetails(goal)
+  const { t } = useI18n()
+  const details = getGoalDetails(goal, t)
   const successCriteria = getSuccessCriteria(goal)
   const completed = isCompletedGoal(goal)
   const Icon = completed ? CheckCircle2 : Target
@@ -91,7 +100,7 @@ export function GoalStatusCard({ goal, onDismiss }: GoalStatusCardProps): React.
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-2">
             <div className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
-              {getGoalTitle(goal)}
+              {getGoalTitle(goal, t)}
             </div>
             <span
               className={cn(
@@ -99,7 +108,7 @@ export function GoalStatusCard({ goal, onDismiss }: GoalStatusCardProps): React.
                 completed ? 'bg-emerald-500/10 text-emerald-500' : 'bg-celadon/10 text-celadon'
               )}
             >
-              {getGoalStatus(goal)}
+              {getGoalStatus(goal, t)}
             </span>
             {completed && onDismiss && (
               <Button
@@ -107,7 +116,7 @@ export function GoalStatusCard({ goal, onDismiss }: GoalStatusCardProps): React.
                 variant="ghost"
                 size="sm"
                 className="h-5 w-5 shrink-0 rounded-full p-0 text-muted-foreground hover:text-foreground"
-                aria-label="Dismiss completed goal"
+                aria-label={t('sessionHq.cards.goal.dismissCompleted')}
                 data-testid="goal-dismiss-button"
                 onClick={onDismiss}
               >
@@ -123,7 +132,7 @@ export function GoalStatusCard({ goal, onDismiss }: GoalStatusCardProps): React.
           {successCriteria && (
             <div className="mt-2 border-t border-border/50 pt-2">
               <div className="text-[10px] font-medium uppercase tracking-normal text-muted-foreground">
-                Criteria
+                {t('sessionHq.cards.goal.criteria')}
               </div>
               <div
                 className="mt-1 line-clamp-2 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground"

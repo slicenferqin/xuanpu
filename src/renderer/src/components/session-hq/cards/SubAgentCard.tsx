@@ -4,17 +4,31 @@
 
 import React, { useState, useMemo } from 'react'
 import { ActionCard } from './ActionCard'
-import { ChevronDown, Terminal, FileSearch, FileEdit, Search, CheckCircle2, XCircle, Loader2 } from 'lucide-react'
+import {
+  ChevronDown,
+  Terminal,
+  FileSearch,
+  FileEdit,
+  Search,
+  CheckCircle2,
+  XCircle,
+  Loader2
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { StreamingPart } from '@shared/lib/timeline-types'
+import { useI18n } from '@/i18n/useI18n'
 
 interface SubAgentCardProps {
   subtask: NonNullable<StreamingPart['subtask']>
   childParts?: StreamingPart[]
 }
 
+type TFunction = ReturnType<typeof useI18n>['t']
+
 /** Compact single-line row for a child tool call */
 function CompactToolRow({ part }: { part: StreamingPart }): React.JSX.Element | null {
+  const { t } = useI18n()
+
   if (part.type === 'text' && part.text) {
     const preview = part.text.length > 120 ? part.text.slice(0, 120) + '...' : part.text
     return (
@@ -28,14 +42,16 @@ function CompactToolRow({ part }: { part: StreamingPart }): React.JSX.Element | 
   if (part.type === 'tool_use' && part.toolUse) {
     const name = part.toolUse.name?.toLowerCase() ?? ''
     const { icon: Icon, color } = getToolMeta(name)
-    const label = getToolLabel(name, part.toolUse.input)
+    const label = getToolLabel(name, part.toolUse.input, t)
     const status = part.toolUse.status
 
     return (
       <div className="flex items-center gap-2 py-0.5 text-[11px]">
         <Icon className={cn('w-3 h-3 shrink-0', color)} />
         <span className="text-muted-foreground truncate flex-1">{label}</span>
-        {status === 'running' && <Loader2 className="w-3 h-3 text-muted-foreground/50 animate-spin shrink-0" />}
+        {status === 'running' && (
+          <Loader2 className="w-3 h-3 text-muted-foreground/50 animate-spin shrink-0" />
+        )}
         {status === 'success' && <CheckCircle2 className="w-3 h-3 text-celadon shrink-0" />}
         {status === 'error' && <XCircle className="w-3 h-3 text-destructive shrink-0" />}
       </div>
@@ -52,7 +68,14 @@ function getToolMeta(name: string): { icon: typeof Terminal; color: string } {
   if (name === 'read' || name === 'readfile' || name === 'read_file') {
     return { icon: FileSearch, color: 'text-muted-foreground/60' }
   }
-  if (name === 'write' || name === 'edit' || name === 'writefile' || name === 'write_file' || name === 'editfile' || name === 'edit_file') {
+  if (
+    name === 'write' ||
+    name === 'edit' ||
+    name === 'writefile' ||
+    name === 'write_file' ||
+    name === 'editfile' ||
+    name === 'edit_file'
+  ) {
     return { icon: FileEdit, color: 'text-muted-foreground/60' }
   }
   if (name === 'grep' || name === 'glob' || name === 'search' || name === 'codebase_search') {
@@ -61,7 +84,11 @@ function getToolMeta(name: string): { icon: typeof Terminal; color: string } {
   return { icon: Terminal, color: 'text-muted-foreground/40' }
 }
 
-function getToolLabel(name: string, input?: Record<string, unknown>): string {
+function getToolLabel(
+  name: string,
+  input: Record<string, unknown> | undefined,
+  t: TFunction
+): string {
   const displayName = name.charAt(0).toUpperCase() + name.slice(1)
   if (!input) return displayName
 
@@ -72,20 +99,34 @@ function getToolLabel(name: string, input?: Record<string, unknown>): string {
   }
   if (name === 'read' || name === 'readfile' || name === 'read_file') {
     const path = (input.file_path as string) ?? (input.path as string) ?? ''
-    return path ? `Read ${path.split('/').pop()}` : displayName
+    return path
+      ? t('sessionHq.cards.subAgent.readPrefix', { name: path.split('/').pop() || path })
+      : displayName
   }
   if (name === 'grep' || name === 'glob' || name === 'search' || name === 'codebase_search') {
     const pattern = (input.pattern as string) ?? (input.query as string) ?? ''
-    return pattern ? `Search: ${pattern.slice(0, 60)}` : displayName
+    return pattern
+      ? t('sessionHq.cards.subAgent.searchPrefix', { query: pattern.slice(0, 60) })
+      : displayName
   }
-  if (name === 'write' || name === 'edit' || name === 'writefile' || name === 'write_file' || name === 'editfile' || name === 'edit_file') {
+  if (
+    name === 'write' ||
+    name === 'edit' ||
+    name === 'writefile' ||
+    name === 'write_file' ||
+    name === 'editfile' ||
+    name === 'edit_file'
+  ) {
     const path = (input.file_path as string) ?? (input.path as string) ?? ''
-    return path ? `Edit ${path.split('/').pop()}` : displayName
+    return path
+      ? t('sessionHq.cards.subAgent.editPrefix', { name: path.split('/').pop() || path })
+      : displayName
   }
   return displayName
 }
 
 export function SubAgentCard({ subtask, childParts = [] }: SubAgentCardProps): React.JSX.Element {
+  const { t } = useI18n()
   const isRunning = subtask.status === 'running'
 
   // Merge subtask.parts (from legacy/subtask-type) with childParts (from streaming routing)
@@ -106,12 +147,20 @@ export function SubAgentCard({ subtask, childParts = [] }: SubAgentCardProps): R
       headerLeft={
         <div className="flex items-center gap-2">
           <div className="w-5 h-5 rounded bg-foreground text-background flex items-center justify-center">
-            <svg viewBox="0 0 24 24" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              viewBox="0 0 24 24"
+              className="w-3 h-3"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <circle cx="12" cy="12" r="10" />
             </svg>
           </div>
           <span className="font-semibold text-foreground">
-            Delegated to {subtask.agent || 'Agent'}
+            {t('sessionHq.cards.subAgent.delegatedTo', {
+              agent: subtask.agent || t('sessionHq.cards.subAgent.agentFallback')
+            })}
           </span>
         </div>
       }
@@ -119,23 +168,25 @@ export function SubAgentCard({ subtask, childParts = [] }: SubAgentCardProps): R
         <div className="flex items-center gap-2">
           {toolCount > 0 && (
             <span className="text-[10px] text-muted-foreground/60 tabular-nums">
-              {toolCount} action{toolCount !== 1 ? 's' : ''}
+              {t('sessionHq.cards.subAgent.actionCount', {
+                count: toolCount,
+                label:
+                  toolCount === 1
+                    ? t('sessionHq.cards.subAgent.actionSingular')
+                    : t('sessionHq.cards.subAgent.actionPlural')
+              })}
             </span>
           )}
-          {isRunning && (
-            <div className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" />
-          )}
+          {isRunning && <div className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" />}
           <span className={isRunning ? 'text-purple-500' : undefined}>
-            {isRunning ? 'running' : subtask.status}
+            {isRunning ? t('sessionHq.cards.subAgent.running') : subtask.status}
           </span>
         </div>
       }
       defaultExpanded={false}
     >
       {subtask.description && (
-        <div className="text-sm text-muted-foreground">
-          {subtask.description}
-        </div>
+        <div className="text-sm text-muted-foreground">{subtask.description}</div>
       )}
 
       {allParts.length > 0 && (
@@ -144,8 +195,25 @@ export function SubAgentCard({ subtask, childParts = [] }: SubAgentCardProps): R
             onClick={() => setExpanded((v) => !v)}
             className="text-[11px] text-muted-foreground/60 hover:text-muted-foreground cursor-pointer select-none flex items-center gap-1 transition-colors"
           >
-            <ChevronDown className={cn('h-3 w-3 transition-transform duration-200', expanded && 'rotate-180')} />
-            {expanded ? 'Hide' : 'Show'} {toolCount > 0 ? `${toolCount} action${toolCount !== 1 ? 's' : ''}` : `${allParts.length} item${allParts.length !== 1 ? 's' : ''}`}
+            <ChevronDown
+              className={cn('h-3 w-3 transition-transform duration-200', expanded && 'rotate-180')}
+            />
+            {expanded ? t('sessionHq.cards.subAgent.hide') : t('sessionHq.cards.subAgent.show')}{' '}
+            {toolCount > 0
+              ? t('sessionHq.cards.subAgent.actionCount', {
+                  count: toolCount,
+                  label:
+                    toolCount === 1
+                      ? t('sessionHq.cards.subAgent.actionSingular')
+                      : t('sessionHq.cards.subAgent.actionPlural')
+                })
+              : t('sessionHq.cards.subAgent.itemCount', {
+                  count: allParts.length,
+                  label:
+                    allParts.length === 1
+                      ? t('sessionHq.cards.subAgent.itemSingular')
+                      : t('sessionHq.cards.subAgent.itemPlural')
+                })}
           </button>
 
           {expanded && (

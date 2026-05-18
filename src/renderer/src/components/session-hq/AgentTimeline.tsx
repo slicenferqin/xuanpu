@@ -427,7 +427,7 @@ function TimelineNodeView({
             {node.message.steered === true && (
               <div className="mb-2">
                 <span className="inline-flex items-center rounded-md bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold text-sky-500">
-                  STEERED
+                  {t('sessionHq.timeline.steered')}
                 </span>
               </div>
             )}
@@ -582,8 +582,12 @@ function TimelineNodeView({
               id: node.toolUse.id,
               sessionID: '',
               prompt: (node.toolUse.input?.prompt as string) ?? '',
-              description: (node.toolUse.input?.description as string) ?? 'Delegated task',
-              agent: (node.toolUse.input?.subagent_type as string) ?? 'Agent',
+              description:
+                (node.toolUse.input?.description as string) ??
+                t('sessionHq.cards.subAgent.defaultDescription'),
+              agent:
+                (node.toolUse.input?.subagent_type as string) ??
+                t('sessionHq.cards.subAgent.agentFallback'),
               parts: [],
               status: (node.toolUse.status === 'success'
                 ? 'completed'
@@ -652,11 +656,11 @@ function TimelineNodeView({
             <span className="font-medium text-foreground">{label}</span>
             <span className="text-xs text-muted-foreground">
               {isRunning
-                ? 'Running...'
+                ? t('sessionHq.timeline.genericToolStatus.running')
                 : isError
-                  ? 'Error'
+                  ? t('sessionHq.timeline.genericToolStatus.error')
                   : isSuccess
-                    ? 'Done'
+                    ? t('sessionHq.timeline.genericToolStatus.done')
                     : node.toolUse.status}
             </span>
           </div>
@@ -778,6 +782,8 @@ export function AgentTimeline({
   onPointerCancel,
   bottomFloatingHeight = 0
 }: AgentTimelineProps): React.JSX.Element {
+  const { t } = useI18n()
+
   // Flatten messages into timeline nodes
   const nodes = useMemo(() => {
     // Compute a numeric cutoff for the active run. Assistant messages whose
@@ -1232,7 +1238,9 @@ export function AgentTimeline({
             >
               <Loader2 className="h-3 w-3 animate-spin" />
             </div>
-            <div className="text-sm text-muted-foreground italic">Thinking…</div>
+            <div className="text-sm text-muted-foreground italic">
+              {t('sessionHq.timeline.thinking')}
+            </div>
           </div>
         )}
 
@@ -1244,8 +1252,8 @@ export function AgentTimeline({
         {nodes.length === 0 && ephemeralStatusRows.length === 0 && !isStreaming && !sessionGoal && (
           <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
             <MessageSquare className="h-10 w-10 mb-3 opacity-30" />
-            <div className="text-sm font-medium">No messages yet</div>
-            <div className="text-xs mt-1">Send a message to start the conversation</div>
+            <div className="text-sm font-medium">{t('sessionHq.timeline.emptyTitle')}</div>
+            <div className="text-xs mt-1">{t('sessionHq.timeline.emptySubtitle')}</div>
           </div>
         )}
       </div>
