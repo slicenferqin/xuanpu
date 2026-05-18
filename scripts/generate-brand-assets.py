@@ -876,13 +876,13 @@ def make_dmg_background(icon: Image.Image) -> None:
         )
         draw.text(
             (128 * scale, 76 * scale),
-            'Drag app to Applications,',
+            'Drag app to Applications.',
             font=font(13 * scale),
             fill=rgba(PALETTE['field_jade_deep'], 226),
         )
         draw.text(
             (128 * scale, 96 * scale),
-            'or double-click Install Xuanpu.command.',
+            'Open it from Applications.',
             font=font(13 * scale),
             fill=rgba(PALETTE['field_jade_deep'], 226),
         )
@@ -891,14 +891,6 @@ def make_dmg_background(icon: Image.Image) -> None:
             (222 * scale, 190 * scale),
             (314 * scale, 190 * scale),
             rgba(PALETTE['field_jade_deep'], 88),
-            max(1, round(1.4 * scale)),
-            scale,
-        )
-        draw_arrow(
-            draw,
-            (270 * scale, 248 * scale),
-            (270 * scale, 284 * scale),
-            rgba(PALETTE['field_jade_deep'], 70),
             max(1, round(1.4 * scale)),
             scale,
         )
@@ -956,13 +948,13 @@ def make_dmg_background(icon: Image.Image) -> None:
     )
     draw.text(
         (130 * scale, 76 * scale),
-        'Drag app to Applications,',
+        'Drag app to Applications.',
         font=font(13 * scale),
         fill=rgba(PALETTE['field_jade_deep'], 224),
     )
     draw.text(
         (130 * scale, 96 * scale),
-        'or double-click Install Xuanpu.command.',
+        'Open it from Applications.',
         font=font(13 * scale),
         fill=rgba(PALETTE['field_jade_deep'], 224),
     )
@@ -976,21 +968,11 @@ def make_dmg_background(icon: Image.Image) -> None:
         max(1, round(1.4 * scale)),
         scale,
     )
-    draw_arrow(
-        draw,
-        (270 * scale, 250 * scale),
-        (270 * scale, 284 * scale),
-        rgba(PALETTE['signal_gold'], 106),
-        max(1, round(1.4 * scale)),
-        scale,
-    )
-
     wells = Image.new('RGBA', canvas.size, (0, 0, 0, 0))
     wells_draw = ImageDraw.Draw(wells)
     for center_x, center_y, radius, alpha in [
         (130, 190, 54, 28),
         (410, 190, 54, 28),
-        (270, 320, 46, 24),
     ]:
         wells_draw.ellipse(
             [

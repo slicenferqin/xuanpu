@@ -90,15 +90,16 @@
 | Windows (x64)         | `Xuanpu-Setup-x.x.x.exe`       | 64-bit 安装包     |
 | Windows (ARM)         | `Xuanpu-Setup-x.x.x-arm64.exe` | ARM64 安装包      |
 
-> **macOS 安装提示**：当前版本未经 Apple 签名。打开 DMG 后，双击里面的
-> `Install Xuanpu.command`，它会自动复制到 `/Applications`、执行去隔离命令并打开应用。
-> 如果脚本不可用，也可以手动执行：
+> **macOS 安装提示**：当前版本未经 Apple 签名。打开 DMG 后，将 `玄圃.app`
+> 拖到 `/Applications`，再从「应用程序」中打开。
+> 如果 macOS 拦截首次打开，可以手动执行：
 >
 > ```bash
 > /usr/bin/xattr -cr "/Applications/玄圃.app"
 > ```
 >
-> 或者：系统设置 → 隐私与安全性 → 点击「仍要打开」。
+> 或者：右键点击「玄圃」→「打开」，确认一次；也可以在
+> 系统设置 → 隐私与安全性 → 点击「仍要打开」。
 >
 > **Windows 安装提示**：安装包未签名，Windows SmartScreen 可能会弹出警告。
 > 点击「更多信息」→「仍要运行」即可。
