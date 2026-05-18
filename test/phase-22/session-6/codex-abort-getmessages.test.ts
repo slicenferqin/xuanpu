@@ -373,6 +373,76 @@ describe('Codex Abort & getMessages', () => {
       const result = await impl.abort('/test', 'thread-abort-1')
       expect(result).toBe(true) // Still succeeds
     })
+
+    it('materializes live assistant draft before clearing an aborted run', async () => {
+      const { CodexImplementer } = await import('../../../src/main/services/codex-implementer')
+      const impl = new CodexImplementer()
+      const internalManager = impl.getManager() as any
+      const mockWindow = {
+        isDestroyed: () => false,
+        webContents: { send: vi.fn() }
+      }
+      impl.setMainWindow(mockWindow as any)
+
+      const session = {
+        threadId: 'thread-abort-1',
+        hiveSessionId: 'hive-abort-1',
+        worktreePath: '/test',
+        status: 'running' as const,
+        messages: [],
+        liveAssistantDraft: {
+          id: 'codex-live-thread-abort-1',
+          timestamp: '2026-01-01T00:00:00.000Z',
+          parts: [
+            { type: 'text', text: 'Partial answer', timestamp: '2026-01-01T00:00:00.000Z' },
+            {
+              type: 'tool',
+              callID: 'tool-1',
+              tool: 'Bash',
+              state: {
+                status: 'running',
+                input: { command: 'pnpm test' },
+                output: 'running...'
+              }
+            }
+          ],
+          toolIndexById: new Map([['tool-1', 1]])
+        },
+        activeRun: {
+          runId: 'run-abort-1',
+          expectedTurnId: 'turn-live-1',
+          state: 'running' as const,
+          startedAt: Date.now(),
+          abortController: new AbortController()
+        },
+        settledRunIds: new Set<string>(),
+        revertMessageID: null,
+        revertDiff: null,
+        titleGenerated: false,
+        titleGenerationStarted: false
+      }
+      impl.getSessions().set('/test::thread-abort-1', session)
+
+      internalManager.interruptTurn = vi.fn().mockResolvedValue(undefined)
+
+      const result = await impl.abort('/test', 'thread-abort-1')
+
+      expect(result).toBe(true)
+      expect(internalManager.interruptTurn).toHaveBeenCalledWith('thread-abort-1', 'turn-live-1')
+      expect(session.liveAssistantDraft).toBeNull()
+      expect(session.activeRun).toBeNull()
+
+      const assistant = session.messages[0] as any
+      expect(assistant.role).toBe('assistant')
+      expect(assistant.aborted).toBe(true)
+      expect(assistant.parts[0].text).toBe('Partial answer')
+      expect(assistant.parts[1].state.status).toBe('cancelled')
+      expect(assistant.parts[1].state.output).toBe('running...')
+
+      const messages = await impl.getMessages('/test', 'thread-abort-1')
+      expect(messages).toHaveLength(1)
+      expect((messages[0] as any).aborted).toBe(true)
+    })
   })
 
   // ── CodexImplementer.getMessages ────────────────────────────────
@@ -556,11 +626,13 @@ describe('Codex Abort & getMessages', () => {
 
       const messages = await impl.getMessages('/test', 'thread-msg-1')
 
-      expect(internalManager.startSession).toHaveBeenCalledWith({
-        cwd: '/test',
-        model: impl.getSelectedModel(),
-        resumeThreadId: 'thread-msg-1'
-      })
+      expect(internalManager.startSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cwd: '/test',
+          model: impl.getSelectedModel(),
+          resumeThreadId: 'thread-msg-1'
+        })
+      )
       expect(internalManager.readThread).toHaveBeenCalledWith('thread-msg-1')
       expect(messages).toHaveLength(2)
       expect((messages[0] as any).parts[0].text).toBe('Recovered question')

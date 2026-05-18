@@ -810,7 +810,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       activeTurnId: null
     })
 
-    this.emitLifecycleEvent(context, 'turn/interrupted', 'Turn interrupted')
+    this.emitLifecycleEvent(context, 'turn/interrupted', 'Turn interrupted', {
+      turnId: targetTurnId ?? undefined
+    })
   }
 
   async readThread(threadId: string): Promise<unknown> {
@@ -1152,7 +1154,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
   // ── Event emission helpers ────────────────────────────────────
 
-  private emitLifecycleEvent(context: CodexSessionContext, method: string, message: string): void {
+  private emitLifecycleEvent(
+    context: CodexSessionContext,
+    method: string,
+    message: string,
+    extra?: { turnId?: string }
+  ): void {
     this.emitEvent({
       id: randomUUID(),
       kind: 'session',
@@ -1160,7 +1167,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       threadId: context.session.threadId ?? '',
       createdAt: new Date().toISOString(),
       method,
-      message
+      message,
+      ...(extra?.turnId ? { turnId: extra.turnId } : {})
     })
   }
 
