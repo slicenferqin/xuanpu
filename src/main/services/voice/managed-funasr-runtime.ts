@@ -26,7 +26,9 @@ import type { VoiceRuntimeProgress } from '@shared/types/voice'
 const log = createLogger({ component: 'ManagedFunAsrRuntime' })
 
 const FUNASR_REPO_URL = 'https://github.com/modelscope/FunASR.git'
-const INSTALL_MARKER = 'xuanpu-managed-runtime-v1'
+const FUNASR_REPO_REF = 'b842ff8107e1da950947ada0d11ae3c008baeb54'
+const PINNED_PYTHON_PACKAGES = ['modelscope==1.37.0', 'funasr==1.3.1'] as const
+const INSTALL_MARKER = 'xuanpu-managed-runtime-v2'
 const LOCAL_PROXY_PORT = 6244
 const LOCAL_PROXY_URL = `http://127.0.0.1:${LOCAL_PROXY_PORT}`
 
@@ -40,6 +42,36 @@ interface RunOptions {
   cwd?: string
   timeoutMs?: number
   onOutput?: (chunk: string) => void
+}
+
+interface RuntimeInstallManifest {
+  marker: string
+  funasrRepoUrl: string
+  funasrRepoRef: string
+  pythonPackages: string[]
+}
+
+function normalizeCommandText(value: string): string {
+  return value.replace(/\\/g, '/')
+}
+
+export function isManagedFunAsrCommandLine(
+  commandLine: string,
+  serverScript: string,
+  runtime?: Pick<StoredVoiceRuntime, 'hostPort'>
+): boolean {
+  const normalizedCommand = normalizeCommandText(commandLine)
+  const normalizedScript = normalizeCommandText(serverScript)
+  const normalizedSourceDir = normalizeCommandText(getFunAsrSourceDir())
+  const includesManagedScript = normalizedCommand.includes(normalizedScript)
+  const includesManagedSource =
+    normalizedCommand.includes('funasr_wss_server.py') &&
+    normalizedCommand.includes(normalizedSourceDir)
+  const portMatches =
+    runtime?.hostPort == null ||
+    new RegExp(`(?:--port(?:=|\\s+)${runtime.hostPort})(?:\\s|$)`).test(commandLine)
+
+  return portMatches && (includesManagedScript || includesManagedSource)
 }
 
 function appendRuntimeLog(message: string): void {
@@ -99,8 +131,8 @@ export class ManagedFunAsrRuntime {
       }
     }
 
-    const pid = this.readServerPid()
-    if (pid && this.isProcessAlive(pid)) {
+    const pid = await this.readManagedServerPid(runtime)
+    if (pid) {
       return {
         status: 'warming_up',
         message: 'Local FunASR runtime process is starting',
@@ -128,30 +160,13 @@ export class ManagedFunAsrRuntime {
       throw new Error('Python 3 is required to prepare the local FunASR runtime')
     }
 
-    if (!existsSync(getFunAsrSourceDir())) {
+    if (!existsSync(getFunAsrSourceDir()) || !this.isRuntimeInstalled()) {
       const git = await this.findGitCommand()
       if (!git) {
         throw new Error('Git is required to download the local FunASR runtime')
       }
 
-      onProgress({
-        status: 'downloading_runtime',
-        message: 'Downloading local FunASR runtime',
-        detail: FUNASR_REPO_URL
-      })
-      appendRuntimeLog(`Cloning ${FUNASR_REPO_URL}`)
-      await this.run(git, ['clone', '--depth', '1', FUNASR_REPO_URL, getFunAsrSourceDir()], {
-        timeoutMs: 15 * 60 * 1000,
-        onOutput: (chunk) => {
-          appendRuntimeLog(chunk.trimEnd())
-          this.emitLatestLine(
-            onProgress,
-            'downloading_runtime',
-            'Downloading local FunASR runtime',
-            chunk
-          )
-        }
-      })
+      await this.ensureFunAsrSource(git, onProgress)
     }
 
     if (!existsSync(this.venvPython())) {
@@ -186,7 +201,7 @@ export class ManagedFunAsrRuntime {
       })
       await this.run(
         this.venvPython(),
-        ['-m', 'pip', 'install', '--upgrade', 'modelscope', 'funasr'],
+        ['-m', 'pip', 'install', '--upgrade', ...PINNED_PYTHON_PACKAGES],
         {
           timeoutMs: 30 * 60 * 1000,
           onOutput: (chunk) => {
@@ -217,7 +232,7 @@ export class ManagedFunAsrRuntime {
         })
       }
 
-      writeFileSync(this.installMarker(), INSTALL_MARKER)
+      this.writeInstallManifest()
     }
 
     await this.start(runtime, onProgress)
@@ -227,8 +242,8 @@ export class ManagedFunAsrRuntime {
     runtime: StoredVoiceRuntime,
     onProgress: (progress: VoiceRuntimeProgress) => void
   ): Promise<void> {
-    const pid = this.readServerPid()
-    if (pid && this.isProcessAlive(pid)) return
+    const pid = await this.readManagedServerPid(runtime)
+    if (pid) return
 
     if (!existsSync(this.serverScript())) {
       throw new Error(`FunASR WebSocket server script not found: ${this.serverScript()}`)
@@ -288,9 +303,9 @@ export class ManagedFunAsrRuntime {
     await this.assertProcessSurvivesStartup(child, 1500)
   }
 
-  async stop(): Promise<void> {
-    const pid = this.readServerPid()
-    if (pid && this.isProcessAlive(pid)) {
+  async stop(runtime?: StoredVoiceRuntime): Promise<void> {
+    const pid = await this.readManagedServerPid(runtime)
+    if (pid) {
       try {
         process.kill(pid, 'SIGTERM')
       } catch {
@@ -305,11 +320,7 @@ export class ManagedFunAsrRuntime {
         }
       }
     }
-    try {
-      rmSync(this.serverProcessPidFile(), { force: true })
-    } catch {
-      // Ignore stale PID-file cleanup failures; the runtime has already been stopped.
-    }
+    this.clearServerPidFile()
   }
 
   async getLogs(): Promise<string> {
@@ -320,13 +331,105 @@ export class ManagedFunAsrRuntime {
     }
   }
 
+  private async ensureFunAsrSource(
+    git: string,
+    onProgress: (progress: VoiceRuntimeProgress) => void
+  ): Promise<void> {
+    onProgress({
+      status: 'downloading_runtime',
+      message: 'Downloading local FunASR runtime',
+      detail: `${FUNASR_REPO_URL} @ ${FUNASR_REPO_REF}`
+    })
+
+    if (!existsSync(join(getFunAsrSourceDir(), '.git'))) {
+      rmSync(getFunAsrSourceDir(), { force: true, recursive: true })
+      mkdirSync(getFunAsrSourceDir(), { recursive: true })
+      appendRuntimeLog(`Initializing FunASR source at ${FUNASR_REPO_REF}`)
+      await this.run(git, ['init', getFunAsrSourceDir()], {
+        timeoutMs: 60 * 1000,
+        onOutput: (chunk) => appendRuntimeLog(chunk.trimEnd())
+      })
+      await this.run(
+        git,
+        ['-C', getFunAsrSourceDir(), 'remote', 'add', 'origin', FUNASR_REPO_URL],
+        {
+          timeoutMs: 60 * 1000,
+          onOutput: (chunk) => appendRuntimeLog(chunk.trimEnd())
+        }
+      )
+    } else {
+      await this.run(
+        git,
+        ['-C', getFunAsrSourceDir(), 'remote', 'set-url', 'origin', FUNASR_REPO_URL],
+        {
+          timeoutMs: 60 * 1000,
+          onOutput: (chunk) => appendRuntimeLog(chunk.trimEnd())
+        }
+      )
+    }
+
+    appendRuntimeLog(`Fetching FunASR pinned ref ${FUNASR_REPO_REF}`)
+    await this.run(
+      git,
+      ['-C', getFunAsrSourceDir(), 'fetch', '--depth', '1', 'origin', FUNASR_REPO_REF],
+      {
+        timeoutMs: 15 * 60 * 1000,
+        onOutput: (chunk) => {
+          appendRuntimeLog(chunk.trimEnd())
+          this.emitLatestLine(
+            onProgress,
+            'downloading_runtime',
+            'Downloading local FunASR runtime',
+            chunk
+          )
+        }
+      }
+    )
+    await this.run(
+      git,
+      ['-C', getFunAsrSourceDir(), 'checkout', '--force', '--detach', FUNASR_REPO_REF],
+      {
+        timeoutMs: 2 * 60 * 1000,
+        onOutput: (chunk) => appendRuntimeLog(chunk.trimEnd())
+      }
+    )
+  }
+
+  private expectedInstallManifest(): RuntimeInstallManifest {
+    return {
+      marker: INSTALL_MARKER,
+      funasrRepoUrl: FUNASR_REPO_URL,
+      funasrRepoRef: FUNASR_REPO_REF,
+      pythonPackages: [...PINNED_PYTHON_PACKAGES]
+    }
+  }
+
+  private writeInstallManifest(): void {
+    writeFileSync(this.installMarker(), JSON.stringify(this.expectedInstallManifest(), null, 2))
+  }
+
+  private isInstallManifestCurrent(manifest: Partial<RuntimeInstallManifest>): boolean {
+    const expected = this.expectedInstallManifest()
+    return (
+      manifest.marker === expected.marker &&
+      manifest.funasrRepoUrl === expected.funasrRepoUrl &&
+      manifest.funasrRepoRef === expected.funasrRepoRef &&
+      Array.isArray(manifest.pythonPackages) &&
+      manifest.pythonPackages.length === expected.pythonPackages.length &&
+      manifest.pythonPackages.every((item, index) => item === expected.pythonPackages[index])
+    )
+  }
+
   private isRuntimeInstalled(): boolean {
     try {
+      const manifest = JSON.parse(
+        readFileSync(this.installMarker(), 'utf-8')
+      ) as Partial<RuntimeInstallManifest>
       return (
         existsSync(this.serverScript()) &&
         existsSync(this.venvPython()) &&
         existsSync(this.installMarker()) &&
-        readFileSync(this.installMarker(), 'utf-8').trim() === INSTALL_MARKER
+        this.isInstallManifestCurrent(manifest)
       )
     } catch {
       return false
@@ -366,12 +469,93 @@ export class ManagedFunAsrRuntime {
     }
   }
 
+  private async readManagedServerPid(runtime?: StoredVoiceRuntime): Promise<number | null> {
+    const pid = this.readServerPid()
+    if (!pid) return null
+    if (await this.isManagedServerProcess(pid, runtime)) return pid
+
+    appendRuntimeLog(`Removing stale FunASR PID file for unrelated process ${pid}`)
+    log.warn('Ignoring stale managed FunASR PID file', { pid })
+    this.clearServerPidFile()
+    return null
+  }
+
+  private async isManagedServerProcess(
+    pid: number,
+    runtime?: StoredVoiceRuntime
+  ): Promise<boolean> {
+    if (!this.isProcessAlive(pid)) return false
+
+    const commandLine = await this.getProcessCommandLine(pid)
+    if (!commandLine) return false
+    return isManagedFunAsrCommandLine(commandLine, this.serverScript(), runtime)
+  }
+
+  private getProcessCommandLine(pid: number): Promise<string | null> {
+    return new Promise((resolve) => {
+      const command =
+        process.platform === 'win32'
+          ? {
+              name: 'wmic',
+              args: ['process', 'where', `ProcessId=${pid}`, 'get', 'CommandLine', '/value']
+            }
+          : {
+              name: 'ps',
+              args: ['-p', String(pid), '-ww', '-o', 'command=']
+            }
+      const child = spawn(command.name, command.args, {
+        stdio: ['ignore', 'pipe', 'pipe']
+      })
+      let stdout = ''
+      let settled = false
+      const finish = (value: string | null): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        resolve(value)
+      }
+      const timer = setTimeout(() => {
+        child.kill('SIGTERM')
+        finish(null)
+      }, 5000)
+
+      child.stdout.on('data', (data: Buffer) => {
+        stdout += data.toString()
+      })
+      child.once('error', () => finish(null))
+      child.once('close', (code) => {
+        if (code !== 0) {
+          finish(null)
+          return
+        }
+
+        const commandLine =
+          process.platform === 'win32'
+            ? stdout
+                .split(/\r?\n/)
+                .find((line) => line.trim().startsWith('CommandLine='))
+                ?.replace(/^CommandLine=/, '')
+                .trim()
+            : stdout.trim()
+        finish(commandLine || null)
+      })
+    })
+  }
+
   private isProcessAlive(pid: number): boolean {
     try {
       process.kill(pid, 0)
       return true
     } catch {
       return false
+    }
+  }
+
+  private clearServerPidFile(): void {
+    try {
+      rmSync(this.serverProcessPidFile(), { force: true })
+    } catch {
+      // Ignore stale PID-file cleanup failures.
     }
   }
 

@@ -247,7 +247,7 @@ export class VoiceRuntimeManager {
     const runtime = this.store.read()
     this.emitProgress({ status: 'stopping_runtime', message: 'Stopping FunASR runtime' })
     if (runtime.provider === 'managed') {
-      await this.managedRuntime.stop()
+      await this.managedRuntime.stop(runtime)
       return
     }
     if (runtime.provider === 'docker') {
@@ -257,15 +257,15 @@ export class VoiceRuntimeManager {
 
   async shutdown(): Promise<void> {
     this.funasr.disconnectAll()
+    const runtime = this.store.read()
     try {
-      await this.managedRuntime.stop()
+      await this.managedRuntime.stop(runtime)
     } catch (error) {
       log.warn('Failed to stop managed FunASR runtime during shutdown', {
         error: error instanceof Error ? error.message : String(error)
       })
     }
 
-    const runtime = this.store.read()
     if (runtime.provider === 'docker') {
       try {
         await this.docker.stopContainer(runtime.containerName)

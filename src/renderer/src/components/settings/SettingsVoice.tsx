@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/i18n/useI18n'
 import type {
   VoicePermissionStatus,
   VoiceRuntimeProvider,
@@ -22,51 +23,18 @@ import {
   DEFAULT_FUNASR_WS_URL
 } from '@shared/types/voice'
 
-function statusLabel(status?: VoiceRuntimeStatus): string {
-  switch (status) {
-    case 'ready':
-      return 'Ready'
-    case 'python_missing':
-      return 'Python missing'
-    case 'git_missing':
-      return 'Git missing'
-    case 'runtime_missing':
-      return 'Runtime missing'
-    case 'downloading_runtime':
-      return 'Downloading runtime'
-    case 'installing_runtime':
-      return 'Installing runtime'
-    case 'starting_runtime':
-      return 'Starting runtime'
-    case 'stopping_runtime':
-      return 'Stopping runtime'
-    case 'docker_missing':
-      return 'Docker missing'
-    case 'downloading_docker':
-      return 'Downloading Docker'
-    case 'docker_installer_ready':
-      return 'Docker installer ready'
-    case 'docker_stopped':
-      return 'Docker not running'
-    case 'image_missing':
-      return 'Runtime image missing'
-    case 'pulling_image':
-      return 'Downloading image'
-    case 'creating_container':
-      return 'Creating container'
-    case 'starting_container':
-      return 'Starting runtime'
-    case 'downloading_models':
-      return 'Downloading models'
-    case 'warming_up':
-      return 'Warming up'
-    case 'checking':
-      return 'Checking'
-    case 'error':
-      return 'Error'
-    default:
-      return 'Not checked'
-  }
+type TFunction = (key: string, params?: Record<string, string | number | boolean>) => string
+
+function statusLabel(t: TFunction, status?: VoiceRuntimeStatus): string {
+  return t(`settings.voicePage.status.${status ?? 'notChecked'}`)
+}
+
+function permissionLabel(t: TFunction, status?: VoicePermissionStatus | null): string {
+  return t(`settings.voicePage.permission.${status ?? 'notChecked'}`)
+}
+
+function providerLabel(t: TFunction, provider: VoiceRuntimeProvider): string {
+  return t(`settings.voicePage.providers.${provider}.label`)
 }
 
 function statusTone(status?: VoiceRuntimeStatus): string {
@@ -85,6 +53,7 @@ function statusTone(status?: VoiceRuntimeStatus): string {
 }
 
 export function SettingsVoice(): React.JSX.Element {
+  const { t } = useI18n()
   const voiceInput = useSettingsStore((s) => s.voiceInput)
   const updateSetting = useSettingsStore((s) => s.updateSetting)
   const [runtime, setRuntime] = useState<VoiceRuntimeInfo | null>(null)
@@ -98,6 +67,12 @@ export function SettingsVoice(): React.JSX.Element {
     voiceInput.runtimeProvider === 'docker'
       ? DEFAULT_DOCKER_FUNASR_HOST_PORT
       : DEFAULT_FUNASR_HOST_PORT
+  const runtimeStatus = runtime?.status ?? progress?.status
+  const runtimeDescription = runtime?.error
+    ? runtime.error
+    : runtimeStatus
+      ? statusLabel(t, runtimeStatus)
+      : t('settings.voicePage.runtime.checkHint')
 
   useEffect(() => {
     return window.voiceOps.onRuntimeProgress((next) => {
@@ -165,11 +140,11 @@ export function SettingsVoice(): React.JSX.Element {
     try {
       const next = await window.voiceOps.detectRuntime(voiceInput)
       setRuntime(next)
-      toast.info(next.message || statusLabel(next.status))
+      toast.info(statusLabel(t, next.status))
     } finally {
       setBusy(false)
     }
-  }, [voiceInput])
+  }, [t, voiceInput])
 
   const ensureRuntime = useCallback(async () => {
     setBusy(true)
@@ -177,36 +152,36 @@ export function SettingsVoice(): React.JSX.Element {
       const next = await window.voiceOps.ensureRuntime(voiceInput)
       setRuntime(next)
       if (next.status === 'ready') {
-        toast.success('FunASR runtime is ready')
+        toast.success(t('settings.voicePage.toasts.runtimeReady'))
       } else if (next.error) {
         toast.error(next.error)
       } else {
-        toast.warning(next.message || statusLabel(next.status))
+        toast.warning(statusLabel(t, next.status))
       }
     } finally {
       setBusy(false)
     }
-  }, [voiceInput])
+  }, [t, voiceInput])
 
   const stopRuntime = useCallback(async () => {
     setBusy(true)
     try {
       const result = await window.voiceOps.stopRuntime()
       if (result.success) {
-        toast.success('FunASR runtime stopped')
+        toast.success(t('settings.voicePage.toasts.runtimeStopped'))
         await detectRuntime()
       } else {
-        toast.error(result.error || 'Failed to stop FunASR runtime')
+        toast.error(result.error || t('settings.voicePage.toasts.runtimeStopFailed'))
       }
     } finally {
       setBusy(false)
     }
-  }, [detectRuntime])
+  }, [detectRuntime, t])
 
   const loadLogs = useCallback(async () => {
     const next = await window.voiceOps.getRuntimeLogs()
-    setLogs(next.serverLog || next.installLog || 'No logs available')
-  }, [])
+    setLogs(next.serverLog || next.installLog || t('settings.voicePage.diagnostics.noLogs'))
+  }, [t])
 
   const checkPermission = useCallback(async () => {
     setPermission(await window.voiceOps.getMicrophonePermissionStatus())
@@ -216,25 +191,25 @@ export function SettingsVoice(): React.JSX.Element {
     const next = await window.voiceOps.requestMicrophonePermission()
     setPermission(next)
     if (next === 'granted' || next === 'unknown') {
-      toast.success('Microphone is available')
+      toast.success(t('settings.voicePage.toasts.microphoneAvailable'))
     } else {
-      toast.error(`Microphone permission: ${next}`)
+      toast.error(
+        t('settings.voicePage.toasts.microphonePermission', { status: permissionLabel(t, next) })
+      )
     }
-  }, [])
+  }, [t])
 
   const copyDiagnostics = useCallback(async () => {
     const text = JSON.stringify({ runtime, progress, permission, settings: voiceInput }, null, 2)
     await navigator.clipboard.writeText(`${text}\n\n${logs}`)
-    toast.success('Voice diagnostics copied')
-  }, [logs, permission, progress, runtime, voiceInput])
+    toast.success(t('settings.voicePage.toasts.diagnosticsCopied'))
+  }, [logs, permission, progress, runtime, t, voiceInput])
 
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-base font-medium mb-1">Voice Input</h3>
-        <p className="text-sm text-muted-foreground">
-          Prepare a local FunASR runtime and use speech to fill the session composer.
-        </p>
+        <h3 className="text-base font-medium mb-1">{t('settings.voicePage.title')}</h3>
+        <p className="text-sm text-muted-foreground">{t('settings.voicePage.description')}</p>
       </div>
 
       <div className="rounded-xl border border-border/70 bg-card/35 p-4 space-y-4">
@@ -242,19 +217,17 @@ export function SettingsVoice(): React.JSX.Element {
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <Activity className="h-4 w-4 text-muted-foreground" />
-              <h4 className="text-sm font-medium">Runtime</h4>
+              <h4 className="text-sm font-medium">{t('settings.voicePage.runtime.title')}</h4>
               <span
                 className={cn(
                   'rounded-full border px-2 py-0.5 text-xs font-medium',
-                  statusTone(runtime?.status)
+                  statusTone(runtimeStatus)
                 )}
               >
-                {statusLabel(runtime?.status)}
+                {statusLabel(t, runtimeStatus)}
               </span>
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {runtime?.message || progress?.message || 'Click check to inspect local FunASR.'}
-            </p>
+            <p className="mt-1 text-xs text-muted-foreground">{runtimeDescription}</p>
             {progress?.detail ? (
               <p className="mt-1 truncate text-[11px] text-muted-foreground">{progress.detail}</p>
             ) : null}
@@ -262,24 +235,30 @@ export function SettingsVoice(): React.JSX.Element {
           <div className="flex shrink-0 items-center gap-2">
             <Button variant="outline" size="sm" onClick={detectRuntime} disabled={busy}>
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 />}
-              Check
+              {t('settings.voicePage.runtime.check')}
             </Button>
             <Button size="sm" onClick={ensureRuntime} disabled={busy}>
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wrench />}
-              Prepare
+              {t('settings.voicePage.runtime.prepare')}
             </Button>
             <Button variant="outline" size="sm" onClick={stopRuntime} disabled={busy}>
               <Square />
-              Stop
+              {t('settings.voicePage.runtime.stop')}
             </Button>
           </div>
         </div>
 
         <div className="grid grid-cols-3 gap-3 text-xs">
-          <RuntimeStat label="Provider" value={runtime?.provider || voiceInput.runtimeProvider} />
-          <RuntimeStat label="WebSocket" value={runtime?.wsUrl || voiceInput.funasr.wsUrl} />
           <RuntimeStat
-            label="Port"
+            label={t('settings.voicePage.runtime.provider')}
+            value={providerLabel(t, runtime?.provider || voiceInput.runtimeProvider)}
+          />
+          <RuntimeStat
+            label={t('settings.voicePage.runtime.websocket')}
+            value={runtime?.wsUrl || voiceInput.funasr.wsUrl}
+          />
+          <RuntimeStat
+            label={t('settings.voicePage.runtime.port')}
             value={String(runtime?.hostPort || voiceInput.funasr.hostPort)}
           />
         </div>
@@ -288,12 +267,12 @@ export function SettingsVoice(): React.JSX.Element {
       <div className="rounded-xl border border-border/70 bg-card/35 p-4 space-y-4">
         <div className="flex items-center gap-2">
           <Mic className="h-4 w-4 text-muted-foreground" />
-          <h4 className="text-sm font-medium">Engine</h4>
+          <h4 className="text-sm font-medium">{t('settings.voicePage.engine.title')}</h4>
         </div>
 
         <SettingRow
-          title="Enable voice input"
-          description="Show the microphone action in Composer."
+          title={t('settings.voicePage.engine.enableTitle')}
+          description={t('settings.voicePage.engine.enableDescription')}
         >
           <Switch
             checked={voiceInput.enabled}
@@ -302,40 +281,40 @@ export function SettingsVoice(): React.JSX.Element {
         </SettingRow>
 
         <div className="space-y-2">
-          <div className="text-sm font-medium">Runtime provider</div>
+          <div className="text-sm font-medium">{t('settings.voicePage.engine.providerTitle')}</div>
           <div className="grid gap-2 md:grid-cols-3">
             <ProviderCard
               provider="managed"
               selected={voiceInput.runtimeProvider === 'managed'}
-              title="Managed local"
-              description="Xuanpu downloads and starts a local FunASR sidecar on demand."
-              badge="Default"
+              title={t('settings.voicePage.providers.managed.title')}
+              description={t('settings.voicePage.providers.managed.description')}
+              badge={t('settings.voicePage.providers.managed.badge')}
               onSelect={updateProvider}
             />
             <ProviderCard
               provider="external"
               selected={voiceInput.runtimeProvider === 'external'}
-              title="External WS"
-              description="Connect to an existing FunASR WebSocket endpoint."
+              title={t('settings.voicePage.providers.external.title')}
+              description={t('settings.voicePage.providers.external.description')}
               onSelect={updateProvider}
             />
             <ProviderCard
               provider="docker"
               selected={voiceInput.runtimeProvider === 'docker'}
-              title="Docker preview"
-              description="Developer preview using the official FunASR Docker runtime image."
-              badge="Advanced"
+              title={t('settings.voicePage.providers.docker.title')}
+              description={t('settings.voicePage.providers.docker.description')}
+              badge={t('settings.voicePage.providers.docker.badge')}
               onSelect={updateProvider}
             />
           </div>
         </div>
 
         <SettingRow
-          title="Auto-install runtime"
+          title={t('settings.voicePage.engine.autoInstallTitle')}
           description={
             voiceInput.runtimeProvider === 'external'
-              ? 'External runtime is user-managed; Xuanpu only checks the WebSocket endpoint.'
-              : 'When clicking the microphone, Xuanpu prepares FunASR without leaving the app.'
+              ? t('settings.voicePage.engine.autoInstallExternal')
+              : t('settings.voicePage.engine.autoInstallManaged')
           }
         >
           <Switch
@@ -347,9 +326,7 @@ export function SettingsVoice(): React.JSX.Element {
 
         <div className="rounded-lg border border-cyan-300/25 bg-cyan-500/10 px-3 py-2 text-xs text-muted-foreground">
           <div className="flex items-center justify-between gap-3">
-            <span>
-              Push-to-talk starts after a short hold and stops as soon as the key is released.
-            </span>
+            <span>{t('settings.voicePage.engine.pushToTalkHint')}</span>
             <kbd className="rounded-md border border-cyan-300/40 bg-background/75 px-2 py-1 text-[11px] font-semibold text-foreground">
               Ctrl
             </kbd>
@@ -358,7 +335,7 @@ export function SettingsVoice(): React.JSX.Element {
 
         <div className="grid grid-cols-1 gap-3">
           <label className="space-y-1.5">
-            <span className="text-xs font-medium">FunASR WebSocket URL</span>
+            <span className="text-xs font-medium">{t('settings.voicePage.engine.wsUrlLabel')}</span>
             <Input
               value={voiceInput.funasr.wsUrl}
               onChange={(event) => updateFunAsr({ wsUrl: event.target.value })}
@@ -367,7 +344,9 @@ export function SettingsVoice(): React.JSX.Element {
           </label>
           {voiceInput.runtimeProvider === 'docker' ? (
             <label className="space-y-1.5">
-              <span className="text-xs font-medium">Docker image</span>
+              <span className="text-xs font-medium">
+                {t('settings.voicePage.engine.dockerImageLabel')}
+              </span>
               <Input
                 value={voiceInput.funasr.image}
                 onChange={(event) => updateFunAsr({ image: event.target.value })}
@@ -375,7 +354,9 @@ export function SettingsVoice(): React.JSX.Element {
             </label>
           ) : null}
           <label className="space-y-1.5">
-            <span className="text-xs font-medium">Host port</span>
+            <span className="text-xs font-medium">
+              {t('settings.voicePage.engine.hostPortLabel')}
+            </span>
             <Input
               type="number"
               value={voiceInput.funasr.hostPort}
@@ -390,17 +371,19 @@ export function SettingsVoice(): React.JSX.Element {
       <div className="rounded-xl border border-border/70 bg-card/35 p-4">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <h4 className="text-sm font-medium">Microphone</h4>
+            <h4 className="text-sm font-medium">{t('settings.voicePage.microphone.title')}</h4>
             <p className="text-xs text-muted-foreground">
-              Current permission: {permission || 'not checked'}
+              {t('settings.voicePage.microphone.currentPermission', {
+                status: permissionLabel(t, permission)
+              })}
             </p>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={checkPermission}>
-              Check
+              {t('settings.voicePage.microphone.check')}
             </Button>
             <Button size="sm" onClick={requestPermission}>
-              Request
+              {t('settings.voicePage.microphone.request')}
             </Button>
           </div>
         </div>
@@ -409,19 +392,19 @@ export function SettingsVoice(): React.JSX.Element {
       <div className="rounded-xl border border-border/70 bg-card/35 p-4 space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h4 className="text-sm font-medium">Diagnostics</h4>
+            <h4 className="text-sm font-medium">{t('settings.voicePage.diagnostics.title')}</h4>
             <p className="text-xs text-muted-foreground">
-              Inspect recent container logs when setup or transcription fails.
+              {t('settings.voicePage.diagnostics.description')}
             </p>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={loadLogs}>
               <Play />
-              Load logs
+              {t('settings.voicePage.diagnostics.loadLogs')}
             </Button>
             <Button variant="outline" size="sm" onClick={copyDiagnostics}>
               <Copy />
-              Copy
+              {t('settings.voicePage.diagnostics.copy')}
             </Button>
           </div>
         </div>

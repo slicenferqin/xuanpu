@@ -1,6 +1,7 @@
 import { Loader2, Mic, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/i18n/useI18n'
 import type { VoiceInputState } from '@/hooks/useVoiceInput'
 import type { VoiceRuntimeProgress } from '@shared/types/voice'
 
@@ -21,12 +22,15 @@ export function VoiceRecorderButton({
   onStart,
   onStop
 }: VoiceRecorderButtonProps): React.JSX.Element {
+  const { t } = useI18n()
   const active = state === 'recording'
   const preparing = state === 'preparing' || state === 'stopping'
   const title =
     state === 'recording'
-      ? partialText || 'Recording. Click to stop, or release Ctrl if using push-to-talk.'
-      : progress?.message || 'Voice input. Click once to record, or hold Ctrl to speak.'
+      ? partialText || t('sessionHq.composer.voice.recordingTitle')
+      : preparing
+        ? t('sessionHq.composer.voice.preparing')
+        : progress?.detail || t('sessionHq.composer.voice.idleTitle')
 
   return (
     <div className="relative">
@@ -44,7 +48,11 @@ export function VoiceRecorderButton({
         disabled={disabled || preparing}
         onClick={active ? onStop : onStart}
         title={title}
-        aria-label={active ? 'Stop voice input' : 'Start voice input'}
+        aria-label={
+          active
+            ? t('sessionHq.composer.voice.stopAriaLabel')
+            : t('sessionHq.composer.voice.startAriaLabel')
+        }
         data-testid="composer-voice-button"
       >
         {preparing ? (

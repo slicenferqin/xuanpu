@@ -24,11 +24,11 @@ import type { SessionLifecycle, InterruptItem } from '@/stores/useSessionRuntime
 import { isComposingKeyboardEvent } from '@/lib/message-composer-shortcuts'
 import {
   determineComposerActions,
-  getActionLabel,
   type ComposerAction,
   type ComposerActionSet
 } from '@/lib/session-send-actions'
 import { useSettingsStore } from '@/stores/useSettingsStore'
+import { useI18n } from '@/i18n/useI18n'
 import { useVoiceInput, type VoiceInputState } from '@/hooks/useVoiceInput'
 import { insertVoiceText } from '@/lib/voice/insert-text'
 import {
@@ -109,6 +109,21 @@ function ActionMenuIcon({ action }: { action: ComposerAction }): React.JSX.Eleme
   }
 }
 
+const COMPOSER_ACTION_LABEL_KEYS: Record<ComposerAction, string> = {
+  send: 'sessionHq.composer.actions.send',
+  queue: 'sessionHq.composer.actions.queueLater',
+  steer: 'sessionHq.composer.actions.steer',
+  stop_and_send: 'sessionHq.composer.actions.stopAndSend',
+  reply_interrupt: 'sessionHq.composer.actions.reply'
+}
+
+function getLocalizedActionLabel(
+  t: (key: string, params?: Record<string, string | number | boolean>) => string,
+  action: ComposerAction
+): string {
+  return t(COMPOSER_ACTION_LABEL_KEYS[action])
+}
+
 interface ComposerAttachmentsSectionProps {
   attachments: Attachment[]
   onRemove: (id: string) => void
@@ -138,12 +153,13 @@ const ComposerVoiceCapturePanel = React.memo(function ComposerVoiceCapturePanel(
   partialText,
   progress
 }: ComposerVoiceCapturePanelProps): React.JSX.Element {
+  const { t } = useI18n()
   const preparing = state === 'preparing' || state === 'stopping'
   const label = preparing
     ? state === 'stopping'
-      ? 'Finishing voice input'
-      : progress?.message || 'Preparing voice engine'
-    : 'Listening'
+      ? t('sessionHq.composer.voice.finishing')
+      : t('sessionHq.composer.voice.preparing')
+    : t('sessionHq.composer.voice.listening')
 
   return (
     <div
@@ -166,7 +182,7 @@ const ComposerVoiceCapturePanel = React.memo(function ComposerVoiceCapturePanel(
           <span className="truncate text-xs font-medium text-foreground">{label}</span>
         </div>
         <span className="shrink-0 rounded-full border border-cyan-300/30 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.18em] text-cyan-700 dark:text-cyan-200">
-          Hold Ctrl
+          {t('sessionHq.composer.voice.holdCtrl')}
         </span>
       </div>
 
@@ -188,7 +204,8 @@ const ComposerVoiceCapturePanel = React.memo(function ComposerVoiceCapturePanel(
       </div>
 
       <div className="mt-2 min-h-5 truncate text-xs text-muted-foreground">
-        {partialText || 'Speak naturally. Release Ctrl or click the mic to finish.'}
+        {partialText ||
+          (preparing && progress?.detail ? progress.detail : t('sessionHq.composer.voice.hint'))}
       </div>
     </div>
   )
@@ -205,12 +222,13 @@ const SuccessCriteriaInput = React.memo(function SuccessCriteriaInput({
   disabled,
   onChange
 }: SuccessCriteriaInputProps): React.JSX.Element {
+  const { t } = useI18n()
   return (
     <div className="px-4 pb-1">
       <textarea
         value={value}
         onChange={(e) => onChange?.(e.target.value)}
-        placeholder="Success criteria..."
+        placeholder={t('sessionHq.composer.placeholders.successCriteria')}
         disabled={disabled}
         className={cn(
           'w-full resize-none rounded-md border border-border/60 bg-background/45 px-2.5 py-1.5',
@@ -265,6 +283,7 @@ const ComposerToolbar = React.memo(function ComposerToolbar({
   onAttach,
   voiceSlot
 }: ComposerToolbarProps): React.JSX.Element {
+  const { t } = useI18n()
   return (
     <div className="flex items-center gap-2 px-3 pb-3 pt-1">
       <AttachmentButton onAttach={onAttach} disabled={disabled} />
@@ -272,7 +291,7 @@ const ComposerToolbar = React.memo(function ComposerToolbar({
 
       {/* Plan mode toggle */}
       {pendingPlan ? (
-        <span className="text-xs text-muted-foreground">Review the plan above</span>
+        <span className="text-xs text-muted-foreground">{t('sessionHq.composer.reviewPlan')}</span>
       ) : onToggleMode ? (
         <Button
           type="button"
@@ -285,9 +304,9 @@ const ComposerToolbar = React.memo(function ComposerToolbar({
               : 'border-border/70 bg-background/65 text-muted-foreground shadow-none hover:border-border hover:bg-background/85 hover:text-foreground'
           )}
           onClick={onToggleMode}
-          title="Toggle Plan Mode (Tab)"
+          title={t('sessionHq.composer.togglePlanMode')}
         >
-          Plan
+          {t('sessionHq.composer.plan')}
         </Button>
       ) : null}
 
@@ -304,10 +323,10 @@ const ComposerToolbar = React.memo(function ComposerToolbar({
           )}
           onClick={onToggleGoalMode}
           aria-pressed={goalMode}
-          title="Toggle Goal Mode"
+          title={t('sessionHq.composer.toggleGoalMode')}
           data-testid="composer-goal-toggle"
         >
-          Goal
+          {t('sessionHq.composer.goal')}
         </Button>
       ) : null}
 
@@ -322,7 +341,7 @@ const ComposerToolbar = React.memo(function ComposerToolbar({
               size="sm"
               className="h-8 rounded-full border border-border/70 px-2.5"
               disabled={!alternativesEnabled}
-              aria-label="More send actions"
+              aria-label={t('sessionHq.composer.moreSendActions')}
               data-testid="composer-action-menu-trigger"
             >
               <ChevronDown className="h-4 w-4" />
@@ -344,7 +363,7 @@ const ComposerToolbar = React.memo(function ComposerToolbar({
                 data-testid={`composer-action-${action}`}
               >
                 <ActionMenuIcon action={action} />
-                <span>{getActionLabel(action)}</span>
+                <span>{getLocalizedActionLabel(t, action)}</span>
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
@@ -399,6 +418,7 @@ export function ComposerBar({
   containerRef,
   contextAttachmentSlot
 }: ComposerBarProps): React.JSX.Element {
+  const { t } = useI18n()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [content, setContent] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
@@ -745,14 +765,14 @@ export function ComposerBar({
   }, [])
 
   const placeholder = pendingPlan
-    ? 'Provide feedback on the plan...'
+    ? t('sessionHq.composer.placeholders.planFeedback')
     : firstInterrupt
-      ? 'Type your reply...'
+      ? t('sessionHq.composer.placeholders.reply')
       : actionSet.primary === 'queue'
-        ? 'Type a follow-up to queue after the current run...'
+        ? t('sessionHq.composer.placeholders.queueFollowUp')
         : actionSet.iconHint === 'stop'
-          ? 'Type to stop and send...'
-          : 'Type a message...'
+          ? t('sessionHq.composer.placeholders.stopAndSend')
+          : t('sessionHq.composer.placeholders.message')
 
   // Determine if button should be enabled
   const buttonEnabled =
@@ -812,7 +832,7 @@ export function ComposerBar({
       {/* Pending message indicator */}
       {pendingCount > 0 && (
         <div className="px-4 pt-3 pb-0 text-xs text-muted-foreground flex items-center gap-1.5">
-          {pendingCount} message{pendingCount > 1 ? 's' : ''} queued
+          {t('sessionHq.composer.queuedMessages', { count: pendingCount })}
         </div>
       )}
 
@@ -876,7 +896,13 @@ export function ComposerBar({
         onSubmit={handleToolbarSubmit}
         buttonEnabled={buttonEnabled}
         iconHint={actionSet.iconHint}
-        primaryLabel={actionSet.primaryLabel}
+        primaryLabel={
+          actionSet.primary
+            ? actionSet.primary === 'send' && pendingCount > 0
+              ? t('sessionHq.composer.actions.sendQueued')
+              : getLocalizedActionLabel(t, actionSet.primary)
+            : t('sessionHq.composer.actions.disconnected')
+        }
         onAttach={handleAttach}
         voiceSlot={
           voiceInputEnabled ? (

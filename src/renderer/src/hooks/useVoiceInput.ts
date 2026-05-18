@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { toast } from '@/lib/toast'
 import { startVoiceAudioCapture, type VoiceAudioCapture } from '@/lib/voice/audio-capture'
+import { useI18n } from '@/i18n/useI18n'
 import type { VoiceRuntimeProgress, VoiceTranscriptEvent } from '@shared/types/voice'
 
 export type VoiceInputState = 'idle' | 'preparing' | 'recording' | 'stopping' | 'error'
@@ -17,6 +18,7 @@ export interface UseVoiceInputResult {
 }
 
 export function useVoiceInput(onFinalText: (text: string) => void): UseVoiceInputResult {
+  const { t } = useI18n()
   const voiceInput = useSettingsStore((s) => s.voiceInput)
   const [state, setState] = useState<VoiceInputState>('idle')
   const [partialText, setPartialText] = useState('')
@@ -110,8 +112,8 @@ export function useVoiceInput(onFinalText: (text: string) => void): UseVoiceInpu
         toast.error(error instanceof Error ? error.message : String(error))
       })
       setTimeout(() => {
+        window.voiceOps.disconnectTranscription(sessionId).catch(() => {})
         if (sessionRef.current === sessionId) {
-          window.voiceOps.disconnectTranscription(sessionId).catch(() => {})
           sessionRef.current = null
         }
       }, 3000)
@@ -133,7 +135,7 @@ export function useVoiceInput(onFinalText: (text: string) => void): UseVoiceInpu
         : await window.voiceOps.detectRuntime(voiceInput)
       throwIfStopRequested()
       if (runtime.status !== 'ready') {
-        const message = runtime.error || runtime.message || 'FunASR runtime is not ready'
+        const message = runtime.error || runtime.message || t('voiceInput.errors.runtimeNotReady')
         if (runtime.status === 'error') throw new Error(message)
         setVoiceState('idle')
         toast.warning(message, { duration: 6000 })
@@ -146,7 +148,7 @@ export function useVoiceInput(onFinalText: (text: string) => void): UseVoiceInpu
         const nextPermission = await window.voiceOps.requestMicrophonePermission()
         throwIfStopRequested()
         if (nextPermission !== 'granted' && nextPermission !== 'unknown') {
-          throw new Error('Microphone permission was not granted')
+          throw new Error(t('voiceInput.errors.microphonePermissionDenied'))
         }
       }
 
@@ -200,7 +202,7 @@ export function useVoiceInput(onFinalText: (text: string) => void): UseVoiceInpu
         if (stateRef.current === 'error') setVoiceState('idle')
       }, 800)
     }
-  }, [cleanupActiveRecording, setVoiceState, throwIfStopRequested, voiceInput])
+  }, [cleanupActiveRecording, setVoiceState, t, throwIfStopRequested, voiceInput])
 
   return {
     state,

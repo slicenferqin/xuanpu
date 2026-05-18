@@ -304,6 +304,108 @@ export const messages: Record<AppLocale, MessageTree> = {
             'Project names, file contents, prompts, AI responses, git data, or any personal information.'
         }
       },
+      voicePage: {
+        title: 'Voice Input',
+        description: 'Prepare a local FunASR runtime and use speech to fill the session composer.',
+        status: {
+          notChecked: 'Not checked',
+          idle: 'Idle',
+          ready: 'Ready',
+          python_missing: 'Python missing',
+          git_missing: 'Git missing',
+          runtime_missing: 'Runtime missing',
+          downloading_runtime: 'Downloading runtime',
+          installing_runtime: 'Installing runtime',
+          starting_runtime: 'Starting runtime',
+          stopping_runtime: 'Stopping runtime',
+          docker_missing: 'Docker missing',
+          downloading_docker: 'Downloading Docker',
+          docker_installer_ready: 'Docker installer ready',
+          docker_stopped: 'Docker not running',
+          image_missing: 'Runtime image missing',
+          pulling_image: 'Downloading image',
+          creating_container: 'Creating container',
+          starting_container: 'Starting runtime',
+          downloading_models: 'Downloading models',
+          warming_up: 'Warming up',
+          checking: 'Checking',
+          error: 'Error'
+        },
+        permission: {
+          notChecked: 'not checked',
+          'not-determined': 'not determined',
+          granted: 'granted',
+          denied: 'denied',
+          restricted: 'restricted',
+          unknown: 'unknown'
+        },
+        runtime: {
+          title: 'Runtime',
+          checkHint: 'Click check to inspect local FunASR.',
+          check: 'Check',
+          prepare: 'Prepare',
+          stop: 'Stop',
+          provider: 'Provider',
+          websocket: 'WebSocket',
+          port: 'Port'
+        },
+        engine: {
+          title: 'Engine',
+          enableTitle: 'Enable voice input',
+          enableDescription: 'Show the microphone action in Composer.',
+          providerTitle: 'Runtime provider',
+          autoInstallTitle: 'Auto-install runtime',
+          autoInstallExternal:
+            'External runtime is user-managed; Xuanpu only checks the WebSocket endpoint.',
+          autoInstallManaged:
+            'When clicking the microphone, Xuanpu prepares FunASR without leaving the app.',
+          pushToTalkHint:
+            'Push-to-talk starts after a short hold and stops as soon as the key is released.',
+          wsUrlLabel: 'FunASR WebSocket URL',
+          dockerImageLabel: 'Docker image',
+          hostPortLabel: 'Host port'
+        },
+        providers: {
+          managed: {
+            label: 'Managed',
+            title: 'Managed local',
+            description: 'Xuanpu downloads and starts a local FunASR sidecar on demand.',
+            badge: 'Default'
+          },
+          external: {
+            label: 'External',
+            title: 'External WS',
+            description: 'Connect to an existing FunASR WebSocket endpoint.'
+          },
+          docker: {
+            label: 'Docker',
+            title: 'Docker preview',
+            description: 'Developer preview using the official FunASR Docker runtime image.',
+            badge: 'Advanced'
+          }
+        },
+        microphone: {
+          title: 'Microphone',
+          currentPermission: 'Current permission: {status}',
+          check: 'Check',
+          request: 'Request'
+        },
+        diagnostics: {
+          title: 'Diagnostics',
+          description: 'Inspect recent runtime logs when setup or transcription fails.',
+          loadLogs: 'Load logs',
+          copy: 'Copy',
+          noLogs: 'No logs available'
+        },
+        toasts: {
+          runtimeReady: 'FunASR runtime is ready',
+          runtimeStopped: 'FunASR runtime stopped',
+          runtimeStopFailed: 'Failed to stop FunASR runtime',
+          microphoneAvailable: 'Microphone is available',
+          microphonePermission: 'Microphone permission: {status}',
+          diagnosticsCopied: 'Voice diagnostics copied'
+        }
+      },
       shortcuts: {
         title: 'Keyboard Shortcuts',
         description: 'Customize keyboard shortcuts',
@@ -1238,6 +1340,51 @@ export const messages: Record<AppLocale, MessageTree> = {
         followSystem: 'Follow system',
         light: 'Light',
         dark: 'Dark'
+      }
+    },
+    voiceInput: {
+      errors: {
+        runtimeNotReady: 'FunASR runtime is not ready',
+        microphonePermissionDenied: 'Microphone permission was not granted'
+      }
+    },
+    sessionHq: {
+      composer: {
+        reviewPlan: 'Review the plan above',
+        plan: 'Plan',
+        goal: 'Goal',
+        togglePlanMode: 'Toggle Plan Mode (Tab)',
+        toggleGoalMode: 'Toggle Goal Mode',
+        moreSendActions: 'More send actions',
+        queuedMessages: '{count} message(s) queued',
+        placeholders: {
+          successCriteria: 'Success criteria...',
+          planFeedback: 'Provide feedback on the plan...',
+          reply: 'Type your reply...',
+          queueFollowUp: 'Type a follow-up to queue after the current run...',
+          stopAndSend: 'Type to stop and send...',
+          message: 'Type a message...'
+        },
+        actions: {
+          disconnected: 'Disconnected',
+          send: 'Send',
+          sendQueued: 'Send (queued)',
+          queueLater: 'Queue for later',
+          steer: 'Steer (redirect agent)',
+          stopAndSend: 'Stop & Send',
+          reply: 'Reply'
+        },
+        voice: {
+          finishing: 'Finishing voice input',
+          preparing: 'Preparing voice engine',
+          listening: 'Listening',
+          holdCtrl: 'Hold Ctrl',
+          hint: 'Speak naturally. Release Ctrl or click the mic to finish.',
+          recordingTitle: 'Recording. Click to stop, or release Ctrl if using push-to-talk.',
+          idleTitle: 'Voice input. Click once to record, or hold Ctrl to speak.',
+          stopAriaLabel: 'Stop voice input',
+          startAriaLabel: 'Start voice input'
+        }
       }
     },
     sessionView: {
@@ -2820,6 +2967,105 @@ export const messages: Record<AppLocale, MessageTree> = {
           description: '项目名称、文件内容、提示词、AI 回复、git 数据或任何个人信息。'
         }
       },
+      voicePage: {
+        title: '语音输入',
+        description: '准备本地 FunASR 运行时，并把语音识别结果填入会话输入框。',
+        status: {
+          notChecked: '未检查',
+          idle: '空闲',
+          ready: '已就绪',
+          python_missing: '缺少 Python',
+          git_missing: '缺少 Git',
+          runtime_missing: '运行时未下载',
+          downloading_runtime: '正在下载运行时',
+          installing_runtime: '正在安装运行时',
+          starting_runtime: '正在启动运行时',
+          stopping_runtime: '正在停止运行时',
+          docker_missing: '缺少 Docker',
+          downloading_docker: '正在下载 Docker',
+          docker_installer_ready: 'Docker 安装器已准备好',
+          docker_stopped: 'Docker 未运行',
+          image_missing: '运行时镜像未安装',
+          pulling_image: '正在下载镜像',
+          creating_container: '正在创建容器',
+          starting_container: '正在启动运行时',
+          downloading_models: '正在下载模型',
+          warming_up: '正在预热',
+          checking: '正在检查',
+          error: '错误'
+        },
+        permission: {
+          notChecked: '未检查',
+          'not-determined': '尚未决定',
+          granted: '已授权',
+          denied: '已拒绝',
+          restricted: '受限制',
+          unknown: '未知'
+        },
+        runtime: {
+          title: '运行时',
+          checkHint: '点击检查以检测本地 FunASR。',
+          check: '检查',
+          prepare: '准备',
+          stop: '停止',
+          provider: '提供方式',
+          websocket: 'WebSocket',
+          port: '端口'
+        },
+        engine: {
+          title: '引擎',
+          enableTitle: '启用语音输入',
+          enableDescription: '在 Composer 中显示麦克风操作。',
+          providerTitle: '运行时提供方式',
+          autoInstallTitle: '自动安装运行时',
+          autoInstallExternal: '外部运行时由用户管理；玄圃只检测 WebSocket 端点。',
+          autoInstallManaged: '点击麦克风时，玄圃会在应用内准备 FunASR。',
+          pushToTalkHint: '按住说话会在短暂长按后开始，松开按键立即结束。',
+          wsUrlLabel: 'FunASR WebSocket 地址',
+          dockerImageLabel: 'Docker 镜像',
+          hostPortLabel: '本地端口'
+        },
+        providers: {
+          managed: {
+            label: '玄圃托管',
+            title: '本地托管',
+            description: '玄圃按需下载并启动本地 FunASR sidecar。',
+            badge: '默认'
+          },
+          external: {
+            label: '外部服务',
+            title: '外部 WS',
+            description: '连接已有的 FunASR WebSocket 端点。'
+          },
+          docker: {
+            label: 'Docker',
+            title: 'Docker 预览',
+            description: '开发者预览：使用官方 FunASR Docker 运行时镜像。',
+            badge: '高级'
+          }
+        },
+        microphone: {
+          title: '麦克风',
+          currentPermission: '当前权限：{status}',
+          check: '检查',
+          request: '请求授权'
+        },
+        diagnostics: {
+          title: '诊断',
+          description: '安装或识别失败时，查看最近的运行时日志。',
+          loadLogs: '加载日志',
+          copy: '复制',
+          noLogs: '暂无日志'
+        },
+        toasts: {
+          runtimeReady: 'FunASR 运行时已就绪',
+          runtimeStopped: 'FunASR 运行时已停止',
+          runtimeStopFailed: '停止 FunASR 运行时失败',
+          microphoneAvailable: '麦克风可用',
+          microphonePermission: '麦克风权限：{status}',
+          diagnosticsCopied: '语音诊断信息已复制'
+        }
+      },
       shortcuts: {
         title: '键盘快捷键',
         description: '自定义键盘快捷键',
@@ -3739,6 +3985,51 @@ export const messages: Record<AppLocale, MessageTree> = {
         followSystem: '跟随系统',
         light: '浅色',
         dark: '深色'
+      }
+    },
+    voiceInput: {
+      errors: {
+        runtimeNotReady: 'FunASR 运行时尚未就绪',
+        microphonePermissionDenied: '麦克风权限未授权'
+      }
+    },
+    sessionHq: {
+      composer: {
+        reviewPlan: '请先查看上方计划',
+        plan: '计划',
+        goal: '目标',
+        togglePlanMode: '切换 Plan 模式（Tab）',
+        toggleGoalMode: '切换 Goal 模式',
+        moreSendActions: '更多发送操作',
+        queuedMessages: '已排队 {count} 条消息',
+        placeholders: {
+          successCriteria: '成功标准...',
+          planFeedback: '输入对计划的反馈...',
+          reply: '输入你的回复...',
+          queueFollowUp: '输入要在当前执行后排队的后续消息...',
+          stopAndSend: '输入内容以停止并发送...',
+          message: '输入消息...'
+        },
+        actions: {
+          disconnected: '未连接',
+          send: '发送',
+          sendQueued: '发送（已排队）',
+          queueLater: '稍后排队',
+          steer: '转向（重定向 Agent）',
+          stopAndSend: '停止并发送',
+          reply: '回复'
+        },
+        voice: {
+          finishing: '正在结束语音输入',
+          preparing: '正在准备语音引擎',
+          listening: '正在聆听',
+          holdCtrl: '按住 Ctrl',
+          hint: '自然说话即可。松开 Ctrl 或点击麦克风结束。',
+          recordingTitle: '正在录音。点击停止；如果是按住说话，松开 Ctrl 即可结束。',
+          idleTitle: '语音输入。点击一次开始录音，或按住 Ctrl 说话。',
+          stopAriaLabel: '停止语音输入',
+          startAriaLabel: '开始语音输入'
+        }
       }
     },
     sessionView: {
