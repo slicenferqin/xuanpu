@@ -103,7 +103,9 @@ export function PrReviewViewer({ worktreeId }: PrReviewViewerProps): React.JSX.E
       for (const [filePath, fileComments] of grouped) {
         grouped.set(
           filePath,
-          fileComments.sort((a, b) => (a.line ?? 0) - (b.line ?? 0))
+          fileComments.sort(
+            (a, b) => (a.line ?? a.originalLine ?? 0) - (b.line ?? b.originalLine ?? 0)
+          )
         )
       }
 
