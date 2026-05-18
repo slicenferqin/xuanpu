@@ -3,7 +3,7 @@ import '@/lib/monaco-setup'
 import { DiffEditor, type Monaco } from '@monaco-editor/react'
 import { Loader2 } from 'lucide-react'
 import { registerHiveTheme, HIVE_THEME_NAME } from '@/lib/monaco-theme'
-import { parseHunks, getMonacoLanguage } from '@/lib/diff-utils'
+import { clampMonacoLineNumber, parseHunks, getMonacoLanguage } from '@/lib/diff-utils'
 import type { Hunk } from '@/lib/diff-utils'
 import { MonacoDiffToolbar } from './MonacoDiffToolbar'
 import type { MonacoDiffViewMode } from './MonacoDiffToolbar'
@@ -210,8 +210,9 @@ export default function MonacoDiffView({
     const modEditor = modifiedEditorRef.current
     if (!modEditor) return
 
-    modEditor.revealLineInCenter(scrollToLine)
-    modEditor.setPosition({ lineNumber: scrollToLine, column: 1 })
+    const targetLine = clampMonacoLineNumber(scrollToLine, modEditor)
+    modEditor.revealLineInCenter(targetLine)
+    modEditor.setPosition({ lineNumber: targetLine, column: 1 })
   }, [scrollToLine, scrollTrigger, editorReady, isLoading, zonesReady])
 
   // Register theme before Monaco loads
@@ -226,8 +227,9 @@ export default function MonacoDiffView({
     const currentLine = modEditor.getPosition()?.lineNumber ?? 0
     const next = hunks.find((h) => h.modifiedStartLine > currentLine)
     const target = next ?? hunks[0] // wrap around
-    modEditor.revealLineInCenter(target.modifiedStartLine)
-    modEditor.setPosition({ lineNumber: target.modifiedStartLine, column: 1 })
+    const targetLine = clampMonacoLineNumber(target.modifiedStartLine, modEditor)
+    modEditor.revealLineInCenter(targetLine)
+    modEditor.setPosition({ lineNumber: targetLine, column: 1 })
   }, [hunks])
 
   const handlePrevHunk = useCallback(() => {
@@ -236,8 +238,9 @@ export default function MonacoDiffView({
     const currentLine = modEditor.getPosition()?.lineNumber ?? Infinity
     const prev = [...hunks].reverse().find((h) => h.modifiedStartLine < currentLine)
     const target = prev ?? hunks[hunks.length - 1] // wrap around
-    modEditor.revealLineInCenter(target.modifiedStartLine)
-    modEditor.setPosition({ lineNumber: target.modifiedStartLine, column: 1 })
+    const targetLine = clampMonacoLineNumber(target.modifiedStartLine, modEditor)
+    modEditor.revealLineInCenter(targetLine)
+    modEditor.setPosition({ lineNumber: targetLine, column: 1 })
   }, [hunks])
 
   // Keyboard shortcuts
@@ -278,9 +281,12 @@ export default function MonacoDiffView({
     const modEditor = modifiedEditorRef.current
     const currentLine =
       modEditor?.getPosition()?.lineNumber ?? hunks[0]?.modifiedStartLine ?? scrollToLine ?? 1
-    setDraftCommentLine(Math.max(1, currentLine))
+    const targetLine = clampMonacoLineNumber(currentLine, modEditor)
+    setDraftCommentLine(targetLine)
     window.requestAnimationFrame(() => {
-      modEditor?.revealLineInCenter(currentLine)
+      if (modEditor) {
+        modEditor.revealLineInCenter(targetLine)
+      }
     })
   }, [hunks, scrollToLine])
 

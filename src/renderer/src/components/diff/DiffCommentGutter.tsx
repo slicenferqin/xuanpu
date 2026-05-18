@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Check, MessageSquarePlus, Paperclip, Pencil, Save, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { clampMonacoLineNumber, normalizeLineNumber } from '@/lib/diff-utils'
 import { useI18n } from '@/i18n/useI18n'
 import type { DiffComment } from '@shared/types/git'
 import type { editor } from 'monaco-editor'
@@ -77,8 +78,16 @@ export function DiffCommentGutter({
         domNode.style.position = 'relative'
         domNode.style.zIndex = '1'
 
+        const safeLineNumber = clampMonacoLineNumber(group.lineNumber, modifiedEditor)
+        const zoneGroup =
+          safeLineNumber === group.lineNumber
+            ? group
+            : {
+                ...group,
+                lineNumber: safeLineNumber
+              }
         const bodyLines = group.comments.reduce(
-          (sum, comment) => sum + Math.max(1, Math.ceil(comment.body.length / 80)),
+          (sum, comment) => sum + Math.max(1, Math.ceil((comment.body ?? '').length / 80)),
           0
         )
         const draftLines = group.hasDraft ? 6 : 0
@@ -87,13 +96,13 @@ export function DiffCommentGutter({
           56
         )
         const zone = {
-          afterLineNumber: group.lineNumber,
+          afterLineNumber: safeLineNumber,
           heightInPx: estimatedHeight,
           domNode,
           suppressMouseDown: true
         }
         const zoneId = acc.addZone(zone)
-        newZones.push({ zoneId, zone, domNode, group })
+        newZones.push({ zoneId, zone, domNode, group: zoneGroup })
       }
     })
 
@@ -142,7 +151,7 @@ export function DiffCommentGutter({
       {portalTargets.map(({ domNode, group }) =>
         createPortal(
           <LineCommentZone
-            key={`${group.lineNumber}:${group.hasDraft ? 'draft' : 'saved'}`}
+            key={`${group.lineNumber}:${group.hasDraft ? 'draft' : 'saved'}:${group.comments.map((comment) => comment.id).join(',')}`}
             group={group}
             onCancelDraft={onCancelDraft}
             onCreate={onCreate}
@@ -165,13 +174,17 @@ function useLineCommentGroups(
   return useMemo(() => {
     const grouped = new Map<number, DiffComment[]>()
     for (const comment of comments) {
-      const lineComments = grouped.get(comment.lineNumber) ?? []
+      const lineNumber = normalizeLineNumber(comment.lineNumber)
+      const lineComments = grouped.get(lineNumber) ?? []
       lineComments.push(comment)
-      grouped.set(comment.lineNumber, lineComments)
+      grouped.set(lineNumber, lineComments)
     }
 
-    if (draftLineNumber != null && !grouped.has(draftLineNumber)) {
-      grouped.set(draftLineNumber, [])
+    if (draftLineNumber != null) {
+      const normalizedDraftLine = normalizeLineNumber(draftLineNumber)
+      if (!grouped.has(normalizedDraftLine)) {
+        grouped.set(normalizedDraftLine, [])
+      }
     }
 
     return Array.from(grouped.entries())

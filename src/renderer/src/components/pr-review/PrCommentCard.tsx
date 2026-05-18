@@ -12,8 +12,8 @@ import { useI18n } from '@/i18n/useI18n'
 import type { PRReviewComment } from '@shared/types/git'
 
 /** Strip HTML tags and collapse whitespace to get a plain-text snippet. */
-function snippetFromHtml(html: string, plain: string): string {
-  const text = plain || html.replace(/<[^>]*>/g, '')
+function snippetFromHtml(html?: string | null, plain?: string | null): string {
+  const text = plain || (html ?? '').replace(/<[^>]*>/g, '')
   return text.replace(/\s+/g, ' ').trim()
 }
 
@@ -35,7 +35,7 @@ function Avatar({ user }: { user: PRReviewComment['user'] }): React.JSX.Element 
 
   return (
     <div className="h-4 w-4 rounded-full shrink-0 bg-muted flex items-center justify-center text-[9px] font-medium text-muted-foreground uppercase">
-      {login[0]}
+      {login[0] ?? '?'}
     </div>
   )
 }
@@ -61,7 +61,7 @@ export function PrCommentCard({
   const line = comment.line ?? comment.originalLine ?? '?'
 
   const handleCopyRaw = useCallback(() => {
-    navigator.clipboard.writeText(comment.bodyHTML || comment.body).then(() => {
+    navigator.clipboard.writeText(comment.bodyHTML || comment.body || '').then(() => {
       toast.success(t('prReview.commentCard.copied'))
     })
   }, [comment.bodyHTML, comment.body, t])

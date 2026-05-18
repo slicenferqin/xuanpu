@@ -37,11 +37,11 @@ brew tap slicenferqin/xuanpu
 brew install --cask xuanpu
 ```
 
-Alternatively, download the `.dmg` file from [GitHub Releases](https://github.com/slicenferqin/xuanpu/releases). Open the DMG and double-click `Install Xuanpu.command` to copy Xuanpu to `/Applications`, remove quarantine attributes, and launch it.
+Alternatively, download the `.dmg` file from [GitHub Releases](https://github.com/slicenferqin/xuanpu/releases). Open the DMG, drag `玄圃.app` to `/Applications`, then open Xuanpu from Applications.
 
 ### Why does macOS say "Xuanpu can't be opened"?
 
-This is macOS's Gatekeeper protection for unsigned builds. The DMG includes `Install Xuanpu.command`, which runs the required quarantine cleanup automatically. If you installed manually, run:
+This is macOS's Gatekeeper protection for unsigned builds. If Xuanpu is blocked after you drag it to Applications, run:
 
 ```bash
 /usr/bin/xattr -cr "/Applications/玄圃.app"

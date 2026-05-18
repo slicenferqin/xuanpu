@@ -1,4 +1,6 @@
+import { render, waitFor } from '@testing-library/react'
 import { describe, expect, test, beforeEach, vi } from 'vitest'
+import { DiffCommentsViewer } from '@/components/diff-comments/DiffCommentsViewer'
 import { useDiffCommentStore } from '@/stores/useDiffCommentStore'
 import type { DiffComment } from '@shared/types/git'
 
@@ -141,6 +143,24 @@ describe('diff comments workflow', () => {
         compareBranch: 'main'
       })
     ).toEqual([branchComment])
+  })
+
+  test('renders an empty worktree comment list without unstable selector churn', async () => {
+    const list = vi.fn().mockResolvedValue([])
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    installDbMock({ list })
+
+    try {
+      render(<DiffCommentsViewer worktreeId="wt-empty" worktreePath="/tmp/repo" />)
+
+      await waitFor(() => expect(list).toHaveBeenCalledWith('wt-empty'))
+
+      const errors = consoleError.mock.calls.map((args) => args.join(' ')).join('\n')
+      expect(errors).not.toContain('Maximum update depth exceeded')
+      expect(errors).not.toContain('getSnapshot should be cached')
+    } finally {
+      consoleError.mockRestore()
+    }
   })
 
   test('Monaco and SessionView are wired to create and send diff comment context', async () => {

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { MessageSquare } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/format-utils'
+import { clampMonacoLineNumber, normalizeLineNumber } from '@/lib/diff-utils'
 import type { PRReviewComment } from '@shared/types/git'
 import type { editor } from 'monaco-editor'
 
@@ -82,24 +83,33 @@ export function PrCommentGutter({
         domNode.style.position = 'relative'
         domNode.style.zIndex = '1'
 
+        const safeLine = clampMonacoLineNumber(thread.line, modifiedEditor)
+        const zoneThread =
+          safeLine === thread.line
+            ? thread
+            : {
+                ...thread,
+                line: safeLine
+              }
+
         // Estimate height from content length so the zone starts close to right
-        const bodyLines = Math.max(1, Math.ceil(thread.rootComment.body.length / 70))
+        const bodyLines = Math.max(1, Math.ceil(getCommentText(thread.rootComment).length / 70))
         let totalLines = 1.5 + bodyLines // header + body + padding
         for (const reply of thread.replies) {
-          totalLines += 1 + Math.max(1, Math.ceil(reply.body.length / 70))
+          totalLines += 1 + Math.max(1, Math.ceil(getCommentText(reply).length / 70))
         }
         if (thread.replies.length > 0) totalLines += 0.5
         const estimatedHeight = Math.max(totalLines * 18 + 16, 48)
 
         const zone = {
-          afterLineNumber: thread.line,
+          afterLineNumber: safeLine,
           heightInPx: estimatedHeight,
           domNode,
           suppressMouseDown: true
         }
 
         const zoneId = acc.addZone(zone)
-        newZones.push({ zoneId, zone, domNode, thread })
+        newZones.push({ zoneId, zone, domNode, thread: zoneThread })
       }
     })
 
@@ -156,6 +166,8 @@ export function PrCommentGutter({
   }, [modifiedEditor, threads])
 
   if (!modifiedEditor || threads.length === 0) return null
+  const highlightedLine =
+    highlightLine == null ? undefined : clampMonacoLineNumber(highlightLine, modifiedEditor)
 
   // Render React content into each zone's DOM node via portals
   return (
@@ -165,7 +177,7 @@ export function PrCommentGutter({
           <CommentZoneContent
             key={thread.rootComment.id}
             thread={thread}
-            isHighlighted={highlightLine !== undefined && thread.line === highlightLine}
+            isHighlighted={highlightedLine !== undefined && thread.line === highlightedLine}
           />,
           domNode
         )
@@ -228,31 +240,24 @@ function CommentZoneContent({
         </div>
         <div
           className="mt-0.5 text-foreground break-words leading-relaxed pr-comment-html"
-          dangerouslySetInnerHTML={{ __html: thread.rootComment.bodyHTML || thread.rootComment.body }}
+          dangerouslySetInnerHTML={{ __html: getCommentHtml(thread.rootComment) }}
         />
       </div>
 
       {/* Replies */}
       {thread.replies.map((reply) => (
-        <div
-          key={reply.id}
-          className="px-3 py-1.5 border-t border-border/40 ml-4"
-        >
+        <div key={reply.id} className="px-3 py-1.5 border-t border-border/40 ml-4">
           <div className="flex items-center gap-1.5 text-[11px]">
             <MessageSquare className="h-2.5 w-2.5 text-muted-foreground shrink-0" />
-            <span className="font-medium text-foreground">
-              @{reply.user?.login ?? 'ghost'}
-            </span>
+            <span className="font-medium text-foreground">@{reply.user?.login ?? 'ghost'}</span>
             <span className="text-muted-foreground">&bull;</span>
             <span className="text-muted-foreground">
-              {reply.createdAt
-                ? formatRelativeTime(new Date(reply.createdAt).getTime())
-                : ''}
+              {reply.createdAt ? formatRelativeTime(new Date(reply.createdAt).getTime()) : ''}
             </span>
           </div>
           <div
             className="mt-0.5 text-foreground break-words leading-relaxed pr-comment-html"
-            dangerouslySetInnerHTML={{ __html: reply.bodyHTML || reply.body }}
+            dangerouslySetInnerHTML={{ __html: getCommentHtml(reply) }}
           />
         </div>
       ))}
@@ -280,15 +285,22 @@ function useGroupedThreads(comments: PRReviewComment[]): CommentThread[] {
     }
 
     return roots
-      .filter((r) => r.line !== null || r.originalLine !== null)
+      .filter((r) => r.line != null || r.originalLine != null)
       .map((root) => ({
         rootComment: root,
         replies: (replyMap.get(root.id) ?? []).sort(
-          (a, b) =>
-            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
         ),
-        line: root.line ?? root.originalLine ?? 1
+        line: normalizeLineNumber(root.line ?? root.originalLine)
       }))
       .sort((a, b) => a.line - b.line)
   }, [comments])
+}
+
+function getCommentText(comment: PRReviewComment): string {
+  return comment.body || comment.bodyHTML || ''
+}
+
+function getCommentHtml(comment: PRReviewComment): string {
+  return comment.bodyHTML || comment.body || ''
 }

@@ -8,6 +8,8 @@ import { toast } from '@/lib/toast'
 import { useI18n } from '@/i18n/useI18n'
 import type { DiffComment } from '@shared/types/git'
 
+const EMPTY_DIFF_COMMENTS: DiffComment[] = []
+
 interface DiffCommentsViewerProps {
   worktreeId: string
   worktreePath: string | null
@@ -20,7 +22,9 @@ export function DiffCommentsViewer({
   compact = false
 }: DiffCommentsViewerProps): React.JSX.Element {
   const { t } = useI18n()
-  const comments = useDiffCommentStore((s) => s.worktreeComments.get(worktreeId) ?? [])
+  const comments = useDiffCommentStore(
+    (s) => s.worktreeComments.get(worktreeId) ?? EMPTY_DIFF_COMMENTS
+  )
   const loading = useDiffCommentStore((s) => s.loadingKeys.has(`${worktreeId}\u0000*`))
   const loadWorktreeComments = useDiffCommentStore((s) => s.loadWorktreeComments)
   const attachComment = useDiffCommentStore((s) => s.attachComment)

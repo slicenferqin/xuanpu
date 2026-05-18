@@ -12,6 +12,20 @@ export interface Hunk {
   type: 'add' | 'delete' | 'modify'
 }
 
+export function normalizeLineNumber(lineNumber: number | null | undefined, fallback = 1): number {
+  const raw = typeof lineNumber === 'number' ? lineNumber : Number(lineNumber)
+  if (!Number.isFinite(raw)) return fallback
+  return Math.max(1, Math.trunc(raw))
+}
+
+export function clampMonacoLineNumber(
+  lineNumber: number | null | undefined,
+  codeEditor: Pick<editor.IStandaloneCodeEditor, 'getModel'> | null | undefined
+): number {
+  const lineCount = Math.max(1, codeEditor?.getModel()?.getLineCount() ?? 1)
+  return Math.min(normalizeLineNumber(lineNumber), lineCount)
+}
+
 /**
  * Parse Monaco's ILineChange[] into structured Hunk[] for rendering action buttons.
  *

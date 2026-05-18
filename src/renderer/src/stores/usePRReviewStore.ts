@@ -203,7 +203,9 @@ export const usePRReviewStore = create<PRReviewStoreState>((set, get) => ({
     for (const [path, fileComments] of grouped) {
       grouped.set(
         path,
-        fileComments.sort((a, b) => (a.line ?? 0) - (b.line ?? 0))
+        fileComments.sort(
+          (a, b) => (a.line ?? a.originalLine ?? 0) - (b.line ?? b.originalLine ?? 0)
+        )
       )
     }
     return grouped
