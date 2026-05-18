@@ -56,11 +56,9 @@ function InterruptQueueItem({ item }: { item: InterruptItem }): React.JSX.Elemen
 // ---------------------------------------------------------------------------
 
 export function AgentRail({
-  sessionId,
   lifecycle,
   interruptQueue,
   unreadCount,
-  commandsAvailable,
   collapsed = false
 }: AgentRailProps): React.JSX.Element | null {
   // Don't render the rail when there's nothing to show

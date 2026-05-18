@@ -25,21 +25,6 @@ import type { FieldEvent } from '../../src/shared/types/field-event'
 
 const WORKTREE_PATH = '/Users/dev/proj/wt'
 
-function captureLastEnqueued(): FieldEvent | null {
-  const sink = getFieldEventSink()
-  let last: FieldEvent | null = null
-  vi.spyOn(sink, 'enqueue').mockImplementation((evt: FieldEvent) => {
-    last = evt
-    return undefined as unknown as void
-  })
-  return new Proxy(
-    {},
-    {
-      get: (_t, prop) => (prop === 'value' ? last : undefined)
-    }
-  ) as { value: FieldEvent | null }
-}
-
 beforeEach(() => {
   resetFieldEventSink()
   resetEventBus()

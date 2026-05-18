@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { writeFileSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { loadHeadlessConfig, type HeadlessConfig } from '../../src/server/config'
+import { loadHeadlessConfig } from '../../src/server/config'
 
 describe('loadHeadlessConfig', () => {
   let tempDir: string

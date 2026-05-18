@@ -12,29 +12,25 @@ const toastMocks = vi.hoisted(() => ({
 }))
 
 const sonnerToasterMock = vi.hoisted(() => vi.fn(() => null))
+const sonnerToastMocks = vi.hoisted(() => ({
+  custom: vi.fn().mockReturnValue('prompt-toast'),
+  dismiss: vi.fn()
+}))
 
 vi.mock('@/lib/toast', () => ({
   toast: toastMocks
 }))
 
 vi.mock('sonner', () => ({
-  Toaster: sonnerToasterMock
+  Toaster: sonnerToasterMock,
+  toast: sonnerToastMocks
 }))
 
 type UpdateAvailableData = { version: string; releaseNotes?: string; releaseDate?: string }
-type DownloadProgressData = {
-  percent: number
-  bytesPerSecond: number
-  transferred: number
-  total: number
-}
 type UpdateDownloadedData = { version: string; releaseNotes?: string }
-type UpdateErrorData = { message: string }
 
 let onUpdateAvailableCb: ((data: UpdateAvailableData) => void) | null = null
-let onProgressCb: ((data: DownloadProgressData) => void) | null = null
 let onUpdateDownloadedCb: ((data: UpdateDownloadedData) => void) | null = null
-let onErrorCb: ((data: UpdateErrorData) => void) | null = null
 
 const installUpdateMock = vi.fn().mockResolvedValue(undefined)
 
@@ -43,13 +39,12 @@ describe('Auto update behavior', () => {
     vi.clearAllMocks()
 
     onUpdateAvailableCb = null
-    onProgressCb = null
     onUpdateDownloadedCb = null
-    onErrorCb = null
 
     toastMocks.info.mockReturnValue('toast-available')
     toastMocks.loading.mockReturnValue('toast-progress')
     toastMocks.success.mockReturnValue('toast-downloaded')
+    sonnerToastMocks.custom.mockReturnValue('prompt-toast')
 
     Object.defineProperty(window, 'updaterOps', {
       configurable: true,
@@ -66,24 +61,22 @@ describe('Auto update behavior', () => {
           }
         }),
         onUpdateNotAvailable: vi.fn().mockReturnValue(() => {}),
-        onProgress: vi.fn((cb: (data: DownloadProgressData) => void) => {
-          onProgressCb = cb
-          return () => {
-            onProgressCb = null
-          }
-        }),
+        onProgress: vi.fn().mockReturnValue(() => {}),
         onUpdateDownloaded: vi.fn((cb: (data: UpdateDownloadedData) => void) => {
           onUpdateDownloadedCb = cb
           return () => {
             onUpdateDownloadedCb = null
           }
         }),
-        onError: vi.fn((cb: (data: UpdateErrorData) => void) => {
-          onErrorCb = cb
-          return () => {
-            onErrorCb = null
-          }
-        })
+        onError: vi.fn().mockReturnValue(() => {})
+      }
+    })
+
+    Object.defineProperty(window, 'systemOps', {
+      configurable: true,
+      writable: true,
+      value: {
+        openInChrome: vi.fn().mockResolvedValue(undefined)
       }
     })
   })
@@ -92,16 +85,15 @@ describe('Auto update behavior', () => {
     cleanup()
   })
 
-  test('update available toast does not require download button click', () => {
+  test('update available uses custom prompt and does not auto-download', () => {
     renderHook(() => useAutoUpdate())
 
     act(() => {
       onUpdateAvailableCb?.({ version: '1.2.3' })
     })
 
-    expect(toastMocks.info).toHaveBeenCalledTimes(1)
-    const options = toastMocks.info.mock.calls[0]?.[1] as { action?: unknown } | undefined
-    expect(options?.action).toBeUndefined()
+    expect(sonnerToastMocks.custom).toHaveBeenCalledTimes(1)
+    expect(window.updaterOps.downloadUpdate).not.toHaveBeenCalled()
   })
 
   test('downloaded toast exposes restart action that installs update', () => {

@@ -2534,17 +2534,10 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       if (!turnObj) continue
 
       const turnId = asString(turnObj.id)
-      // Codex turns expose `startedAt` / `completedAt` as Unix epoch SECONDS.
-      // Older code looked at `createdAt` / `updatedAt` which don't exist on
-      // codex's wire format, so every item ended up timestamped with
-      // `Date.now()` of the readThread call. That made real assistant
-      // messages sort AFTER any synthetic activity (tool cards, plan
-      // cards, AskUserQuestion cards) emitted during the turn — visually,
-      // synthetic cards jumped to the top of the turn batch. Pinning the
-      // turn timestamp to `startedAt` puts real messages early so
-      // synthetics fall after them in chronological order.
+      // Codex turns expose `startedAt` as Unix epoch seconds. Older code looked
+      // at `createdAt` / `updatedAt`, so items often fell back to read time and
+      // sorted after synthetic activity emitted during the same turn.
       const startedAtSec = asNumber(turnObj.startedAt)
-      const completedAtSec = asNumber(turnObj.completedAt)
       const turnStartIso = startedAtSec
         ? new Date(startedAtSec * 1000).toISOString()
         : undefined

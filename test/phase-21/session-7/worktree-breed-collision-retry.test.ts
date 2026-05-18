@@ -43,7 +43,7 @@ describe('Worktree breed-name collision retry', () => {
     // First git worktree add call fails with "already exists",
     // second call succeeds
     mockRaw
-      .mockImplementationOnce(async (args: string[]) => {
+      .mockImplementationOnce(async (_args: string[]) => {
         // getCurrentBranch raw call — not used directly (branch() is)
         return ''
       })

@@ -391,45 +391,6 @@ function PinnedWorktreeItem({ worktreeId }: { worktreeId: string }): React.JSX.E
   const displayBranch = liveBranch?.name ?? worktree.name
   const hasNamedBranch = Boolean(worktree.branch_name)
 
-  // Derive display status text + color
-  const { displayStatus: _displayStatus, statusClass: _statusClass } =
-    worktreeStatus === 'answering'
-      ? { displayStatus: t('pinned.status.answering'), statusClass: 'font-semibold text-amber-500' }
-      : worktreeStatus === 'command_approval'
-        ? {
-            displayStatus: t('pinned.status.commandApproval'),
-            statusClass: 'font-semibold text-orange-500'
-          }
-        : worktreeStatus === 'permission'
-          ? {
-              displayStatus: t('pinned.status.permission'),
-              statusClass: 'font-semibold text-amber-500'
-            }
-          : worktreeStatus === 'planning'
-            ? {
-                displayStatus: t('pinned.status.planning'),
-                statusClass: 'font-semibold text-blue-400'
-              }
-            : worktreeStatus === 'working'
-              ? {
-                  displayStatus: t('pinned.status.working'),
-                  statusClass: 'font-semibold text-primary'
-                }
-              : worktreeStatus === 'plan_ready'
-                ? {
-                    displayStatus: t('pinned.status.planReady'),
-                    statusClass: 'font-semibold text-blue-400'
-                  }
-                : worktreeStatus === 'completed'
-                  ? {
-                      displayStatus: t('pinned.status.ready'),
-                      statusClass: 'font-semibold text-green-400'
-                    }
-                  : {
-                      displayStatus: t('pinned.status.ready'),
-                      statusClass: 'text-muted-foreground'
-                    }
-
   const handleClick = (): void => {
     selectWorktree(worktreeId)
     selectProject(project.id)
@@ -923,45 +884,6 @@ function PinnedConnectionItem({
   const displayName = hasCustomName
     ? connection.custom_name!
     : projectNames || connection.name || t('pinned.connectionFallback')
-
-  // Derive display status text + color
-  const { displayStatus: _displayStatus2, statusClass: _statusClass2 } =
-    connectionStatus === 'answering'
-      ? { displayStatus: t('pinned.status.answering'), statusClass: 'font-semibold text-amber-500' }
-      : connectionStatus === 'command_approval'
-        ? {
-            displayStatus: t('pinned.status.commandApproval'),
-            statusClass: 'font-semibold text-orange-500'
-          }
-        : connectionStatus === 'permission'
-          ? {
-              displayStatus: t('pinned.status.permission'),
-              statusClass: 'font-semibold text-amber-500'
-            }
-          : connectionStatus === 'planning'
-            ? {
-                displayStatus: t('pinned.status.planning'),
-                statusClass: 'font-semibold text-blue-400'
-              }
-            : connectionStatus === 'working'
-              ? {
-                  displayStatus: t('pinned.status.working'),
-                  statusClass: 'font-semibold text-primary'
-                }
-              : connectionStatus === 'plan_ready'
-                ? {
-                    displayStatus: t('pinned.status.planReady'),
-                    statusClass: 'font-semibold text-blue-400'
-                  }
-                : connectionStatus === 'completed'
-                  ? {
-                      displayStatus: t('pinned.status.ready'),
-                      statusClass: 'font-semibold text-green-400'
-                    }
-                  : {
-                      displayStatus: t('pinned.status.ready'),
-                      statusClass: 'text-muted-foreground'
-                    }
 
   const handleClick = (): void => {
     selectConnection(connectionId)

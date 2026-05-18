@@ -22,7 +22,6 @@ vi.mock('../../../src/main/services/codex-app-server-manager', () => ({
 
 import { AgentRuntimeManager } from '../../../src/main/services/agent-runtime-manager'
 import { CodexImplementer } from '../../../src/main/services/codex-implementer'
-import type { AgentRuntimeAdapter } from '../../../src/main/services/agent-runtime-types'
 
 describe('Codex Canonical Protocol Routing', () => {
   let manager: AgentRuntimeManager
@@ -75,7 +74,7 @@ describe('Codex Canonical Protocol Routing', () => {
   })
 
   it('should handle Codex session lifecycle', async () => {
-    const connectSpy = vi.spyOn(codexImpl, 'connect').mockResolvedValue({ sessionId: 'thread-1' })
+    vi.spyOn(codexImpl, 'connect').mockResolvedValue({ sessionId: 'thread-1' })
     const promptSpy = vi.spyOn(codexImpl, 'prompt').mockResolvedValue(undefined)
     const getMessagesSpy = vi.spyOn(codexImpl, 'getMessages').mockResolvedValue([])
     const disconnectSpy = vi.spyOn(codexImpl, 'disconnect').mockResolvedValue(undefined)

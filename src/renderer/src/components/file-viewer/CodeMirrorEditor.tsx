@@ -49,6 +49,8 @@ export function CodeMirrorEditor({
   worktreeIdRef.current = worktreeId
   const filePathRef = useRef(filePath)
   filePathRef.current = filePath
+  const initialContentRef = useRef(content)
+  const initialFilePathRef = useRef(filePath)
 
   // Phase 21 file.selection reporter — throttled + non-caret-only.
   // Debounce 250ms so drag-select doesn't spam events. Only reports ranges
@@ -57,16 +59,14 @@ export function CodeMirrorEditor({
   const lastReportedRef = useRef<string>('')
 
   // Initializes the EditorView once on mount and cleans it up on unmount.
-  // The parent component keys this component by filePath, so a new file
-  // causes a full remount. content, filePath, and onContentChange are
-  // intentionally excluded — they are only needed at initialization time
-  // (content/filePath captured in the closure, onContentChange accessed
-  // via onContentChangeRef to always use the latest callback).
+  // The parent component keys this component by filePath, so a new file causes
+  // a full remount. EditorView consumes the initial content/language once;
+  // callbacks and selection reporting use refs to stay current afterward.
   useEffect(() => {
     if (!containerRef.current) return
 
     const state = EditorState.create({
-      doc: content,
+      doc: initialContentRef.current,
       extensions: [
         oneDark,
         editorTheme,
@@ -88,7 +88,7 @@ export function CodeMirrorEditor({
           ...searchKeymap,
           indentWithTab
         ]),
-        getLanguageExtension(filePath),
+        getLanguageExtension(initialFilePathRef.current),
         EditorView.updateListener.of((update) => {
           if (update.docChanged && onContentChangeRef.current) {
             onContentChangeRef.current(update.state.doc.toString())
