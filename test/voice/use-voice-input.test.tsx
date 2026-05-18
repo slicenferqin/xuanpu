@@ -26,8 +26,11 @@ vi.mock('@/lib/toast', () => ({
 import { useVoiceInput } from '../../src/renderer/src/hooks/useVoiceInput'
 
 describe('useVoiceInput', () => {
+  let transcriptHandler: ((event: VoiceTranscriptEvent) => void) | null = null
+
   beforeEach(() => {
     vi.useFakeTimers()
+    transcriptHandler = null
     audioCaptureMock.startVoiceAudioCapture.mockReset()
     audioCaptureMock.startVoiceAudioCapture.mockImplementation(async () => ({
       stop: vi.fn()
@@ -54,7 +57,10 @@ describe('useVoiceInput', () => {
         disconnectTranscription: vi.fn().mockResolvedValue(undefined),
         sendAudioChunk: vi.fn().mockResolvedValue(undefined),
         onRuntimeProgress: vi.fn((_handler: (event: VoiceRuntimeProgress) => void) => vi.fn()),
-        onTranscript: vi.fn((_handler: (event: VoiceTranscriptEvent) => void) => vi.fn()),
+        onTranscript: vi.fn((handler: (event: VoiceTranscriptEvent) => void) => {
+          transcriptHandler = handler
+          return vi.fn()
+        }),
         onVoiceError: vi.fn((_handler: (event: VoiceErrorEvent) => void) => vi.fn())
       }
     })
@@ -88,6 +94,61 @@ describe('useVoiceInput', () => {
 
     expect(window.voiceOps.disconnectTranscription).toHaveBeenCalledWith('session-1')
     expect(window.voiceOps.disconnectTranscription).not.toHaveBeenCalledWith('session-2')
+
+    unmount()
+  })
+
+  it('accepts a late final transcript from a stopped session after a new recording starts', async () => {
+    const finalTexts: string[] = []
+    const { result, unmount } = renderHook(() =>
+      useVoiceInput((text) => {
+        finalTexts.push(text)
+      })
+    )
+
+    await act(async () => {
+      await result.current.start()
+    })
+    expect(result.current.state).toBe('recording')
+
+    await act(async () => {
+      await result.current.stop()
+    })
+    expect(result.current.state).toBe('idle')
+
+    await act(async () => {
+      await result.current.start()
+    })
+    expect(result.current.state).toBe('recording')
+
+    act(() => {
+      transcriptHandler?.({
+        sessionId: 'session-2',
+        type: 'partial',
+        text: '第二段进行中'
+      })
+    })
+    expect(result.current.partialText).toBe('第二段进行中')
+
+    act(() => {
+      transcriptHandler?.({
+        sessionId: 'session-1',
+        type: 'final',
+        text: '第一段最终文本'
+      })
+    })
+
+    expect(finalTexts).toEqual(['第一段最终文本'])
+    expect(result.current.partialText).toBe('第二段进行中')
+
+    act(() => {
+      transcriptHandler?.({
+        sessionId: 'session-1',
+        type: 'final',
+        text: '第一段重复文本'
+      })
+    })
+    expect(finalTexts).toEqual(['第一段最终文本'])
 
     unmount()
   })

@@ -29,6 +29,7 @@ export function useVoiceInput(onFinalText: (text: string) => void): UseVoiceInpu
   const onFinalTextRef = useRef(onFinalText)
   const sentStatsRef = useRef({ chunkCount: 0, byteCount: 0 })
   const stopRequestedRef = useRef(false)
+  const finalizingSessionIdsRef = useRef<Set<string>>(new Set())
 
   const setVoiceState = useCallback((next: VoiceInputState) => {
     stateRef.current = next
@@ -40,9 +41,16 @@ export function useVoiceInput(onFinalText: (text: string) => void): UseVoiceInpu
     captureRef.current = null
     const sessionId = sessionRef.current
     sessionRef.current = null
+    const finalizingSessionIds = Array.from(finalizingSessionIdsRef.current)
+    finalizingSessionIdsRef.current.clear()
     if (sessionId) {
       await window.voiceOps.disconnectTranscription(sessionId).catch(() => {})
     }
+    await Promise.all(
+      finalizingSessionIds.map((finalizingSessionId) =>
+        window.voiceOps.disconnectTranscription(finalizingSessionId).catch(() => {})
+      )
+    )
   }, [])
 
   useEffect(() => {
@@ -58,12 +66,20 @@ export function useVoiceInput(onFinalText: (text: string) => void): UseVoiceInpu
       setProgress(next)
     })
     const unsubscribeTranscript = window.voiceOps.onTranscript((event: VoiceTranscriptEvent) => {
-      if (event.sessionId !== sessionRef.current) return
+      const isCurrentSession = event.sessionId === sessionRef.current
+      const isFinalizingSession = finalizingSessionIdsRef.current.has(event.sessionId)
+      if (!isCurrentSession && !(isFinalizingSession && event.type === 'final')) return
       if (event.type === 'partial') {
         setPartialText(event.text)
         return
       }
-      setPartialText('')
+      if (isCurrentSession) setPartialText('')
+      if (isFinalizingSession) {
+        finalizingSessionIdsRef.current.delete(event.sessionId)
+        if (sessionRef.current === event.sessionId) {
+          sessionRef.current = null
+        }
+      }
       onFinalTextRef.current(event.text)
     })
     const unsubscribeError = window.voiceOps.onVoiceError((event) => {
@@ -108,11 +124,13 @@ export function useVoiceInput(onFinalText: (text: string) => void): UseVoiceInpu
 
     const sessionId = sessionRef.current
     if (sessionId) {
+      finalizingSessionIdsRef.current.add(sessionId)
       await window.voiceOps.finishUtterance(sessionId).catch((error) => {
         toast.error(error instanceof Error ? error.message : String(error))
       })
       setTimeout(() => {
         window.voiceOps.disconnectTranscription(sessionId).catch(() => {})
+        finalizingSessionIdsRef.current.delete(sessionId)
         if (sessionRef.current === sessionId) {
           sessionRef.current = null
         }
