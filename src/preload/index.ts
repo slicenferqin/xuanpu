@@ -1,5 +1,15 @@
 import { contextBridge, ipcRenderer, webUtils, webFrame } from 'electron'
 import { normalizeAgentEvent } from '@shared/lib/normalize-agent-event'
+import type {
+  VoiceErrorEvent,
+  VoicePermissionStatus,
+  VoiceRuntimeConfig,
+  VoiceRuntimeInfo,
+  VoiceRuntimeProgress,
+  VoiceTranscriptEvent,
+  VoiceTranscriptionSession,
+  VoiceTranscriptionSessionOptions
+} from '@shared/types/voice'
 
 // Apply persisted UI zoom level from localStorage before first paint to avoid flash.
 // Ghostty's getContainerRect() has visualViewport.scale compensation for non-100% zoom.
@@ -97,8 +107,7 @@ const db = {
       ipcRenderer.invoke('db:worktree:removeAttachment', { worktreeId, attachmentId }),
     attachPR: (worktreeId: string, prNumber: number, prUrl: string) =>
       ipcRenderer.invoke('db:worktree:attachPR', { worktreeId, prNumber, prUrl }),
-    detachPR: (worktreeId: string) =>
-      ipcRenderer.invoke('db:worktree:detachPR', { worktreeId }),
+    detachPR: (worktreeId: string) => ipcRenderer.invoke('db:worktree:detachPR', { worktreeId }),
     setPinned: (worktreeId: string, pinned: boolean) =>
       ipcRenderer.invoke('db:worktree:setPinned', { worktreeId, pinned }),
     getPinned: () => ipcRenderer.invoke('db:worktree:getPinned')
@@ -464,10 +473,7 @@ const systemOps = {
   setKeepAwakeEnabled: (enabled: boolean): Promise<{ success: boolean }> =>
     ipcRenderer.invoke('system:setKeepAwakeEnabled', enabled),
 
-  setSessionQueuedState: (
-    sessionId: string,
-    queued: boolean
-  ): Promise<{ success: boolean }> =>
+  setSessionQueuedState: (sessionId: string, queued: boolean): Promise<{ success: boolean }> =>
     ipcRenderer.invoke('system:setSessionQueuedState', sessionId, queued),
 
   // Run the first-launch onboarding doctor
@@ -1247,10 +1253,7 @@ const agentOps = {
   },
 
   // Abort a streaming session
-  abort: (
-    worktreePath: string,
-    sessionId: string
-  ): Promise<{ success: boolean; error?: string }> =>
+  abort: (worktreePath: string, sessionId: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('agent:abort', worktreePath, sessionId),
 
   // Disconnect session (may kill server if last session for worktree)
@@ -1284,8 +1287,7 @@ const agentOps = {
       variant?: string
       runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
     } | null
-  ): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('agent:setModel', model),
+  ): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('agent:setModel', model),
 
   // Get model info (name, context limit)
   modelInfo: (
@@ -1455,13 +1457,13 @@ const agentOps = {
     sessionId?: string
   ): Promise<{
     success: boolean
-      capabilities?: {
-        supportsUndo: boolean
-        supportsRedo: boolean
-        supportsSteer: boolean
-        supportsCommands: boolean
-        supportsPermissionRequests: boolean
-        supportsQuestionPrompts: boolean
+    capabilities?: {
+      supportsUndo: boolean
+      supportsRedo: boolean
+      supportsSteer: boolean
+      supportsCommands: boolean
+      supportsPermissionRequests: boolean
+      supportsQuestionPrompts: boolean
       supportsModelSelection: boolean
       supportsReconnect: boolean
       supportsPartialStreaming: boolean
@@ -1500,10 +1502,7 @@ const agentOps = {
   // Subscribe to streaming events on the canonical `agent:stream` channel.
   // Events are normalized through normalizeAgentEvent() to ensure consistent shape.
   onStream: (callback: (event: CanonicalAgentEvent) => void): (() => void) => {
-    const handler = (
-      _e: Electron.IpcRendererEvent,
-      event: Record<string, unknown>
-    ): void => {
+    const handler = (_e: Electron.IpcRendererEvent, event: Record<string, unknown>): void => {
       callback(normalizeAgentEvent(event))
     }
     ipcRenderer.on('agent:stream', handler)
@@ -1596,9 +1595,7 @@ const skillOps = {
     ipcRenderer.invoke('skill:removeHub', { hubId }),
   refreshHub: (hubId: HubId): Promise<RefreshHubResult> =>
     ipcRenderer.invoke('skill:refreshHub', { hubId }),
-  listSkills: (
-    hubId: HubId
-  ): Promise<{ success: boolean; skills: Skill[]; error?: string }> =>
+  listSkills: (hubId: HubId): Promise<{ success: boolean; skills: Skill[]; error?: string }> =>
     ipcRenderer.invoke('skill:listSkills', { hubId }),
   listInstalled: (
     scope: SkillScope
@@ -1691,6 +1688,57 @@ const settingsOps = {
   }
 }
 
+const voiceOps = {
+  detectRuntime: (config?: VoiceRuntimeConfig): Promise<VoiceRuntimeInfo> =>
+    ipcRenderer.invoke('voice:detectRuntime', config),
+  ensureRuntime: (config?: VoiceRuntimeConfig): Promise<VoiceRuntimeInfo> =>
+    ipcRenderer.invoke('voice:ensureRuntime', config),
+  startRuntime: (config?: VoiceRuntimeConfig): Promise<VoiceRuntimeInfo> =>
+    ipcRenderer.invoke('voice:startRuntime', config),
+  stopRuntime: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('voice:stopRuntime'),
+  getRuntimeLogs: (): Promise<{ installLog?: string; serverLog?: string }> =>
+    ipcRenderer.invoke('voice:getRuntimeLogs'),
+  getMicrophonePermissionStatus: (): Promise<VoicePermissionStatus> =>
+    ipcRenderer.invoke('voice:getMicrophonePermissionStatus'),
+  requestMicrophonePermission: (): Promise<VoicePermissionStatus> =>
+    ipcRenderer.invoke('voice:requestMicrophonePermission'),
+  connectTranscription: (
+    options: VoiceTranscriptionSessionOptions
+  ): Promise<VoiceTranscriptionSession> =>
+    ipcRenderer.invoke('voice:connectTranscription', options),
+  sendAudioChunk: (sessionId: string, chunk: ArrayBuffer): Promise<void> =>
+    ipcRenderer.invoke('voice:sendAudioChunk', sessionId, chunk),
+  finishUtterance: (sessionId: string): Promise<void> =>
+    ipcRenderer.invoke('voice:finishUtterance', sessionId),
+  disconnectTranscription: (sessionId: string): Promise<void> =>
+    ipcRenderer.invoke('voice:disconnectTranscription', sessionId),
+  onRuntimeProgress: (callback: (progress: VoiceRuntimeProgress) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: VoiceRuntimeProgress): void =>
+      callback(progress)
+    ipcRenderer.on('voice:runtime-progress', handler)
+    return () => {
+      ipcRenderer.removeListener('voice:runtime-progress', handler)
+    }
+  },
+  onTranscript: (callback: (event: VoiceTranscriptEvent) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, transcript: VoiceTranscriptEvent): void =>
+      callback(transcript)
+    ipcRenderer.on('voice:transcript', handler)
+    return () => {
+      ipcRenderer.removeListener('voice:transcript', handler)
+    }
+  },
+  onVoiceError: (callback: (event: VoiceErrorEvent) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, error: VoiceErrorEvent): void =>
+      callback(error)
+    ipcRenderer.on('voice:error', handler)
+    return () => {
+      ipcRenderer.removeListener('voice:error', handler)
+    }
+  }
+}
+
 // Terminal operations API (PTY management)
 const terminalOps = {
   create: (
@@ -1709,8 +1757,7 @@ const terminalOps = {
   destroy: (worktreeId: string): Promise<void> =>
     ipcRenderer.invoke('terminal:destroy', worktreeId),
 
-  getCwd: (id: string): Promise<string | null> =>
-    ipcRenderer.invoke('terminal:getCwd', id),
+  getCwd: (id: string): Promise<string | null> => ipcRenderer.invoke('terminal:getCwd', id),
 
   onData: (worktreeId: string, callback: (data: string) => void): (() => void) => {
     const channel = `terminal:data:${worktreeId}`
@@ -2121,6 +2168,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('skillOps', skillOps)
     contextBridge.exposeInMainWorld('fieldOps', fieldOps)
     contextBridge.exposeInMainWorld('hubOps', hubOps)
+    contextBridge.exposeInMainWorld('voiceOps', voiceOps)
   } catch (error) {
     console.error(error)
   }
@@ -2163,6 +2211,8 @@ if (process.contextIsolated) {
   window.skillOps = skillOps
   // @ts-expect-error (define in dts)
   window.fieldOps = fieldOps
+  // @ts-expect-error (define in dts)
+  window.voiceOps = voiceOps
   // @ts-expect-error (define in dts)
   window.hubOps = hubOps
 }

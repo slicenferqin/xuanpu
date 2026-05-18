@@ -316,9 +316,7 @@ declare global {
           prNumber: number,
           prUrl: string
         ) => Promise<{ success: boolean; error?: string }>
-        detachPR: (
-          worktreeId: string
-        ) => Promise<{ success: boolean; error?: string }>
+        detachPR: (worktreeId: string) => Promise<{ success: boolean; error?: string }>
         setPinned: (
           worktreeId: string,
           pinned: boolean
@@ -542,9 +540,7 @@ declare global {
           available: boolean
         }>
       >
-      parseKeybindingImportSource: (
-        source: 'vscode' | 'cursor'
-      ) => Promise<{
+      parseKeybindingImportSource: (source: 'vscode' | 'cursor') => Promise<{
         source: 'vscode' | 'cursor'
         path: string
         parsedRows: number
@@ -751,9 +747,7 @@ declare global {
       commands: (
         worktreePath: string,
         sessionId?: string
-      ) => Promise<
-        import('../shared/types/agent-ipc').AgentIpcResult<{ commands: AgentCommand[] }>
-      >
+      ) => Promise<import('../shared/types/agent-ipc').AgentIpcResult<{ commands: AgentCommand[] }>>
       steer: (
         worktreePath: string,
         sessionId: string,
@@ -842,7 +836,10 @@ declare global {
         content?: string
         error?: string
       }>
-      writeFile: (filePath: string, content: string) => Promise<{
+      writeFile: (
+        filePath: string,
+        content: string
+      ) => Promise<{
         success: boolean
         error?: string
       }>
@@ -879,6 +876,40 @@ declare global {
         error?: string
       }>
       onSettingsUpdated: (callback: (data: unknown) => void) => () => void
+    }
+    voiceOps: {
+      detectRuntime: (
+        config?: import('../shared/types/voice').VoiceRuntimeConfig
+      ) => Promise<import('../shared/types/voice').VoiceRuntimeInfo>
+      ensureRuntime: (
+        config?: import('../shared/types/voice').VoiceRuntimeConfig
+      ) => Promise<import('../shared/types/voice').VoiceRuntimeInfo>
+      startRuntime: (
+        config?: import('../shared/types/voice').VoiceRuntimeConfig
+      ) => Promise<import('../shared/types/voice').VoiceRuntimeInfo>
+      stopRuntime: () => Promise<{ success: boolean; error?: string }>
+      getRuntimeLogs: () => Promise<{ installLog?: string; serverLog?: string }>
+      getMicrophonePermissionStatus: () => Promise<
+        import('../shared/types/voice').VoicePermissionStatus
+      >
+      requestMicrophonePermission: () => Promise<
+        import('../shared/types/voice').VoicePermissionStatus
+      >
+      connectTranscription: (
+        options: import('../shared/types/voice').VoiceTranscriptionSessionOptions
+      ) => Promise<import('../shared/types/voice').VoiceTranscriptionSession>
+      sendAudioChunk: (sessionId: string, chunk: ArrayBuffer) => Promise<void>
+      finishUtterance: (sessionId: string) => Promise<void>
+      disconnectTranscription: (sessionId: string) => Promise<void>
+      onRuntimeProgress: (
+        callback: (progress: import('../shared/types/voice').VoiceRuntimeProgress) => void
+      ) => () => void
+      onTranscript: (
+        callback: (event: import('../shared/types/voice').VoiceTranscriptEvent) => void
+      ) => () => void
+      onVoiceError: (
+        callback: (event: import('../shared/types/voice').VoiceErrorEvent) => void
+      ) => () => void
     }
     scriptOps: {
       runSetup: (
@@ -1397,21 +1428,15 @@ declare global {
       ) => void
       reportFileOpen: (input: import('../shared/types/field-event').FileOpenInput) => void
       reportFileFocus: (input: import('../shared/types/field-event').FileFocusInput) => void
-      reportFileSelection: (
-        input: import('../shared/types/field-event').FileSelectionInput
-      ) => void
+      reportFileSelection: (input: import('../shared/types/field-event').FileSelectionInput) => void
       /** Phase 22A debug: fetch the last Field Context injected for a session. */
-      getLastInjection: (
-        sessionId: string
-      ) => Promise<{
+      getLastInjection: (sessionId: string) => Promise<{
         preview: string
         timestamp: number
         approxTokens: number
       } | null>
       /** Phase 22B.1 debug: fetch the episodic memory summary for a worktree. */
-      getEpisodicMemory: (
-        worktreeId: string
-      ) => Promise<{
+      getEpisodicMemory: (worktreeId: string) => Promise<{
         worktreeId: string
         summaryMarkdown: string
         compactorId: string
@@ -1422,17 +1447,13 @@ declare global {
         sourceUntil: number
       } | null>
       /** Phase 22C.1 debug: fetch project + user memory.md files for a worktree. */
-      getSemanticMemory: (
-        worktreeId: string
-      ) => Promise<{
+      getSemanticMemory: (worktreeId: string) => Promise<{
         project: { path: string; mtimeMs: number; size: number; markdown: string | null }
         user: { path: string; mtimeMs: number; size: number; markdown: string | null }
         lastReadAt: number
       } | null>
       /** Phase 24C debug: fetch latest checkpoint (raw row + verifier-evaluated block). */
-      getCheckpoint: (
-        worktreeId: string
-      ) => Promise<{
+      getCheckpoint: (worktreeId: string) => Promise<{
         verified: {
           createdAt: number
           ageMinutes: number
@@ -1462,9 +1483,7 @@ declare global {
         } | null
       } | null>
       /** v1.4.1: Pinned Facts — read user-authored permanent facts for a worktree. */
-      getPinnedFacts: (
-        worktreeId: string
-      ) => Promise<{
+      getPinnedFacts: (worktreeId: string) => Promise<{
         worktreeId: string
         contentMd: string
         updatedAt: number
@@ -1509,16 +1528,12 @@ declare global {
       refreshHub: (
         hubId: import('../shared/types/skill').HubId
       ) => Promise<import('../shared/types/skill').RefreshHubResult>
-      listSkills: (
-        hubId: import('../shared/types/skill').HubId
-      ) => Promise<{
+      listSkills: (hubId: import('../shared/types/skill').HubId) => Promise<{
         success: boolean
         skills: import('../shared/types/skill').Skill[]
         error?: string
       }>
-      listInstalled: (
-        scope: import('../shared/types/skill').SkillScope
-      ) => Promise<{
+      listInstalled: (scope: import('../shared/types/skill').SkillScope) => Promise<{
         success: boolean
         skills: import('../shared/types/skill').InstalledSkill[]
         error?: string
@@ -1570,7 +1585,8 @@ declare global {
       createToken: (
         name: string
       ) => Promise<
-        { success: true; name: string; token: string; prefix: string } | { success: false; error: string }
+        | { success: true; name: string; token: string; prefix: string }
+        | { success: false; error: string }
       >
       revokeToken: (id: number) => Promise<{ success: boolean }>
       onStatusChanged: (cb: (status: HubStatusSnapshot) => void) => () => void

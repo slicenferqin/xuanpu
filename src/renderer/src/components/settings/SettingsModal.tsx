@@ -13,7 +13,8 @@ import {
   BarChart3,
   Archive,
   BookOpen,
-  Smartphone
+  Smartphone,
+  Mic
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { useSettingsStore } from '@/stores/useSettingsStore'
@@ -30,6 +31,7 @@ import { SettingsPrivacy } from './SettingsPrivacy'
 import { SettingsUsage } from './SettingsUsage'
 import { SettingsArchivedChats } from './SettingsArchivedChats'
 import { SettingsSkills } from './SettingsSkills'
+import { SettingsVoice } from './SettingsVoice'
 import { HubSection } from './HubSection'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/i18n/useI18n'
@@ -45,6 +47,7 @@ const SECTIONS = [
   { id: 'usage', icon: BarChart3 },
   { id: 'archivedChats', icon: Archive },
   { id: 'skills', icon: BookOpen },
+  { id: 'voice', icon: Mic },
   { id: 'hub', icon: Smartphone },
   { id: 'shortcuts', icon: Keyboard },
   { id: 'updates', icon: Download }
@@ -75,7 +78,9 @@ export function SettingsModal(): React.JSX.Element {
       <DialogContent
         className={cn(
           'p-0 gap-0 overflow-hidden',
-          activeSection === 'usage' || activeSection === 'archivedChats' || activeSection === 'skills'
+          activeSection === 'usage' ||
+            activeSection === 'archivedChats' ||
+            activeSection === 'skills'
             ? 'max-w-[min(96vw,1280px)] h-[88vh]'
             : 'max-w-3xl h-[70vh]'
         )}
@@ -118,15 +123,15 @@ export function SettingsModal(): React.JSX.Element {
           </nav>
 
           {/* Content area */}
-          <div className={cn(
-            "flex-1 p-6 min-h-0 flex flex-col",
-            // Only Skills needs an `overflow-hidden` outer (its inner two-column
-            // layout has its own scroll containers). archivedChats / usage
-            // render plain vertical lists and rely on the outer scroller.
-            activeSection === 'skills'
-              ? "overflow-hidden"
-              : "overflow-y-auto"
-          )}>
+          <div
+            className={cn(
+              'flex-1 p-6 min-h-0 flex flex-col',
+              // Only Skills needs an `overflow-hidden` outer (its inner two-column
+              // layout has its own scroll containers). archivedChats / usage
+              // render plain vertical lists and rely on the outer scroller.
+              activeSection === 'skills' ? 'overflow-hidden' : 'overflow-y-auto'
+            )}
+          >
             {activeSection === 'appearance' && <SettingsAppearance />}
             {activeSection === 'general' && <SettingsGeneral />}
             {activeSection === 'models' && <SettingsModels />}
@@ -137,6 +142,7 @@ export function SettingsModal(): React.JSX.Element {
             {activeSection === 'usage' && <SettingsUsage />}
             {activeSection === 'archivedChats' && <SettingsArchivedChats />}
             {activeSection === 'skills' && <SettingsSkills />}
+            {activeSection === 'voice' && <SettingsVoice />}
             {activeSection === 'hub' && <HubSection />}
             {activeSection === 'shortcuts' && <SettingsShortcuts />}
             {activeSection === 'updates' && <SettingsUpdates />}

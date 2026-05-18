@@ -38,24 +38,26 @@ docs/
 ├── GUIDE.md                # 用户使用指南
 ├── FAQ.md                  # 常见问题
 ├── SHORTCUTS.md            # 快捷键参考
+├── voice-input.md          # 语音输入与 FunASR 本地运行时
 ├── distribution-audit.md   # 分发审计
 └── session-title-generation.md
 ```
 
 ## 根目录文档
 
-| 文件 | 说明 |
-|------|------|
-| `CLAUDE.md` | Claude Code 编码指引（架构、命令、规范） |
-| `AGENTS.md` | AI Agent 协作文档 |
-| `README.md` / `README.en.md` | 项目介绍（中/英） |
-| `CONTRIBUTING.md` | 贡献指南 |
-| `SECURITY.md` | 安全策略 |
-| `CODE_OF_CONDUCT.md` | 行为准则 |
+| 文件                         | 说明                                     |
+| ---------------------------- | ---------------------------------------- |
+| `CLAUDE.md`                  | Claude Code 编码指引（架构、命令、规范） |
+| `AGENTS.md`                  | AI Agent 协作文档                        |
+| `README.md` / `README.en.md` | 项目介绍（中/英）                        |
+| `CONTRIBUTING.md`            | 贡献指南                                 |
+| `SECURITY.md`                | 安全策略                                 |
+| `CODE_OF_CONDUCT.md`         | 行为准则                                 |
 
 ## 快速查找
 
 - **想了解某阶段做了什么？** → `prd/phase-XX.md`（需求）+ `implementation/phase-XX.md`（实现）
 - **想了解技术设计细节？** → `specs/`
 - **想了解近期产品方向？** → `plans/`
+- **想配置语音输入？** → `voice-input.md`
 - **想找历史开发记录？** → `archive/plans/`

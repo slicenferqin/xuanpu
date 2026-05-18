@@ -24,10 +24,21 @@ import type { SessionLifecycle, InterruptItem } from '@/stores/useSessionRuntime
 import { isComposingKeyboardEvent } from '@/lib/message-composer-shortcuts'
 import {
   determineComposerActions,
-  getActionLabel,
   type ComposerAction,
   type ComposerActionSet
 } from '@/lib/session-send-actions'
+import { useSettingsStore } from '@/stores/useSettingsStore'
+import { useI18n } from '@/i18n/useI18n'
+import { useVoiceInput, type VoiceInputState } from '@/hooks/useVoiceInput'
+import { insertVoiceText } from '@/lib/voice/insert-text'
+import {
+  isPushToTalkStartEvent,
+  isPushToTalkStopEvent,
+  PUSH_TO_TALK_HOLD_DELAY_MS,
+  shouldCancelPushToTalkPendingStart
+} from '@/lib/voice/push-to-talk'
+import { VoiceRecorderButton } from '@/components/voice/VoiceRecorderButton'
+import type { VoiceRuntimeProgress } from '@shared/types/voice'
 
 // ---------------------------------------------------------------------------
 // Props
@@ -98,6 +109,21 @@ function ActionMenuIcon({ action }: { action: ComposerAction }): React.JSX.Eleme
   }
 }
 
+const COMPOSER_ACTION_LABEL_KEYS: Record<ComposerAction, string> = {
+  send: 'sessionHq.composer.actions.send',
+  queue: 'sessionHq.composer.actions.queueLater',
+  steer: 'sessionHq.composer.actions.steer',
+  stop_and_send: 'sessionHq.composer.actions.stopAndSend',
+  reply_interrupt: 'sessionHq.composer.actions.reply'
+}
+
+function getLocalizedActionLabel(
+  t: (key: string, params?: Record<string, string | number | boolean>) => string,
+  action: ComposerAction
+): string {
+  return t(COMPOSER_ACTION_LABEL_KEYS[action])
+}
+
 interface ComposerAttachmentsSectionProps {
   attachments: Attachment[]
   onRemove: (id: string) => void
@@ -114,6 +140,77 @@ const ComposerAttachmentsSection = React.memo(function ComposerAttachmentsSectio
   )
 })
 
+const VOICE_WAVE_BARS = [14, 26, 18, 34, 22, 42, 24, 32, 16, 28, 20]
+
+interface ComposerVoiceCapturePanelProps {
+  state: VoiceInputState
+  partialText: string
+  progress: VoiceRuntimeProgress | null
+}
+
+const ComposerVoiceCapturePanel = React.memo(function ComposerVoiceCapturePanel({
+  state,
+  partialText,
+  progress
+}: ComposerVoiceCapturePanelProps): React.JSX.Element {
+  const { t } = useI18n()
+  const preparing = state === 'preparing' || state === 'stopping'
+  const label = preparing
+    ? state === 'stopping'
+      ? t('sessionHq.composer.voice.finishing')
+      : t('sessionHq.composer.voice.preparing')
+    : t('sessionHq.composer.voice.listening')
+
+  return (
+    <div
+      className="pointer-events-none absolute inset-x-4 top-2 z-10 rounded-xl border border-cyan-300/30 bg-background/80 px-3 py-2 shadow-[0_18px_50px_rgba(6,182,212,0.14)] backdrop-blur-md dark:bg-background/70"
+      data-testid="composer-voice-capture-panel"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="relative flex h-2.5 w-2.5 shrink-0">
+            {!preparing && (
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-300 opacity-80" />
+            )}
+            <span
+              className={cn(
+                'relative inline-flex h-2.5 w-2.5 rounded-full',
+                preparing ? 'bg-amber-400' : 'bg-cyan-400'
+              )}
+            />
+          </span>
+          <span className="truncate text-xs font-medium text-foreground">{label}</span>
+        </div>
+        <span className="shrink-0 rounded-full border border-cyan-300/30 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.18em] text-cyan-700 dark:text-cyan-200">
+          {t('sessionHq.composer.voice.holdCtrl')}
+        </span>
+      </div>
+
+      <div className="mt-2 flex h-10 items-center justify-center gap-1.5 overflow-hidden rounded-lg bg-cyan-500/[0.06]">
+        {VOICE_WAVE_BARS.map((height, index) => (
+          <span
+            key={`${height}-${index}`}
+            className={cn(
+              'w-1 rounded-full bg-cyan-400/75 shadow-[0_0_12px_rgba(34,211,238,0.55)]',
+              preparing ? 'animate-pulse opacity-45' : 'animate-pulse'
+            )}
+            style={{
+              height,
+              animationDelay: `${index * 70}ms`,
+              animationDuration: `${720 + index * 35}ms`
+            }}
+          />
+        ))}
+      </div>
+
+      <div className="mt-2 min-h-5 truncate text-xs text-muted-foreground">
+        {partialText ||
+          (preparing && progress?.detail ? progress.detail : t('sessionHq.composer.voice.hint'))}
+      </div>
+    </div>
+  )
+})
+
 interface SuccessCriteriaInputProps {
   value: string
   disabled: boolean
@@ -125,12 +222,13 @@ const SuccessCriteriaInput = React.memo(function SuccessCriteriaInput({
   disabled,
   onChange
 }: SuccessCriteriaInputProps): React.JSX.Element {
+  const { t } = useI18n()
   return (
     <div className="px-4 pb-1">
       <textarea
         value={value}
         onChange={(e) => onChange?.(e.target.value)}
-        placeholder="Success criteria..."
+        placeholder={t('sessionHq.composer.placeholders.successCriteria')}
         disabled={disabled}
         className={cn(
           'w-full resize-none rounded-md border border-border/60 bg-background/45 px-2.5 py-1.5',
@@ -163,6 +261,7 @@ interface ComposerToolbarProps {
   iconHint: ComposerActionSet['iconHint']
   primaryLabel: string
   onAttach: (file: Omit<Attachment, 'id'>) => void
+  voiceSlot?: React.ReactNode
 }
 
 const ComposerToolbar = React.memo(function ComposerToolbar({
@@ -181,15 +280,18 @@ const ComposerToolbar = React.memo(function ComposerToolbar({
   buttonEnabled,
   iconHint,
   primaryLabel,
-  onAttach
+  onAttach,
+  voiceSlot
 }: ComposerToolbarProps): React.JSX.Element {
+  const { t } = useI18n()
   return (
     <div className="flex items-center gap-2 px-3 pb-3 pt-1">
       <AttachmentButton onAttach={onAttach} disabled={disabled} />
+      {voiceSlot}
 
       {/* Plan mode toggle */}
       {pendingPlan ? (
-        <span className="text-xs text-muted-foreground">Review the plan above</span>
+        <span className="text-xs text-muted-foreground">{t('sessionHq.composer.reviewPlan')}</span>
       ) : onToggleMode ? (
         <Button
           type="button"
@@ -202,9 +304,9 @@ const ComposerToolbar = React.memo(function ComposerToolbar({
               : 'border-border/70 bg-background/65 text-muted-foreground shadow-none hover:border-border hover:bg-background/85 hover:text-foreground'
           )}
           onClick={onToggleMode}
-          title="Toggle Plan Mode (Tab)"
+          title={t('sessionHq.composer.togglePlanMode')}
         >
-          Plan
+          {t('sessionHq.composer.plan')}
         </Button>
       ) : null}
 
@@ -221,10 +323,10 @@ const ComposerToolbar = React.memo(function ComposerToolbar({
           )}
           onClick={onToggleGoalMode}
           aria-pressed={goalMode}
-          title="Toggle Goal Mode"
+          title={t('sessionHq.composer.toggleGoalMode')}
           data-testid="composer-goal-toggle"
         >
-          Goal
+          {t('sessionHq.composer.goal')}
         </Button>
       ) : null}
 
@@ -239,7 +341,7 @@ const ComposerToolbar = React.memo(function ComposerToolbar({
               size="sm"
               className="h-8 rounded-full border border-border/70 px-2.5"
               disabled={!alternativesEnabled}
-              aria-label="More send actions"
+              aria-label={t('sessionHq.composer.moreSendActions')}
               data-testid="composer-action-menu-trigger"
             >
               <ChevronDown className="h-4 w-4" />
@@ -261,7 +363,7 @@ const ComposerToolbar = React.memo(function ComposerToolbar({
                 data-testid={`composer-action-${action}`}
               >
                 <ActionMenuIcon action={action} />
-                <span>{getActionLabel(action)}</span>
+                <span>{getLocalizedActionLabel(t, action)}</span>
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
@@ -316,11 +418,13 @@ export function ComposerBar({
   containerRef,
   contextAttachmentSlot
 }: ComposerBarProps): React.JSX.Element {
+  const { t } = useI18n()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [content, setContent] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const contentRef = useRef('')
   const attachmentsRef = useRef<Attachment[]>([])
+  const voiceInputEnabled = useSettingsStore((s) => s.voiceInput.enabled)
 
   // --- Draft persistence: save input on unmount/switch, restore on mount ---
   useEffect(() => {
@@ -546,6 +650,106 @@ export function ComposerBar({
     }
   }, [])
 
+  const handleVoiceFinalText = useCallback(
+    (text: string) => {
+      const textarea = textareaRef.current
+      const selectionStart = textarea?.selectionStart ?? contentRef.current.length
+      const selectionEnd = textarea?.selectionEnd ?? selectionStart
+      const result = insertVoiceText({
+        current: contentRef.current,
+        insert: text,
+        selectionStart,
+        selectionEnd
+      })
+      handleContentChange(result.value)
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus()
+        textareaRef.current?.setSelectionRange(result.cursor, result.cursor)
+      })
+    },
+    [handleContentChange]
+  )
+  const voice = useVoiceInput(handleVoiceFinalText)
+  const voiceStateRef = useRef<VoiceInputState>(voice.state)
+  const voiceStartRef = useRef(voice.start)
+  const voiceStopRef = useRef(voice.stop)
+  const pushToTalkRef = useRef<{ timer: number | null; active: boolean }>({
+    timer: null,
+    active: false
+  })
+
+  useEffect(() => {
+    voiceStateRef.current = voice.state
+    voiceStartRef.current = voice.start
+    voiceStopRef.current = voice.stop
+  }, [voice.start, voice.state, voice.stop])
+
+  useEffect(() => {
+    if (!voiceInputEnabled || isDisabled) return
+
+    const isComposerHotkeyContext = (): boolean => {
+      const activeElement = document.activeElement
+      if (!(activeElement instanceof HTMLElement)) return false
+      return (
+        activeElement === textareaRef.current ||
+        containerRef?.current?.contains(activeElement) === true
+      )
+    }
+
+    const clearPendingStart = (): void => {
+      if (pushToTalkRef.current.timer == null) return
+      window.clearTimeout(pushToTalkRef.current.timer)
+      pushToTalkRef.current.timer = null
+    }
+
+    const stopPushToTalk = (): void => {
+      clearPendingStart()
+      if (!pushToTalkRef.current.active) return
+      pushToTalkRef.current.active = false
+      const state = voiceStateRef.current
+      if (state === 'preparing' || state === 'recording' || state === 'error') {
+        void voiceStopRef.current()
+      }
+    }
+
+    const handleGlobalKeyDown = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented) return
+      if (!isComposerHotkeyContext()) return
+
+      if (isPushToTalkStartEvent(event)) {
+        if (pushToTalkRef.current.timer != null || pushToTalkRef.current.active) return
+        pushToTalkRef.current.timer = window.setTimeout(() => {
+          pushToTalkRef.current.timer = null
+          if (voiceStateRef.current !== 'idle') return
+          pushToTalkRef.current.active = true
+          void voiceStartRef.current()
+        }, PUSH_TO_TALK_HOLD_DELAY_MS)
+        return
+      }
+
+      if (pushToTalkRef.current.timer != null && shouldCancelPushToTalkPendingStart(event)) {
+        clearPendingStart()
+      }
+    }
+
+    const handleGlobalKeyUp = (event: KeyboardEvent): void => {
+      if (isPushToTalkStopEvent(event)) {
+        stopPushToTalk()
+      }
+    }
+
+    window.addEventListener('keydown', handleGlobalKeyDown, true)
+    window.addEventListener('keyup', handleGlobalKeyUp, true)
+    window.addEventListener('blur', stopPushToTalk)
+
+    return () => {
+      window.removeEventListener('keydown', handleGlobalKeyDown, true)
+      window.removeEventListener('keyup', handleGlobalKeyUp, true)
+      window.removeEventListener('blur', stopPushToTalk)
+      stopPushToTalk()
+    }
+  }, [containerRef, isDisabled, voiceInputEnabled])
+
   const handleCommandSelect = useCallback((cmd: { name: string; template: string }) => {
     const nextContent = `/${cmd.name} `
     contentRef.current = nextContent
@@ -561,14 +765,14 @@ export function ComposerBar({
   }, [])
 
   const placeholder = pendingPlan
-    ? 'Provide feedback on the plan...'
+    ? t('sessionHq.composer.placeholders.planFeedback')
     : firstInterrupt
-      ? 'Type your reply...'
+      ? t('sessionHq.composer.placeholders.reply')
       : actionSet.primary === 'queue'
-        ? 'Type a follow-up to queue after the current run...'
+        ? t('sessionHq.composer.placeholders.queueFollowUp')
         : actionSet.iconHint === 'stop'
-          ? 'Type to stop and send...'
-          : 'Type a message...'
+          ? t('sessionHq.composer.placeholders.stopAndSend')
+          : t('sessionHq.composer.placeholders.message')
 
   // Determine if button should be enabled
   const buttonEnabled =
@@ -587,6 +791,12 @@ export function ComposerBar({
   const handleToolbarSubmit = useCallback(() => {
     void handleSubmit()
   }, [handleSubmit])
+  const voiceCaptureVisible =
+    voiceInputEnabled &&
+    (voice.state === 'preparing' ||
+      voice.state === 'recording' ||
+      voice.state === 'stopping' ||
+      voice.partialText.length > 0)
 
   return (
     <div
@@ -596,9 +806,18 @@ export function ComposerBar({
         'w-[85%] ml-[5%]',
         'rounded-2xl border border-border/50',
         'bg-background/70 backdrop-blur-xl',
-        'shadow-lg shadow-black/5 dark:shadow-black/20'
+        'shadow-lg shadow-black/5 dark:shadow-black/20',
+        voiceCaptureVisible &&
+          'border-cyan-300/50 bg-cyan-500/[0.035] shadow-[0_0_0_1px_rgba(103,232,249,0.14),0_20px_70px_rgba(6,182,212,0.16)] dark:border-cyan-300/30 dark:bg-cyan-400/[0.045]'
       )}
     >
+      {voiceCaptureVisible && (
+        <div
+          className="pointer-events-none absolute inset-0 rounded-2xl bg-[radial-gradient(circle_at_18%_0%,rgba(34,211,238,0.18),transparent_30%),radial-gradient(circle_at_82%_100%,rgba(14,165,233,0.14),transparent_34%)]"
+          data-testid="composer-voice-field-aura"
+        />
+      )}
+
       {/* Slash command popover — floats above the card */}
       {showSlashCommands && (
         <SlashCommandPopover
@@ -613,7 +832,7 @@ export function ComposerBar({
       {/* Pending message indicator */}
       {pendingCount > 0 && (
         <div className="px-4 pt-3 pb-0 text-xs text-muted-foreground flex items-center gap-1.5">
-          {pendingCount} message{pendingCount > 1 ? 's' : ''} queued
+          {t('sessionHq.composer.queuedMessages', { count: pendingCount })}
         </div>
       )}
 
@@ -625,7 +844,14 @@ export function ComposerBar({
       )}
 
       {/* Textarea — seamlessly fills the card top */}
-      <div className="px-4 pt-3 pb-1">
+      <div className={cn('relative px-4 pt-3 pb-1', voiceCaptureVisible && 'min-h-[116px] pb-3')}>
+        {voiceCaptureVisible && (
+          <ComposerVoiceCapturePanel
+            state={voice.state}
+            partialText={voice.partialText}
+            progress={voice.progress}
+          />
+        )}
         <textarea
           ref={textareaRef}
           value={content}
@@ -635,11 +861,12 @@ export function ComposerBar({
           placeholder={placeholder}
           disabled={isDisabled}
           className={cn(
-            'w-full resize-none bg-transparent border-0 outline-none',
+            'relative z-0 w-full resize-none bg-transparent border-0 outline-none',
             'text-sm placeholder:text-muted-foreground',
             'focus-visible:outline-none focus-visible:ring-0',
             'disabled:cursor-not-allowed disabled:opacity-50',
-            'min-h-[36px] max-h-[200px]'
+            'min-h-[36px] max-h-[200px]',
+            voiceCaptureVisible && 'text-foreground/35 placeholder:text-transparent'
           )}
           rows={1}
         />
@@ -669,8 +896,30 @@ export function ComposerBar({
         onSubmit={handleToolbarSubmit}
         buttonEnabled={buttonEnabled}
         iconHint={actionSet.iconHint}
-        primaryLabel={actionSet.primaryLabel}
+        primaryLabel={
+          actionSet.primary
+            ? actionSet.primary === 'send' && pendingCount > 0
+              ? t('sessionHq.composer.actions.sendQueued')
+              : getLocalizedActionLabel(t, actionSet.primary)
+            : t('sessionHq.composer.actions.disconnected')
+        }
         onAttach={handleAttach}
+        voiceSlot={
+          voiceInputEnabled ? (
+            <VoiceRecorderButton
+              state={voice.state}
+              partialText={voice.partialText}
+              progress={voice.progress}
+              disabled={isDisabled}
+              onStart={() => {
+                void voice.start()
+              }}
+              onStop={() => {
+                void voice.stop()
+              }}
+            />
+          ) : null
+        }
       />
     </div>
   )

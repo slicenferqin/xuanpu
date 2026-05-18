@@ -29,7 +29,9 @@ import {
   registerTimelineHandlers,
   registerSkillHandlers,
   registerHubHandlers,
-  registerFieldHandlers
+  registerFieldHandlers,
+  registerVoiceHandlers,
+  cleanupVoiceRuntime
 } from './ipc'
 import { buildMenu, updateMenuState } from './menu'
 import type { MenuState } from './menu'
@@ -838,6 +840,8 @@ app.whenReady().then(async () => {
     registerScriptHandlers(mainWindow)
     log.info('Registering Terminal handlers')
     registerTerminalHandlers(mainWindow)
+    log.info('Registering Voice handlers')
+    registerVoiceHandlers(mainWindow)
 
     // Set up notification service with main window reference
     notificationService.setMainWindow(mainWindow)
@@ -923,6 +927,8 @@ app.on('will-quit', async () => {
   await cleanupBranchWatchers()
   // Cleanup canonical agent handlers
   await cleanupAgentHandlers(agentRuntimeManager ?? undefined)
+  // Cleanup voice runtime sessions and the managed local sidecar.
+  await cleanupVoiceRuntime()
   // Cleanup hub controller (stops server + tunnel)
   try {
     const { getHubController } = await import('./services/hub/hub-controller')
