@@ -51,19 +51,17 @@ pnpm dev
 - [ ] 登录 → 看到设备 → 选会话
 - [ ] curl 桌面 `https://xxx.trycloudflare.com/health` → `{"ok":true}`
 
-## 4. 桌面端二次确认
+## 4. Prompt 直达
 
-- [ ] tunnel 开启状态下，**确认面板里「桌面端二次确认」开关变灰且强制 ON**
+- [ ] tunnel 开启状态下，确认 Hub 仍可正常登录，且 prompt 不再经过单独桌面确认门
 - [ ] 手机端在 PromptComposer 输入「ls」点发送
-- [ ] 桌面端右下角弹 sonner toast「手机请求执行 prompt: ls」+ 批准/拒绝
-- [ ] 桌面点「批准」→ 手机看到 user bubble + claude 开始流式回复
-- [ ] 重新发一条 prompt，桌面 30 秒不点 → 手机收到 `CONFIRM_TIMEOUT` 错误条
-- [ ] 关 tunnel，再关「二次确认」开关 → 此时手机 prompt 直接执行无 toast
+- [ ] 桌面端不弹「批准 / 拒绝」类 Hub 确认 toast
+- [ ] 手机看到 user bubble，随后进入正常流式回复或运行结果
+- [ ] 如果 runtime 在这条 prompt 中触发 permission / question / plan / command approval，响应卡片能正常出现并清空
 
 ## 5. 中断长任务
 
 - [ ] 发一条会跑很久的 prompt（如「写一个完整的 React 项目脚手架」）
-- [ ] 桌面批准
 - [ ] 手机「发送」按钮变成红色「中断」
 - [ ] 点「中断」→ runtime.abort 触发，桌面端 claude 进程立刻停
 - [ ] 手机端 status 变回 idle
@@ -135,8 +133,9 @@ pnpm dev
 
 | Symptom | 状态 |
 | :-- | :-- |
-| Codex / OpenCode 会话在手机端不可见 | M1.5 |
-| 消息流大量 `agent activity` JSON 折叠卡 | M1.5 翻译常见类型 |
+| Codex / OpenCode 会话在手机端不可见 | 已过期；当前 bridge 已允许多 runtime canonical event |
+| 消息流部分事件缺少专用 UI / 可能被跳过 | M1.5 翻译常见类型或补 live unknown fallback |
+| `NEED_FULL_RELOAD` 后不能自动历史回填 | 1.4.9 |
 | 没有文件附件上传 | M2 |
 | Hub 状态栏没有 PWA 图标提示 | M2 |
 | 无 Service Worker 离线壳 | M2 |

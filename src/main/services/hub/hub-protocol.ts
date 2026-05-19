@@ -9,14 +9,15 @@
  *
  * The renderer/mobile UIs deal in **HubMessage** — a flattened, agent-agnostic
  * shape so we can layer claude-code / codex / opencode behind the same view.
- * Unknown parts preserve their raw payload via `UnknownPart.raw` so we never
- * drop data we don't yet model.
+ * History mapping can preserve unknown parts via `UnknownPart.raw`; the live
+ * bridge still skips some unmodeled events.
  *
  * Reconnect: every server-emitted frame carries a monotonic `seq` per session.
  * The mobile client remembers `lastSeq`, on reconnect sends `resume{lastSeq}`,
  * and we replay from a per-session ring buffer. If the buffer rolled over we
- * answer with `error{code:'NEED_FULL_RELOAD'}` and the client refetches via
- * `/api/sessions/:hiveId/history`.
+ * answer with `error{code:'NEED_FULL_RELOAD'}`. The stable product path should
+ * refetch `/api/sessions/:hiveId/history`; current mobile still needs that
+ * automatic fallback wired in.
  */
 
 import { z } from 'zod'

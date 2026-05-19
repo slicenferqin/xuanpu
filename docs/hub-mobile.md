@@ -1,6 +1,6 @@
 # Hub 模式：手机远程访问（M1）
 
-> 让手机或平板通过浏览器远程查看、控制你的 Claude Code 会话。  
+> 让手机或平板通过浏览器远程查看、控制你的 Claude Code / Codex / OpenCode 会话。  
 > 无需账号、无需额外工具，桌面端一次开关即用。
 
 ## 快速开始
@@ -25,11 +25,17 @@ Xuanpu Hub 默认只接受 **loopback（127.0.0.1 / ::1）** 连接。公网暴�
 | **cf_access** | 公网暴露 **推荐** | 使用 Cloudflare Access 前置，信任 `CF-Access-Authenticated-User-Email` + 白名单 |
 | **hybrid** | 过渡切换 | 以上任一方式通过即放行 |
 
-### 桌面端二次确认
+### Prompt 直达
 
-默认开启：手机发起的每条 prompt，都会在桌面端弹 Toast 让你 **批准 / 拒绝**，30 秒超时视为拒绝。
+手机发起的每条 prompt 都会直接送到 runtime，不再经过单独的桌面确认门。
 
-> **公网访问开启时此开关强制为 ON，无法关闭**。这是 Xuanpu 防止 Hub URL 泄漏后被滥用的最后一道闸门。
+安全边界由这几层承担：
+
+- Hub 登录态 / CF Access 鉴权
+- WebSocket Origin 校验
+- 现有的 permission / question / plan / command approval 卡
+
+也就是说，prompt 是直达的，但 runtime 仍然可以在高风险动作上继续拦截。
 
 ### 登录限流
 
@@ -71,23 +77,25 @@ Xuanpu Hub 默认只接受 **loopback（127.0.0.1 / ::1）** 连接。公网暴�
 
 ### 手机 prompt 发出后卡住
 
-- 桌面端 Toast 被你忽略了 → 30 秒后会返回 `CONFIRM_TIMEOUT` 错误
-- 关掉二次确认开关（仅内网建议）
+- 先看 Hub 是否在线、WS 是否重连、session 路由是否有效
+- 如果 runtime 触发的是 permission / question / plan / command approval，请按对应卡片处理
+- 如果看到 `NEED_FULL_RELOAD`，说明断线期间 ring buffer 的缺口已经被挤掉。当前版本需要手动刷新页面；1.4.9 应补自动历史回填。
 
-### 二次确认开关是灰的
+### 之前的二次确认开关还有效吗？
 
-公网隧道开启时会强制 ON。先关 tunnel 再改。
+当前 Hub prompt 是直达 runtime 的，旧的 `require_desktop_confirm` 设置已经不参与路由。1.4.9 收口时应把相关设置文案彻底清掉，避免误导。
 
 ## 已知限制（M1）
 
-- **仅 Claude Code**：Codex / OpenCode 会话在手机端不可见（M1.5）
+- **Claude Code / Codex / OpenCode 均可见**：当前 bridge 会把三种 runtime 的 canonical event 都翻译进 Hub
 - **不支持文件附件上传**：手机端只能发文本 prompt
-- **消息流是"agent activity"JSON dump**：复杂工具调用目前没有专用 UI（M2 补）
+- **消息流仍有一部分未建模事件**：历史消息有部分 `unknown` 保留能力，live stream 仍可能跳过不常见事件，后续再细化专用 UI
+- **`NEED_FULL_RELOAD` 还不是自动恢复**：server / protocol 已能识别 gap，mobile 当前仍需手动刷新
 - **没有深色/浅色切换**：手机端固定深色
 - **没有 PWA 离线壳**：刷新需要网络（M2 加 Service Worker）
 
 ## 后续路线
 
-- **M1.5**：Codex + OpenCode 接入、消息流富渲染（MarkDown/Diff）
+- **M1.5**：消息流富渲染（Markdown / Diff / 更多工具专用 UI）
 - **M2**：Agent 模式（装 xuanpu-agent 的其他电脑汇报给 Hub）、Token 鉴权、PWA 离线壳
 - **M3**：端到端加密、无中心（DHT）

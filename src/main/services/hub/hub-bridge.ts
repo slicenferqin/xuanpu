@@ -11,10 +11,10 @@
  *
  * 2. The bridge routes incoming `agent:stream` envelopes (CanonicalAgentEvent)
  *    to a HubRegistry session keyed by `(localDeviceId, hiveSessionId)`, using
- *    a best-effort translation to the agent-agnostic `ServerMsg` protocol. We
- *    deliberately keep the translation lossy-but-lossless: anything we don't
- *    model yet is wrapped as a HubMessage with a single `UnknownPart{ raw }`,
- *    so the mobile client can render the raw payload and we never drop data.
+ *    a best-effort translation to the agent-agnostic `ServerMsg` protocol.
+ *    Common live events are modeled as status/messages/interrupt cards. Some
+ *    unmodeled live events are currently skipped; the protocol has
+ *    `UnknownPart{raw}` but the live fallback is not yet universal.
  *
  * 3. Reverse path (ClientMsg → runtime) lives in `handleClientMessage`.
  *    Mobile-originated `prompt` is dispatched directly to the runtime — there
@@ -68,10 +68,11 @@ export interface HubBridgeOptions {
   ) =>
     | { worktreePath: string; agentSessionId: string; runtimeId?: AgentRuntimeAdapter['id'] }
     | null
-    | Promise<
-        | { worktreePath: string; agentSessionId: string; runtimeId?: AgentRuntimeAdapter['id'] }
-        | null
-      >
+    | Promise<{
+        worktreePath: string
+        agentSessionId: string
+        runtimeId?: AgentRuntimeAdapter['id']
+      } | null>
   /** Override for tests. */
   now?: () => number
   /** Defaults to 'claude-code' (M1 only supports Claude). */
@@ -100,10 +101,7 @@ export interface BrowserWindowLike {
  * also funnels into the hub bridge. Everything else is passed through via a
  * plain prototype clone — we only intercept `webContents.send`.
  */
-export function wrapBrowserWindow(
-  real: BrowserWindow,
-  bridge: HubBridge
-): BrowserWindow {
+export function wrapBrowserWindow(real: BrowserWindow, bridge: HubBridge): BrowserWindow {
   const originalWc = real.webContents as unknown as WebContentsLike
   const wrappedWc: WebContentsLike = {
     get id() {
@@ -154,10 +152,11 @@ export class HubBridge {
   ) =>
     | { worktreePath: string; agentSessionId: string; runtimeId?: AgentRuntimeAdapter['id'] }
     | null
-    | Promise<
-        | { worktreePath: string; agentSessionId: string; runtimeId?: AgentRuntimeAdapter['id'] }
-        | null
-      >
+    | Promise<{
+        worktreePath: string
+        agentSessionId: string
+        runtimeId?: AgentRuntimeAdapter['id']
+      } | null>
   private readonly primaryRuntimeId: AgentRuntimeAdapter['id']
   private readonly now: () => number
   /** worktreePath per hive session — needed to call runtime methods. */
@@ -335,7 +334,7 @@ export class HubBridge {
         const d = ev.data
         const questionText =
           typeof (d.questions?.[0] as { question?: unknown })?.question === 'string'
-            ? ((d.questions[0] as { question: string }).question)
+            ? (d.questions[0] as { question: string }).question
             : ''
         return [
           {
@@ -375,7 +374,7 @@ export class HubBridge {
             typeof d.delta === 'string'
               ? d.delta
               : typeof (rawPart as { text?: unknown }).text === 'string'
-                ? ((rawPart as { text: string }).text)
+                ? (rawPart as { text: string }).text
                 : ''
           if (!textDelta) return []
           initialPart = { type: 'text', text: textDelta }
@@ -398,8 +397,7 @@ export class HubBridge {
           // cancelled, which is the right terminal set: a cancelled tool
           // should also stop showing as pending and emit whatever partial
           // output it accumulated.
-          const isTerminal =
-            status === 'completed' || status === 'error' || status === 'cancelled'
+          const isTerminal = status === 'completed' || status === 'error' || status === 'cancelled'
           initialPart = {
             type: 'tool_use',
             toolUseId: callId,
@@ -423,19 +421,14 @@ export class HubBridge {
                 : output
             const isError = status === 'error' || tool.state?.error !== undefined
             const hasPayload =
-              truncatedOutput !== undefined ||
-              errorVal !== undefined ||
-              result !== undefined
+              truncatedOutput !== undefined || errorVal !== undefined || result !== undefined
             if (hasPayload) {
               toolResultEmit = {
                 partKey: `tool-result:${callId}`,
                 part: {
                   type: 'tool_result',
                   toolUseId: callId,
-                  output:
-                    truncatedOutput !== undefined
-                      ? truncatedOutput
-                      : (result ?? errorVal),
+                  output: truncatedOutput !== undefined ? truncatedOutput : (result ?? errorVal),
                   isError
                 }
               }
@@ -452,9 +445,7 @@ export class HubBridge {
 
         if (!stream) {
           // Open a new assistant bubble seeded with this first part.
-          const hubMsgId = `mb-${sessionId}-${this.now()}-${Math.random()
-            .toString(36)
-            .slice(2, 6)}`
+          const hubMsgId = `mb-${sessionId}-${this.now()}-${Math.random().toString(36).slice(2, 6)}`
           stream = {
             hubMsgId,
             partIdx: new Map([[partKey, 0]]),
@@ -592,11 +583,7 @@ export class HubBridge {
 
   // ── inbound (mobile → runtime) ───────────────────────────────────────────
 
-  async handleClientMessage(
-    ws: HubSubscriber,
-    hiveSessionId: string,
-    raw: unknown
-  ): Promise<void> {
+  async handleClientMessage(ws: HubSubscriber, hiveSessionId: string, raw: unknown): Promise<void> {
     let msg: ClientMsg
     try {
       msg = ClientMsgSchema.parse(raw)
@@ -611,9 +598,7 @@ export class HubBridge {
       return
     }
 
-    const runtime = this.runtimeManager.getImplementer(
-      routing?.runtimeId ?? this.primaryRuntimeId
-    )
+    const runtime = this.runtimeManager.getImplementer(routing?.runtimeId ?? this.primaryRuntimeId)
 
     switch (msg.type) {
       case 'prompt': {
@@ -712,9 +697,7 @@ export class HubBridge {
     }
   }
 
-  private async getRouting(
-    hiveSessionId: string
-  ): Promise<{
+  private async getRouting(hiveSessionId: string): Promise<{
     worktreePath: string
     agentSessionId: string
     runtimeId: AgentRuntimeAdapter['id']
@@ -812,7 +795,7 @@ function translateStreamingPart(p: StreamingPart): HubPart | null {
     case 'reasoning': {
       // Mobile has no dedicated reasoning type — render as plain text so
       // the user at least sees Claude's prior thinking in the bubble.
-      const text = typeof p.reasoning === 'string' ? p.reasoning : p.text ?? ''
+      const text = typeof p.reasoning === 'string' ? p.reasoning : (p.text ?? '')
       if (!text) return null
       return { type: 'text', text }
     }
@@ -915,10 +898,11 @@ export interface CreateHubBridgeDeps {
   ) =>
     | { worktreePath: string; agentSessionId: string; runtimeId?: AgentRuntimeAdapter['id'] }
     | null
-    | Promise<
-        | { worktreePath: string; agentSessionId: string; runtimeId?: AgentRuntimeAdapter['id'] }
-        | null
-      >
+    | Promise<{
+        worktreePath: string
+        agentSessionId: string
+        runtimeId?: AgentRuntimeAdapter['id']
+      } | null>
 }
 
 export function createHubBridge(deps: CreateHubBridgeDeps): HubBridge {

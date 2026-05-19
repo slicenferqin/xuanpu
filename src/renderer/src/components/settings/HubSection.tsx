@@ -6,10 +6,10 @@
  *  2. Local hub on/off + URL
  *  3. Public access via cloudflared
  *  4. Auth mode (password / cf_access / hybrid)
- *  5. Security (desktop confirm + change password)
+ *  5. Security (command filter + change password)
  *
- * The desktop二次确认 toast lives in `HubConfirmationToasts` (mounted higher
- * up so it survives panel close).
+ * Hub prompt now goes straight to the runtime; there is no separate desktop
+ * confirm gate in the current product contract.
  */
 
 import { useEffect, useState, type FormEvent } from 'react'
@@ -62,7 +62,7 @@ export function HubSection(): React.JSX.Element {
       <header>
         <h2 className="text-lg font-semibold">远程访问 (Hub)</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          在本机开启 Hub 服务，让手机或平板远程查看与控制你的 Claude Code 会话。
+          在本机开启 Hub 服务，让手机或平板远程查看与控制你的 Claude Code / Codex / OpenCode 会话。
           公网访问通过 Cloudflare 临时隧道实现。
         </p>
       </header>
@@ -75,11 +75,7 @@ export function HubSection(): React.JSX.Element {
 
       <TunnelCard status={status} loading={loading} />
 
-      <AuthModeCard
-        currentMode={status.authMode}
-        emails={cfAccessEmails}
-        loading={loading}
-      />
+      <AuthModeCard currentMode={status.authMode} emails={cfAccessEmails} loading={loading} />
 
       <SecurityCard status={status} loading={loading} />
     </div>
@@ -111,8 +107,8 @@ function SetupCard({
   return (
     <Card title="首次设置" icon={<KeyRound className="h-4 w-4" />}>
       <p className="text-sm text-muted-foreground">
-        Hub 还没有管理员账号。请使用下面的一次性 Setup Key 创建第一个管理员。
-        创建后此 Key 会立即失效。
+        Hub 还没有管理员账号。请使用下面的一次性 Setup Key 创建第一个管理员。 创建后此 Key
+        会立即失效。
       </p>
       <div className="flex items-center gap-2 mt-3 mb-4">
         <code className="flex-1 px-3 py-2 bg-muted rounded text-sm font-mono select-all">
@@ -191,9 +187,7 @@ function HubSwitchCard({
         <>
           {status.enabled && url ? (
             <div className="flex items-center gap-2 mt-1">
-              <code className="flex-1 px-3 py-2 bg-muted rounded text-sm font-mono">
-                {url}
-              </code>
+              <code className="flex-1 px-3 py-2 bg-muted rounded text-sm font-mono">{url}</code>
               <CopyButton value={url} />
               <QrButton value={url} label="同 Wi-Fi 下扫码" />
             </div>
@@ -240,9 +234,7 @@ function TunnelCard({
         />
       }
     >
-      {!status.enabled && (
-        <p className="text-sm text-muted-foreground">请先开启本机服务。</p>
-      )}
+      {!status.enabled && <p className="text-sm text-muted-foreground">请先开启本机服务。</p>}
       {status.enabled && (
         <>
           <TunnelStatusLine tunnel={status.tunnel} host={status.host} port={status.port} />
@@ -555,9 +547,7 @@ function QrButton({ value, label }: { value: string; label?: string }): React.JS
           <p className="max-w-[12rem] break-all text-center text-[11px] text-muted-foreground font-mono">
             {value}
           </p>
-          {label ? (
-            <p className="text-[11px] text-muted-foreground">{label}</p>
-          ) : null}
+          {label ? <p className="text-[11px] text-muted-foreground">{label}</p> : null}
         </div>
       </PopoverContent>
     </Popover>

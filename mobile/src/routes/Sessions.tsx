@@ -3,12 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useSessions, type HubSessionListItem } from '../stores/useSessions'
 import { usePullToRefresh } from '../hooks/usePullToRefresh'
 import { formatRelativeTime } from '../lib/time'
-import {
-  PullIndicator,
-  SkeletonRows,
-  EmptyState,
-  ErrorBanner
-} from './Devices'
+import { PullIndicator, SkeletonRows, EmptyState, ErrorBanner } from './Devices'
 
 interface Group {
   projectId: string
@@ -95,12 +90,7 @@ function getProjectBadgeStyle(name: string): (typeof PROJECT_BADGE_STYLES)[numbe
 
 export function Sessions(): React.JSX.Element {
   const { deviceId } = useParams<{ deviceId: string }>()
-  const {
-    byDevice,
-    loadingSessionsFor,
-    sessionsErrorFor,
-    refreshSessions
-  } = useSessions()
+  const { byDevice, loadingSessionsFor, sessionsErrorFor, refreshSessions } = useSessions()
 
   const sessions = deviceId ? byDevice[deviceId] : undefined
   const loading = loadingSessionsFor === deviceId
@@ -123,10 +113,7 @@ export function Sessions(): React.JSX.Element {
   }, [deviceId, refreshSessions])
 
   return (
-    <div
-      ref={ref}
-      className="min-h-dvh safe-pad-top safe-pad-bottom overflow-y-auto"
-    >
+    <div ref={ref} className="min-h-dvh safe-pad-top safe-pad-bottom overflow-y-auto">
       <header className="flex items-center gap-3 px-4 py-3 border-b border-zinc-900 sticky top-0 bg-zinc-950/95 backdrop-blur z-10">
         <Link
           to="/devices"
@@ -148,7 +135,7 @@ export function Sessions(): React.JSX.Element {
         {!loading && !error && groups.length === 0 && (
           <EmptyState
             title="没有活跃会话"
-            hint="在桌面端打开一个 Claude Code 会话。"
+            hint="在桌面端打开一个 Claude Code / Codex / OpenCode 会话。"
           />
         )}
 
@@ -160,13 +147,7 @@ export function Sessions(): React.JSX.Element {
   )
 }
 
-function GroupSection({
-  group,
-  deviceId
-}: {
-  group: Group
-  deviceId: string
-}): React.JSX.Element {
+function GroupSection({ group, deviceId }: { group: Group; deviceId: string }): React.JSX.Element {
   const badgeStyle = getProjectBadgeStyle(group.projectName)
 
   return (
@@ -178,12 +159,8 @@ function GroupSection({
           {getProjectInitials(group.projectName)}
         </div>
         <div className="min-w-0">
-          <p className="truncate text-[15px] font-semibold text-zinc-100">
-            {group.projectName}
-          </p>
-          <p className="mt-0.5 text-xs text-zinc-400">
-            {group.sessions.length} 个会话
-          </p>
+          <p className="truncate text-[15px] font-semibold text-zinc-100">{group.projectName}</p>
+          <p className="mt-0.5 text-xs text-zinc-400">{group.sessions.length} 个会话</p>
         </div>
       </div>
 
@@ -205,10 +182,7 @@ function GroupSection({
                   />
                 )}
                 {s.runtimeStatus === 'error' && (
-                  <span
-                    className="h-2 w-2 rounded-full bg-amber-500 shrink-0"
-                    title="出错"
-                  />
+                  <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" title="出错" />
                 )}
               </div>
               <div className="mt-1.5 flex items-center justify-between gap-3 text-xs text-zinc-500">

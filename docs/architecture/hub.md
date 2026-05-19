@@ -39,8 +39,8 @@
 
 1. **零侵入** — Claude/Codex/OpenCode 的 implementer 文件未修改。fan-out 完全在 `wrapBrowserWindow` Proxy 里：拦截 `webContents.send(channel, ...)`，只对 `channel==='agent:stream'` 分流给 HubBridge。
 2. **loopback-only 监听** — `HubServer` 只 bind `127.0.0.1`（v6 fallback `::1`）。公网暴露必须走 `cloudflared` 子进程，从设计上杜绝误操作。
-3. **桌面端二次确认不可由移动端跳过** — `HubBridge.handleClientMessage` 对 `prompt` frame 强制走 `PromptConfirmer.confirm()`，30s 超时返回 `CONFIRM_TIMEOUT`。
-4. **消息幂等** — 每个 ServerMsg 都带单调 `seq`（per-session `SeqCounter`）；reconnect 用 `resume{lastSeq}` 从 `MessageRingBuffer` 重播（容量 500 帧）。buffer 被挤出就回 `NEED_FULL_RELOAD`，客户端走 REST `/api/sessions/:id/history` 全量回填。
+3. **Prompt 直达 runtime** — `HubBridge.handleClientMessage` 对 `prompt` frame 直接调用 runtime；安全边界由 WS 鉴权、Origin 校验，以及现有的 permission / question / plan / command approval 卡共同承担。
+4. **消息幂等** — 每个 ServerMsg 都带单调 `seq`（per-session `SeqCounter`）；reconnect 用 `resume{lastSeq}` 从 `MessageRingBuffer` 重播（容量 500 帧）。buffer 被挤出就回 `NEED_FULL_RELOAD`。当前 mobile 只展示错误/支持手动刷新，1.4.9 应补自动 REST `/api/sessions/:id/history` 回填。
 
 ## 文件地图
 
@@ -52,7 +52,7 @@
 | `hub-bridge.ts` | IPC → ServerMsg 翻译；ClientMsg → runtime method；`wrapBrowserWindow` Proxy |
 | `hub-server.ts` | HTTP + WS 路由；setup / login / logout / me / config / devices / sessions / history |
 | `tunnel-service.ts` | spawn cloudflared；URL 解析；指数退避重启；跨平台二进制解析 |
-| `hub-controller.ts` | 组合以上 + 管理 PendingConfirmation Map + 给 IPC 层唯一入口 |
+| `hub-controller.ts` | 组合以上 + 维护 hub/tunnel 状态 + 给 IPC 层唯一入口 |
 
 ## 数据流（sequence）
 
@@ -77,11 +77,15 @@ ClaudeCodeImplementer.emitAgentEvent
                     (every subscriber WebSocket gets JSON)
 ```
 
-**翻译策略（loose, lossless）：**
+**翻译策略（loose, partially modeled）：**
 - `session.status` → `status` frame (filter: idle/busy/retry/error)
 - `permission.asked` → `permission/request` frame
 - `question.asked` → `question/request` frame
-- 其他 CanonicalAgentEvent → `message/append` 带单个 `UnknownPart{raw:event}`（保证不丢数据）
+- `message.part.updated` → `message/append` + `message/update`，同一 assistant turn 内合并为一个 live bubble
+- `session.error` / `session.warning` / context compaction / context usage → `system/notice`
+- `plan.ready` → `plan/request`
+- `command.approval_needed` → `command_approval/request`
+- 部分 metadata event 目前直接丢弃；`UnknownPart` 是协议能力，但 live stream 还不是所有未建模事件的全量兜底
 
 ### 手机 → 桌面（inbound）
 
@@ -93,10 +97,7 @@ HubServer WS route → bridge.handleClientMessage(ws, hiveSessionId, raw)
   │
   ├─ ClientMsgSchema.parse (zod)
   │
-  ├─ 'prompt' → PromptConfirmer.confirm{confirmId, preview}
-  │      │    ├─ resolve{approved:true}  → runtime.prompt(wt, sid, text)
-  │      │    └─ resolve{approved:false} → error BAD_REQUEST 'rejected'
-  │      │    └─ 30s timeout              → error CONFIRM_TIMEOUT
+  ├─ 'prompt' → runtime.prompt(wt, sid, text)
   │
   ├─ 'interrupt' → runtime.abort(wt, sid)
   │
@@ -117,7 +118,7 @@ Schema v17 (`src/main/db/schema.ts` 第 445-500 行)。五张表：
 | `hub_tokens` | M2 agent/PWA token；prefix 索引 + sha256 哈希 |
 | `hub_cookie_sessions` | UI 7 天 Cookie；expires 索引 |
 | `hub_devices` | M2 多设备；M1 只填本机一条 |
-| `hub_settings` | 键值存储：auth_mode、require_desktop_confirm、cf_access_emails (JSON)、tunnel_url |
+| `hub_settings` | 键值存储：auth_mode、require_desktop_confirm（历史遗留 / no-op）、cf_access_emails (JSON)、tunnel_url |
 
 ## 鉴权矩阵
 
@@ -140,7 +141,7 @@ Origin 检查：允许 `http://127.0.0.1:<port>` + `http://[::1]:<port>` + `http
 | `test/server/hub-auth.test.ts` | scrypt 盐哈希往返、rate limiter 滑窗、CF Access header / Origin check | 14 tests |
 | `test/server/hub-protocol.test.ts` | zod schema 正/反例、RingBuffer 驱逐 + NEED_FULL_RELOAD、SeqCounter 单调 | 18 tests |
 | `test/server/hub-registry.test.ts` | 订阅/取消、broadcast 丢失 WS 清理、status 传递 | 9 tests |
-| `test/server/hub-bridge.test.ts` | Proxy 拦截、runtimeId 过滤、翻译、CONFIRM_TIMEOUT、resume 回放 | 11 tests |
+| `test/server/hub-bridge.test.ts` | Proxy 拦截、runtimeId 过滤、翻译、resume 回放、plan/command approval round trip | 21 tests |
 | `test/server/hub-server.test.ts` | 集成（真 fetch）：setup/login/me/logout、四种鉴权、Origin、路由 404 | 22 tests |
 | `test/server/tunnel-service.test.ts` | 假 spawn：启动/URL 解析、无二进制、退避链、reset、手动 stop | 8 tests |
 
@@ -149,7 +150,7 @@ Origin 检查：允许 `http://127.0.0.1:<port>` + `http://[::1]:<port>` + `http
 ## 添加新的 ServerMsg 类型
 
 1. `hub-protocol.ts`：在 zod `ServerMsgSchema` 里加 discriminated union 分支
-2. `hub-bridge.ts`：`translate()` 里处理或落到 unknown fallback
+2. `hub-bridge.ts`：`translate()` 里处理；如果要走 `unknown` fallback，必须同时补 mobile reducer / render test
 3. `mobile/src/types/hub.ts`：镜像加同名成员（无 zod）
 4. `mobile/src/hooks/useSessionStream.ts`：reducer `frame` 分支里处理
 5. 加 unit test
@@ -163,7 +164,7 @@ Origin 检查：允许 `http://127.0.0.1:<port>` + `http://[::1]:<port>` + `http
 
 ## 已知折中
 
-- **UnknownPart 回退**：代价是手机消息流里很多事件是 `agent activity` 折叠 JSON；好处是任何未来的 CanonicalAgentEvent 都不会掉。M1.5 会把常见 `message.updated` / `tool.called` 专门翻译。
-- **Ring buffer 容量 500**：长会话或慢 reconnect 会触发 `NEED_FULL_RELOAD`。mobile 已经实现 fallback 路径，但用户体验是"白屏一秒后满血"。调大容量的代价是内存。
+- **UnknownPart 回退还不完整**：协议里有 `UnknownPart.raw`，历史消息映射也能保留部分未知结构，但 live stream 当前只专门翻译常见事件，未建模事件可能被跳过。M1.5 应决定是继续专门建模，还是补 live unknown fallback。
+- **Ring buffer 容量 500**：长会话或慢 reconnect 会触发 `NEED_FULL_RELOAD`。当前 mobile 还没有自动 REST 回填，只能展示错误/手动刷新。1.4.9 应把这条兜底做成稳定用户路径。调大容量的代价是内存。
 - **Mobile bundle 92KB gzip**：没有 react-markdown / qrcode 等大库。代价是 MiniMarkdown 能力弱（仅 fence / inline / bold）。
 - **CSRF 靠 Origin/Referer**：没发 CSRF token（loopback + SameSite=Lax 已经挡住 80% 场景）。M2 加 CSRF token。
