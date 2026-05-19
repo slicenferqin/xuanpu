@@ -1038,6 +1038,7 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
       pending.set(sessionId, [message, ...queue])
       return { pendingMessages: pending }
     })
+    syncQueuedState(sessionId, true)
   },
 
   getPendingMessages(sessionId) {

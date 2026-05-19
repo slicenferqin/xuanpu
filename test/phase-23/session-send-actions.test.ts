@@ -443,6 +443,24 @@ describe('useSessionRuntimeStore pending messages', () => {
     ])
   })
 
+  it('requeueMessageFront re-syncs queued-state true after a failed drain', () => {
+    const syncSpy = vi.spyOn(window.systemOps, 'setSessionQueuedState')
+    syncSpy.mockClear()
+
+    const store = useSessionRuntimeStore.getState()
+    store.queueMessage('sess-1', createPendingMessage('will-fail'))
+    const failed = store.dequeueMessage('sess-1')
+
+    expect(failed).not.toBeNull()
+    expect(syncSpy).toHaveBeenLastCalledWith('sess-1', false)
+
+    syncSpy.mockClear()
+    store.requeueMessageFront('sess-1', failed!)
+
+    expect(useSessionRuntimeStore.getState().getPendingMessages('sess-1')[0]).toBe(failed)
+    expect(syncSpy).toHaveBeenCalledWith('sess-1', true)
+  })
+
   it('clearPendingMessages is no-op for unknown session', () => {
     const before = useSessionRuntimeStore.getState()
     before.clearPendingMessages('nonexistent')
