@@ -137,4 +137,26 @@ describe('SessionShell plan implement flow (source verification)', () => {
     expect(source).toContain("const preferSteerWhenBusy = agentSdk === 'codex'")
     expect(source).toContain('preferSteerWhenBusy={preferSteerWhenBusy}')
   })
+
+  test('composer steer keeps the live overlay while send and stop-and-send reset it', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../../src/renderer/src/components/session-hq/SessionShell.tsx'),
+      'utf-8'
+    )
+
+    expect(source).toContain(
+      "if (action === 'send' || action === 'stop_and_send') {\n        resetLiveOverlay(true)"
+    )
+    expect(source).toContain(
+      "if (action === 'send' || action === 'stop_and_send' || action === 'steer') {\n        // Lock provider/model selectors immediately."
+    )
+    expect(source).toContain(
+      "if (action === 'send' || action === 'stop_and_send') {\n          resetLiveOverlay(false)"
+    )
+    expect(source).not.toContain(
+      "if (action === 'send' || action === 'stop_and_send' || action === 'steer') {\n        resetLiveOverlay"
+    )
+  })
 })
