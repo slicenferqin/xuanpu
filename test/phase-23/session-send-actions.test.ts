@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // ---------------------------------------------------------------------------
 
 import {
+  createPendingDrainController,
   determineComposerActions,
   executeSendAction,
   drainNextPending,
@@ -411,6 +412,51 @@ describe('drainNextPending', () => {
     ).rejects.toThrow('send failed')
 
     expect(requeueFront).toHaveBeenCalledWith('sess-1', pending)
+  })
+
+  it('serializes concurrent drains for the same session', async () => {
+    const controller = createPendingDrainController()
+    const pending = createPendingMessage('queued message')
+    const dequeue = vi.fn().mockReturnValueOnce(pending).mockReturnValueOnce(null)
+    let resolvePrompt!: (value: { success: boolean }) => void
+    const prompt = vi.fn(
+      () =>
+        new Promise<{ success: boolean }>((resolve) => {
+          resolvePrompt = resolve
+        })
+    )
+
+    const firstDrain = controller.drainNextPending(
+      'sess-1',
+      'agent-sess-1',
+      dequeue,
+      prompt,
+      '/path'
+    )
+    const blockedDrain = await controller.drainNextPending(
+      'sess-1',
+      'agent-sess-1',
+      dequeue,
+      prompt,
+      '/path'
+    )
+
+    expect(blockedDrain).toBe(false)
+    expect(dequeue).toHaveBeenCalledTimes(1)
+    expect(prompt).toHaveBeenCalledTimes(1)
+
+    resolvePrompt({ success: true })
+    await expect(firstDrain).resolves.toBe(true)
+
+    const afterReleaseDrain = await controller.drainNextPending(
+      'sess-1',
+      'agent-sess-1',
+      dequeue,
+      prompt,
+      '/path'
+    )
+    expect(afterReleaseDrain).toBe(false)
+    expect(dequeue).toHaveBeenCalledTimes(2)
   })
 })
 

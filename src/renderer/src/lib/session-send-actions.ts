@@ -343,3 +343,52 @@ export async function drainNextPending(
   }
   return true
 }
+
+export interface PendingDrainController {
+  drainNextPending(
+    storeSessionId: string,
+    agentSessionId: string,
+    dequeue: (sessionId: string) => PendingMessage | null,
+    prompt: (
+      worktreePath: string,
+      sessionId: string,
+      message: PendingMessage
+    ) => Promise<{ success: boolean; error?: string }>,
+    worktreePath: string,
+    requeueFront?: (sessionId: string, message: PendingMessage) => void
+  ): Promise<boolean>
+}
+
+export function createPendingDrainController(): PendingDrainController {
+  const inFlightSessions = new Set<string>()
+
+  return {
+    async drainNextPending(
+      storeSessionId: string,
+      agentSessionId: string,
+      dequeue: (sessionId: string) => PendingMessage | null,
+      prompt: (
+        worktreePath: string,
+        sessionId: string,
+        message: PendingMessage
+      ) => Promise<{ success: boolean; error?: string }>,
+      worktreePath: string,
+      requeueFront?: (sessionId: string, message: PendingMessage) => void
+    ): Promise<boolean> {
+      if (inFlightSessions.has(storeSessionId)) return false
+      inFlightSessions.add(storeSessionId)
+      try {
+        return await drainNextPending(
+          storeSessionId,
+          agentSessionId,
+          dequeue,
+          prompt,
+          worktreePath,
+          requeueFront
+        )
+      } finally {
+        inFlightSessions.delete(storeSessionId)
+      }
+    }
+  }
+}

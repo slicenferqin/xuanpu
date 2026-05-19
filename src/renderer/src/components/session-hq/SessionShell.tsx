@@ -58,7 +58,7 @@ import {
 } from '@/stores/useSessionRuntimeStore'
 import {
   executeSendAction,
-  drainNextPending,
+  createPendingDrainController,
   type ComposerAction
 } from '@/lib/session-send-actions'
 import { buildPlanImplementationPrompt } from '@/lib/proposedPlan'
@@ -691,6 +691,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   const childPartsMap = streamingMirror.childParts
   const timelineBottomAreaRef = useRef<HTMLDivElement>(null)
   const composerBarRef = useRef<HTMLDivElement>(null)
+  const pendingDrainController = useMemo(() => createPendingDrainController(), [])
 
   // Incremented when session.commands_available fires — triggers ComposerBar re-fetch
   const [commandsVersion, setCommandsVersion] = useState(0)
@@ -1200,30 +1201,31 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
             // Auto-drain pending message queue
             if (worktreePath && droidSessionId) {
-              drainNextPending(
-                sessionId,
-                droidSessionId,
-                (sid) => useSessionRuntimeStore.getState().dequeueMessage(sid),
-                async (wp, sid, message) => {
-                  let messageParts: MessagePart[] | undefined
-                  if (message.attachments.length > 0) {
-                    messageParts = await buildMessageParts(
-                      message.attachments as Attachment[],
-                      message.content
+              pendingDrainController
+                .drainNextPending(
+                  sessionId,
+                  droidSessionId,
+                  (sid) => useSessionRuntimeStore.getState().dequeueMessage(sid),
+                  async (wp, sid, message) => {
+                    let messageParts: MessagePart[] | undefined
+                    if (message.attachments.length > 0) {
+                      messageParts = await buildMessageParts(
+                        message.attachments as Attachment[],
+                        message.content
+                      )
+                    }
+                    return window.agentOps.prompt(
+                      wp,
+                      sid,
+                      messageParts ?? message.content,
+                      requestModel,
+                      promptOptions
                     )
-                  }
-                  return window.agentOps.prompt(
-                    wp,
-                    sid,
-                    messageParts ?? message.content,
-                    requestModel,
-                    promptOptions
-                  )
-                },
-                worktreePath,
-                (sid, message) =>
-                  useSessionRuntimeStore.getState().requeueMessageFront(sid, message)
-              )
+                  },
+                  worktreePath,
+                  (sid, message) =>
+                    useSessionRuntimeStore.getState().requeueMessageFront(sid, message)
+                )
                 .then((drained) => {
                   if (drained) void refreshSessionLastMessageAt(sessionId)
                 })
@@ -1307,6 +1309,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     currentProviderId,
     requestModel,
     promptOptions,
+    pendingDrainController,
     refreshUsageSummary
   ])
 

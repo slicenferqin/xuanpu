@@ -110,6 +110,22 @@ describe('SessionShell plan implement flow (source verification)', () => {
     expect(source).toContain("if (action === 'send' || action === 'stop_and_send') {")
   })
 
+  test('auto-drain uses a per-session drain controller instead of direct concurrent sends', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../../src/renderer/src/components/session-hq/SessionShell.tsx'),
+      'utf-8'
+    )
+
+    expect(source).toContain('createPendingDrainController')
+    expect(source).toContain(
+      'const pendingDrainController = useMemo(() => createPendingDrainController(), [])'
+    )
+    expect(source).toContain('pendingDrainController')
+    expect(source).toContain('.drainNextPending(')
+  })
+
   test('composer prefers Codex active-turn steer without changing Claude queue semantics', async () => {
     const fs = await import('fs')
     const path = await import('path')
