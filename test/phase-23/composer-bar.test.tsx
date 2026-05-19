@@ -100,6 +100,34 @@ describe('ComposerBar', () => {
     expect(onAction).toHaveBeenCalledWith('steer', 'Redirect the current turn', expect.any(Array))
   })
 
+  it('uses Enter for steer and Tab for queue when busy steer is primary', async () => {
+    const user = userEvent.setup()
+    const onAction = vi.fn().mockResolvedValue(true)
+
+    render(
+      <ComposerBar
+        sessionId="sess-1"
+        lifecycle="busy"
+        pendingCount={0}
+        firstInterrupt={null}
+        onAction={onAction}
+        isConnected={true}
+        supportsSteer={true}
+        preferSteerWhenBusy={true}
+      />
+    )
+
+    await user.type(screen.getByRole('textbox'), 'Redirect with enter')
+    await user.keyboard('{Enter}')
+
+    expect(onAction).toHaveBeenCalledWith('steer', 'Redirect with enter', expect.any(Array))
+
+    await user.type(screen.getByRole('textbox'), 'Queue with tab')
+    await user.keyboard('{Tab}')
+
+    expect(onAction).toHaveBeenLastCalledWith('queue', 'Queue with tab', expect.any(Array))
+  })
+
   it('shows steer and stop actions in the busy-state action menu', async () => {
     const user = userEvent.setup()
 

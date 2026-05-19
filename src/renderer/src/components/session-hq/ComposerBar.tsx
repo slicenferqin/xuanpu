@@ -600,12 +600,26 @@ export function ComposerBar({
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (isComposingKeyboardEvent(e.nativeEvent)) return
+      if (
+        e.key === 'Tab' &&
+        !e.shiftKey &&
+        !e.altKey &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        canSend &&
+        actionSet.primary === 'steer' &&
+        availableAlternatives.includes('queue')
+      ) {
+        e.preventDefault()
+        void handleActionSelection('queue')
+        return
+      }
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
         void handleSubmit()
       }
     },
-    [handleSubmit]
+    [actionSet.primary, availableAlternatives, canSend, handleActionSelection, handleSubmit]
   )
 
   const handleAttach = useCallback(
