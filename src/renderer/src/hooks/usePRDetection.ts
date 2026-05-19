@@ -1,17 +1,21 @@
 import { useEffect, useRef } from 'react'
 import { useGitStore } from '@/stores/useGitStore'
 import { useSessionStore } from '@/stores/useSessionStore'
+import { useSessionRuntimeStore } from '@/stores/useSessionRuntimeStore'
 import { useWorktreeStore } from '@/stores/useWorktreeStore'
 
 export const PR_URL_PATTERN = /https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/(\d+)/
 
 /**
- * Watches stream events for a PR session and detects when a GitHub PR URL
- * appears in assistant output. Transitions from creating → attached (DB-persisted).
+ * Watches accepted session runtime events for a PR session and detects when a
+ * GitHub PR URL appears in assistant output. Transitions from creating →
+ * attached (DB-persisted).
  *
- * Stream detection is scoped to the specific Hive session that started PR
- * creation (event.sessionId === prCreation.sessionId). This prevents concurrent PR
- * workflows in sibling worktrees from leaking state into each other.
+ * Raw stream ingress is owned by useAgentEventBridge. This hook subscribes to
+ * the runtime store's per-session accepted-event channel scoped to the specific
+ * Hive session that started PR creation. This prevents concurrent PR workflows
+ * in sibling worktrees from leaking state into each other and keeps stale
+ * run/turn events behind the bridge guard.
  *
  * We scan both text content AND tool output (the `gh pr create` command output
  * typically contains the PR URL before the assistant's text summary does).
@@ -53,87 +57,93 @@ export function usePRDetection(worktreeId: string | null): void {
 
   useEffect(() => {
     // Only monitor when actively creating
-    if (!worktreeId || !prCreation || !prCreation.creating) return
+    if (!worktreeId || !prCreation || !prCreation.creating || !prCreation.sessionId) return
 
     // Reset accumulated text
     accumulatedTextRef.current = ''
+    const sessionId = prCreation.sessionId
 
     const checkForPrUrl = (text: string): void => {
       const match = text.match(PR_URL_PATTERN)
       if (match) {
         const currentCreation = prCreationRef.current
         const currentWorktreeId = worktreeIdRef.current
-        if (currentCreation && currentWorktreeId && currentCreation.creating) {
+        if (
+          currentCreation &&
+          currentWorktreeId &&
+          currentCreation.creating &&
+          currentCreation.sessionId === sessionId
+        ) {
           const prNumber = parseInt(match[1], 10)
           // Persist to DB + optimistic cache
-          attachPR(currentWorktreeId, prNumber, match[0])
+          void attachPR(currentWorktreeId, prNumber, match[0])
           // Clear ephemeral creation state
           setPrCreation(currentWorktreeId, null)
+          prCreationRef.current = undefined
         }
       }
     }
 
-    const unsubscribe = window.agentOps?.onStream
-      ? window.agentOps.onStream((event) => {
-          const currentCreation = prCreationRef.current
-          if (
-            !currentCreation ||
-            !currentCreation.creating ||
-            !currentCreation.sessionId
-          ) {
+    const unsubscribe = useSessionRuntimeStore
+      .getState()
+      .subscribeToSessionEvents(sessionId, (event) => {
+        const currentCreation = prCreationRef.current
+        if (
+          !currentCreation ||
+          !currentCreation.creating ||
+          currentCreation.sessionId !== sessionId ||
+          event.sessionId !== sessionId
+        ) {
+          return
+        }
+
+        // Primary path: message part updates (SDK streams text/tool deltas here)
+        if (event.type === 'message.part.updated') {
+          const payload = event.data
+          const part = payload?.part ?? payload
+          if (!part) return
+
+          // Check text content (assistant prose)
+          if (part.type === 'text') {
+            const delta = payload?.delta
+            if (typeof delta === 'string' && delta.length > 0) {
+              accumulatedTextRef.current += delta
+            } else if (typeof part.text === 'string' && part.text.length > 0) {
+              accumulatedTextRef.current = part.text
+            }
+            checkForPrUrl(accumulatedTextRef.current)
             return
           }
 
-          if (event.sessionId !== currentCreation.sessionId) return
-
-          // Primary path: message part updates (SDK streams text/tool deltas here)
-          if (event.type === 'message.part.updated') {
-            const payload = event.data
-            const part = payload?.part ?? payload
-            if (!part) return
-
-            // Check text content (assistant prose)
-            if (part.type === 'text') {
-              const delta = payload?.delta
-              if (typeof delta === 'string' && delta.length > 0) {
-                accumulatedTextRef.current += delta
-              } else if (typeof part.text === 'string' && part.text.length > 0) {
-                accumulatedTextRef.current = part.text
-              }
-              checkForPrUrl(accumulatedTextRef.current)
-              return
-            }
-
-            // Check tool output (gh pr create output often contains the PR URL)
-            if (part.type === 'tool') {
-              const output = part.state?.output ?? part.output
-              if (typeof output === 'string') {
-                checkForPrUrl(output)
-              } else if (output !== undefined && output !== null) {
-                try {
-                  checkForPrUrl(JSON.stringify(output))
-                } catch {
-                  // ignore non-serializable tool outputs
-                }
+          // Check tool output (gh pr create output often contains the PR URL)
+          if (part.type === 'tool') {
+            const output = part.state?.output ?? part.output
+            if (typeof output === 'string') {
+              checkForPrUrl(output)
+            } else if (output !== undefined && output !== null) {
+              try {
+                checkForPrUrl(JSON.stringify(output))
+              } catch {
+                // ignore non-serializable tool outputs
               }
             }
-
-            return
           }
 
-          // Fallback path: some providers may emit URL on message.updated
-          if (event.type === 'message.updated') {
-            const messageText =
-              event.data?.message?.content ?? event.data?.content ?? event.data?.info?.content
-            if (typeof messageText === 'string') {
-              checkForPrUrl(messageText)
-            }
+          return
+        }
+
+        // Fallback path: some providers may emit URL on message.updated
+        if (event.type === 'message.updated') {
+          const messageText =
+            event.data?.message?.content ?? event.data?.content ?? event.data?.info?.content
+          if (typeof messageText === 'string') {
+            checkForPrUrl(messageText)
           }
-        })
-      : () => {}
+        }
+      })
 
     return unsubscribe
-  }, [worktreeId, prCreation, opencodeSessionId, worktreePath, setPrCreation, attachPR])
+  }, [worktreeId, prCreation, setPrCreation, attachPR])
 
   // Backstop: poll transcript while creating in case stream event payload shapes vary.
   useEffect(() => {
@@ -164,9 +174,10 @@ export function usePRDetection(worktreeId: string | null): void {
 
         const prNumber = parseInt(match[1], 10)
         // Persist to DB + optimistic cache
-        attachPR(currentWorktreeId, prNumber, match[0])
+        void attachPR(currentWorktreeId, prNumber, match[0])
         // Clear ephemeral creation state
         setPrCreation(currentWorktreeId, null)
+        prCreationRef.current = undefined
       } catch {
         // Non-fatal: next poll tick will retry
       }
