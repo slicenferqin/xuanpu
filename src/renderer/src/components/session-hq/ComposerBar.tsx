@@ -55,6 +55,8 @@ export interface ComposerBarProps {
   isConnected: boolean
   /** Runtime capability gate for steer */
   supportsSteer?: boolean
+  /** Whether busy turns should prefer steer over queue when supported */
+  preferSteerWhenBusy?: boolean
   /** Max attachments allowed */
   maxAttachments?: number
   /** Current session mode */
@@ -87,6 +89,8 @@ function SendIcon({ hint }: { hint: ComposerActionSet['iconHint'] }): React.JSX.
       return <Square className="h-3.5 w-3.5" />
     case 'queue':
       return <ListPlus className="h-4 w-4" />
+    case 'steer':
+      return <Workflow className="h-4 w-4" />
     case 'reply':
       return <CornerDownLeft className="h-4 w-4" />
     default:
@@ -404,6 +408,7 @@ export function ComposerBar({
   onAction,
   isConnected,
   supportsSteer = false,
+  preferSteerWhenBusy = false,
   maxAttachments = 10,
   mode = 'build',
   onToggleMode,
@@ -497,10 +502,21 @@ export function ComposerBar({
         hasInterrupt,
         hasPendingMessages: pendingCount > 0,
         hasDraftContent: canSend,
+        hasAttachments: attachments.length > 0,
         isConnected,
-        supportsSteer
+        supportsSteer,
+        preferSteerWhenBusy
       }),
-    [canSend, hasInterrupt, isConnected, lifecycle, pendingCount, supportsSteer]
+    [
+      canSend,
+      hasInterrupt,
+      isConnected,
+      lifecycle,
+      pendingCount,
+      supportsSteer,
+      preferSteerWhenBusy,
+      attachments.length
+    ]
   )
 
   const isDisabled = !actionSet.inputEnabled

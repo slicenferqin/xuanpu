@@ -29,8 +29,10 @@ export interface ComposerInput {
   hasInterrupt: boolean
   hasPendingMessages: boolean
   hasDraftContent: boolean
+  hasAttachments?: boolean
   isConnected: boolean
   supportsSteer?: boolean
+  preferSteerWhenBusy?: boolean
 }
 
 /** Result of the state-machine evaluation */
@@ -44,7 +46,7 @@ export interface ComposerActionSet {
   /** Label for the primary action button */
   primaryLabel: string
   /** Icon hint for rendering */
-  iconHint: 'send' | 'stop' | 'queue' | 'reply' | 'disabled'
+  iconHint: 'send' | 'stop' | 'queue' | 'steer' | 'reply' | 'disabled'
 }
 
 // ---------------------------------------------------------------------------
@@ -60,7 +62,9 @@ export interface ComposerActionSet {
  *   3. idle / error → send
  *   4. busy / materializing →
  *      - empty input: stop+send (primary)
- *      - draft content: queue (primary), steer / stop+send (alt)
+ *      - draft content: queue (primary) by default, or steer (primary)
+ *        when the runtime prefers steering busy turns and the draft has no
+ *        attachments.
  *   5. retry → queue (primary), stop+send (alt)
  */
 export function determineComposerActions(input: ComposerInput): ComposerActionSet {
@@ -69,8 +73,10 @@ export function determineComposerActions(input: ComposerInput): ComposerActionSe
     hasInterrupt,
     hasPendingMessages,
     hasDraftContent,
+    hasAttachments = false,
     isConnected,
-    supportsSteer = false
+    supportsSteer = false,
+    preferSteerWhenBusy = false
   } = input
 
   // 1. Not connected
@@ -110,12 +116,18 @@ export function determineComposerActions(input: ComposerInput): ComposerActionSe
     case 'busy':
     case 'materializing':
       if (hasDraftContent) {
+        const preferSteer =
+          preferSteerWhenBusy && supportsSteer && !hasAttachments
         return {
-          primary: 'queue',
-          alternatives: supportsSteer ? ['steer', 'stop_and_send'] : ['stop_and_send'],
+          primary: preferSteer ? 'steer' : 'queue',
+          alternatives: preferSteer
+            ? ['queue', 'stop_and_send']
+            : supportsSteer
+              ? ['steer', 'stop_and_send']
+              : ['stop_and_send'],
           inputEnabled: true,
-          primaryLabel: 'Queue',
-          iconHint: 'queue'
+          primaryLabel: preferSteer ? 'Steer' : 'Queue',
+          iconHint: preferSteer ? 'steer' : 'queue'
         }
       }
       return {

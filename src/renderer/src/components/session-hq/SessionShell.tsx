@@ -695,6 +695,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   // Incremented when session.commands_available fires — triggers ComposerBar re-fetch
   const [commandsVersion, setCommandsVersion] = useState(0)
   const [supportsSteer, setSupportsSteer] = useState(agentSdk === 'codex')
+  const preferSteerWhenBusy = agentSdk === 'codex'
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [editingContent, setEditingContent] = useState('')
   const [forkingMessageId, setForkingMessageId] = useState<string | null>(null)
@@ -1984,6 +1985,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           onAction={handleComposerAction}
           isConnected={!!droidSessionId && !!worktreePath}
           supportsSteer={supportsSteer}
+          preferSteerWhenBusy={preferSteerWhenBusy}
           mode={mode}
           onToggleMode={toggleMode}
           pendingPlan={pendingPlan}

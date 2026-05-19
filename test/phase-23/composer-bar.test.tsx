@@ -77,6 +77,29 @@ describe('ComposerBar', () => {
     expect(onAction).toHaveBeenCalledWith('queue', 'Follow up after this run', expect.any(Array))
   })
 
+  it('uses steer as the primary busy action when the runtime prefers active-turn steering', async () => {
+    const user = userEvent.setup()
+    const onAction = vi.fn()
+
+    render(
+      <ComposerBar
+        sessionId="sess-1"
+        lifecycle="busy"
+        pendingCount={0}
+        firstInterrupt={null}
+        onAction={onAction}
+        isConnected={true}
+        supportsSteer={true}
+        preferSteerWhenBusy={true}
+      />
+    )
+
+    await user.type(screen.getByRole('textbox'), 'Redirect the current turn')
+    await user.click(screen.getByTestId('composer-primary-action'))
+
+    expect(onAction).toHaveBeenCalledWith('steer', 'Redirect the current turn', expect.any(Array))
+  })
+
   it('shows steer and stop actions in the busy-state action menu', async () => {
     const user = userEvent.setup()
 

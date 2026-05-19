@@ -162,6 +162,37 @@ describe('determineComposerActions', () => {
       expect(result.alternatives).toEqual(['steer', 'stop_and_send'])
     })
 
+    it('returns steer as primary when a runtime prefers steering active busy turns', () => {
+      const result = determineComposerActions(
+        makeInput({
+          lifecycle: 'busy',
+          hasDraftContent: true,
+          supportsSteer: true,
+          preferSteerWhenBusy: true
+        })
+      )
+      expect(result.primary).toBe('steer')
+      expect(result.inputEnabled).toBe(true)
+      expect(result.iconHint).toBe('steer')
+      expect(result.primaryLabel).toBe('Steer')
+      expect(result.alternatives).toEqual(['queue', 'stop_and_send'])
+    })
+
+    it('keeps queue as primary for attachments because steer only supports text', () => {
+      const result = determineComposerActions(
+        makeInput({
+          lifecycle: 'busy',
+          hasDraftContent: true,
+          hasAttachments: true,
+          supportsSteer: true,
+          preferSteerWhenBusy: true
+        })
+      )
+      expect(result.primary).toBe('queue')
+      expect(result.iconHint).toBe('queue')
+      expect(result.alternatives).toEqual(['steer', 'stop_and_send'])
+    })
+
     it('omits steer from draft alternatives when runtime does not support it', () => {
       const result = determineComposerActions(
         makeInput({ lifecycle: 'busy', hasDraftContent: true, supportsSteer: false })
@@ -185,6 +216,19 @@ describe('determineComposerActions', () => {
       )
       expect(result.primary).toBe('queue')
       expect(result.alternatives).toEqual(['steer', 'stop_and_send'])
+    })
+
+    it('returns steer when materializing with draft content and steer-preferred runtime', () => {
+      const result = determineComposerActions(
+        makeInput({
+          lifecycle: 'materializing',
+          hasDraftContent: true,
+          supportsSteer: true,
+          preferSteerWhenBusy: true
+        })
+      )
+      expect(result.primary).toBe('steer')
+      expect(result.alternatives).toEqual(['queue', 'stop_and_send'])
     })
   })
 
