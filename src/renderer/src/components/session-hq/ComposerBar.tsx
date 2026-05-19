@@ -129,6 +129,31 @@ function getLocalizedActionLabel(
   return t(COMPOSER_ACTION_LABEL_KEYS[action])
 }
 
+function getLocalizedPrimaryActionLabel(
+  t: (key: string, params?: Record<string, string | number | boolean>) => string,
+  action: ComposerAction | null,
+  options: {
+    iconHint: ComposerActionSet['iconHint']
+    canSend: boolean
+    hasPendingMessages: boolean
+  }
+): string {
+  if (!action) return t('sessionHq.composer.actions.disconnected')
+  if (action === 'send' && options.hasPendingMessages) {
+    return t('sessionHq.composer.actions.sendQueued')
+  }
+  if (action === 'steer') {
+    return t('sessionHq.composer.actions.steerEnter')
+  }
+  if (action === 'queue') {
+    return t('sessionHq.composer.actions.queueEnter')
+  }
+  if (action === 'stop_and_send' && options.iconHint === 'stop' && !options.canSend) {
+    return t('sessionHq.composer.actions.stop')
+  }
+  return getLocalizedActionLabel(t, action)
+}
+
 interface ComposerAttachmentsSectionProps {
   attachments: Attachment[]
   onRemove: (id: string) => void
@@ -799,12 +824,20 @@ export function ComposerBar({
     showSlashCommandsRef.current = false
   }, [])
 
+  const canSteerBusyTurn =
+    (lifecycle === 'busy' || lifecycle === 'materializing') &&
+    supportsSteer &&
+    preferSteerWhenBusy &&
+    attachments.length === 0
+
   const placeholder = pendingPlan
     ? t('sessionHq.composer.placeholders.planFeedback')
     : firstInterrupt
       ? t('sessionHq.composer.placeholders.reply')
       : actionSet.primary === 'queue'
         ? t('sessionHq.composer.placeholders.queueFollowUp')
+        : actionSet.primary === 'steer' || canSteerBusyTurn
+          ? t('sessionHq.composer.placeholders.steerCurrent')
         : actionSet.iconHint === 'stop'
           ? t('sessionHq.composer.placeholders.stopAndSend')
           : t('sessionHq.composer.placeholders.message')
@@ -931,13 +964,11 @@ export function ComposerBar({
         onSubmit={handleToolbarSubmit}
         buttonEnabled={buttonEnabled}
         iconHint={actionSet.iconHint}
-        primaryLabel={
-          actionSet.primary
-            ? actionSet.primary === 'send' && pendingCount > 0
-              ? t('sessionHq.composer.actions.sendQueued')
-              : getLocalizedActionLabel(t, actionSet.primary)
-            : t('sessionHq.composer.actions.disconnected')
-        }
+        primaryLabel={getLocalizedPrimaryActionLabel(t, actionSet.primary, {
+          iconHint: actionSet.iconHint,
+          canSend,
+          hasPendingMessages: pendingCount > 0
+        })}
         onAttach={handleAttach}
         voiceSlot={
           voiceInputEnabled ? (

@@ -152,6 +152,49 @@ describe('ComposerBar', () => {
     expect(await screen.findByTestId('composer-action-queue')).toHaveTextContent('Tab')
   })
 
+  it('explains Enter steer and Tab queue in the busy Codex composer chrome', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <ComposerBar
+        sessionId="sess-1"
+        lifecycle="busy"
+        pendingCount={0}
+        firstInterrupt={null}
+        onAction={vi.fn()}
+        isConnected={true}
+        supportsSteer={true}
+        preferSteerWhenBusy={true}
+      />
+    )
+
+    expect(screen.getByRole('textbox')).toHaveAttribute(
+      'placeholder',
+      'Type to steer the current turn. Enter steers, Tab queues...'
+    )
+
+    await user.type(screen.getByRole('textbox'), 'Redirect this run')
+
+    expect(screen.getByTestId('composer-primary-action')).toHaveAccessibleName(
+      'Steer current turn (Enter)'
+    )
+  })
+
+  it('labels the empty busy primary action as stop instead of stop-and-send', () => {
+    render(
+      <ComposerBar
+        sessionId="sess-1"
+        lifecycle="busy"
+        pendingCount={0}
+        firstInterrupt={null}
+        onAction={vi.fn()}
+        isConnected={true}
+      />
+    )
+
+    expect(screen.getByTestId('composer-primary-action')).toHaveAccessibleName('Stop')
+  })
+
   it('shows steer and stop actions in the busy-state action menu', async () => {
     const user = userEvent.setup()
 
