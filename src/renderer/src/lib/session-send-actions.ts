@@ -186,7 +186,10 @@ export function _resetPendingIdCounter(): void {
  */
 export interface SendContext {
   worktreePath: string
+  /** Agent session id used for prompt/abort/steer IPC calls. */
   sessionId: string
+  /** Optional store/session id used for queued-message bookkeeping. */
+  queueSessionId?: string
   /** IPC: send a prompt to the agent */
   prompt: (
     worktreePath: string,
@@ -194,7 +197,7 @@ export interface SendContext {
     content: string
   ) => Promise<{ success: boolean; error?: string }>
   /** IPC: steer the active turn */
-  steer: (
+  steer?: (
     worktreePath: string,
     sessionId: string,
     content: string
@@ -204,6 +207,8 @@ export interface SendContext {
     worktreePath: string,
     sessionId: string
   ) => Promise<{ success: boolean; error?: string }>
+  /** Optional wait gate used after abort so the next prompt lands on a clean turn boundary. */
+  waitForAbortReady?: () => Promise<void>
   /** Store: enqueue a pending message */
   queueMessage: (sessionId: string, message: PendingMessage) => void
 }
@@ -245,11 +250,15 @@ export async function executeSendAction(
 
     case 'queue': {
       const msg = createPendingMessage(content, attachments)
-      ctx.queueMessage(ctx.sessionId, msg)
+      ctx.queueMessage(ctx.queueSessionId ?? ctx.sessionId, msg)
       return true
     }
 
     case 'steer': {
+      if (!ctx.steer) {
+        throw new Error('Steer is not available for this session')
+      }
+
       if (attachments.length > 0) {
         throw new Error('Steer only supports text messages')
       }
@@ -266,8 +275,7 @@ export async function executeSendAction(
         ctx.abort(ctx.worktreePath, ctx.sessionId),
         'Failed to stop active turn'
       )
-      // Brief delay so the abort propagates before the new prompt
-      await new Promise((r) => setTimeout(r, 100))
+      await ctx.waitForAbortReady?.()
       await ensureSuccess(
         ctx.prompt(ctx.worktreePath, ctx.sessionId, content),
         'Failed to send message after stopping active turn'

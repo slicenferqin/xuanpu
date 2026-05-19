@@ -368,6 +368,45 @@ function useStreamingMirror(sessionId: string) {
   )
 }
 
+function waitForSessionIdleAfterAbort(sessionId: string, timeoutMs = 2500): Promise<void> {
+  const isReady = (): boolean => {
+    const lifecycle = useSessionRuntimeStore.getState().getSession(sessionId).lifecycle
+    return lifecycle === 'idle' || lifecycle === 'error'
+  }
+
+  if (isReady()) {
+    return Promise.resolve()
+  }
+
+  return new Promise((resolve) => {
+    let settled = false
+    let timer: ReturnType<typeof window.setTimeout> | null = null
+    let unsubscribe: (() => void) | null = null
+
+    const settle = (): void => {
+      if (settled) return
+      settled = true
+      unsubscribe?.()
+      if (timer !== null) window.clearTimeout(timer)
+      resolve()
+    }
+
+    unsubscribe = useSessionRuntimeStore.subscribe(() => {
+      if (isReady()) settle()
+    })
+
+    // Close the small race where the idle transition lands between the first
+    // read and subscription registration.
+    if (isReady()) {
+      settle()
+      return
+    }
+
+    // Deadlock guard only: the normal path resolves on the lifecycle event.
+    timer = window.setTimeout(settle, timeoutMs)
+  })
+}
+
 // ---------------------------------------------------------------------------
 // SessionShell
 // ---------------------------------------------------------------------------
@@ -1323,8 +1362,11 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       )
       const contentToSend = diffCommentContext + content
 
-      if (action === 'send' || action === 'stop_and_send' || action === 'steer') {
+      if (action === 'send' || action === 'stop_and_send') {
         resetLiveOverlay(true)
+      }
+
+      if (action === 'send' || action === 'stop_and_send' || action === 'steer') {
         // Lock provider/model selectors immediately. Main process also stamps
         // first_message_at via createSessionMessage / upsertSessionActivity,
         // but the UI shouldn't wait for the round-trip.
@@ -1363,6 +1405,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         const consumed = await executeSendAction(action, contentToSend, attachments, {
           worktreePath,
           sessionId: droidSessionId,
+          queueSessionId: sessionId,
           prompt: async (wp, sid, c) => {
             let messageParts: MessagePart[] | undefined
             if (attachments.length > 0) {
@@ -1372,6 +1415,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           },
           steer: (wp, sid, c) => window.agentOps.steer(wp, sid, c, requestModel),
           abort: (wp, sid) => window.agentOps.abort(wp, sid),
+          waitForAbortReady: () => waitForSessionIdleAfterAbort(sessionId),
           queueMessage: (sid, msg) => useSessionRuntimeStore.getState().queueMessage(sid, msg)
         })
 
@@ -1405,7 +1449,9 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           setSuccessCriteria(previousSuccessCriteria)
         }
         toast.error(err instanceof Error ? err.message : 'Failed to send message')
-        resetLiveOverlay(false)
+        if (action === 'send' || action === 'stop_and_send') {
+          resetLiveOverlay(false)
+        }
         return false
       }
     },
@@ -1483,6 +1529,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         const consumed = await executeSendAction('send', contentToSend, [], {
           worktreePath,
           sessionId: droidSessionId,
+          queueSessionId: sessionId,
           prompt: (wp, sid, content) =>
             window.agentOps.prompt(wp, sid, content, requestModel, promptOptions),
           abort: (wp, sid) => window.agentOps.abort(wp, sid),
@@ -1502,6 +1549,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       editingContent,
       worktreePath,
       droidSessionId,
+      sessionId,
       timelineMessages,
       setMessages,
       appendOptimistic,
@@ -1673,6 +1721,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       await executeSendAction('send', implementPrompt, [], {
         worktreePath,
         sessionId: droidSessionId,
+        queueSessionId: sessionId,
         prompt: (wp, sid, c) => window.agentOps.prompt(wp, sid, c, requestModel, promptOptions),
         abort: (wp, sid) => window.agentOps.abort(wp, sid),
         queueMessage: (sid, msg) => useSessionRuntimeStore.getState().queueMessage(sid, msg)

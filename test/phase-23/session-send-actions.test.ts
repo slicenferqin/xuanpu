@@ -272,6 +272,16 @@ describe('executeSendAction', () => {
     expect(ctx.prompt).not.toHaveBeenCalled()
   })
 
+  it('queue: uses queueSessionId for runtime store bookkeeping when provided', async () => {
+    const ctx = makeSendContext({ queueSessionId: 'db-sess-1' })
+    const result = await executeSendAction('queue', 'later', [], ctx)
+
+    expect(result).toBe(true)
+    expect(ctx.queueMessage).toHaveBeenCalledWith('db-sess-1', expect.objectContaining({
+      content: 'later'
+    }))
+  })
+
   it('steer: calls steer IPC (sends while busy)', async () => {
     const ctx = makeSendContext()
     const result = await executeSendAction('steer', 'change direction', [], ctx)
@@ -302,11 +312,15 @@ describe('executeSendAction', () => {
       callOrder.push('prompt')
       return { success: true }
     })
+    ctx.waitForAbortReady = vi.fn(async () => {
+      callOrder.push('wait')
+    })
 
     const result = await executeSendAction('stop_and_send', 'new task', [], ctx)
     expect(result).toBe(true)
-    expect(callOrder).toEqual(['abort', 'prompt'])
+    expect(callOrder).toEqual(['abort', 'wait', 'prompt'])
     expect(ctx.abort).toHaveBeenCalledWith('/test/path', 'sess-1')
+    expect(ctx.waitForAbortReady).toHaveBeenCalledTimes(1)
     expect(ctx.prompt).toHaveBeenCalledWith('/test/path', 'sess-1', 'new task')
   })
 
