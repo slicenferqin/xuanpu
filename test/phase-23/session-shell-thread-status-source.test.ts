@@ -43,7 +43,7 @@ describe('SessionShell thread status flow (source verification)', () => {
     expect(source).toContain('hasDurableCompactionMessage')
   })
 
-  test('clears active overlays in finally while preserving compaction chips', async () => {
+  test('keeps completed overlays readable after idle instead of clearing them in finally', async () => {
     const fs = await import('fs')
     const path = await import('path')
     const source = fs.readFileSync(
@@ -56,8 +56,9 @@ describe('SessionShell thread status flow (source verification)', () => {
 
     expect(source).toContain('void refresh()')
     expect(source).toContain('.finally(() => {')
-    expect(source).toContain('clearStreamingBufferOverlay(sessionId, {')
-    expect(source).toContain('preserveCompactionState: true')
+    expect(source).toContain('do NOT clearStreamingBufferOverlay here')
+    expect(source).toContain('already set isStreaming=false')
+    expect(source).toContain('next user message will')
   })
 
   test('wires new UI user-message edit and fork flows into AgentTimeline', async () => {

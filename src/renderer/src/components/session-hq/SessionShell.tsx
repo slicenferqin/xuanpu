@@ -913,16 +913,12 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     ;(async () => {
       try {
         if (opcSessionId) {
-          console.log('[SessionShell] reconnecting', { sessionId, opcSessionId, worktreePath })
           const result = await window.agentOps.reconnect(worktreePath, opcSessionId, sessionId)
-          console.log('[SessionShell] reconnect result', result)
           if (!cancelled && result.success) {
             setDroidSessionId(opcSessionId)
           }
         } else {
-          console.log('[SessionShell] connecting (new)', { sessionId, worktreePath })
           const result = await window.agentOps.connect(worktreePath, sessionId)
-          console.log('[SessionShell] connect result', result)
           if (!cancelled && result.success && result.sessionId) {
             setDroidSessionId(result.sessionId)
             useSessionStore.getState().setOpenCodeSessionId(sessionId, result.sessionId)

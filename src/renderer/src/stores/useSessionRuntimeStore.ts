@@ -63,6 +63,8 @@ export const DEFAULT_SESSION_STATE: Readonly<SessionRuntimeState> = {
   retryInfo: null
 }
 
+export const ACTIVITY_TOUCH_THROTTLE_MS = 1000
+
 // ---------------------------------------------------------------------------
 // Per-session event callback registry (module-level, NOT reactive state)
 // ---------------------------------------------------------------------------
@@ -822,9 +824,19 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
 
   touchActivity(sessionId) {
     set((state) => {
+      const now = Date.now()
+      const hasSession = state.sessions.has(sessionId)
+      const existing = ensureSession(state.sessions, sessionId)
+      if (
+        hasSession &&
+        now >= existing.lastActivityAt &&
+        now - existing.lastActivityAt < ACTIVITY_TOUCH_THROTTLE_MS
+      ) {
+        return state
+      }
+
       const sessions = new Map(state.sessions)
-      const existing = ensureSession(sessions, sessionId)
-      sessions.set(sessionId, { ...existing, lastActivityAt: Date.now() })
+      sessions.set(sessionId, { ...existing, lastActivityAt: now })
       return { sessions }
     })
   },

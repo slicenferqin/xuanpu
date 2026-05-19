@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
+  ACTIVITY_TOUCH_THROTTLE_MS,
   clearStreamingBuffer,
   clearStreamingBufferOverlay,
   getStreamingBufferSnapshot,
@@ -28,6 +29,10 @@ beforeEach(() => {
   for (const sessionId of state.dismissedGoalSignatures.keys()) {
     state.clearSession(sessionId)
   }
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('useSessionRuntimeStore', () => {
@@ -102,6 +107,35 @@ describe('useSessionRuntimeStore', () => {
       useSessionRuntimeStore.getState().touchActivity('sess-1')
       const state = useSessionRuntimeStore.getState().getSession('sess-1')
       expect(state.lastActivityAt).toBeGreaterThanOrEqual(before)
+    })
+
+    it('throttles repeated activity touches within the window', () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(1_000_000)
+
+      let notificationCount = 0
+      const unsubscribe = useSessionRuntimeStore.subscribe(() => {
+        notificationCount += 1
+      })
+
+      useSessionRuntimeStore.getState().touchActivity('sess-1')
+      const initialState = useSessionRuntimeStore.getState().getSession('sess-1')
+      expect(initialState.lastActivityAt).toBe(1_000_000)
+      expect(notificationCount).toBe(1)
+
+      vi.setSystemTime(1_000_000 + ACTIVITY_TOUCH_THROTTLE_MS - 1)
+      useSessionRuntimeStore.getState().touchActivity('sess-1')
+      const throttledState = useSessionRuntimeStore.getState().getSession('sess-1')
+      expect(throttledState.lastActivityAt).toBe(1_000_000)
+      expect(notificationCount).toBe(1)
+
+      vi.setSystemTime(1_000_000 + ACTIVITY_TOUCH_THROTTLE_MS)
+      useSessionRuntimeStore.getState().touchActivity('sess-1')
+      const updatedState = useSessionRuntimeStore.getState().getSession('sess-1')
+      expect(updatedState.lastActivityAt).toBe(1_000_000 + ACTIVITY_TOUCH_THROTTLE_MS)
+      expect(notificationCount).toBe(2)
+
+      unsubscribe()
     })
   })
 
