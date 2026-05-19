@@ -128,6 +128,30 @@ describe('ComposerBar', () => {
     expect(onAction).toHaveBeenLastCalledWith('queue', 'Queue with tab', expect.any(Array))
   })
 
+  it('shows the Tab shortcut hint for queue when busy steer is primary', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <ComposerBar
+        sessionId="sess-1"
+        lifecycle="busy"
+        pendingCount={0}
+        firstInterrupt={null}
+        onAction={vi.fn()}
+        isConnected={true}
+        supportsSteer={true}
+        preferSteerWhenBusy={true}
+      />
+    )
+
+    await user.type(screen.getByRole('textbox'), 'Queue this as the next turn')
+    await act(async () => {
+      await user.click(screen.getByTestId('composer-action-menu-trigger'))
+    })
+
+    expect(await screen.findByTestId('composer-action-queue')).toHaveTextContent('Tab')
+  })
+
   it('shows steer and stop actions in the busy-state action menu', async () => {
     const user = userEvent.setup()
 

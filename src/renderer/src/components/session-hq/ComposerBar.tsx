@@ -18,6 +18,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuShortcut,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import type { SessionLifecycle, InterruptItem } from '@/stores/useSessionRuntimeStore'
@@ -288,6 +289,7 @@ const ComposerToolbar = React.memo(function ComposerToolbar({
   voiceSlot
 }: ComposerToolbarProps): React.JSX.Element {
   const { t } = useI18n()
+  const showQueueShortcutHint = iconHint === 'steer' && availableAlternatives.includes('queue')
   return (
     <div className="flex items-center gap-2 px-3 pb-3 pt-1">
       <AttachmentButton onAttach={onAttach} disabled={disabled} />
@@ -368,6 +370,9 @@ const ComposerToolbar = React.memo(function ComposerToolbar({
               >
                 <ActionMenuIcon action={action} />
                 <span>{getLocalizedActionLabel(t, action)}</span>
+                {action === 'queue' && showQueueShortcutHint ? (
+                  <DropdownMenuShortcut>Tab</DropdownMenuShortcut>
+                ) : null}
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
