@@ -7,6 +7,7 @@
 本计划以当前仓库实现和官方文档共同作为约束。
 
 - Claude Code SDK TypeScript reference: https://docs.claude.com/en/docs/claude-code/sdk/sdk-typescript
+- Claude Code fast mode: https://code.claude.com/docs/en/fast-mode
 - Codex CLI features: https://developers.openai.com/codex/cli/features
 - Codex App Server: https://developers.openai.com/codex/app-server
 - Existing Xuanpu Session HQ plan: `docs/plans/2026-04-11-session-ui-agent-hq-lite-replan.md`
@@ -23,6 +24,10 @@ Claude Code SDK `query()` accepts either a plain prompt string or an `AsyncItera
 Current Xuanpu behavior is not a long-lived streaming-input session for normal prompts. `ClaudeCodeImplementer.prompt()` usually calls `sdk.query({ prompt: string, options })`. It only uses an async iterable as a single structured user message when file attachments are present. That means a true Claude TUI-like busy input channel is not currently modeled as "append input into the same open input stream"; Xuanpu mostly starts separate prompt calls and depends on renderer-side queueing.
 
 Implication: for Claude Code, the safe first implementation is a local, durable next-turn queue plus robust interrupt/finalization. A future streaming-input upgrade can add true mid-turn input, but it must be explicit and tested separately.
+
+Fast mode is a separate Claude Code concern from busy-input semantics. The latest checked npm package (`@anthropic-ai/claude-agent-sdk@0.3.145`, Claude Code `2.1.145`) exposes fast-mode support in SDK types via model metadata (`supportsFastMode`), result state (`fast_mode_state`), and settings (`fastMode`, `fastModePerSessionOptIn`). It does not expose a top-level `Options.fastMode` field on `query()`. The current repo install (`@anthropic-ai/claude-agent-sdk@0.2.140`, Claude Code `2.1.140`) already has those same type hooks, so Xuanpu can safely surface capability metadata now and defer an actual toggle.
+
+Product implication: treat fast mode as an Opus-only capability. Official docs say it is supported on Opus 4.7 and Opus 4.6, unavailable on Sonnet/Haiku, requires Claude Code `2.1.36+`, is research preview, has separate rate-limit/cooldown behavior, and is enabled through `/fast` or settings (`fastMode`). If Xuanpu later adds a UI toggle, it should write settings/managed settings or issue the equivalent command path deliberately, force/confirm Opus selection, and show the higher-cost/cooldown semantics instead of copying Codex's fast model toggle.
 
 ### Codex
 

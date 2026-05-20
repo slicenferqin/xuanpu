@@ -49,7 +49,8 @@ const CLAUDE_MODELS = [
     name: 'Opus 4.7',
     limit: { context: 200000, output: 32000 },
     variants: CLAUDE_OPUS_EFFORT_VARIANTS,
-    defaultVariant: 'high'
+    defaultVariant: 'high',
+    supportsFastMode: true
   },
   {
     id: 'sonnet',
@@ -2050,7 +2051,13 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         models: Object.fromEntries(
           CLAUDE_MODELS.map((m) => [
             m.id,
-            { id: m.id, name: m.name, limit: m.limit, variants: m.variants }
+            {
+              id: m.id,
+              name: m.name,
+              limit: m.limit,
+              variants: m.variants,
+              ...(m.supportsFastMode ? { supportsFastMode: true } : {})
+            }
           ])
         )
       }
@@ -2064,10 +2071,16 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
     id: string
     name: string
     limit: { context: number; input?: number; output: number }
+    supportsFastMode?: boolean
   } | null> {
     const model = CLAUDE_MODELS.find((m) => m.id === modelId)
     if (!model) return null
-    return { id: model.id, name: model.name, limit: model.limit }
+    return {
+      id: model.id,
+      name: model.name,
+      limit: model.limit,
+      ...(model.supportsFastMode ? { supportsFastMode: true } : {})
+    }
   }
 
   setSelectedModel(model: { providerID: string; modelID: string; variant?: string }): void {
