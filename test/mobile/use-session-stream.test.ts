@@ -6,6 +6,8 @@ const apiMock = vi.hoisted(() => ({
 }))
 
 const wsMock = vi.hoisted(() => {
+  let sendResult = true
+  let sentFrames: unknown[] = []
   let latestSocket: {
     emitFrame: (frame: unknown) => void
     markFullReloadComplete: (lastSeq: number) => void
@@ -17,10 +19,7 @@ const wsMock = vi.hoisted(() => {
     private stateListeners = new Set<(state: 'connecting' | 'open' | 'closed') => void>()
     private lastSeq = 0
 
-    constructor(
-      _deviceId: string,
-      _hiveSessionId: string
-    ) {
+    constructor(_deviceId: string, _hiveSessionId: string) {
       // eslint-disable-next-line @typescript-eslint/no-this-alias
       latestSocket = this
     }
@@ -31,8 +30,11 @@ const wsMock = vi.hoisted(() => {
 
     destroy(): void {}
 
-    send(): boolean {
-      return true
+    send(frame: unknown): boolean {
+      if (sendResult) {
+        sentFrames.push(frame)
+      }
+      return sendResult
     }
 
     markFullReloadComplete(lastSeq: number): void {
@@ -65,7 +67,13 @@ const wsMock = vi.hoisted(() => {
 
   return {
     getLatestSocket: () => latestSocket,
+    getSentFrames: () => sentFrames,
+    setSendResult: (value: boolean) => {
+      sendResult = value
+    },
     reset: () => {
+      sendResult = true
+      sentFrames = []
       latestSocket = null
     },
     MockHubWebSocket
@@ -86,6 +94,137 @@ describe('useSessionStream', () => {
   beforeEach(() => {
     wsMock.reset()
     apiMock.api.mockReset()
+  })
+
+  it('keeps permission card and shows send error when permission response cannot be sent', () => {
+    const { result } = renderHook(() => useSessionStream('device-1', 'hive-1'))
+    const latestSocket = wsMock.getLatestSocket()
+    expect(latestSocket).not.toBeNull()
+
+    act(() => {
+      latestSocket?.emitFrame({
+        type: 'permission/request',
+        seq: 1,
+        requestId: 'perm-1',
+        toolName: 'Bash'
+      })
+    })
+
+    expect(result.current.state.permission?.requestId).toBe('perm-1')
+
+    wsMock.setSendResult(false)
+    act(() => {
+      result.current.respondPermission('once')
+    })
+
+    expect(result.current.state.permission?.requestId).toBe('perm-1')
+    expect(result.current.state.error).toMatchObject({
+      code: 'SEND_FAILED',
+      message: 'Connection is not open. Please retry.'
+    })
+    expect(wsMock.getSentFrames()).toEqual([])
+
+    wsMock.setSendResult(true)
+    act(() => {
+      result.current.respondPermission('once')
+    })
+
+    expect(result.current.state.permission).toBeNull()
+    expect(result.current.state.error).toBeNull()
+    expect(wsMock.getSentFrames()).toEqual([
+      expect.objectContaining({ type: 'permission/respond', requestId: 'perm-1' })
+    ])
+  })
+
+  it('keeps question, plan, and command approval cards when responses cannot be sent', () => {
+    const { result } = renderHook(() => useSessionStream('device-1', 'hive-1'))
+    const latestSocket = wsMock.getLatestSocket()
+    expect(latestSocket).not.toBeNull()
+
+    act(() => {
+      latestSocket?.emitFrame({
+        type: 'question/request',
+        seq: 1,
+        requestId: 'question-1',
+        question: 'Pick one'
+      })
+      latestSocket?.emitFrame({
+        type: 'plan/request',
+        seq: 2,
+        requestId: 'plan-1',
+        planText: 'Do the thing'
+      })
+      latestSocket?.emitFrame({
+        type: 'command_approval/request',
+        seq: 3,
+        requestId: 'cmd-1',
+        command: 'pnpm test'
+      })
+    })
+
+    wsMock.setSendResult(false)
+    act(() => {
+      result.current.respondQuestion([['A']])
+      result.current.respondPlan('approve')
+      result.current.respondCommandApproval('approve_once')
+    })
+
+    expect(result.current.state.question?.requestId).toBe('question-1')
+    expect(result.current.state.plan?.requestId).toBe('plan-1')
+    expect(result.current.state.commandApproval?.requestId).toBe('cmd-1')
+    expect(result.current.state.error?.code).toBe('SEND_FAILED')
+    expect(wsMock.getSentFrames()).toEqual([])
+  })
+
+  it('clears interactive cards after responses are sent', () => {
+    const { result } = renderHook(() => useSessionStream('device-1', 'hive-1'))
+    const latestSocket = wsMock.getLatestSocket()
+    expect(latestSocket).not.toBeNull()
+
+    act(() => {
+      latestSocket?.emitFrame({
+        type: 'permission/request',
+        seq: 1,
+        requestId: 'perm-1',
+        toolName: 'Bash'
+      })
+      latestSocket?.emitFrame({
+        type: 'question/request',
+        seq: 2,
+        requestId: 'question-1',
+        question: 'Pick one'
+      })
+      latestSocket?.emitFrame({
+        type: 'plan/request',
+        seq: 3,
+        requestId: 'plan-1',
+        planText: 'Do the thing'
+      })
+      latestSocket?.emitFrame({
+        type: 'command_approval/request',
+        seq: 4,
+        requestId: 'cmd-1',
+        command: 'pnpm test'
+      })
+    })
+
+    act(() => {
+      result.current.respondPermission('always')
+      result.current.respondQuestion([['A']])
+      result.current.respondPlan('approve')
+      result.current.respondCommandApproval('approve_once')
+    })
+
+    expect(result.current.state.permission).toBeNull()
+    expect(result.current.state.question).toBeNull()
+    expect(result.current.state.plan).toBeNull()
+    expect(result.current.state.commandApproval).toBeNull()
+    expect(wsMock.getSentFrames()).toEqual([
+      expect.objectContaining({ type: 'permission/respond', requestId: 'perm-1' }),
+      expect.objectContaining({ type: 'question/respond', requestId: 'question-1' }),
+      expect.objectContaining({ type: 'plan/respond', requestId: 'plan-1' }),
+      expect.objectContaining({ type: 'command_approval/respond', requestId: 'cmd-1' })
+    ])
   })
 
   it('clears pending plan and command approval cards on session snapshot', () => {
@@ -182,10 +321,9 @@ describe('useSessionStream', () => {
     })
     apiMock.api.mockReturnValueOnce(pendingHistory)
 
-    const { result, rerender } = renderHook(
-      ({ hiveId }) => useSessionStream('device-1', hiveId),
-      { initialProps: { hiveId: 'hive-1' } }
-    )
+    const { result, rerender } = renderHook(({ hiveId }) => useSessionStream('device-1', hiveId), {
+      initialProps: { hiveId: 'hive-1' }
+    })
 
     const oldSocket = wsMock.getLatestSocket()
     expect(oldSocket).not.toBeNull()
