@@ -81,8 +81,9 @@ ClaudeCodeImplementer.emitAgentEvent
 - `session.status` → `status` frame (filter: idle/busy/retry/error)
 - `permission.asked` → `permission/request` frame
 - `question.asked` → `question/request` frame
-- `plan.ready` / `command_approval.requested` → 对应交互卡
+- `plan.ready` / `command.approval_needed` → 对应交互卡
 - 常见 `message.updated` / `message.part.updated` → 文本、工具调用和工具结果 frame
+- `session.turn_diff` → 可更新的 `diff` 卡；同一 turn 的累计 diff 用 `replacePart` 更新，避免刷屏
 - 其他未建模 CanonicalAgentEvent 可能暂时跳过；不要把 Hub live stream 当成完整 lossless event log
 
 ### 手机 → 桌面（inbound）
@@ -162,7 +163,7 @@ Origin 检查：允许 `http://127.0.0.1:<port>` + `http://[::1]:<port>` + `http
 
 ## 已知折中
 
-- **live event 保真度**：Hub 已经专门翻译常见 status / permission / question / plan / command approval / message / tool 输出事件，但未建模事件不是完整兜底。需要继续补专用 frame 或移动端活动展示，而不是假设所有 CanonicalAgentEvent 都能无损到达手机。
+- **live event 保真度**：Hub 已经专门翻译常见 status / permission / question / plan / command approval / message / tool 输出 / turn diff 事件，但未建模事件不是完整兜底。需要继续补专用 frame 或移动端活动展示，而不是假设所有 CanonicalAgentEvent 都能无损到达手机。
 - **Ring buffer 容量 500**：长会话或慢 reconnect 会触发 `NEED_FULL_RELOAD`。mobile 已经实现 fallback 路径，但用户体验是"白屏一秒后满血"。调大容量的代价是内存。
 - **Mobile bundle 92KB gzip**：没有 react-markdown / qrcode 等大库。代价是 MiniMarkdown 能力弱（仅 fence / inline / bold）。
 - **CSRF 靠 Origin/Referer**：没发 CSRF token（loopback + SameSite=Lax 已经挡住 80% 场景）。M2 加 CSRF token。
