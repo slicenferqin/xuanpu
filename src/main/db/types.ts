@@ -227,6 +227,43 @@ export interface SessionActivityCreate {
   created_at?: string
 }
 
+export type SessionPendingMessageStatus = 'pending' | 'sending' | 'sent' | 'failed' | 'cancelled'
+
+export interface SessionPendingMessage {
+  id: string
+  session_id: string
+  agent_session_id: string | null
+  runtime_id: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+  status: SessionPendingMessageStatus
+  content: string
+  attachments_json: string | null
+  prompt_options_json: string | null
+  model_json: string | null
+  enqueued_at: number
+  updated_at: number
+  sending_run_epoch: number | null
+  sending_turn_id: string | null
+  error: string | null
+}
+
+export interface SessionPendingMessageCreate {
+  id?: string
+  session_id: string
+  agent_session_id?: string | null
+  runtime_id: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+  content: string
+  attachments_json?: string | null
+  prompt_options_json?: string | null
+  model_json?: string | null
+  enqueued_at?: number
+}
+
+export interface SessionPendingMessageClaimOptions {
+  agent_session_id?: string | null
+  sending_run_epoch?: number | null
+  sending_turn_id?: string | null
+}
+
 export interface UsageEntry {
   id: string
   session_id: string

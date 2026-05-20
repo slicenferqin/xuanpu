@@ -21,6 +21,10 @@ import type {
   SessionMessageUpsertByOpenCode,
   SessionActivity,
   SessionActivityCreate,
+  SessionPendingMessage,
+  SessionPendingMessageCreate,
+  SessionPendingMessageClaimOptions,
+  SessionPendingMessageStatus,
   UsageEntry,
   UsageEntryCreate,
   UsageSyncState,
@@ -164,6 +168,7 @@ export class DatabaseService {
     this.ensureEpisodicMemoryTable()
     this.ensureHubTables()
     this.ensureDiffCommentsTable()
+    this.ensureSessionPendingMessagesTable()
   }
 
   /**
@@ -241,6 +246,32 @@ export class DatabaseService {
         ON diff_comments(worktree_id, file_path, line_number);
       CREATE INDEX IF NOT EXISTS idx_diff_comments_worktree_updated
         ON diff_comments(worktree_id, updated_at DESC);
+    `)
+  }
+
+  private ensureSessionPendingMessagesTable(): void {
+    const db = this.getDb()
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS session_pending_messages (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        agent_session_id TEXT,
+        runtime_id TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'sending', 'sent', 'failed', 'cancelled')),
+        content TEXT NOT NULL,
+        attachments_json TEXT,
+        prompt_options_json TEXT,
+        model_json TEXT,
+        enqueued_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        sending_run_epoch INTEGER,
+        sending_turn_id TEXT,
+        error TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_session_pending_messages_session_status
+        ON session_pending_messages(session_id, status, enqueued_at);
+      CREATE INDEX IF NOT EXISTS idx_session_pending_messages_updated
+        ON session_pending_messages(updated_at DESC);
     `)
   }
 
@@ -1624,6 +1655,168 @@ export class DatabaseService {
       .all(sessionId) as SessionActivity[]
   }
 
+  createSessionPendingMessage(data: SessionPendingMessageCreate): SessionPendingMessage {
+    const db = this.getDb()
+    const now = Date.now()
+    const enqueuedAt = data.enqueued_at ?? now
+    const id = data.id ?? randomUUID()
+
+    db.prepare(
+      `INSERT INTO session_pending_messages (
+        id,
+        session_id,
+        agent_session_id,
+        runtime_id,
+        status,
+        content,
+        attachments_json,
+        prompt_options_json,
+        model_json,
+        enqueued_at,
+        updated_at,
+        sending_run_epoch,
+        sending_turn_id,
+        error
+      ) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)`
+    ).run(
+      id,
+      data.session_id,
+      data.agent_session_id ?? null,
+      data.runtime_id,
+      data.content,
+      data.attachments_json ?? null,
+      data.prompt_options_json ?? null,
+      data.model_json ?? null,
+      enqueuedAt,
+      now
+    )
+
+    const row = this.getSessionPendingMessage(id)
+    if (!row) {
+      throw new Error(`Failed to load pending message after create: ${id}`)
+    }
+    return row
+  }
+
+  getSessionPendingMessage(id: string): SessionPendingMessage | null {
+    const db = this.getDb()
+    const row = db.prepare('SELECT * FROM session_pending_messages WHERE id = ?').get(id) as
+      | SessionPendingMessage
+      | undefined
+    return row ?? null
+  }
+
+  listSessionPendingMessages(
+    sessionId: string,
+    statuses: SessionPendingMessageStatus[] = ['pending', 'sending', 'failed']
+  ): SessionPendingMessage[] {
+    if (statuses.length === 0) return []
+
+    const placeholders = statuses.map(() => '?').join(', ')
+    const db = this.getDb()
+    return db
+      .prepare(
+        `SELECT * FROM session_pending_messages
+         WHERE session_id = ? AND status IN (${placeholders})
+         ORDER BY enqueued_at ASC, id ASC`
+      )
+      .all(sessionId, ...statuses) as SessionPendingMessage[]
+  }
+
+  claimNextSessionPendingMessage(
+    sessionId: string,
+    options: SessionPendingMessageClaimOptions = {}
+  ): SessionPendingMessage | null {
+    const db = this.getDb()
+    const tx = db.transaction(() => {
+      const next = db
+        .prepare(
+          `SELECT * FROM session_pending_messages
+           WHERE session_id = ? AND status = 'pending'
+           ORDER BY enqueued_at ASC, id ASC
+           LIMIT 1`
+        )
+        .get(sessionId) as SessionPendingMessage | undefined
+      if (!next) return null
+
+      const now = Date.now()
+      const result = db
+        .prepare(
+          `UPDATE session_pending_messages
+         SET status = 'sending',
+             agent_session_id = COALESCE(?, agent_session_id),
+             updated_at = ?,
+             sending_run_epoch = ?,
+             sending_turn_id = ?,
+             error = NULL
+         WHERE id = ? AND status = 'pending'`
+        )
+        .run(
+          options.agent_session_id ?? null,
+          now,
+          options.sending_run_epoch ?? null,
+          options.sending_turn_id ?? null,
+          next.id
+        )
+      if (result.changes === 0) return null
+
+      const claimed = db
+        .prepare('SELECT * FROM session_pending_messages WHERE id = ?')
+        .get(next.id) as SessionPendingMessage | undefined
+      return claimed ?? null
+    })
+
+    return tx()
+  }
+
+  completeSessionPendingMessage(id: string): SessionPendingMessage | null {
+    return this.updateSessionPendingMessageStatus(id, 'sent', undefined, ['sending'])
+  }
+
+  restoreSessionPendingMessage(id: string, error?: string): SessionPendingMessage | null {
+    return this.updateSessionPendingMessageStatus(id, 'pending', error, ['sending'])
+  }
+
+  failSessionPendingMessage(id: string, error: string): SessionPendingMessage | null {
+    return this.updateSessionPendingMessageStatus(id, 'failed', error, ['sending'])
+  }
+
+  cancelSessionPendingMessage(id: string): SessionPendingMessage | null {
+    return this.updateSessionPendingMessageStatus(id, 'cancelled', undefined, [
+      'pending',
+      'sending',
+      'failed'
+    ])
+  }
+
+  private updateSessionPendingMessageStatus(
+    id: string,
+    status: SessionPendingMessageStatus,
+    error?: string,
+    fromStatuses?: SessionPendingMessageStatus[]
+  ): SessionPendingMessage | null {
+    const db = this.getDb()
+    const clearSendingContext =
+      status === 'pending' || status === 'failed' || status === 'cancelled'
+    const fromClause =
+      fromStatuses && fromStatuses.length > 0
+        ? ` AND status IN (${fromStatuses.map(() => '?').join(', ')})`
+        : ''
+    const result = db
+      .prepare(
+        `UPDATE session_pending_messages
+       SET status = ?,
+           updated_at = ?,
+           sending_run_epoch = ${clearSendingContext ? 'NULL' : 'sending_run_epoch'},
+           sending_turn_id = ${clearSendingContext ? 'NULL' : 'sending_turn_id'},
+           error = ?
+       WHERE id = ?${fromClause}`
+      )
+      .run(status, Date.now(), error ?? null, id, ...(fromStatuses ?? []))
+    if (result.changes === 0) return null
+    return this.getSessionPendingMessage(id)
+  }
+
   upsertUsageEntry(data: UsageEntryCreate): UsageEntry {
     const db = this.getDb()
     const now = data.created_at ?? new Date().toISOString()
@@ -1695,9 +1888,7 @@ export class DatabaseService {
     )
 
     const row = db
-      .prepare(
-        'SELECT * FROM usage_entries WHERE session_id = ? AND source_message_id = ? LIMIT 1'
-      )
+      .prepare('SELECT * FROM usage_entries WHERE session_id = ? AND source_message_id = ? LIMIT 1')
       .get(data.session_id, data.source_message_id) as UsageEntry | undefined
 
     if (!row) {

@@ -52,6 +52,7 @@ describeIf('Session 3: Database', () => {
     expect(db.tableExists('worktrees')).toBe(true)
     expect(db.tableExists('sessions')).toBe(true)
     expect(db.tableExists('session_messages')).toBe(true)
+    expect(db.tableExists('session_pending_messages')).toBe(true)
     expect(db.tableExists('settings')).toBe(true)
   })
 
@@ -65,6 +66,8 @@ describeIf('Session 3: Database', () => {
     expect(indexNames).toContain('idx_messages_session')
     expect(indexNames).toContain('idx_messages_session_opencode')
     expect(indexNames).toContain('idx_messages_session_opencode_unique')
+    expect(indexNames).toContain('idx_session_pending_messages_session_status')
+    expect(indexNames).toContain('idx_session_pending_messages_updated')
     expect(indexNames).toContain('idx_sessions_updated')
     expect(indexNames).toContain('idx_projects_accessed')
   })
@@ -431,9 +434,7 @@ describeIf('Session 3: Database', () => {
         statusFilter: 'closed'
       })
 
-      expect(closedResults.map((session: { id: string }) => session.id)).toContain(
-        closedSession.id
-      )
+      expect(closedResults.map((session: { id: string }) => session.id)).toContain(closedSession.id)
       expect(closedResults.map((session: { id: string }) => session.id)).not.toContain(
         activeSession.id
       )
