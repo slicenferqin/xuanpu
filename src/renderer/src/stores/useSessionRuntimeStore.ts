@@ -32,12 +32,17 @@ export interface InterruptItem {
 }
 
 /** A message queued while the agent is busy (Phase 5 — composer state machine) */
+export type PendingMessageStatus = 'pending' | 'sending'
+
 export interface PendingMessage {
   id: string
   content: string
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   attachments: any[]
   queuedAt: number
+  status: PendingMessageStatus
+  sendingAt?: number
+  lastError?: string
 }
 
 export interface SessionRuntimeState {
@@ -732,6 +737,9 @@ interface SessionRuntimeStoreActions {
   queueMessage(sessionId: string, message: PendingMessage): void
   dequeueMessage(sessionId: string): PendingMessage | null
   requeueMessageFront(sessionId: string, message: PendingMessage): void
+  claimNextPendingMessage(sessionId: string): PendingMessage | null
+  completePendingMessage(sessionId: string, messageId: string): void
+  restorePendingMessage(sessionId: string, messageId: string, error?: string): void
   getPendingMessages(sessionId: string): PendingMessage[]
   getPendingCount(sessionId: string): number
   clearPendingMessages(sessionId: string): void
@@ -744,8 +752,8 @@ export type SessionRuntimeStore = SessionRuntimeStoreState & SessionRuntimeStore
 
 // Stable singletons — returning these from selectors avoids creating new
 // references on every call, which would cause useSyncExternalStore (#185) loops.
-const EMPTY_INTERRUPT_QUEUE: readonly InterruptItem[] = []
-const EMPTY_PENDING_MESSAGES: readonly PendingMessage[] = []
+const EMPTY_INTERRUPT_QUEUE: InterruptItem[] = []
+const EMPTY_PENDING_MESSAGES: PendingMessage[] = []
 
 function syncQueuedState(sessionId: string, queued: boolean): void {
   if (typeof window === 'undefined' || !window.systemOps?.setSessionQueuedState) {
@@ -1000,7 +1008,7 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
     set((state) => {
       const pending = new Map(state.pendingMessages)
       const queue = [...(pending.get(sessionId) ?? [])]
-      queue.push(message)
+      queue.push({ ...message, status: 'pending', sendingAt: undefined, lastError: undefined })
       pending.set(sessionId, queue)
       return { pendingMessages: pending }
     })
@@ -1035,10 +1043,88 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
     set((state) => {
       const pending = new Map(state.pendingMessages)
       const queue = [...(pending.get(sessionId) ?? [])]
-      pending.set(sessionId, [message, ...queue])
+      pending.set(sessionId, [
+        { ...message, status: 'pending', sendingAt: undefined, lastError: undefined },
+        ...queue
+      ])
       return { pendingMessages: pending }
     })
     syncQueuedState(sessionId, true)
+  },
+
+  claimNextPendingMessage(sessionId) {
+    let claimed: PendingMessage | null = null
+    set((state) => {
+      const queue = state.pendingMessages.get(sessionId)
+      if (!queue || queue.length === 0) return state
+      const index = queue.findIndex((message) => message.status === 'pending')
+      if (index === -1) return state
+
+      const pending = new Map(state.pendingMessages)
+      const nextQueue = [...queue]
+      claimed = {
+        ...nextQueue[index],
+        status: 'sending',
+        sendingAt: Date.now(),
+        lastError: undefined
+      }
+      nextQueue[index] = claimed
+      pending.set(sessionId, nextQueue)
+      return { pendingMessages: pending }
+    })
+    if (claimed) {
+      syncQueuedState(sessionId, true)
+    }
+    return claimed
+  },
+
+  completePendingMessage(sessionId, messageId) {
+    let changed = false
+    let stillQueued = false
+    set((state) => {
+      const queue = state.pendingMessages.get(sessionId)
+      if (!queue) return state
+      const nextQueue = queue.filter((message) => message.id !== messageId)
+      if (nextQueue.length === queue.length) return state
+
+      changed = true
+      stillQueued = nextQueue.length > 0
+      const pending = new Map(state.pendingMessages)
+      if (nextQueue.length === 0) {
+        pending.delete(sessionId)
+      } else {
+        pending.set(sessionId, nextQueue)
+      }
+      return { pendingMessages: pending }
+    })
+    if (changed) {
+      syncQueuedState(sessionId, stillQueued)
+    }
+  },
+
+  restorePendingMessage(sessionId, messageId, error) {
+    let changed = false
+    set((state) => {
+      const queue = state.pendingMessages.get(sessionId)
+      if (!queue) return state
+      const index = queue.findIndex((message) => message.id === messageId)
+      if (index === -1) return state
+
+      const pending = new Map(state.pendingMessages)
+      const nextQueue = [...queue]
+      nextQueue[index] = {
+        ...nextQueue[index],
+        status: 'pending',
+        sendingAt: undefined,
+        ...(error ? { lastError: error } : { lastError: undefined })
+      }
+      pending.set(sessionId, nextQueue)
+      changed = true
+      return { pendingMessages: pending }
+    })
+    if (changed) {
+      syncQueuedState(sessionId, true)
+    }
   },
 
   getPendingMessages(sessionId) {

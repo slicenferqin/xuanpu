@@ -168,6 +168,8 @@ Rules:
 - renderer reload hydrates pending/sending/failed rows from DB
 - notification suppression reads durable queued state, not a renderer boolean
 
+Interim implementation state on `chore_20260518_infra`: renderer runtime queue now has an explicit `pending -> sending -> complete/restore` transition. Auto-drain claims a queued item as `sending`, keeps it visible/native-suppressed while `agentOps.prompt(...)` is in flight, removes it only after provider acceptance, and restores it to `pending` if send fails. This is still renderer-memory-backed, but it removes the most fragile "dequeue before provider acceptance" behavior and gives the future DB queue the same state boundary to persist.
+
 ## Drain State Machine
 
 Per session, keep one drain lock:

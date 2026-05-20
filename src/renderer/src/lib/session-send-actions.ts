@@ -11,10 +11,7 @@
  *   interrupt  → Reply to interrupt
  */
 
-import type {
-  SessionLifecycle,
-  PendingMessage
-} from '@/stores/useSessionRuntimeStore'
+import type { SessionLifecycle, PendingMessage } from '@/stores/useSessionRuntimeStore'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -116,8 +113,7 @@ export function determineComposerActions(input: ComposerInput): ComposerActionSe
     case 'busy':
     case 'materializing':
       if (hasDraftContent) {
-        const preferSteer =
-          preferSteerWhenBusy && supportsSteer && !hasAttachments
+        const preferSteer = preferSteerWhenBusy && supportsSteer && !hasAttachments
         return {
           primary: preferSteer ? 'steer' : 'queue',
           alternatives: preferSteer
@@ -173,13 +169,20 @@ let _nextPendingId = 1
 
 export function createPendingMessage(
   content: string,
-  attachments: Array<{ kind: string; id: string; name: string; mime: string; [k: string]: unknown }> = []
+  attachments: Array<{
+    kind: string
+    id: string
+    name: string
+    mime: string
+    [k: string]: unknown
+  }> = []
 ): PendingMessage {
   return {
     id: `pending-${_nextPendingId++}`,
     content,
     attachments,
-    queuedAt: Date.now()
+    queuedAt: Date.now(),
+    status: 'pending'
   }
 }
 
@@ -215,10 +218,7 @@ export interface SendContext {
     content: string
   ) => Promise<{ success: boolean; error?: string }>
   /** IPC: abort the current agent run */
-  abort: (
-    worktreePath: string,
-    sessionId: string
-  ) => Promise<{ success: boolean; error?: string }>
+  abort: (worktreePath: string, sessionId: string) => Promise<{ success: boolean; error?: string }>
   /** Optional wait gate used after abort so the next prompt lands on a clean turn boundary. */
   waitForAbortReady?: () => Promise<void>
   /** Store: enqueue a pending message */
@@ -238,7 +238,13 @@ export interface SendContext {
 export async function executeSendAction(
   action: ComposerAction,
   content: string,
-  attachments: Array<{ kind: string; id: string; name: string; mime: string; [k: string]: unknown }>,
+  attachments: Array<{
+    kind: string
+    id: string
+    name: string
+    mime: string
+    [k: string]: unknown
+  }>,
   ctx: SendContext
 ): Promise<boolean> {
   const ensureSuccess = async (
@@ -283,10 +289,7 @@ export async function executeSendAction(
     }
 
     case 'stop_and_send': {
-      await ensureSuccess(
-        ctx.abort(ctx.worktreePath, ctx.sessionId),
-        'Failed to stop active turn'
-      )
+      await ensureSuccess(ctx.abort(ctx.worktreePath, ctx.sessionId), 'Failed to stop active turn')
       await ctx.waitForAbortReady?.()
       await ensureSuccess(
         ctx.prompt(ctx.worktreePath, ctx.sessionId, content),
@@ -328,7 +331,8 @@ export async function drainNextPending(
     message: PendingMessage
   ) => Promise<{ success: boolean; error?: string }>,
   worktreePath: string,
-  requeueFront?: (sessionId: string, message: PendingMessage) => void
+  requeueFront?: (sessionId: string, message: PendingMessage) => void,
+  complete?: (sessionId: string, message: PendingMessage) => void
 ): Promise<boolean> {
   const next = dequeue(storeSessionId)
   if (!next) return false
@@ -337,6 +341,7 @@ export async function drainNextPending(
     if (!result.success) {
       throw new Error(result.error || 'Failed to drain pending message')
     }
+    complete?.(storeSessionId, next)
   } catch (error) {
     requeueFront?.(storeSessionId, next)
     throw error
@@ -355,7 +360,8 @@ export interface PendingDrainController {
       message: PendingMessage
     ) => Promise<{ success: boolean; error?: string }>,
     worktreePath: string,
-    requeueFront?: (sessionId: string, message: PendingMessage) => void
+    requeueFront?: (sessionId: string, message: PendingMessage) => void,
+    complete?: (sessionId: string, message: PendingMessage) => void
   ): Promise<boolean>
 }
 
@@ -373,7 +379,8 @@ export function createPendingDrainController(): PendingDrainController {
         message: PendingMessage
       ) => Promise<{ success: boolean; error?: string }>,
       worktreePath: string,
-      requeueFront?: (sessionId: string, message: PendingMessage) => void
+      requeueFront?: (sessionId: string, message: PendingMessage) => void,
+      complete?: (sessionId: string, message: PendingMessage) => void
     ): Promise<boolean> {
       if (inFlightSessions.has(storeSessionId)) return false
       inFlightSessions.add(storeSessionId)
@@ -384,7 +391,8 @@ export function createPendingDrainController(): PendingDrainController {
           dequeue,
           prompt,
           worktreePath,
-          requeueFront
+          requeueFront,
+          complete
         )
       } finally {
         inFlightSessions.delete(storeSessionId)

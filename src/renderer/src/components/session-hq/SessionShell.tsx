@@ -1205,7 +1205,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
                 .drainNextPending(
                   sessionId,
                   droidSessionId,
-                  (sid) => useSessionRuntimeStore.getState().dequeueMessage(sid),
+                  (sid) => useSessionRuntimeStore.getState().claimNextPendingMessage(sid),
                   async (wp, sid, message) => {
                     let messageParts: MessagePart[] | undefined
                     if (message.attachments.length > 0) {
@@ -1224,7 +1224,9 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
                   },
                   worktreePath,
                   (sid, message) =>
-                    useSessionRuntimeStore.getState().requeueMessageFront(sid, message)
+                    useSessionRuntimeStore.getState().restorePendingMessage(sid, message.id),
+                  (sid, message) =>
+                    useSessionRuntimeStore.getState().completePendingMessage(sid, message.id)
                 )
                 .then((drained) => {
                   if (drained) void refreshSessionLastMessageAt(sessionId)

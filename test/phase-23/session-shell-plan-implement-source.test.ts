@@ -124,6 +124,9 @@ describe('SessionShell plan implement flow (source verification)', () => {
     )
     expect(source).toContain('pendingDrainController')
     expect(source).toContain('.drainNextPending(')
+    expect(source).toContain('claimNextPendingMessage(sid)')
+    expect(source).toContain('restorePendingMessage(sid, message.id)')
+    expect(source).toContain('completePendingMessage(sid, message.id)')
   })
 
   test('composer prefers Codex active-turn steer without changing Claude queue semantics', async () => {
