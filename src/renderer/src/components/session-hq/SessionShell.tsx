@@ -707,6 +707,54 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   const [pendingForkMessageId, setPendingForkMessageId] = useState<string | null>(null)
   const [forkConfirmDismissChecked, setForkConfirmDismissChecked] = useState(false)
 
+  const drainQueuedMessage = useCallback(async (): Promise<boolean> => {
+    if (!worktreePath || !droidSessionId) return false
+
+    try {
+      const drained = await pendingDrainController.drainNextPending(
+        sessionId,
+        droidSessionId,
+        (sid) => useSessionRuntimeStore.getState().claimNextPendingMessage(sid),
+        async (wp, sid, message) => {
+          let messageParts: MessagePart[] | undefined
+          if (message.attachments.length > 0) {
+            messageParts = await buildMessageParts(
+              message.attachments as Attachment[],
+              message.content
+            )
+          }
+          return window.agentOps.prompt(
+            wp,
+            sid,
+            messageParts ?? message.content,
+            requestModel,
+            promptOptions
+          )
+        },
+        worktreePath,
+        (sid, message) => useSessionRuntimeStore.getState().restorePendingMessage(sid, message.id),
+        (sid, message) => useSessionRuntimeStore.getState().completePendingMessage(sid, message.id)
+      )
+      if (drained) void refreshSessionLastMessageAt(sessionId)
+      return drained
+    } catch (err) {
+      console.error('[SessionShell] drainNextPending failed:', err)
+      return false
+    }
+  }, [
+    droidSessionId,
+    pendingDrainController,
+    promptOptions,
+    requestModel,
+    sessionId,
+    worktreePath
+  ])
+
+  useEffect(() => {
+    if (lifecycle !== 'idle' || pendingCount === 0) return
+    void drainQueuedMessage()
+  }, [drainQueuedMessage, lifecycle, pendingCount])
+
   const syncOptimisticMessagesToMirror = useCallback(() => {
     updateStreamingBuffer(
       sessionId,
@@ -1204,39 +1252,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
               })
 
             // Auto-drain pending message queue
-            if (worktreePath && droidSessionId) {
-              pendingDrainController
-                .drainNextPending(
-                  sessionId,
-                  droidSessionId,
-                  (sid) => useSessionRuntimeStore.getState().claimNextPendingMessage(sid),
-                  async (wp, sid, message) => {
-                    let messageParts: MessagePart[] | undefined
-                    if (message.attachments.length > 0) {
-                      messageParts = await buildMessageParts(
-                        message.attachments as Attachment[],
-                        message.content
-                      )
-                    }
-                    return window.agentOps.prompt(
-                      wp,
-                      sid,
-                      messageParts ?? message.content,
-                      requestModel,
-                      promptOptions
-                    )
-                  },
-                  worktreePath,
-                  (sid, message) =>
-                    useSessionRuntimeStore.getState().restorePendingMessage(sid, message.id),
-                  (sid, message) =>
-                    useSessionRuntimeStore.getState().completePendingMessage(sid, message.id)
-                )
-                .then((drained) => {
-                  if (drained) void refreshSessionLastMessageAt(sessionId)
-                })
-                .catch((err) => console.error('[SessionShell] drainNextPending failed:', err))
-            }
+            void drainQueuedMessage()
           }
         }
 
@@ -1313,9 +1329,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     droidSessionId,
     optimisticRef,
     currentProviderId,
-    requestModel,
-    promptOptions,
-    pendingDrainController,
+    drainQueuedMessage,
     refreshUsageSummary
   ])
 
