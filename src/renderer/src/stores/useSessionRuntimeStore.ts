@@ -11,7 +11,11 @@
  */
 
 import { create } from 'zustand'
-import type { AgentSessionGoalState, CanonicalAgentEvent } from '@shared/types/agent-protocol'
+import type {
+  AgentSessionGoalState,
+  CanonicalAgentEvent,
+  SharedAgentRuntimeId
+} from '@shared/types/agent-protocol'
 import type { StreamingPart } from '@shared/lib/timeline-types'
 
 // ---------------------------------------------------------------------------
@@ -41,8 +45,25 @@ export interface PendingMessage {
   attachments: any[]
   queuedAt: number
   status: PendingMessageStatus
+  runtimeId?: SharedAgentRuntimeId
+  agentSessionId?: string | null
   sendingAt?: number
   lastError?: string
+}
+
+type DurablePendingMessageStatus = 'pending' | 'sending' | 'sent' | 'failed' | 'cancelled'
+
+interface DurablePendingMessageRow {
+  id: string
+  session_id: string
+  agent_session_id: string | null
+  runtime_id: SharedAgentRuntimeId
+  status: DurablePendingMessageStatus
+  content: string
+  attachments_json: string | null
+  enqueued_at: number
+  updated_at: number
+  error: string | null
 }
 
 export interface SessionRuntimeState {
@@ -69,6 +90,7 @@ export const DEFAULT_SESSION_STATE: Readonly<SessionRuntimeState> = {
 }
 
 export const ACTIVITY_TOUCH_THROTTLE_MS = 1000
+export const PENDING_MESSAGE_SEND_RECOVERY_MS = 30_000
 
 // ---------------------------------------------------------------------------
 // Per-session event callback registry (module-level, NOT reactive state)
@@ -740,6 +762,7 @@ interface SessionRuntimeStoreActions {
   claimNextPendingMessage(sessionId: string): PendingMessage | null
   completePendingMessage(sessionId: string, messageId: string): void
   restorePendingMessage(sessionId: string, messageId: string, error?: string): void
+  hydratePendingMessages(sessionId: string): Promise<void>
   getPendingMessages(sessionId: string): PendingMessage[]
   getPendingCount(sessionId: string): number
   clearPendingMessages(sessionId: string): void
@@ -754,6 +777,88 @@ export type SessionRuntimeStore = SessionRuntimeStoreState & SessionRuntimeStore
 // references on every call, which would cause useSyncExternalStore (#185) loops.
 const EMPTY_INTERRUPT_QUEUE: InterruptItem[] = []
 const EMPTY_PENDING_MESSAGES: PendingMessage[] = []
+
+function getDurablePendingMessageApi(): Window['db']['sessionPendingMessage'] | null {
+  if (typeof window === 'undefined') return null
+  return window.db?.sessionPendingMessage ?? null
+}
+
+function warnDurablePendingFailure(action: string, error: unknown): void {
+  console.warn(
+    `[SessionRuntimeStore] durable pending message ${action} failed:`,
+    error instanceof Error ? error.message : String(error)
+  )
+}
+
+function parsePendingAttachments(raw: string | null): PendingMessage['attachments'] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function mapDurablePendingMessage(row: DurablePendingMessageRow): PendingMessage {
+  return {
+    id: row.id,
+    content: row.content,
+    attachments: parsePendingAttachments(row.attachments_json),
+    queuedAt: row.enqueued_at,
+    status: row.status === 'sending' ? 'sending' : 'pending',
+    runtimeId: row.runtime_id,
+    agentSessionId: row.agent_session_id,
+    sendingAt: row.status === 'sending' ? row.updated_at : undefined,
+    lastError: row.error ?? undefined
+  }
+}
+
+function persistPendingMessageCreate(sessionId: string, message: PendingMessage): void {
+  const api = getDurablePendingMessageApi()
+  if (!api) return
+
+  void api
+    .create({
+      id: message.id,
+      session_id: sessionId,
+      agent_session_id: message.agentSessionId ?? null,
+      runtime_id: message.runtimeId ?? 'opencode',
+      content: message.content,
+      attachments_json: JSON.stringify(message.attachments ?? []),
+      enqueued_at: message.queuedAt
+    })
+    .catch((error) => warnDurablePendingFailure('create', error))
+}
+
+function persistPendingMessageClaim(message: PendingMessage): void {
+  const api = getDurablePendingMessageApi()
+  if (!api) return
+
+  void api
+    .claim(message.id, {
+      agent_session_id: message.agentSessionId ?? null
+    })
+    .catch((error) => warnDurablePendingFailure('claim', error))
+}
+
+function persistPendingMessageComplete(messageId: string): void {
+  const api = getDurablePendingMessageApi()
+  if (!api) return
+  void api.complete(messageId).catch((error) => warnDurablePendingFailure('complete', error))
+}
+
+function persistPendingMessageRestore(messageId: string, error?: string): void {
+  const api = getDurablePendingMessageApi()
+  if (!api) return
+  void api.restore(messageId, error).catch((err) => warnDurablePendingFailure('restore', err))
+}
+
+function persistPendingMessageCancel(messageId: string): void {
+  const api = getDurablePendingMessageApi()
+  if (!api) return
+  void api.cancel(messageId).catch((error) => warnDurablePendingFailure('cancel', error))
+}
 
 function syncQueuedState(sessionId: string, queued: boolean): void {
   if (typeof window === 'undefined' || !window.systemOps?.setSessionQueuedState) {
@@ -1005,13 +1110,20 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
 
   // -- Pending message queue (Phase 5) --
   queueMessage(sessionId, message) {
+    const queuedMessage = {
+      ...message,
+      status: 'pending' as const,
+      sendingAt: undefined,
+      lastError: undefined
+    }
     set((state) => {
       const pending = new Map(state.pendingMessages)
       const queue = [...(pending.get(sessionId) ?? [])]
-      queue.push({ ...message, status: 'pending', sendingAt: undefined, lastError: undefined })
+      queue.push(queuedMessage)
       pending.set(sessionId, queue)
       return { pendingMessages: pending }
     })
+    persistPendingMessageCreate(sessionId, queuedMessage)
     syncQueuedState(sessionId, true)
   },
 
@@ -1073,6 +1185,7 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
       return { pendingMessages: pending }
     })
     if (claimed) {
+      persistPendingMessageClaim(claimed)
       syncQueuedState(sessionId, true)
     }
     return claimed
@@ -1098,6 +1211,7 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
       return { pendingMessages: pending }
     })
     if (changed) {
+      persistPendingMessageComplete(messageId)
       syncQueuedState(sessionId, stillQueued)
     }
   },
@@ -1123,8 +1237,84 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
       return { pendingMessages: pending }
     })
     if (changed) {
+      persistPendingMessageRestore(messageId, error)
       syncQueuedState(sessionId, true)
     }
+  },
+
+  async hydratePendingMessages(sessionId) {
+    const api = getDurablePendingMessageApi()
+    if (!api) return
+
+    let rows: DurablePendingMessageRow[]
+    try {
+      rows = (await api.list(sessionId, [
+        'pending',
+        'sending',
+        'failed'
+      ])) as DurablePendingMessageRow[]
+    } catch (error) {
+      warnDurablePendingFailure('hydrate', error)
+      return
+    }
+
+    const durableMessages: PendingMessage[] = []
+    const localSendingIds = new Set(
+      (get().pendingMessages.get(sessionId) ?? [])
+        .filter((message) => message.status === 'sending')
+        .map((message) => message.id)
+    )
+    for (const row of rows) {
+      let hydratedRow = row
+      const sendingIsStale =
+        row.status === 'sending' && Date.now() - row.updated_at >= PENDING_MESSAGE_SEND_RECOVERY_MS
+      const shouldRecoverSending =
+        row.status === 'sending' && (!localSendingIds.has(row.id) || sendingIsStale)
+      if (shouldRecoverSending || row.status === 'failed') {
+        try {
+          const restored = await api.restore(
+            row.id,
+            row.error ?? 'Recovered queued message after interrupted send'
+          )
+          if (restored) {
+            hydratedRow = restored as DurablePendingMessageRow
+          }
+        } catch (error) {
+          warnDurablePendingFailure('hydrate restore', error)
+        }
+      }
+      durableMessages.push(mapDurablePendingMessage(hydratedRow))
+    }
+
+    let queued = false
+    set((state) => {
+      const pending = new Map(state.pendingMessages)
+      const localQueue = pending.get(sessionId) ?? []
+      const byId = new Map<string, PendingMessage>()
+
+      for (const message of durableMessages) {
+        byId.set(message.id, message)
+      }
+      // Local state wins over an older DB snapshot if hydration races with user input.
+      for (const message of localQueue) {
+        byId.set(message.id, message)
+      }
+
+      const merged = Array.from(byId.values()).sort((a, b) => {
+        if (a.queuedAt !== b.queuedAt) return a.queuedAt - b.queuedAt
+        return a.id.localeCompare(b.id)
+      })
+      queued = merged.length > 0
+
+      if (merged.length === 0) {
+        if (!pending.has(sessionId)) return state
+        pending.delete(sessionId)
+      } else {
+        pending.set(sessionId, merged)
+      }
+      return { pendingMessages: pending }
+    })
+    syncQueuedState(sessionId, queued)
   },
 
   getPendingMessages(sessionId) {
@@ -1137,21 +1327,29 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
 
   clearPendingMessages(sessionId) {
     let changed = false
+    const cancelledIds: string[] = []
     set((state) => {
       const pending = new Map(state.pendingMessages)
-      if (!pending.has(sessionId)) return state
+      const queue = pending.get(sessionId)
+      if (!queue) return state
       changed = true
+      cancelledIds.push(...queue.map((message) => message.id))
       pending.delete(sessionId)
       return { pendingMessages: pending }
     })
     if (changed) {
+      for (const id of cancelledIds) {
+        persistPendingMessageCancel(id)
+      }
       syncQueuedState(sessionId, false)
     }
   },
 
   // -- Cleanup --
   clearSession(sessionId) {
-    const hadPending = get().pendingMessages.has(sessionId)
+    const pendingQueue = get().pendingMessages.get(sessionId) ?? []
+    const hadPending = pendingQueue.length > 0
+    const cancelledIds = pendingQueue.map((message) => message.id)
     set((state) => {
       const sessions = new Map(state.sessions)
       const goals = new Map(state.goals)
@@ -1177,6 +1375,9 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
     _pendingStreamingBufferFlushes.delete(sessionId)
     _sessionEventGuards.delete(sessionId)
     if (hadPending) {
+      for (const id of cancelledIds) {
+        persistPendingMessageCancel(id)
+      }
       syncQueuedState(sessionId, false)
     }
   }

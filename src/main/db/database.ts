@@ -1769,12 +1769,40 @@ export class DatabaseService {
     return tx()
   }
 
+  claimSessionPendingMessage(
+    id: string,
+    options: SessionPendingMessageClaimOptions = {}
+  ): SessionPendingMessage | null {
+    const db = this.getDb()
+    const now = Date.now()
+    const result = db
+      .prepare(
+        `UPDATE session_pending_messages
+         SET status = 'sending',
+             agent_session_id = COALESCE(?, agent_session_id),
+             updated_at = ?,
+             sending_run_epoch = ?,
+             sending_turn_id = ?,
+             error = NULL
+         WHERE id = ? AND status = 'pending'`
+      )
+      .run(
+        options.agent_session_id ?? null,
+        now,
+        options.sending_run_epoch ?? null,
+        options.sending_turn_id ?? null,
+        id
+      )
+    if (result.changes === 0) return null
+    return this.getSessionPendingMessage(id)
+  }
+
   completeSessionPendingMessage(id: string): SessionPendingMessage | null {
     return this.updateSessionPendingMessageStatus(id, 'sent', undefined, ['sending'])
   }
 
   restoreSessionPendingMessage(id: string, error?: string): SessionPendingMessage | null {
-    return this.updateSessionPendingMessageStatus(id, 'pending', error, ['sending'])
+    return this.updateSessionPendingMessageStatus(id, 'pending', error, ['sending', 'failed'])
   }
 
   failSessionPendingMessage(id: string, error: string): SessionPendingMessage | null {

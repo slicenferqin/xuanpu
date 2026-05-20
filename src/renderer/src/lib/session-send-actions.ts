@@ -175,14 +175,17 @@ export function createPendingMessage(
     name: string
     mime: string
     [k: string]: unknown
-  }> = []
+  }> = [],
+  options: Pick<PendingMessage, 'runtimeId' | 'agentSessionId'> = {}
 ): PendingMessage {
   return {
     id: `pending-${_nextPendingId++}`,
     content,
     attachments,
     queuedAt: Date.now(),
-    status: 'pending'
+    status: 'pending',
+    runtimeId: options.runtimeId,
+    agentSessionId: options.agentSessionId
   }
 }
 
@@ -221,6 +224,8 @@ export interface SendContext {
   abort: (worktreePath: string, sessionId: string) => Promise<{ success: boolean; error?: string }>
   /** Optional wait gate used after abort so the next prompt lands on a clean turn boundary. */
   waitForAbortReady?: () => Promise<void>
+  /** Runtime used to persist durable queued-message metadata. */
+  runtimeId?: PendingMessage['runtimeId']
   /** Store: enqueue a pending message */
   queueMessage: (sessionId: string, message: PendingMessage) => void
 }
@@ -267,7 +272,10 @@ export async function executeSendAction(
     }
 
     case 'queue': {
-      const msg = createPendingMessage(content, attachments)
+      const msg = createPendingMessage(content, attachments, {
+        runtimeId: ctx.runtimeId,
+        agentSessionId: ctx.sessionId
+      })
       ctx.queueMessage(ctx.queueSessionId ?? ctx.sessionId, msg)
       return true
     }

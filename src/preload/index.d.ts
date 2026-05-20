@@ -436,6 +436,10 @@ declare global {
           sessionId: string,
           options?: SessionPendingMessageClaimOptions
         ) => Promise<SessionPendingMessage | null>
+        claim: (
+          id: string,
+          options?: SessionPendingMessageClaimOptions
+        ) => Promise<SessionPendingMessage | null>
         complete: (id: string) => Promise<SessionPendingMessage | null>
         restore: (id: string, error?: string) => Promise<SessionPendingMessage | null>
         fail: (id: string, error: string) => Promise<SessionPendingMessage | null>

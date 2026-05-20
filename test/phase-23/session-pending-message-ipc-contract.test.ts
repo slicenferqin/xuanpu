@@ -16,6 +16,7 @@ describe('session pending message IPC contract', () => {
       'db:sessionPendingMessage:get',
       'db:sessionPendingMessage:list',
       'db:sessionPendingMessage:claimNext',
+      'db:sessionPendingMessage:claim',
       'db:sessionPendingMessage:complete',
       'db:sessionPendingMessage:restore',
       'db:sessionPendingMessage:fail',
@@ -26,6 +27,7 @@ describe('session pending message IPC contract', () => {
 
     expect(source).toContain('createSessionPendingMessage(data)')
     expect(source).toContain('claimNextSessionPendingMessage(sessionId, options)')
+    expect(source).toContain('claimSessionPendingMessage(id, options)')
     expect(source).toContain('completeSessionPendingMessage(id)')
     expect(source).toContain('restoreSessionPendingMessage(id, error)')
     expect(source).toContain('failSessionPendingMessage(id, error)')
@@ -41,6 +43,7 @@ describe('session pending message IPC contract', () => {
       'db:sessionPendingMessage:get',
       'db:sessionPendingMessage:list',
       'db:sessionPendingMessage:claimNext',
+      'db:sessionPendingMessage:claim',
       'db:sessionPendingMessage:complete',
       'db:sessionPendingMessage:restore',
       'db:sessionPendingMessage:fail',
@@ -58,6 +61,7 @@ describe('session pending message IPC contract', () => {
     expect(source).toContain('interface SessionPendingMessageClaimOptions')
     expect(source).toContain('sessionPendingMessage: {')
     expect(source).toContain('claimNext: (')
+    expect(source).toContain('claim: (')
     expect(source).toContain('Promise<SessionPendingMessage | null>')
   })
 })

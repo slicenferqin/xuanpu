@@ -26,7 +26,7 @@ describe('SessionShell plan implement flow (source verification)', () => {
 
     expect(source).toContain('buildPlanImplementationPrompt(pendingBeforeAction.planContent)')
     expect(source).toContain('const implementPrompt = isClaudeCode')
-    expect(source).toContain("sessionRecord?.agent_sdk === 'codex'")
+    expect(source).toContain("agentSdk === 'codex'")
     expect(source).toContain("'Implement the plan.'")
   })
 
@@ -127,6 +127,18 @@ describe('SessionShell plan implement flow (source verification)', () => {
     expect(source).toContain('claimNextPendingMessage(sid)')
     expect(source).toContain('restorePendingMessage(sid, message.id)')
     expect(source).toContain('completePendingMessage(sid, message.id)')
+  })
+
+  test('SessionShell hydrates durable pending queue before auto-drain can observe it', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../../src/renderer/src/components/session-hq/SessionShell.tsx'),
+      'utf-8'
+    )
+
+    expect(source).toContain('hydratePendingMessages(sessionId)')
+    expect(source).toContain('runtimeId: agentSdk ?? undefined')
   })
 
   test('composer prefers Codex active-turn steer without changing Claude queue semantics', async () => {

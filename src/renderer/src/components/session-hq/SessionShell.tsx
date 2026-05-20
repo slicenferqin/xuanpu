@@ -506,6 +506,10 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   const { lifecycle, goal, dismissedGoalSignature, interruptQueue, pendingCount } =
     useSessionRuntime(sessionId)
 
+  useEffect(() => {
+    void useSessionRuntimeStore.getState().hydratePendingMessages(sessionId)
+  }, [sessionId])
+
   // --- Connect or reconnect to agent runtime on mount ---
 
   // --- Plan mode ---
@@ -1408,6 +1412,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           worktreePath,
           sessionId: droidSessionId,
           queueSessionId: sessionId,
+          runtimeId: agentSdk ?? undefined,
           prompt: async (wp, sid, c) => {
             let messageParts: MessagePart[] | undefined
             if (attachments.length > 0) {
@@ -1468,6 +1473,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       supportsSessionGoalMode,
       requestModel,
       promptOptions,
+      agentSdk,
       resetLiveOverlay,
       setMessages,
       syncOptimisticMessagesToMirror
@@ -1532,6 +1538,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           worktreePath,
           sessionId: droidSessionId,
           queueSessionId: sessionId,
+          runtimeId: agentSdk ?? undefined,
           prompt: (wp, sid, content) =>
             window.agentOps.prompt(wp, sid, content, requestModel, promptOptions),
           abort: (wp, sid) => window.agentOps.abort(wp, sid),
@@ -1557,6 +1564,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       appendOptimistic,
       requestModel,
       promptOptions,
+      agentSdk,
       resetLiveOverlay,
       syncOptimisticMessagesToMirror,
       t,
@@ -1658,7 +1666,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     if (!worktreePath || !droidSessionId || !pendingPlan) return
 
     const pendingBeforeAction = pendingPlan
-    const isClaudeCode = sessionRecord?.agent_sdk === 'claude-code'
+    const isClaudeCode = agentSdk === 'claude-code'
 
     useSessionStore.getState().clearPendingPlan(sessionId)
     useSessionRuntimeStore.getState().removeInterrupt(sessionId, pendingBeforeAction.requestId)
@@ -1692,7 +1700,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       // don't show a fake implementation request when the backend is still blocked.
       const implementPrompt = isClaudeCode
         ? 'Implement this plan'
-        : sessionRecord?.agent_sdk === 'codex'
+        : agentSdk === 'codex'
           ? 'Implement the plan.'
           : buildPlanImplementationPrompt(pendingBeforeAction.planContent)
 
@@ -1724,6 +1732,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         worktreePath,
         sessionId: droidSessionId,
         queueSessionId: sessionId,
+        runtimeId: agentSdk ?? undefined,
         prompt: (wp, sid, c) => window.agentOps.prompt(wp, sid, c, requestModel, promptOptions),
         abort: (wp, sid) => window.agentOps.abort(wp, sid),
         queueMessage: (sid, msg) => useSessionRuntimeStore.getState().queueMessage(sid, msg)
@@ -1739,7 +1748,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     worktreePath,
     droidSessionId,
     pendingPlan,
-    sessionRecord?.agent_sdk,
+    agentSdk,
     sessionId,
     appendOptimistic,
     resetLiveOverlay,

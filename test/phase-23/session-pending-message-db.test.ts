@@ -110,6 +110,34 @@ describeIf('session pending message database queue', () => {
     expect(db.listSessionPendingMessages(session.id)[0].status).toBe('sending')
   })
 
+  it('claims a specific pending message by id', () => {
+    const session = createSession('codex')
+    const first = db.createSessionPendingMessage({
+      session_id: session.id,
+      runtime_id: 'codex',
+      content: 'first',
+      enqueued_at: 100
+    })
+    const second = db.createSessionPendingMessage({
+      session_id: session.id,
+      runtime_id: 'codex',
+      content: 'second',
+      enqueued_at: 101
+    })
+
+    const claimed = db.claimSessionPendingMessage(second.id, {
+      agent_session_id: 'agent-session-2'
+    })
+
+    expect(claimed).toMatchObject({
+      id: second.id,
+      status: 'sending',
+      agent_session_id: 'agent-session-2'
+    })
+    expect(db.getSessionPendingMessage(first.id)).toMatchObject({ status: 'pending' })
+    expect(db.claimSessionPendingMessage(second.id)).toBeNull()
+  })
+
   it('completes accepted messages and hides sent rows from active queue reads', () => {
     const session = createSession('claude-code')
     const message = db.createSessionPendingMessage({
@@ -157,6 +185,25 @@ describeIf('session pending message database queue', () => {
       sending_run_epoch: null,
       sending_turn_id: null,
       error: 'provider busy'
+    })
+    expect(db.claimNextSessionPendingMessage(session.id)?.id).toBe(message.id)
+  })
+
+  it('restores failed terminal rows so they can be retried', () => {
+    const session = createSession('codex')
+    const message = db.createSessionPendingMessage({
+      session_id: session.id,
+      runtime_id: 'codex',
+      content: 'retry failed row'
+    })
+    db.claimNextSessionPendingMessage(session.id)
+    db.failSessionPendingMessage(message.id, 'provider rejected')
+
+    const restored = db.restoreSessionPendingMessage(message.id, 'retry requested')
+
+    expect(restored).toMatchObject({
+      status: 'pending',
+      error: 'retry requested'
     })
     expect(db.claimNextSessionPendingMessage(session.id)?.id).toBe(message.id)
   })

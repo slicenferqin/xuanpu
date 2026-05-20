@@ -398,6 +398,13 @@ export function registerDatabaseHandlers(): void {
     }
   )
 
+  ipcMain.handle(
+    'db:sessionPendingMessage:claim',
+    (_event, id: string, options?: SessionPendingMessageClaimOptions) => {
+      return getDatabase().claimSessionPendingMessage(id, options)
+    }
+  )
+
   ipcMain.handle('db:sessionPendingMessage:complete', (_event, id: string) => {
     return getDatabase().completeSessionPendingMessage(id)
   })

@@ -220,6 +220,14 @@ const db = {
         sending_turn_id?: string | null
       }
     ) => ipcRenderer.invoke('db:sessionPendingMessage:claimNext', sessionId, options),
+    claim: (
+      id: string,
+      options?: {
+        agent_session_id?: string | null
+        sending_run_epoch?: number | null
+        sending_turn_id?: string | null
+      }
+    ) => ipcRenderer.invoke('db:sessionPendingMessage:claim', id, options),
     complete: (id: string) => ipcRenderer.invoke('db:sessionPendingMessage:complete', id),
     restore: (id: string, error?: string) =>
       ipcRenderer.invoke('db:sessionPendingMessage:restore', id, error),

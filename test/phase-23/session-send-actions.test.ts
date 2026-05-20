@@ -319,15 +319,17 @@ describe('executeSendAction', () => {
     expect(ctx.prompt).not.toHaveBeenCalled()
   })
 
-  it('queue: uses queueSessionId for runtime store bookkeeping when provided', async () => {
-    const ctx = makeSendContext({ queueSessionId: 'db-sess-1' })
+  it('queue: uses queueSessionId and preserves runtime metadata for durable queue rows', async () => {
+    const ctx = makeSendContext({ queueSessionId: 'db-sess-1', runtimeId: 'codex' })
     const result = await executeSendAction('queue', 'later', [], ctx)
 
     expect(result).toBe(true)
     expect(ctx.queueMessage).toHaveBeenCalledWith(
       'db-sess-1',
       expect.objectContaining({
-        content: 'later'
+        content: 'later',
+        runtimeId: 'codex',
+        agentSessionId: 'sess-1'
       })
     )
   })
