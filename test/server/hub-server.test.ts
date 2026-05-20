@@ -393,12 +393,18 @@ describe('hub-server: protected routes', () => {
     expect(r.status).toBe(200)
     const body = r.body as {
       hiveId: string
+      status: string
+      lastSeq: number
       messages: Array<{ id: string }>
       activities: Array<{ id: string }>
+      hubMessages: Array<{ id: string }>
     }
     expect(body.hiveId).toBe('sess-1')
+    expect(body.status).toBe('idle')
+    expect(body.lastSeq).toBe(0)
     expect(body.messages.map((m) => m.id)).toEqual(['m1'])
     expect(body.activities.map((a) => a.id)).toEqual(['a1'])
+    expect(body.hubMessages).toEqual([])
   })
 
   it('all protected routes refuse missing auth', async () => {

@@ -115,6 +115,12 @@ export class HubWebSocket {
     }
   }
 
+  markFullReloadComplete(lastSeq: number): void {
+    if (Number.isFinite(lastSeq) && lastSeq > this.lastSeq) {
+      this.lastSeq = lastSeq
+    }
+  }
+
   destroy(): void {
     this.destroyed = true
     if (this.retryTimer) {

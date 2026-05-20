@@ -857,7 +857,17 @@ class HubServerImpl implements HubServer {
       created_at: string
     }>
 
-    sendJson(res, 200, { hiveId, messages, activities })
+    const activeSession = this.registry.getSession(this.registry.localDeviceId, hiveId)
+    const hubMessages = this.bridge?.getHistorySnapshot(hiveId) ?? []
+
+    sendJson(res, 200, {
+      hiveId,
+      status: activeSession?.status ?? 'idle',
+      lastSeq: activeSession?.seq.current() ?? 0,
+      messages,
+      activities,
+      hubMessages
+    })
   }
 
   // ─── static ──────────────────────────────────────────────────────────────

@@ -15,6 +15,7 @@
  */
 
 import { useEffect, useReducer, useRef } from 'react'
+import { api } from '../api/client'
 import { HubWebSocket, type ConnectionState } from '../api/ws'
 import type {
   ClientMsg,
@@ -87,9 +88,31 @@ const INITIAL: State = {
   connection: 'connecting'
 }
 
+interface HistoryMessageRow {
+  id: string
+  role: string
+  content: string
+  created_at: string
+}
+
+interface HistoryResponse {
+  hiveId: string
+  status?: HubSessionStatus
+  lastSeq?: number
+  hubMessages?: HubMessage[]
+  messages?: HistoryMessageRow[]
+}
+
 type Action =
+  | { type: 'reset' }
   | { type: 'frame'; frame: ServerMsg }
   | { type: 'connection'; value: ConnectionState }
+  | {
+      type: 'historyReloaded'
+      messages: HubMessage[]
+      status?: HubSessionStatus
+    }
+  | { type: 'historyReloadFailed'; message: string }
   | { type: 'clearPermission' }
   | { type: 'clearQuestion' }
   | { type: 'clearPlan' }
@@ -120,8 +143,32 @@ function applyPatch(message: HubMessage, op: MessageUpdateOp): HubMessage {
 }
 
 function reducer(state: State, action: Action): State {
+  if (action.type === 'reset') {
+    return INITIAL
+  }
   if (action.type === 'connection') {
     return { ...state, connection: action.value }
+  }
+  if (action.type === 'historyReloaded') {
+    return {
+      ...state,
+      status: action.status ?? state.status,
+      messages: action.messages,
+      permission: null,
+      question: null,
+      plan: null,
+      commandApproval: null,
+      error: null
+    }
+  }
+  if (action.type === 'historyReloadFailed') {
+    return {
+      ...state,
+      error: {
+        code: 'NEED_FULL_RELOAD',
+        message: action.message
+      }
+    }
   }
   if (action.type === 'clearPermission') {
     return { ...state, permission: null }
@@ -223,6 +270,28 @@ function reducer(state: State, action: Action): State {
   }
 }
 
+function normalizeHistoryRole(role: string): HubMessage['role'] {
+  if (role === 'user' || role === 'assistant' || role === 'system') return role
+  return 'system'
+}
+
+function mapHistoryMessages(messages: HistoryMessageRow[] = []): HubMessage[] {
+  return messages.map((message, index) => ({
+    id: message.id,
+    role: normalizeHistoryRole(message.role),
+    ts: Date.parse(message.created_at) || Date.now(),
+    seq: index + 1,
+    parts: message.content ? [{ type: 'text', text: message.content }] : []
+  }))
+}
+
+function getReloadedMessages(history: HistoryResponse): HubMessage[] {
+  if (Array.isArray(history.hubMessages) && history.hubMessages.length > 0) {
+    return history.hubMessages
+  }
+  return mapHistoryMessages(history.messages)
+}
+
 export interface SessionStream {
   state: State
   send: (msg: ClientMsg) => boolean
@@ -245,18 +314,70 @@ export interface SessionStream {
 export function useSessionStream(deviceId: string, hiveId: string): SessionStream {
   const [state, dispatch] = useReducer(reducer, INITIAL)
   const wsRef = useRef<HubWebSocket | null>(null)
+  const streamEpochRef = useRef(0)
+  const reloadInFlightRef = useRef<number | null>(null)
 
   useEffect(() => {
+    const streamEpoch = streamEpochRef.current + 1
+    streamEpochRef.current = streamEpoch
     const ws = new HubWebSocket(deviceId, hiveId)
     wsRef.current = ws
-    const offFrame = ws.onFrame((f) => dispatch({ type: 'frame', frame: f as ServerMsg }))
+    dispatch({ type: 'reset' })
+    let reloadAbortController: AbortController | null = null
+    const isCurrentStream = (): boolean => {
+      return streamEpochRef.current === streamEpoch && wsRef.current === ws
+    }
+    const reloadHistory = async (): Promise<void> => {
+      if (reloadInFlightRef.current === streamEpoch) return
+      const abortController = new AbortController()
+      reloadAbortController = abortController
+      reloadInFlightRef.current = streamEpoch
+      try {
+        const history = await api<HistoryResponse>(
+          `/api/sessions/${encodeURIComponent(hiveId)}/history`,
+          { signal: abortController.signal }
+        )
+        if (!isCurrentStream() || history.hiveId !== hiveId) return
+        ws.markFullReloadComplete(history.lastSeq ?? 0)
+        dispatch({
+          type: 'historyReloaded',
+          messages: getReloadedMessages(history),
+          status: history.status
+        })
+      } catch (error) {
+        if (!isCurrentStream()) return
+        if (error instanceof DOMException && error.name === 'AbortError') return
+        dispatch({
+          type: 'historyReloadFailed',
+          message: error instanceof Error ? error.message : String(error)
+        })
+      } finally {
+        if (reloadInFlightRef.current === streamEpoch) {
+          reloadInFlightRef.current = null
+        }
+        if (reloadAbortController === abortController) {
+          reloadAbortController = null
+        }
+      }
+    }
+    const offFrame = ws.onFrame((f) => {
+      const frame = f as ServerMsg
+      dispatch({ type: 'frame', frame })
+      if (frame.type === 'error' && frame.code === 'NEED_FULL_RELOAD') {
+        void reloadHistory()
+      }
+    })
     const offState = ws.onState((s) => dispatch({ type: 'connection', value: s }))
     ws.connect()
     return () => {
       offFrame()
       offState()
+      reloadAbortController?.abort()
       ws.destroy()
       wsRef.current = null
+      if (reloadInFlightRef.current === streamEpoch) {
+        reloadInFlightRef.current = null
+      }
     }
   }, [deviceId, hiveId])
 
