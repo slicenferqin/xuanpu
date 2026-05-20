@@ -51,19 +51,16 @@ pnpm dev
 - [ ] 登录 → 看到设备 → 选会话
 - [ ] curl 桌面 `https://xxx.trycloudflare.com/health` → `{"ok":true}`
 
-## 4. 桌面端二次确认
+## 4. Prompt 直达 runtime
 
-- [ ] tunnel 开启状态下，**确认面板里「桌面端二次确认」开关变灰且强制 ON**
 - [ ] 手机端在 PromptComposer 输入「ls」点发送
-- [ ] 桌面端右下角弹 sonner toast「手机请求执行 prompt: ls」+ 批准/拒绝
-- [ ] 桌面点「批准」→ 手机看到 user bubble + claude 开始流式回复
-- [ ] 重新发一条 prompt，桌面 30 秒不点 → 手机收到 `CONFIRM_TIMEOUT` 错误条
-- [ ] 关 tunnel，再关「二次确认」开关 → 此时手机 prompt 直接执行无 toast
+- [ ] 手机立即看到 user bubble，桌面端不出现 approval toast
+- [ ] 对应 Claude Code / Codex / OpenCode session 开始流式回复
+- [ ] 错误路径：断开桌面 runtime 或使用不存在的 session → 手机收到明确错误条，而不是静默卡住
 
 ## 5. 中断长任务
 
 - [ ] 发一条会跑很久的 prompt（如「写一个完整的 React 项目脚手架」）
-- [ ] 桌面批准
 - [ ] 手机「发送」按钮变成红色「中断」
 - [ ] 点「中断」→ runtime.abort 触发，桌面端 claude 进程立刻停
 - [ ] 手机端 status 变回 idle
@@ -84,7 +81,7 @@ pnpm dev
 - [ ] 手机连接条变红「已断开，尝试重连中」
 - [ ] 5-10 秒（指数退避 1s/2s/4s）后变绿
 - [ ] 在断线期间桌面继续产生的消息 **应该被回放出来**（来自 ringBuffer.replayAfter(lastSeq)）
-- [ ] 极端：让 server 停 60 秒以上 + 期间产生 > 500 帧 → 收到 `NEED_FULL_RELOAD` 错误条，**手动刷新页面**应能从 REST `/api/sessions/:id/history` 拉到完整历史
+- [ ] 极端：让 server 停 60 秒以上 + 期间产生 > 500 帧 → 收到 `NEED_FULL_RELOAD` 后，手机端应自动 REST reload `/api/sessions/:id/history` 并恢复完整历史
 
 ## 8. Rate Limit
 
@@ -135,8 +132,7 @@ pnpm dev
 
 | Symptom | 状态 |
 | :-- | :-- |
-| Codex / OpenCode 会话在手机端不可见 | M1.5 |
-| 消息流大量 `agent activity` JSON 折叠卡 | M1.5 翻译常见类型 |
+| 少量未建模 runtime event 只有简化活动展示 | 继续补专用卡片 |
 | 没有文件附件上传 | M2 |
 | Hub 状态栏没有 PWA 图标提示 | M2 |
 | 无 Service Worker 离线壳 | M2 |
@@ -145,6 +141,6 @@ pnpm dev
 
 ## 路线
 
-- **M1.5**：Codex + OpenCode；消息流富渲染（MarkDown / Diff）；附件 base64 上传
+- **M1.5**：消息流富渲染（Markdown / Diff）；附件 base64 上传；更多 runtime 事件专用卡片
 - **M2**：xuanpu-agent (其他电脑 → 你的 Hub) ；Token 鉴权；PWA Service Worker；CSRF Token
 - **M3**：端到端加密；DHT / 无中心 relay

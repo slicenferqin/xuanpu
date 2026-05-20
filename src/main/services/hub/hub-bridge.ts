@@ -12,9 +12,9 @@
  * 2. The bridge routes incoming `agent:stream` envelopes (CanonicalAgentEvent)
  *    to a HubRegistry session keyed by `(localDeviceId, hiveSessionId)`, using
  *    a best-effort translation to the agent-agnostic `ServerMsg` protocol. We
- *    deliberately keep the translation lossy-but-lossless: anything we don't
- *    model yet is wrapped as a HubMessage with a single `UnknownPart{ raw }`,
- *    so the mobile client can render the raw payload and we never drop data.
+ *    translate common status, interaction, message, and tool events. Unknown
+ *    live events may be skipped until the mobile protocol grows a dedicated
+ *    frame for them.
  *
  * 3. Reverse path (ClientMsg → runtime) lives in `handleClientMessage`.
  *    Mobile-originated `prompt` is dispatched directly to the runtime — there

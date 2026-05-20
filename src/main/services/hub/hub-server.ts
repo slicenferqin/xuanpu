@@ -81,7 +81,6 @@ const DEFAULT_AUTH_MODE: HubAuthMode = 'password'
 
 const SETTING_KEYS = {
   authMode: 'auth_mode',
-  requireDesktopConfirm: 'require_desktop_confirm',
   cfAccessEmails: 'cf_access_emails',
   tunnelUrl: 'tunnel_url'
 } as const
@@ -1071,10 +1070,6 @@ export function setHubAuthMode(db: Database, mode: HubAuthMode): void {
 
 export function setHubCfAccessEmails(db: Database, emails: readonly string[]): void {
   setSetting(db, SETTING_KEYS.cfAccessEmails, JSON.stringify(emails))
-}
-
-export function setHubRequireDesktopConfirm(db: Database, value: boolean): void {
-  setSetting(db, SETTING_KEYS.requireDesktopConfirm, value ? '1' : '0')
 }
 
 export function setHubTunnelUrl(db: Database, url: string | null): void {

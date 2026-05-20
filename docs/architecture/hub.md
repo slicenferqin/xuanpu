@@ -39,7 +39,7 @@
 
 1. **零侵入** — Claude/Codex/OpenCode 的 implementer 文件未修改。fan-out 完全在 `wrapBrowserWindow` Proxy 里：拦截 `webContents.send(channel, ...)`，只对 `channel==='agent:stream'` 分流给 HubBridge。
 2. **loopback-only 监听** — `HubServer` 只 bind `127.0.0.1`（v6 fallback `::1`）。公网暴露必须走 `cloudflared` 子进程，从设计上杜绝误操作。
-3. **桌面端二次确认不可由移动端跳过** — `HubBridge.handleClientMessage` 对 `prompt` frame 强制走 `PromptConfirmer.confirm()`，30s 超时返回 `CONFIRM_TIMEOUT`。
+3. **prompt 直达 runtime** — 移动端通过 Hub 鉴权和 Origin 校验后，`HubBridge.handleClientMessage` 会把 `prompt` 直接路由到 owning runtime。这里不再有 per-prompt approval gate；公网场景应使用强密码或 Cloudflare Access。
 4. **消息幂等** — 每个 ServerMsg 都带单调 `seq`（per-session `SeqCounter`）；reconnect 用 `resume{lastSeq}` 从 `MessageRingBuffer` 重播（容量 500 帧）。buffer 被挤出就回 `NEED_FULL_RELOAD`，客户端走 REST `/api/sessions/:id/history` 全量回填。
 
 ## 文件地图
@@ -77,11 +77,13 @@ ClaudeCodeImplementer.emitAgentEvent
                     (every subscriber WebSocket gets JSON)
 ```
 
-**翻译策略（loose, lossless）：**
+**翻译策略（loose, best-effort）：**
 - `session.status` → `status` frame (filter: idle/busy/retry/error)
 - `permission.asked` → `permission/request` frame
 - `question.asked` → `question/request` frame
-- 其他 CanonicalAgentEvent → `message/append` 带单个 `UnknownPart{raw:event}`（保证不丢数据）
+- `plan.ready` / `command_approval.requested` → 对应交互卡
+- 常见 `message.updated` / `message.part.updated` → 文本、工具调用和工具结果 frame
+- 其他未建模 CanonicalAgentEvent 可能暂时跳过；不要把 Hub live stream 当成完整 lossless event log
 
 ### 手机 → 桌面（inbound）
 
@@ -93,10 +95,7 @@ HubServer WS route → bridge.handleClientMessage(ws, hiveSessionId, raw)
   │
   ├─ ClientMsgSchema.parse (zod)
   │
-  ├─ 'prompt' → PromptConfirmer.confirm{confirmId, preview}
-  │      │    ├─ resolve{approved:true}  → runtime.prompt(wt, sid, text)
-  │      │    └─ resolve{approved:false} → error BAD_REQUEST 'rejected'
-  │      │    └─ 30s timeout              → error CONFIRM_TIMEOUT
+  ├─ 'prompt' → routingResolver / cached routing → runtime.prompt(wt, sid, text)
   │
   ├─ 'interrupt' → runtime.abort(wt, sid)
   │
@@ -117,7 +116,7 @@ Schema v17 (`src/main/db/schema.ts` 第 445-500 行)。五张表：
 | `hub_tokens` | M2 agent/PWA token；prefix 索引 + sha256 哈希 |
 | `hub_cookie_sessions` | UI 7 天 Cookie；expires 索引 |
 | `hub_devices` | M2 多设备；M1 只填本机一条 |
-| `hub_settings` | 键值存储：auth_mode、require_desktop_confirm、cf_access_emails (JSON)、tunnel_url |
+| `hub_settings` | 键值存储：auth_mode、cf_access_emails (JSON)、tunnel_url |
 
 ## 鉴权矩阵
 
@@ -140,7 +139,7 @@ Origin 检查：允许 `http://127.0.0.1:<port>` + `http://[::1]:<port>` + `http
 | `test/server/hub-auth.test.ts` | scrypt 盐哈希往返、rate limiter 滑窗、CF Access header / Origin check | 14 tests |
 | `test/server/hub-protocol.test.ts` | zod schema 正/反例、RingBuffer 驱逐 + NEED_FULL_RELOAD、SeqCounter 单调 | 18 tests |
 | `test/server/hub-registry.test.ts` | 订阅/取消、broadcast 丢失 WS 清理、status 传递 | 9 tests |
-| `test/server/hub-bridge.test.ts` | Proxy 拦截、runtimeId 过滤、翻译、CONFIRM_TIMEOUT、resume 回放 | 11 tests |
+| `test/server/hub-bridge.test.ts` | Proxy 拦截、多 runtime 翻译、prompt 直达 runtime、resume 回放 | 11 tests |
 | `test/server/hub-server.test.ts` | 集成（真 fetch）：setup/login/me/logout、四种鉴权、Origin、路由 404 | 22 tests |
 | `test/server/tunnel-service.test.ts` | 假 spawn：启动/URL 解析、无二进制、退避链、reset、手动 stop | 8 tests |
 
@@ -163,7 +162,7 @@ Origin 检查：允许 `http://127.0.0.1:<port>` + `http://[::1]:<port>` + `http
 
 ## 已知折中
 
-- **UnknownPart 回退**：代价是手机消息流里很多事件是 `agent activity` 折叠 JSON；好处是任何未来的 CanonicalAgentEvent 都不会掉。M1.5 会把常见 `message.updated` / `tool.called` 专门翻译。
+- **live event 保真度**：Hub 已经专门翻译常见 status / permission / question / plan / command approval / message / tool 输出事件，但未建模事件不是完整兜底。需要继续补专用 frame 或移动端活动展示，而不是假设所有 CanonicalAgentEvent 都能无损到达手机。
 - **Ring buffer 容量 500**：长会话或慢 reconnect 会触发 `NEED_FULL_RELOAD`。mobile 已经实现 fallback 路径，但用户体验是"白屏一秒后满血"。调大容量的代价是内存。
 - **Mobile bundle 92KB gzip**：没有 react-markdown / qrcode 等大库。代价是 MiniMarkdown 能力弱（仅 fence / inline / bold）。
 - **CSRF 靠 Origin/Referer**：没发 CSRF token（loopback + SameSite=Lax 已经挡住 80% 场景）。M2 加 CSRF token。
