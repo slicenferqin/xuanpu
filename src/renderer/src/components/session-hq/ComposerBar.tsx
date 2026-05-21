@@ -605,10 +605,12 @@ export function ComposerBar({
 
       const consumed = await onAction(action, snapshotContent, snapshotAttachments)
       if (!consumed) {
-        // Send failed — restore the text so the user can retry. Attachments
-        // aren't restored (files have been consumed by the optimistic path).
+        // Send failed or was rejected by the busy-state action policy. Restore
+        // the full payload so attachments are not silently dropped.
         contentRef.current = snapshotContent
+        attachmentsRef.current = snapshotAttachments
         setContent(snapshotContent)
+        setAttachments(snapshotAttachments)
       }
     },
     [clearInput, onAction]

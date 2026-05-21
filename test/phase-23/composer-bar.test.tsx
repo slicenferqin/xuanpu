@@ -1,6 +1,6 @@
 import React from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ComposerBar } from '../../src/renderer/src/components/session-hq/ComposerBar'
 
@@ -53,6 +53,14 @@ beforeEach(() => {
       sendAudioChunk: vi.fn().mockResolvedValue(undefined)
     }
   })
+
+  Object.defineProperty(window, 'fileOps', {
+    writable: true,
+    configurable: true,
+    value: {
+      getPathForFile: vi.fn().mockReturnValue('/tmp/note.txt')
+    }
+  })
 })
 
 describe('ComposerBar', () => {
@@ -75,6 +83,45 @@ describe('ComposerBar', () => {
     await user.click(screen.getByTestId('composer-primary-action'))
 
     expect(onAction).toHaveBeenCalledWith('queue', 'Follow up after this run', expect.any(Array))
+  })
+
+  it('restores attachments when an action is not consumed', async () => {
+    const user = userEvent.setup()
+    const onAction = vi.fn().mockResolvedValue(false)
+
+    render(
+      <ComposerBar
+        sessionId="sess-1"
+        lifecycle="idle"
+        pendingCount={0}
+        firstInterrupt={null}
+        onAction={onAction}
+        isConnected={true}
+      />
+    )
+
+    await user.upload(
+      screen.getByTestId('attachment-file-input'),
+      new File(['hello'], 'note.txt', { type: 'text/plain' })
+    )
+    await user.type(screen.getByRole('textbox'), 'Run with attachment')
+    await user.click(screen.getByTestId('composer-primary-action'))
+
+    await waitFor(() => {
+      expect(screen.getByRole('textbox')).toHaveValue('Run with attachment')
+    })
+    expect(screen.getByTestId('attachment-preview')).toHaveTextContent('note.txt')
+    expect(onAction).toHaveBeenCalledWith(
+      'send',
+      'Run with attachment',
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'path',
+          name: 'note.txt',
+          filePath: '/tmp/note.txt'
+        })
+      ])
+    )
   })
 
   it('uses steer as the primary busy action when the runtime prefers active-turn steering', async () => {

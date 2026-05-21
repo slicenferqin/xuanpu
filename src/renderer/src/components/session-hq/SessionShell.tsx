@@ -128,6 +128,32 @@ function extractMissionTasks(messages: TimelineMessage[]): MissionTask[] {
   return []
 }
 
+function attachmentToMessagePart(attachment: Attachment): MessagePart | null {
+  if (attachment.kind !== 'data') return null
+  return {
+    type: 'file',
+    mime: attachment.mime,
+    url: attachment.dataUrl,
+    filename: attachment.name
+  }
+}
+
+function attachmentsToMessageParts(attachments: Attachment[]): MessagePart[] {
+  return attachments
+    .map(attachmentToMessagePart)
+    .filter((part): part is MessagePart => part != null)
+}
+
+function cacheMessageAttachments(
+  cache: Map<string, MessagePart[]>,
+  message: TimelineMessage
+): void {
+  if (message.role !== 'user') return
+  if (!message.content.trim()) return
+  if (!message.attachments || message.attachments.length === 0) return
+  cache.set(message.content.trim(), message.attachments)
+}
+
 function escapeContextAttribute(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
 }
@@ -327,15 +353,16 @@ function useTimeline(
     // Clearing early causes a flash-of-empty and loses optimistic messages
     // when SessionShell remounts (e.g. tab switch).
     attachmentCacheRef.current.clear()
+    for (const msg of optimisticRef.current) {
+      cacheMessageAttachments(attachmentCacheRef.current, msg)
+    }
     refresh()
   }, [sessionId, refresh])
 
   // Optimistic insert — append a local user message before the server confirms
   const appendOptimistic = useCallback((msg: TimelineMessage) => {
     // Cache attachments keyed by normalised content for restoreUserAttachments
-    if (msg.attachments && msg.attachments.length > 0 && msg.content.trim()) {
-      attachmentCacheRef.current.set(msg.content.trim(), msg.attachments)
-    }
+    cacheMessageAttachments(attachmentCacheRef.current, msg)
     // Track optimistic messages so they survive tab switches via streaming buffer
     optimisticRef.current = [...optimisticRef.current, msg]
     setMessages((prev) => [...prev, msg])
@@ -1386,7 +1413,12 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         resetLiveOverlay(true)
       }
 
-      if (action === 'send' || action === 'stop_and_send' || action === 'steer') {
+      if (
+        action === 'send' ||
+        action === 'stop_and_send' ||
+        action === 'steer' ||
+        action === 'queue'
+      ) {
         // Lock provider/model selectors immediately. Main process also stamps
         // first_message_at via createSessionMessage / upsertSessionActivity,
         // but the UI shouldn't wait for the round-trip.
@@ -1401,16 +1433,18 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       // Optimistic insert — show user message immediately in the timeline
       if (
         (contentToSend.trim() || attachments.length > 0) &&
-        (action === 'send' || action === 'stop_and_send' || action === 'steer')
+        (action === 'send' ||
+          action === 'stop_and_send' ||
+          action === 'steer' ||
+          action === 'queue')
       ) {
-        const optimisticAttachments: MessagePart[] = attachments
-          .filter((a) => a.kind === 'data')
-          .map((a) => ({ type: 'file' as const, mime: a.mime, url: a.dataUrl, filename: a.name }))
+        const optimisticAttachments = attachmentsToMessageParts(attachments)
         const optimisticMsg: TimelineMessage = {
-          id: `optimistic-${Date.now()}`,
+          id: `${action === 'queue' ? 'queued' : 'optimistic'}-${Date.now()}`,
           role: 'user',
           content: contentToSend.trim(),
           timestamp: new Date().toISOString(),
+          ...(action === 'queue' ? { deliveryStatus: 'queued' as const } : {}),
           ...(optimisticAttachments.length > 0 ? { attachments: optimisticAttachments } : {})
         }
         optimisticMessageId = optimisticMsg.id

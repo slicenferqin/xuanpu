@@ -431,6 +431,13 @@ function TimelineNodeView({
                 </span>
               </div>
             )}
+            {node.message.deliveryStatus === 'queued' && (
+              <div className="mb-2">
+                <span className="inline-flex items-center rounded-md bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                  {t('queuedMessageBubble.badge')}
+                </span>
+              </div>
+            )}
             {images.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {images.map((img, i) => (

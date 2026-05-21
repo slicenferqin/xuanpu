@@ -143,6 +143,41 @@ describe('AgentTimeline connector rendering', () => {
     expect(onDismissSessionGoal).toHaveBeenCalledTimes(1)
   })
 
+  it('renders queued optimistic user messages with their attachments', () => {
+    render(
+      <AgentTimeline
+        timelineMessages={[
+          {
+            id: 'queued-1',
+            role: 'user',
+            content: 'Review this screenshot next',
+            timestamp: '2026-04-17T14:34:59.000Z',
+            deliveryStatus: 'queued',
+            attachments: [
+              {
+                type: 'file',
+                mime: 'image/png',
+                url: 'data:image/png;base64,queued-image',
+                filename: 'queued.png'
+              }
+            ]
+          }
+        ]}
+        streamingContent=""
+        streamingParts={[]}
+        isStreaming={false}
+        lifecycle="busy"
+      />
+    )
+
+    expect(screen.getByText('QUEUED')).toBeInTheDocument()
+    expect(screen.getByText('Review this screenshot next')).toBeInTheDocument()
+    expect(screen.getByAltText('queued.png')).toHaveAttribute(
+      'src',
+      'data:image/png;base64,queued-image'
+    )
+  })
+
   it('routes token-saver MCP bash tools to the Bash card in committed messages', () => {
     render(
       <AgentTimeline

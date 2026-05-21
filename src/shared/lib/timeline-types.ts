@@ -70,6 +70,8 @@ export interface TimelineMessage {
   content: string
   timestamp: string
   steered?: boolean
+  /** Local-only delivery hint for optimistic user messages that are not durable yet. */
+  deliveryStatus?: 'queued' | 'sending' | 'failed'
   parts?: StreamingPart[]
   /** File attachments for user messages (images, PDFs, etc.) */
   attachments?: MessagePart[]
