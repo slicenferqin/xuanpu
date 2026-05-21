@@ -1800,8 +1800,42 @@ export const messages: Record<AppLocale, MessageTree> = {
       ariaLabel: 'Projects and worktrees'
     },
     rightSidebar: {
-      ariaLabel: 'File sidebar',
-      fileSidebarError: 'File sidebar error'
+      ariaLabel: 'Context panel',
+      fileSidebarError: 'Context panel error'
+    },
+    contextPanel: {
+      tabs: {
+        overview: 'Overview',
+        review: 'Review',
+        files: 'Files',
+        tasks: 'Tasks',
+        goal: 'Goal'
+      },
+      overview: {
+        cost: 'Cost',
+        tokens: 'Tokens',
+        input: 'Input',
+        output: 'Output',
+        cacheRead: 'Cache Read',
+        cacheWrite: 'Cache Write',
+        contextLimit: '{used} / {limit}',
+        worktree: 'Worktree'
+      },
+      tasks: {
+        emptyTitle: 'No tasks yet',
+        emptyDescription: 'Agent todo updates will appear here after the session emits a task list.'
+      },
+      goal: {
+        emptyTitle: 'No goal set',
+        emptyDescription:
+          'Start a goal-mode session to keep objective, status, and criteria visible here.'
+      },
+      empty: {
+        noSessionTitle: 'No active session',
+        noSessionDescription:
+          'Open or start a session to show worktree, usage, tasks, and goal context.',
+        noWorktree: 'No worktree selected'
+      }
     },
     reasoningBlock: {
       thinking: 'Thinking...'
@@ -4591,8 +4625,40 @@ export const messages: Record<AppLocale, MessageTree> = {
       ariaLabel: '项目和 worktree'
     },
     rightSidebar: {
-      ariaLabel: '文件侧边栏',
-      fileSidebarError: '文件侧边栏出错'
+      ariaLabel: '上下文面板',
+      fileSidebarError: '上下文面板出错'
+    },
+    contextPanel: {
+      tabs: {
+        overview: '概览',
+        review: '审查',
+        files: '文件',
+        tasks: '任务',
+        goal: '目标'
+      },
+      overview: {
+        cost: '花费',
+        tokens: 'Tokens',
+        input: '输入',
+        output: '输出',
+        cacheRead: '缓存读取',
+        cacheWrite: '缓存写入',
+        contextLimit: '{used} / {limit}',
+        worktree: 'Worktree'
+      },
+      tasks: {
+        emptyTitle: '暂无任务',
+        emptyDescription: 'Agent 输出任务列表后，会在这里展示 todo 进度。'
+      },
+      goal: {
+        emptyTitle: '暂无目标',
+        emptyDescription: '开启目标模式会在这里展示目标、状态和成功标准。'
+      },
+      empty: {
+        noSessionTitle: '暂无活跃会话',
+        noSessionDescription: '打开或创建会话后，这里会展示 worktree、用量、任务和目标上下文。',
+        noWorktree: '未选择 worktree'
+      }
     },
     reasoningBlock: {
       thinking: '思考中...'

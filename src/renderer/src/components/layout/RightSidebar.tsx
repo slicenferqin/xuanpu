@@ -5,7 +5,7 @@ import { useWorktreeStore } from '@/stores/useWorktreeStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { useFileViewerStore } from '@/stores/useFileViewerStore'
 import { ResizeHandle } from './ResizeHandle'
-import { FileSidebar } from '@/components/file-tree'
+import { ContextPanelHost } from '@/components/context-panel/ContextPanelHost'
 import { BottomPanel } from './BottomPanel'
 import { TerminalManager } from '@/components/terminal/TerminalManager'
 import { ErrorBoundary, ErrorFallback } from '@/components/error'
@@ -113,21 +113,21 @@ export function RightSidebar(): React.JSX.Element {
         role="complementary"
         aria-label={t('rightSidebar.ariaLabel')}
       >
-        {/* Top half: Tabbed sidebar (Changes / Files) */}
+        {/* Top half: Context panel host (Overview / Review / Files / Tasks / Goal) */}
         <div
           className="flex min-h-0 flex-col overflow-hidden"
           style={{ flex: isDockRight ? `${splitFraction} 1 0%` : '1 1 0%' }}
           data-testid="right-sidebar-top"
         >
           <ErrorBoundary
-            componentName="FileSidebar"
+            componentName="ContextPanelHost"
             fallback={
               <div className="flex-1 p-2">
                 <ErrorFallback compact title={t('rightSidebar.fileSidebarError')} />
               </div>
             }
           >
-            <FileSidebar
+            <ContextPanelHost
               worktreePath={selectedWorktreePath}
               isConnectionMode={isConnectionMode}
               connectionMembers={selectedConnection?.members}
@@ -154,7 +154,11 @@ export function RightSidebar(): React.JSX.Element {
               style={{ flex: `${1 - splitFraction} 1 0%` }}
               data-testid="right-sidebar-bottom"
             >
-              <BottomPanel terminalSlot={terminalManager} isConnectionMode={isConnectionMode} worktreePath={selectedWorktreePath} />
+              <BottomPanel
+                terminalSlot={terminalManager}
+                isConnectionMode={isConnectionMode}
+                worktreePath={selectedWorktreePath}
+              />
             </div>
           </>
         )}

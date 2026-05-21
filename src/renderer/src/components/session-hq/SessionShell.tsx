@@ -73,6 +73,7 @@ import { applySessionContextUsage } from '@/lib/context-usage'
 import { mapRawTranscriptToTimeline } from '@shared/lib/timeline-mappers'
 import { lastSendMode, messageSendTimes } from '@/lib/message-send-times'
 import { refreshSessionLastMessageAt } from '@/lib/session-last-message'
+import { extractMissionTasks } from '@/lib/session-tasks'
 import {
   getMessageDisplayContent,
   getUserMessageForkCutoff,
@@ -81,7 +82,6 @@ import {
 import { useI18n } from '@/i18n/useI18n'
 import { useSessionSmartScroll } from '@/hooks/useSessionSmartScroll'
 import { toast } from 'sonner'
-import { isTodoWriteTool } from '@/components/sessions/tools/todo-utils'
 
 function getGoalSignature(goal: {
   threadId?: string
@@ -97,35 +97,6 @@ function getGoalSignature(goal: {
     goal.status.trim().toLowerCase(),
     goal.createdAt ?? ''
   ].join('|')
-}
-
-// ---------------------------------------------------------------------------
-// Extract mission tasks from committed timeline messages
-// ---------------------------------------------------------------------------
-
-function extractMissionTasks(messages: TimelineMessage[]): MissionTask[] {
-  // Scan from end to find the latest todo-like tool snapshot
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i]
-    if (msg.role !== 'assistant') continue
-
-    for (const part of msg.parts ?? []) {
-      if (part.type !== 'tool_use' || !part.toolUse) continue
-      const toolName = part.toolUse.name?.toLowerCase() ?? ''
-      if (!isTodoWriteTool(toolName)) continue
-
-      const todos = part.toolUse.input?.todos
-      if (!Array.isArray(todos)) continue
-
-      return todos.map((t: Record<string, unknown>, idx: number) => ({
-        id: String(t.id ?? `todo-${idx}`),
-        content: String(t.content ?? t.subject ?? t.activeForm ?? ''),
-        status: (t.status as MissionTask['status']) ?? 'pending'
-      }))
-    }
-  }
-
-  return []
 }
 
 function attachmentToMessagePart(attachment: Attachment): MessagePart | null {
@@ -768,14 +739,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       console.error('[SessionShell] drainNextPending failed:', err)
       return false
     }
-  }, [
-    droidSessionId,
-    pendingDrainController,
-    promptOptions,
-    requestModel,
-    sessionId,
-    worktreePath
-  ])
+  }, [droidSessionId, pendingDrainController, promptOptions, requestModel, sessionId, worktreePath])
 
   useEffect(() => {
     if (lifecycle !== 'idle' || pendingCount === 0) return
