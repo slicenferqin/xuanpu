@@ -197,6 +197,30 @@ function makePartEvent(
   }
 }
 
+function makeMessageUpdatedEvent(
+  sessionId: string,
+  runEpoch: number,
+  sessionSequence: number,
+  eventId: string
+): CanonicalAgentEvent {
+  return {
+    type: 'message.updated',
+    sessionId,
+    runEpoch,
+    sessionSequence,
+    eventId,
+    sourceChannel: 'agent:stream',
+    data: {
+      info: {
+        id: eventId,
+        time: {
+          completed: Date.now()
+        }
+      }
+    }
+  } as unknown as CanonicalAgentEvent
+}
+
 function makeGoalEvent(
   type: 'session.goal_updated' | 'session.goal_cleared',
   data: Record<string, unknown> = {}
@@ -254,6 +278,33 @@ describe('session event run guard', () => {
     expect(getSessionEventGuardState('sess-3')).toEqual({
       activeRunEpoch: 2,
       lastAppliedSequence: 4
+    })
+  })
+
+  test('rejects replayed eventId even if the replay has a higher sequence', () => {
+    const first = acceptSessionEvent(makePartEvent('sess-1', 1, 1, 'same-event'))
+    const replay = acceptSessionEvent(makePartEvent('sess-1', 1, 2, 'same-event'))
+    const next = acceptSessionEvent(makePartEvent('sess-1', 1, 3, 'next-event'))
+
+    expect(first.accepted).toBe(true)
+    expect(replay.accepted).toBe(false)
+    expect(next.accepted).toBe(true)
+    expect(getSessionEventGuardState('sess-1')).toEqual({
+      activeRunEpoch: 1,
+      lastAppliedSequence: 3
+    })
+  })
+
+  test('resets eventId dedupe when a newer runEpoch starts', () => {
+    const firstRun = acceptSessionEvent(makePartEvent('sess-1', 1, 1, 'same-event'))
+    const nextRun = acceptSessionEvent(makePartEvent('sess-1', 2, 2, 'same-event'))
+
+    expect(firstRun.accepted).toBe(true)
+    expect(nextRun.accepted).toBe(true)
+    expect(nextRun.advancedRun).toBe(true)
+    expect(getSessionEventGuardState('sess-1')).toEqual({
+      activeRunEpoch: 2,
+      lastAppliedSequence: 2
     })
   })
 })
@@ -331,25 +382,57 @@ describe('useAgentEventBridge runEpoch guard', () => {
     }
   })
 
+  test('does not duplicate streaming text or callbacks for replayed event ids', () => {
+    const received: string[] = []
+    const unsubscribe = useSessionRuntimeStore
+      .getState()
+      .subscribeToSessionEvents('sess-1', (event) => {
+        received.push(`${event.type}:${event.eventId}`)
+      })
+
+    renderHook(() => useAgentEventBridge())
+    expect(streamCallback).not.toBeNull()
+
+    streamCallback!(makePartEvent('sess-1', 1, 1, 'part-replayed'))
+    streamCallback!(makePartEvent('sess-1', 1, 2, 'part-replayed'))
+    streamCallback!(makeMessageUpdatedEvent('sess-1', 1, 3, 'message-replayed'))
+    streamCallback!(makeMessageUpdatedEvent('sess-1', 1, 4, 'message-replayed'))
+
+    expect(getStreamingBuffer('sess-1')).toMatchObject({
+      activeRunEpoch: 1,
+      lastAppliedSequence: 3,
+      streamingContent: 'part-replayed',
+      isStreaming: true
+    })
+    expect(received).toEqual([
+      'message.part.updated:part-replayed',
+      'message.updated:message-replayed'
+    ])
+
+    unsubscribe()
+  })
+
   test('updates and clears renderer goal state from goal events', () => {
     renderHook(() => useAgentEventBridge())
     expect(streamCallback).not.toBeNull()
 
-    streamCallback!(makeGoalEvent('session.goal_updated', {
-      goal: {
-        threadId: 'thread-1',
-        objective: 'Build the goal foundation',
+    streamCallback!(
+      makeGoalEvent('session.goal_updated', {
+        goal: {
+          threadId: 'thread-1',
+          objective: 'Build the goal foundation',
+          status: 'active',
+          tokenBudget: null,
+          tokensUsed: 42,
+          timeUsedSeconds: 12,
+          createdAt: 100,
+          updatedAt: 200
+        },
         status: 'active',
-        tokenBudget: null,
-        tokensUsed: 42,
-        timeUsedSeconds: 12,
-        createdAt: 100,
-        updatedAt: 200
-      },
-      status: 'active',
-      threadId: 'thread-1',
-      source: 'codex'
-    }))
+        threadId: 'thread-1',
+        source: 'codex'
+      })
+    )
 
     expect(useSessionRuntimeStore.getState().getSessionGoal('sess-1')).toEqual({
       threadId: 'thread-1',

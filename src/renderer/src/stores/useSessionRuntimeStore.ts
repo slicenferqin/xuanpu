@@ -636,6 +636,7 @@ export interface SessionEventGuardResult {
 }
 
 const _sessionEventGuards = new Map<string, SessionEventGuardState>()
+const _sessionEventGuardIds = new Map<string, { runEpoch: number; eventIds: Set<string> }>()
 const DEFAULT_EVENT_GUARD_STATE: Readonly<SessionEventGuardState> = {
   activeRunEpoch: 0,
   lastAppliedSequence: -1
@@ -647,11 +648,14 @@ export function getSessionEventGuardState(sessionId: string): SessionEventGuardS
 }
 
 export function acceptSessionEvent(
-  event: Pick<CanonicalAgentEvent, 'sessionId' | 'runEpoch' | 'sessionSequence'>
+  event: Pick<CanonicalAgentEvent, 'sessionId' | 'runEpoch' | 'sessionSequence'> & {
+    eventId?: string
+  }
 ): SessionEventGuardResult {
   const current = _sessionEventGuards.get(event.sessionId) ?? DEFAULT_EVENT_GUARD_STATE
   const nextRunEpoch = event.runEpoch
   const nextSequence = event.sessionSequence
+  const nextEventId = event.eventId
 
   if (nextRunEpoch < current.activeRunEpoch) {
     return {
@@ -667,10 +671,23 @@ export function acceptSessionEvent(
       lastAppliedSequence: nextSequence
     }
     _sessionEventGuards.set(event.sessionId, nextState)
+    _sessionEventGuardIds.set(event.sessionId, {
+      runEpoch: nextRunEpoch,
+      eventIds: nextEventId ? new Set([nextEventId]) : new Set()
+    })
     return {
       accepted: true,
       advancedRun: true,
       state: { ...nextState }
+    }
+  }
+
+  const guardIds = _sessionEventGuardIds.get(event.sessionId)
+  if (nextEventId && guardIds?.runEpoch === nextRunEpoch && guardIds.eventIds.has(nextEventId)) {
+    return {
+      accepted: false,
+      advancedRun: false,
+      state: { ...current }
     }
   }
 
@@ -687,6 +704,16 @@ export function acceptSessionEvent(
     lastAppliedSequence: nextSequence
   }
   _sessionEventGuards.set(event.sessionId, nextState)
+  if (nextEventId) {
+    if (guardIds?.runEpoch === nextRunEpoch) {
+      guardIds.eventIds.add(nextEventId)
+    } else {
+      _sessionEventGuardIds.set(event.sessionId, {
+        runEpoch: nextRunEpoch,
+        eventIds: new Set([nextEventId])
+      })
+    }
+  }
   return {
     accepted: true,
     advancedRun: false,
@@ -696,10 +723,12 @@ export function acceptSessionEvent(
 
 export function clearSessionEventGuard(sessionId: string): void {
   _sessionEventGuards.delete(sessionId)
+  _sessionEventGuardIds.delete(sessionId)
 }
 
 export function resetSessionEventGuardsForTests(): void {
   _sessionEventGuards.clear()
+  _sessionEventGuardIds.clear()
 }
 
 // ---------------------------------------------------------------------------
@@ -1374,6 +1403,7 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
     _emptyStreamingBufferSnapshots.delete(sessionId)
     _pendingStreamingBufferFlushes.delete(sessionId)
     _sessionEventGuards.delete(sessionId)
+    _sessionEventGuardIds.delete(sessionId)
     if (hadPending) {
       for (const id of cancelledIds) {
         persistPendingMessageCancel(id)
