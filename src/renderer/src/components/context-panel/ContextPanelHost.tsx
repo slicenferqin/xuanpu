@@ -17,6 +17,7 @@ import { PrReviewViewer } from '@/components/pr-review/PrReviewViewer'
 import { GoalStatusCard } from '@/components/session-hq/cards/GoalStatusCard'
 import { TodoCard } from '@/components/session-hq/cards/TodoCard'
 import { extractMissionTasks, type SessionTask } from '@/lib/session-tasks'
+import type { UsageAnalyticsSessionSummary } from '@shared/types/usage-analytics'
 
 interface ConnectionMemberInfo {
   worktree_path: string
@@ -56,6 +57,7 @@ const REVIEW_TABS: Array<{ id: RightReviewTab; labelKey: string }> = [
   { id: 'diffs', labelKey: 'fileTree.sidebar.diffs' },
   { id: 'comments', labelKey: 'fileTree.sidebar.comments' }
 ]
+const EMPTY_TASKS: SessionTask[] = []
 
 function formatCompactNumber(value: number): string {
   if (!Number.isFinite(value)) return '0'
@@ -115,8 +117,27 @@ function findSessionById(state: ReturnType<typeof useSessionStore.getState>, ses
   return null
 }
 
+function getGoalSignature(goal: {
+  threadId?: string
+  objective: string
+  successCriteria?: string
+  status: string
+  createdAt?: number | null
+}): string {
+  return [
+    goal.threadId?.trim() ?? '',
+    goal.objective.trim(),
+    goal.successCriteria?.trim() ?? '',
+    goal.status.trim().toLowerCase(),
+    goal.createdAt ?? ''
+  ].join('|')
+}
+
 function useSessionTasks(activeSessionId: string | null): SessionTask[] {
   const [tasks, setTasks] = useState<SessionTask[]>([])
+  const liveTasks = useSessionRuntimeStore((state) =>
+    activeSessionId ? state.getSessionTasks(activeSessionId) : EMPTY_TASKS
+  )
   const activityTick = useSessionRuntimeStore((state) =>
     activeSessionId ? state.getSession(activeSessionId).lastActivityAt : 0
   )
@@ -146,7 +167,7 @@ function useSessionTasks(activeSessionId: string | null): SessionTask[] {
     }
   }, [activeSessionId, activityTick])
 
-  return tasks
+  return liveTasks.length > 0 ? liveTasks : tasks
 }
 
 function OverviewPanel({
@@ -159,6 +180,42 @@ function OverviewPanel({
   usage: SessionContextUsage | null
 }): React.JSX.Element {
   const { t } = useI18n()
+  const [summary, setSummary] = useState<UsageAnalyticsSessionSummary | null>(null)
+  const activityTick = useSessionRuntimeStore((state) =>
+    activeSessionId ? state.getSession(activeSessionId).lastActivityAt : 0
+  )
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (!activeSessionId || !window.usageAnalyticsOps?.fetchSessionSummary) {
+      setSummary(null)
+      return () => {
+        cancelled = true
+      }
+    }
+
+    window.usageAnalyticsOps
+      .fetchSessionSummary(activeSessionId)
+      .then((result) => {
+        if (cancelled) return
+        const nextSummary = result.success && result.data ? result.data : null
+        setSummary(nextSummary)
+        if (nextSummary && nextSummary.total_cost > 0) {
+          const store = useContextStore.getState()
+          if ((store.costBySession[activeSessionId] ?? 0) < nextSummary.total_cost) {
+            store.setSessionCost(activeSessionId, nextSummary.total_cost)
+          }
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSummary(null)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeSessionId, activityTick])
 
   if (!activeSessionId) {
     return (
@@ -170,13 +227,20 @@ function OverviewPanel({
   }
 
   const tokens = usage?.tokens
-  const totalTokens = tokens
+  const liveTotalTokens = tokens
     ? tokens.input + tokens.output + tokens.reasoning + tokens.cacheRead + tokens.cacheWrite
     : 0
+  const totalCost = Math.max(summary?.total_cost ?? 0, usage?.cost ?? 0)
+  const totalTokens =
+    summary?.total_tokens && summary.total_tokens > 0 ? summary.total_tokens : liveTotalTokens
+  const inputTokens = summary?.input_tokens ?? tokens?.input ?? 0
+  const outputTokens = summary?.output_tokens ?? tokens?.output ?? 0
+  const cacheReadTokens = summary?.cache_read_tokens ?? tokens?.cacheRead ?? 0
+  const cacheWriteTokens = summary?.cache_write_tokens ?? tokens?.cacheWrite ?? 0
   const metrics: ContextMetric[] = [
     {
       label: t('contextPanel.overview.cost'),
-      value: formatCost(usage?.cost ?? 0)
+      value: formatCost(totalCost)
     },
     {
       label: t('contextPanel.overview.tokens'),
@@ -191,13 +255,13 @@ function OverviewPanel({
     },
     {
       label: t('contextPanel.overview.input'),
-      value: formatCompactNumber(tokens?.input ?? 0),
-      muted: `${t('contextPanel.overview.output')} ${formatCompactNumber(tokens?.output ?? 0)}`
+      value: formatCompactNumber(inputTokens),
+      muted: `${t('contextPanel.overview.output')} ${formatCompactNumber(outputTokens)}`
     },
     {
       label: t('contextPanel.overview.cacheRead'),
-      value: formatCompactNumber(tokens?.cacheRead ?? 0),
-      muted: `${t('contextPanel.overview.cacheWrite')} ${formatCompactNumber(tokens?.cacheWrite ?? 0)}`
+      value: formatCompactNumber(cacheReadTokens),
+      muted: `${t('contextPanel.overview.cacheWrite')} ${formatCompactNumber(cacheWriteTokens)}`
     }
   ]
 
@@ -225,6 +289,9 @@ function GoalPanel({ activeSessionId }: { activeSessionId: string | null }): Rea
   const goal = useSessionRuntimeStore((state) =>
     activeSessionId ? (state.goals.get(activeSessionId) ?? null) : null
   )
+  const dismissedGoalSignature = useSessionRuntimeStore((state) =>
+    activeSessionId ? state.getDismissedGoalSignature(activeSessionId) : null
+  )
 
   if (!activeSessionId) {
     return (
@@ -235,7 +302,7 @@ function GoalPanel({ activeSessionId }: { activeSessionId: string | null }): Rea
     )
   }
 
-  if (!goal) {
+  if (!goal || dismissedGoalSignature === getGoalSignature(goal)) {
     return (
       <EmptyPanel
         title={t('contextPanel.goal.emptyTitle')}
@@ -246,7 +313,18 @@ function GoalPanel({ activeSessionId }: { activeSessionId: string | null }): Rea
 
   return (
     <div className="min-h-0 flex-1 overflow-auto p-3" data-testid="context-panel-goal">
-      <GoalStatusCard goal={goal} />
+      <GoalStatusCard
+        goal={goal}
+        onDismiss={
+          goal.status.trim().toLowerCase() === 'completed'
+            ? () => {
+                useSessionRuntimeStore
+                  .getState()
+                  .dismissGoalSignature(activeSessionId, getGoalSignature(goal))
+              }
+            : undefined
+        }
+      />
     </div>
   )
 }

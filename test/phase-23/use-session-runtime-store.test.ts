@@ -39,6 +39,9 @@ beforeEach(() => {
   for (const sessionId of state.pendingMessages.keys()) {
     state.clearPendingMessages(sessionId)
   }
+  for (const sessionId of state.sessionTasks.keys()) {
+    state.clearSessionTasks(sessionId)
+  }
 })
 
 afterEach(() => {
@@ -279,6 +282,33 @@ describe('useSessionRuntimeStore', () => {
       })
 
       expect(store.getDismissedGoalSignature('sess-1')).toBeNull()
+    })
+  })
+
+  describe('session tasks', () => {
+    it('stores defensive task snapshots per session', () => {
+      const store = useSessionRuntimeStore.getState()
+      const tasks = [{ id: 'task-1', content: 'Move task list right', status: 'pending' as const }]
+
+      store.setSessionTasks('sess-1', tasks)
+      tasks[0].content = 'Mutated after write'
+
+      expect(store.getSessionTasks('sess-1')).toEqual([
+        { id: 'task-1', content: 'Move task list right', status: 'pending' }
+      ])
+      expect(store.getSessionTasks('missing')).toEqual([])
+    })
+
+    it('clears task snapshots with their session', () => {
+      const store = useSessionRuntimeStore.getState()
+      store.setSessionTasks('sess-1', [
+        { id: 'task-1', content: 'Move task list right', status: 'completed' }
+      ])
+
+      store.clearSession('sess-1')
+
+      expect(store.getSessionTasks('sess-1')).toEqual([])
+      expect(useSessionRuntimeStore.getState().sessionTasks.has('sess-1')).toBe(false)
     })
   })
 
@@ -1045,6 +1075,7 @@ describe('useSessionRuntimeStore', () => {
       const store = useSessionRuntimeStore.getState()
       store.setLifecycle('sess-1', 'busy')
       store.incrementUnread('sess-1')
+      store.setSessionTasks('sess-1', [{ id: 'task-1', content: 'Task state', status: 'pending' }])
       store.pushInterrupt('sess-1', {
         type: 'question',
         id: 'q-1',
@@ -1056,6 +1087,7 @@ describe('useSessionRuntimeStore', () => {
 
       expect(useSessionRuntimeStore.getState().sessions.has('sess-1')).toBe(false)
       expect(useSessionRuntimeStore.getState().interruptQueues.has('sess-1')).toBe(false)
+      expect(useSessionRuntimeStore.getState().sessionTasks.has('sess-1')).toBe(false)
       // getSession returns default
       expect(useSessionRuntimeStore.getState().getSession('sess-1').lifecycle).toBe('idle')
     })

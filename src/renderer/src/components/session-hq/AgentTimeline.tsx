@@ -15,7 +15,6 @@ import { cn } from '@/lib/utils'
 import { formatMessageTime } from '@/lib/format-time'
 import type { TimelineMessage, StreamingPart, ToolUseInfo } from '@shared/lib/timeline-types'
 import type { MessagePart } from '@shared/types/opencode'
-import type { AgentSessionGoalState } from '@shared/types/agent-protocol'
 import type { SessionLifecycle } from '@/stores/useSessionRuntimeStore'
 import { CopyMessageButton } from '@/components/sessions/CopyMessageButton'
 import { ForkMessageButton } from '@/components/sessions/ForkMessageButton'
@@ -32,8 +31,7 @@ import {
   AskUserCard,
   SubAgentCard,
   TextCard,
-  TodoCard,
-  GoalStatusCard
+  TodoCard
 } from './cards'
 import { ThreadStatusRow, type ThreadStatusRowData } from './ThreadStatusRow'
 import { SystemNotificationBar } from '../sessions/SystemNotificationBar'
@@ -702,8 +700,6 @@ export interface AgentTimelineProps {
    */
   activeRunStartedAt?: number | string | null
   lifecycle: SessionLifecycle
-  sessionGoal?: AgentSessionGoalState | null
-  onDismissSessionGoal?: () => void
   ephemeralStatusRows?: ThreadStatusRowData[]
   /**
    * Live compaction marker that should appear inline at its own timestamp
@@ -712,9 +708,9 @@ export interface AgentTimelineProps {
    * passing this so the durable copy takes over.
    */
   inflightCompaction?: ThreadStatusRowData | null
-  /** Suppress inline TodoCard rendering when MissionControl handles tasks */
+  /** Suppress inline TodoCard rendering when the right context panel owns tasks. */
   suppressTodoCards?: boolean
-  /** Aggregated final task list — renders ONE TodoCard after MissionControl fades */
+  /** Aggregated final task list — renders one TodoCard when explicitly requested. */
   finalTodoTasks?: Array<{ id: string; content: string; status: string }>
   /** Session ID — needed for interactive AskUserCard reply */
   sessionId?: string
@@ -761,8 +757,6 @@ export function AgentTimeline({
   isStreaming,
   activeRunStartedAt,
   lifecycle: _lifecycle,
-  sessionGoal = null,
-  onDismissSessionGoal,
   ephemeralStatusRows = [],
   inflightCompaction = null,
   suppressTodoCards,
@@ -825,7 +819,7 @@ export function AgentTimeline({
     return filteredMessages
       .flatMap((msg) => messageToNodes(msg))
       .filter((node) => {
-        // Suppress inline TodoCards when MissionControl handles tasks
+        // Suppress inline TodoCards when the right context panel owns tasks.
         if (suppressTodoCards && node.cardType === 'todo') return false
         return true
       })
@@ -1003,12 +997,6 @@ export function AgentTimeline({
           paddingBottom: `${Math.max(bottomFloatingHeight + 88, 360)}px`
         }}
       >
-        {sessionGoal && (
-          <div className="sticky top-3 z-20 mb-5" data-testid="goal-status-sticky">
-            <GoalStatusCard goal={sessionGoal} onDismiss={onDismissSessionGoal} />
-          </div>
-        )}
-
         {/* Inline compaction marker inserted by timestamp. */}
         {inflightCompaction && inflightCompactionInsertAfter === -1 && (
           <ThreadStatusRow key={inflightCompaction.id} status={inflightCompaction} />
@@ -1149,7 +1137,7 @@ export function AgentTimeline({
           )
         })}
 
-        {/* Final aggregated TodoCard — appears after MissionControl fades */}
+        {/* Final aggregated TodoCard — rendered only when a parent explicitly passes it. */}
         {finalTodoTasks && finalTodoTasks.length > 0 && (
           <div className="relative pl-10 mb-4">
             <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border" />
@@ -1256,7 +1244,7 @@ export function AgentTimeline({
         ))}
 
         {/* Empty state */}
-        {nodes.length === 0 && ephemeralStatusRows.length === 0 && !isStreaming && !sessionGoal && (
+        {nodes.length === 0 && ephemeralStatusRows.length === 0 && !isStreaming && (
           <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
             <MessageSquare className="h-10 w-10 mb-3 opacity-30" />
             <div className="text-sm font-medium">{t('sessionHq.timeline.emptyTitle')}</div>
