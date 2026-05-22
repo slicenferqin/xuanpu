@@ -366,6 +366,67 @@ describe('hub-bridge: outbound translation', () => {
     expect(resultFrame.patch.value.output.length).toBeLessThan(4500)
     expect(resultFrame.patch.value.output).toContain('truncated')
   })
+
+  it('renders Codex turn diffs as a single replaceable diff card', () => {
+    const ws = makeWs()
+    registry.subscribe(ws, 'd', 's1')
+
+    bridge.onIpcEvent(AGENT_STREAM_CHANNEL, [
+      envelope({
+        type: 'session.turn_diff',
+        sessionId: 's1',
+        runtimeId: 'codex',
+        data: {
+          turnId: 'turn-1',
+          diff: 'diff --git a/a.ts b/a.ts\n+first\n'
+        }
+      })
+    ])
+
+    expect(ws.sent).toHaveLength(1)
+    const append = ws.sent[0] as {
+      type: string
+      seq: number
+      message: { id: string; role: string; parts: Array<Record<string, unknown>> }
+    }
+    expect(append.type).toBe('message/append')
+    expect(append.seq).toBe(1)
+    expect(append.message.id).toBe('diff-s1-turn-1')
+    expect(append.message.role).toBe('assistant')
+    expect(append.message.parts[0]).toMatchObject({
+      type: 'diff',
+      filePath: 'turn:turn-1',
+      patch: expect.stringContaining('+first')
+    })
+
+    bridge.onIpcEvent(AGENT_STREAM_CHANNEL, [
+      envelope({
+        type: 'session.turn_diff',
+        sessionId: 's1',
+        runtimeId: 'codex',
+        data: {
+          turnId: 'turn-1',
+          diff: 'diff --git a/a.ts b/a.ts\n+second\n'
+        }
+      })
+    ])
+
+    expect(ws.sent).toHaveLength(2)
+    expect(ws.sent[1]).toMatchObject({
+      type: 'message/update',
+      seq: 2,
+      messageId: 'diff-s1-turn-1',
+      patch: {
+        op: 'replacePart',
+        partIdx: 0,
+        value: {
+          type: 'diff',
+          filePath: 'turn:turn-1',
+          patch: expect.stringContaining('+second')
+        }
+      }
+    })
+  })
 })
 
 describe('hub-bridge: inbound client messages', () => {
@@ -440,6 +501,35 @@ describe('hub-bridge: inbound client messages', () => {
     const ws = makeWs()
     await bridge.handleClientMessage(ws, 's1', { type: 'resume', lastSeq: 1 })
     expect(ws.sent.map((f) => (f as { seq: number }).seq)).toEqual([2, 3])
+  })
+
+  it('resume returns NEED_FULL_RELOAD when the replay gap has been evicted', async () => {
+    const registry = new HubRegistry({ localDeviceId: 'd' })
+    const { manager } = makeRuntimeStub()
+    const bridge = new HubBridge({
+      registry,
+      runtimeManager: manager
+    })
+
+    for (let i = 0; i < 502; i += 1) {
+      bridge.onIpcEvent(AGENT_STREAM_CHANNEL, [
+        envelope({
+          eventId: `evt-${i}`,
+          sessionSequence: i + 1,
+          type: 'session.status',
+          sessionId: 's1',
+          data: { status: { type: i % 2 === 0 ? 'busy' : 'idle' } },
+          statusPayload: { type: i % 2 === 0 ? 'busy' : 'idle' }
+        })
+      ])
+    }
+
+    const ws = makeWs()
+    await bridge.handleClientMessage(ws, 's1', { type: 'resume', lastSeq: 1 })
+
+    expect(ws.sent).toEqual([
+      { type: 'error', code: 'NEED_FULL_RELOAD', message: 'gap evicted' }
+    ])
   })
 })
 

@@ -6,10 +6,7 @@
  *  2. Local hub on/off + URL
  *  3. Public access via cloudflared
  *  4. Auth mode (password / cf_access / hybrid)
- *  5. Security (desktop confirm + change password)
- *
- * The desktop二次确认 toast lives in `HubConfirmationToasts` (mounted higher
- * up so it survives panel close).
+ *  5. Security (change password)
  */
 
 import { useEffect, useState, type FormEvent } from 'react'
@@ -62,7 +59,7 @@ export function HubSection(): React.JSX.Element {
       <header>
         <h2 className="text-lg font-semibold">远程访问 (Hub)</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          在本机开启 Hub 服务，让手机或平板远程查看与控制你的 Claude Code 会话。
+          在本机开启 Hub 服务，让手机或平板远程查看与控制你的 AI coding 会话。
           公网访问通过 Cloudflare 临时隧道实现。
         </p>
       </header>

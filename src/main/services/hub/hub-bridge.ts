@@ -12,9 +12,9 @@
  * 2. The bridge routes incoming `agent:stream` envelopes (CanonicalAgentEvent)
  *    to a HubRegistry session keyed by `(localDeviceId, hiveSessionId)`, using
  *    a best-effort translation to the agent-agnostic `ServerMsg` protocol. We
- *    deliberately keep the translation lossy-but-lossless: anything we don't
- *    model yet is wrapped as a HubMessage with a single `UnknownPart{ raw }`,
- *    so the mobile client can render the raw payload and we never drop data.
+ *    translate common status, interaction, message, and tool events. Unknown
+ *    live events may be skipped until the mobile protocol grows a dedicated
+ *    frame for them.
  *
  * 3. Reverse path (ClientMsg → runtime) lives in `handleClientMessage`.
  *    Mobile-originated `prompt` is dispatched directly to the runtime — there
@@ -182,6 +182,12 @@ export class HubBridge {
     { hubMsgId: string; partIdx: Map<string, number>; nextPartIdx: number }
   >()
   /**
+   * Codex emits turn-cumulative diffs as `session.turn_diff`. Keep one mobile
+   * diff card per `(session, turn)` and replace it as the cumulative patch
+   * changes instead of appending a new card for every update.
+   */
+  private readonly turnDiffMsgs = new Map<string, { hubMsgId: string }>()
+  /**
    * Last emit timestamp (ms) per `${sessionId}:${noticeCategory}`. Lets us
    * throttle high-frequency notices like `context_usage` so mobile doesn't get
    * a notice every assistant tick.
@@ -215,6 +221,10 @@ export class HubBridge {
     this.worktreePaths.delete(hiveSessionId)
     this.agentSessionIds.delete(hiveSessionId)
     this.runtimeIds.delete(hiveSessionId)
+    this.streamingMsgs.delete(hiveSessionId)
+    for (const key of Array.from(this.turnDiffMsgs.keys())) {
+      if (key.startsWith(`${hiveSessionId}:`)) this.turnDiffMsgs.delete(key)
+    }
   }
 
   /**
@@ -569,13 +579,49 @@ export class HubBridge {
           }
         ]
       }
+      case 'session.turn_diff': {
+        const d = ev.data as { turnId?: string; diff?: string }
+        if (!d.turnId || !d.diff) return []
+        const key = `${ev.sessionId}:${d.turnId}`
+        const part: HubPart = {
+          type: 'diff',
+          filePath: `turn:${d.turnId}`,
+          patch: d.diff
+        }
+        const existing = this.turnDiffMsgs.get(key)
+        if (existing) {
+          return [
+            {
+              type: 'message/update',
+              seq: 0,
+              messageId: existing.hubMsgId,
+              patch: { op: 'replacePart', partIdx: 0, value: part }
+            }
+          ]
+        }
+
+        const hubMsgId = `diff-${ev.sessionId}-${d.turnId}`
+        this.turnDiffMsgs.set(key, { hubMsgId })
+        return [
+          {
+            type: 'message/append',
+            seq: 0,
+            message: {
+              id: hubMsgId,
+              role: 'assistant',
+              ts: this.now(),
+              seq: 0,
+              parts: [part]
+            }
+          }
+        ]
+      }
       case 'message.updated':
       case 'session.idle':
       case 'session.materialized':
       case 'session.updated':
       case 'session.commands_available':
       case 'session.model_limits':
-      case 'session.turn_diff':
       case 'permission.replied':
       case 'question.replied':
       case 'question.rejected':
