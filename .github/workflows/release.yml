@@ -14,6 +14,9 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.ref_name, '-canary.') }}
     strategy:
       fail-fast: false
+      # Each matrix job uploads into the same GitHub Release. Running them
+      # one at a time avoids duplicate draft-release creation races on tags.
+      max-parallel: 1
       matrix:
         include:
           # macOS ARM64 — native build on ARM64 runner
