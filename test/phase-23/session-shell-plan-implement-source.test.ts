@@ -95,4 +95,18 @@ describe('SessionShell plan implement flow (source verification)', () => {
     expect(source).toContain('setGoalMode(false)')
     expect(source).toContain("setSuccessCriteria('')")
   })
+
+  test('composer queue and stop-and-send use runtime boundaries, not guessed sleeps', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../../src/renderer/src/components/session-hq/SessionShell.tsx'),
+      'utf-8'
+    )
+
+    expect(source).toContain('function waitForSessionIdleAfterAbort')
+    expect(source).toContain('queueSessionId: sessionId')
+    expect(source).toContain('waitForAbortReady: () => waitForSessionIdleAfterAbort(sessionId)')
+    expect(source).toContain("if (action === 'send' || action === 'stop_and_send') {")
+  })
 })

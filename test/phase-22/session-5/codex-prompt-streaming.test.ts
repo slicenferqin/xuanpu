@@ -52,6 +52,7 @@ vi.mock('../../../src/main/services/codex-app-server-manager', () => {
     listSessions: vi.fn().mockReturnValue([]),
     setThreadGoal: vi.fn(),
     sendTurn: vi.fn(),
+    readThread: vi.fn(),
     on: vi.fn().mockImplementation((_event: string, handler: any) => {
       eventListeners.push(handler)
     }),
@@ -121,6 +122,12 @@ describe('CodexImplementer.prompt()', () => {
       }, 5)
       return { turnId: 'turn-1', threadId: 'thread-1' }
     })
+  }
+
+  function emitManagerEvent(event: any) {
+    for (const listener of [...eventListeners]) {
+      listener(event)
+    }
   }
 
   // ── Basic prompt flow ───────────────────────────────────────
@@ -654,6 +661,159 @@ describe('CodexImplementer.prompt()', () => {
     await impl.prompt('/test/project', 'thread-1', 'test')
 
     expect(session.status).toBe('error')
+  })
+
+  // ── Run / turn isolation ─────────────────────────────────────
+
+  it('does not resolve the current prompt from a different turn completion', async () => {
+    const session = seedSession()
+    mockManager.sendTurn.mockResolvedValue({ turnId: 'turn-b', threadId: 'thread-1' })
+
+    let settled = false
+    const promptPromise = impl.prompt('/test/project', 'thread-1', 'Current prompt').then(() => {
+      settled = true
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(mockManager.sendTurn).toHaveBeenCalled()
+
+    emitManagerEvent({
+      id: 'wrong-turn',
+      kind: 'notification',
+      provider: 'codex',
+      threadId: 'thread-1',
+      turnId: 'turn-a',
+      createdAt: new Date().toISOString(),
+      method: 'turn/completed',
+      payload: { turn: { id: 'turn-a', status: 'completed' } }
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(settled).toBe(false)
+    expect(session.status).toBe('running')
+
+    emitManagerEvent({
+      id: 'right-turn',
+      kind: 'notification',
+      provider: 'codex',
+      threadId: 'thread-1',
+      turnId: 'turn-b',
+      createdAt: new Date().toISOString(),
+      method: 'turn/completed',
+      payload: { turn: { id: 'turn-b', status: 'completed' } }
+    })
+
+    await promptPromise
+    expect(settled).toBe(true)
+    expect(session.status).toBe('ready')
+  })
+
+  it('settles an interrupted turn without waiting for timeout', async () => {
+    const session = seedSession()
+    mockManager.sendTurn.mockResolvedValue({ turnId: 'turn-stop', threadId: 'thread-1' })
+
+    const promptPromise = impl.prompt('/test/project', 'thread-1', 'Stop me')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    emitManagerEvent({
+      id: 'interrupted',
+      kind: 'session',
+      provider: 'codex',
+      threadId: 'thread-1',
+      turnId: 'turn-stop',
+      createdAt: new Date().toISOString(),
+      method: 'turn/interrupted',
+      message: 'Turn interrupted'
+    })
+
+    await promptPromise
+    expect(session.status).toBe('ready')
+    expect(session.activeRun).toBeNull()
+  })
+
+  it('ignores a stale thread/read snapshot after a newer prompt has completed', async () => {
+    const session = seedSession()
+    let sendCount = 0
+    let resolveReadA: ((value: unknown) => void) | null = null
+
+    mockManager.sendTurn.mockImplementation(async () => {
+      sendCount += 1
+      return { turnId: sendCount === 1 ? 'turn-a' : 'turn-b', threadId: 'thread-1' }
+    })
+
+    mockManager.readThread
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveReadA = resolve
+          })
+      )
+      .mockResolvedValueOnce({
+        thread: {
+          id: 'thread-1',
+          turns: [
+            {
+              id: 'turn-a',
+              input: [{ type: 'text', text: 'Prompt A' }],
+              outputText: 'Reply A'
+            },
+            {
+              id: 'turn-b',
+              input: [{ type: 'text', text: 'Prompt B' }],
+              outputText: 'Reply B'
+            }
+          ]
+        }
+      })
+
+    const promptA = impl.prompt('/test/project', 'thread-1', 'Prompt A')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    emitManagerEvent({
+      id: 'a-complete',
+      kind: 'notification',
+      provider: 'codex',
+      threadId: 'thread-1',
+      turnId: 'turn-a',
+      createdAt: new Date().toISOString(),
+      method: 'turn/completed',
+      payload: { turn: { id: 'turn-a', status: 'completed' } }
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const promptB = impl.prompt('/test/project', 'thread-1', 'Prompt B')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    emitManagerEvent({
+      id: 'b-complete',
+      kind: 'notification',
+      provider: 'codex',
+      threadId: 'thread-1',
+      turnId: 'turn-b',
+      createdAt: new Date().toISOString(),
+      method: 'turn/completed',
+      payload: { turn: { id: 'turn-b', status: 'completed' } }
+    })
+    await promptB
+
+    resolveReadA?.({
+      thread: {
+        id: 'thread-1',
+        turns: [
+          {
+            id: 'turn-a',
+            input: [{ type: 'text', text: 'Prompt A' }],
+            outputText: 'Stale Reply A'
+          }
+        ]
+      }
+    })
+    await promptA
+
+    const texts = session.messages.flatMap((message: any) =>
+      (message.parts ?? []).map((part: any) => part.text).filter(Boolean)
+    )
+    expect(texts).toContain('Prompt B')
+    expect(texts).toContain('Reply B')
+    expect(texts).not.toContain('Stale Reply A')
   })
 
   // ── Session not found ───────────────────────────────────────

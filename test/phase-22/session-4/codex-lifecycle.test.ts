@@ -78,10 +78,12 @@ describe('CodexImplementer lifecycle', () => {
 
       await impl.connect('/test/project', 'hive-session-1')
 
-      expect(mockManager.startSession).toHaveBeenCalledWith({
-        cwd: '/test/project',
-        model: CODEX_DEFAULT_MODEL
-      })
+      expect(mockManager.startSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cwd: '/test/project',
+          model: CODEX_DEFAULT_MODEL
+        })
+      )
     })
 
     it('uses selected model when set', async () => {
@@ -101,10 +103,12 @@ describe('CodexImplementer lifecycle', () => {
 
       await impl.connect('/test', 'hive-1')
 
-      expect(mockManager.startSession).toHaveBeenCalledWith({
-        cwd: '/test',
-        model: 'gpt-5.3-codex'
-      })
+      expect(mockManager.startSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cwd: '/test',
+          model: 'gpt-5.3-codex'
+        })
+      )
     })
 
     it('stores session state in local map', async () => {
@@ -147,9 +151,7 @@ describe('CodexImplementer lifecycle', () => {
         updatedAt: new Date().toISOString()
       })
 
-      await expect(impl.connect('/test', 'hive-1')).rejects.toThrow(
-        'no thread ID was returned'
-      )
+      await expect(impl.connect('/test', 'hive-1')).rejects.toThrow('no thread ID was returned')
     })
 
     it('sends session.materialized event to renderer', async () => {
@@ -173,11 +175,14 @@ describe('CodexImplementer lifecycle', () => {
 
       await impl.connect('/test', 'hive-session-3')
 
-      expect(mockWindow.webContents.send).toHaveBeenCalledWith('agent:stream', {
-        type: 'session.materialized',
-        sessionId: 'hive-session-3',
-        data: { newSessionId: 'thread-mat', wasFork: false }
-      })
+      expect(mockWindow.webContents.send).toHaveBeenCalledWith(
+        'agent:stream',
+        expect.objectContaining({
+          type: 'session.materialized',
+          sessionId: 'hive-session-3',
+          data: { newSessionId: 'thread-mat', wasFork: false }
+        })
+      )
     })
   })
 
@@ -240,11 +245,13 @@ describe('CodexImplementer lifecycle', () => {
       expect(result.sessionStatus).toBe('idle')
 
       // Verify manager was called with resume
-      expect(mockManager.startSession).toHaveBeenCalledWith({
-        cwd: '/test',
-        model: CODEX_DEFAULT_MODEL,
-        resumeThreadId: 'thread-old'
-      })
+      expect(mockManager.startSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cwd: '/test',
+          model: CODEX_DEFAULT_MODEL,
+          resumeThreadId: 'thread-old'
+        })
+      )
     })
 
     it('stores the new session state', async () => {
@@ -444,9 +451,7 @@ describe('CodexImplementer lifecycle', () => {
 
   describe('implemented methods behavior', () => {
     it('prompt throws when session not found', async () => {
-      await expect(impl.prompt('/test', 'session-1', 'hello')).rejects.toThrow(
-        'session not found'
-      )
+      await expect(impl.prompt('/test', 'session-1', 'hello')).rejects.toThrow('session not found')
     })
 
     it('abort returns false for unknown session', async () => {

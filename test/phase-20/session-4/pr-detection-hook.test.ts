@@ -11,10 +11,23 @@ vi.mock('../../../src/renderer/src/stores/useWorktreeStore', () => ({
   }
 }))
 
+function attachDetectedPr(worktreeId: string, text: string): void {
+  const creation = useGitStore.getState().prCreation.get(worktreeId)
+  const match = text.match(PR_URL_PATTERN)
+  if (!creation?.creating || !match) return
+
+  useGitStore.getState().setAttachedPR(worktreeId, {
+    number: parseInt(match[1], 10),
+    url: match[0]
+  })
+  useGitStore.getState().setPrCreation(worktreeId, null)
+}
+
 describe('Session 4: PR Detection Hook', () => {
   beforeEach(() => {
     useGitStore.setState({
-      prInfo: new Map()
+      prCreation: new Map(),
+      attachedPR: new Map()
     })
   })
 
@@ -64,183 +77,80 @@ describe('Session 4: PR Detection Hook', () => {
     })
   })
 
-  describe('PR state transition logic', () => {
-    test('transitions from creating to created when PR URL is detected', () => {
-      // Set initial state to 'creating'
-      useGitStore.getState().setPrState('wt-1', {
-        state: 'creating',
-        sessionId: 'session-1',
-        targetBranch: 'origin/main'
-      })
-
-      // Simulate what the hook does when a PR URL is found
-      const prInfo = useGitStore.getState().prInfo.get('wt-1')
-      expect(prInfo?.state).toBe('creating')
-
-      const text = 'I created a pull request: https://github.com/org/repo/pull/42'
-      const match = text.match(PR_URL_PATTERN)
-      expect(match).not.toBeNull()
-
-      if (match && prInfo && prInfo.state === 'creating') {
-        const prNumber = parseInt(match[1], 10)
-        useGitStore.getState().setPrState('wt-1', {
-          ...prInfo,
-          state: 'created',
-          prNumber,
-          prUrl: match[0]
-        })
-      }
-
-      // Verify transition
-      const updatedInfo = useGitStore.getState().prInfo.get('wt-1')
-      expect(updatedInfo?.state).toBe('created')
-      expect(updatedInfo?.prNumber).toBe(42)
-      expect(updatedInfo?.prUrl).toBe('https://github.com/org/repo/pull/42')
-      // Original fields preserved
-      expect(updatedInfo?.sessionId).toBe('session-1')
-      expect(updatedInfo?.targetBranch).toBe('origin/main')
-    })
-
-    test('does not transition when state is not creating', () => {
-      useGitStore.getState().setPrState('wt-1', {
-        state: 'created',
-        prNumber: 10,
-        prUrl: 'https://github.com/org/repo/pull/10'
-      })
-
-      const prInfo = useGitStore.getState().prInfo.get('wt-1')
-
-      // Hook would check state before transitioning
-      if (prInfo && prInfo.state === 'creating') {
-        // This should NOT execute
-        useGitStore.getState().setPrState('wt-1', {
-          ...prInfo,
-          state: 'created',
-          prNumber: 99
-        })
-      }
-
-      // State should be unchanged
-      const info = useGitStore.getState().prInfo.get('wt-1')
-      expect(info?.state).toBe('created')
-      expect(info?.prNumber).toBe(10)
-    })
-
-    test('does not transition when state is none', () => {
-      useGitStore.getState().setPrState('wt-1', { state: 'none' })
-
-      const prInfo = useGitStore.getState().prInfo.get('wt-1')
-      if (prInfo && prInfo.state === 'creating') {
-        useGitStore.getState().setPrState('wt-1', {
-          ...prInfo,
-          state: 'created',
-          prNumber: 99
-        })
-      }
-
-      expect(useGitStore.getState().prInfo.get('wt-1')?.state).toBe('none')
-    })
-
-    test('does not transition when state is merged', () => {
-      useGitStore.getState().setPrState('wt-1', { state: 'merged', prNumber: 5 })
-
-      const prInfo = useGitStore.getState().prInfo.get('wt-1')
-      if (prInfo && prInfo.state === 'creating') {
-        useGitStore.getState().setPrState('wt-1', {
-          ...prInfo,
-          state: 'created',
-          prNumber: 99
-        })
-      }
-
-      expect(useGitStore.getState().prInfo.get('wt-1')?.state).toBe('merged')
-    })
-
-    test('does not transition when no PR URL found in text', () => {
-      useGitStore.getState().setPrState('wt-1', {
-        state: 'creating',
+  describe('PR detection lifecycle side effects', () => {
+    test('moves from creating to attached when a PR URL is detected', () => {
+      useGitStore.getState().setPrCreation('wt-1', {
+        creating: true,
         sessionId: 'session-1'
       })
 
-      const text = 'I am working on creating the pull request now...'
-      const match = text.match(PR_URL_PATTERN)
-      expect(match).toBeNull()
+      attachDetectedPr('wt-1', 'I created a pull request: https://github.com/org/repo/pull/42')
 
-      // No transition should occur
-      const info = useGitStore.getState().prInfo.get('wt-1')
-      expect(info?.state).toBe('creating')
+      expect(useGitStore.getState().prCreation.get('wt-1')).toBeUndefined()
+      expect(useGitStore.getState().attachedPR.get('wt-1')).toEqual({
+        number: 42,
+        url: 'https://github.com/org/repo/pull/42'
+      })
     })
 
-    test('detects PR URL in tool output (gh pr create command)', () => {
-      useGitStore.getState().setPrState('wt-1', {
-        state: 'creating',
+    test('does not attach when PR creation is not active', () => {
+      attachDetectedPr('wt-1', 'Created PR: https://github.com/org/repo/pull/99')
+
+      expect(useGitStore.getState().prCreation.get('wt-1')).toBeUndefined()
+      expect(useGitStore.getState().attachedPR.get('wt-1')).toBeUndefined()
+    })
+
+    test('does not attach when no PR URL is found in text', () => {
+      useGitStore.getState().setPrCreation('wt-1', {
+        creating: true,
         sessionId: 'session-1'
       })
 
-      // Simulate tool output from gh pr create
-      const toolOutput =
+      attachDetectedPr('wt-1', 'I am working on creating the pull request now...')
+
+      expect(useGitStore.getState().prCreation.get('wt-1')?.creating).toBe(true)
+      expect(useGitStore.getState().attachedPR.get('wt-1')).toBeUndefined()
+    })
+
+    test('detects PR URL in tool output from gh pr create', () => {
+      useGitStore.getState().setPrCreation('wt-1', {
+        creating: true,
+        sessionId: 'session-1'
+      })
+
+      attachDetectedPr(
+        'wt-1',
         'Creating pull request for feature-branch into main\nhttps://github.com/org/repo/pull/55'
-      const match = toolOutput.match(PR_URL_PATTERN)
-      expect(match).not.toBeNull()
+      )
 
-      if (match) {
-        const prInfo = useGitStore.getState().prInfo.get('wt-1')
-        if (prInfo && prInfo.state === 'creating') {
-          const prNumber = parseInt(match[1], 10)
-          useGitStore.getState().setPrState('wt-1', {
-            ...prInfo,
-            state: 'created',
-            prNumber,
-            prUrl: match[0]
-          })
-        }
-      }
-
-      const info = useGitStore.getState().prInfo.get('wt-1')
-      expect(info?.state).toBe('created')
-      expect(info?.prNumber).toBe(55)
+      expect(useGitStore.getState().attachedPR.get('wt-1')).toEqual({
+        number: 55,
+        url: 'https://github.com/org/repo/pull/55'
+      })
     })
 
-    test('detects PR URL across accumulated text (simulating streaming deltas)', () => {
-      useGitStore.getState().setPrState('wt-1', {
-        state: 'creating',
+    test('detects PR URL across accumulated streaming deltas', () => {
+      useGitStore.getState().setPrCreation('wt-1', {
+        creating: true,
         sessionId: 'session-1'
       })
 
-      // Simulate incremental text accumulation as stream deltas arrive
       let accumulated = ''
-      const deltas = [
+      for (const delta of [
         'I created the PR at ',
         'https://github.com/',
         'org/repo/pull/',
         '123',
         ' successfully!'
-      ]
-
-      let detected = false
-      for (const delta of deltas) {
+      ]) {
         accumulated += delta
-        const match = accumulated.match(PR_URL_PATTERN)
-        if (match && !detected) {
-          detected = true
-          const prInfo = useGitStore.getState().prInfo.get('wt-1')
-          if (prInfo && prInfo.state === 'creating') {
-            const prNumber = parseInt(match[1], 10)
-            useGitStore.getState().setPrState('wt-1', {
-              ...prInfo,
-              state: 'created',
-              prNumber,
-              prUrl: match[0]
-            })
-          }
-        }
+        attachDetectedPr('wt-1', accumulated)
       }
 
-      expect(detected).toBe(true)
-      const info = useGitStore.getState().prInfo.get('wt-1')
-      expect(info?.state).toBe('created')
-      expect(info?.prNumber).toBe(123)
-      expect(info?.prUrl).toBe('https://github.com/org/repo/pull/123')
+      expect(useGitStore.getState().attachedPR.get('wt-1')).toEqual({
+        number: 123,
+        url: 'https://github.com/org/repo/pull/123'
+      })
     })
   })
 })

@@ -1,6 +1,11 @@
 import type { BrowserWindow } from 'electron'
+import { randomUUID } from 'node:crypto'
 
-import type { AgentSdkCapabilities, AgentSdkImplementer, PromptOptions } from './agent-runtime-types'
+import type {
+  AgentSdkCapabilities,
+  AgentSdkImplementer,
+  PromptOptions
+} from './agent-runtime-types'
 import type { AgentRuntimeAdapter } from './agent-runtime-types'
 import { CODEX_CAPABILITIES } from './agent-runtime-types'
 import {
@@ -37,6 +42,8 @@ export interface CodexSessionState {
   status: 'connecting' | 'ready' | 'running' | 'error' | 'closed'
   messages: unknown[]
   liveAssistantDraft?: CodexLiveAssistantDraft | null
+  activeRun?: CodexActiveRun | null
+  settledRunIds?: Set<string>
   revertMessageID: string | null
   revertDiff: string | null
   titleGenerated: boolean
@@ -60,15 +67,25 @@ export interface CodexSessionState {
   itemTimestampsByTurn: Map<string, string[]>
 }
 
+interface CodexActiveRun {
+  runId: string
+  expectedTurnId: string | null
+  state: 'starting' | 'running' | 'aborting' | 'finalizing' | 'settled'
+  startedAt: number
+  abortController: AbortController
+}
+
 interface CodexLiveToolPart {
   type: 'tool'
   callID: string
   tool: string
   state: {
-    status: 'running' | 'completed' | 'error'
+    status: 'running' | 'completed' | 'error' | 'cancelled'
     input?: unknown
     output?: unknown
     error?: unknown
+    metadata?: Record<string, unknown>
+    time?: { start?: number; end?: number }
   }
 }
 
@@ -286,8 +303,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         event.kind === 'notification' &&
         (event.method === 'item/started' || event.method === 'item.started')
       ) {
-        const turnId =
-          event.turnId ?? asString(asObject(event.payload)?.turnId) ?? null
+        const turnId = event.turnId ?? asString(asObject(event.payload)?.turnId) ?? null
         if (turnId) {
           const list =
             targetSession.itemTimestampsByTurn.get(turnId) ??
@@ -396,9 +412,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         hiveSessionId: targetSession.hiveSessionId,
         worktreePath: targetSession.worktreePath,
         turnId:
-          event.turnId ??
-          this.manager.getSession(targetSession.threadId)?.activeTurnId ??
-          undefined
+          event.turnId ?? this.manager.getSession(targetSession.threadId)?.activeTurnId ?? undefined
       })
 
       const payload = asObject(event.payload)
@@ -427,9 +441,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         // Same fallback as the durable activity below — codex's
         // requestUserInput JSON-RPC params don't always carry turn.id.
         turnId:
-          event.turnId ??
-          this.manager.getSession(targetSession.threadId)?.activeTurnId ??
-          undefined
+          event.turnId ?? this.manager.getSession(targetSession.threadId)?.activeTurnId ?? undefined
       })
 
       const payload = asObject(event.payload)
@@ -453,7 +465,10 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
           ? optionsRaw.map((opt) =>
               typeof opt === 'string'
                 ? { label: opt, description: '' }
-                : ((opt as { label?: string; description?: string }) ?? { label: '', description: '' })
+                : ((opt as { label?: string; description?: string }) ?? {
+                    label: '',
+                    description: ''
+                  })
             )
           : []
         questions = [
@@ -525,9 +540,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
             // the timeline (rendered after all post-question text). The
             // manager already tracks activeTurnId from turn/started events.
             turn_id:
-              event.turnId ??
-              this.manager.getSession(targetSession.threadId)?.activeTurnId ??
-              null,
+              event.turnId ?? this.manager.getSession(targetSession.threadId)?.activeTurnId ?? null,
             item_id: requestId,
             request_id: requestId,
             kind: 'tool.started',
@@ -609,6 +622,8 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       status: this.mapProviderStatus(providerSession.status),
       messages: [],
       liveAssistantDraft: null,
+      activeRun: null,
+      settledRunIds: new Set(),
       revertMessageID: null,
       revertDiff: null,
       titleGenerated: false,
@@ -681,12 +696,14 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         status: this.mapProviderStatus(providerSession.status),
         messages: [],
         liveAssistantDraft: null,
+        activeRun: null,
+        settledRunIds: new Set(),
         revertMessageID: null,
         revertDiff: null,
         titleGenerated: true,
         titleGenerationStarted: true,
         mapperState: createCodexMapperState(),
-      itemTimestampsByTurn: new Map()
+        itemTimestampsByTurn: new Map()
       }
       this.sessions.set(newKey, state)
 
@@ -765,8 +782,6 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       throw new Error(`Prompt failed: session not found for ${worktreePath} / ${agentSessionId}`)
     }
 
-    beginSessionRun(session.hiveSessionId)
-
     // Extract text from message
     let text: string
     if (typeof message === 'string') {
@@ -782,6 +797,10 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       log.warn('Prompt: empty text, ignoring', { worktreePath, agentSessionId })
       return
     }
+
+    const activeRun = this.beginCodexRun(session)
+    const runId = activeRun.runId
+    beginSessionRun(session.hiveSessionId)
 
     // Immediate title: set truncated first message as title for instant UX feedback
     const isFirstMessage = session.messages.length === 0 && !session.titleGenerated
@@ -835,6 +854,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     let pendingPlanText: string | null = null
     let turnCompleted = false
     let turnFailed = false
+    let turnInterrupted = false
     let completedTurnId: string | undefined
     // Track whether a question was raised in this turn. When the agent uses
     // request_user_input (a Plan-mode tool) inside an otherwise-Plan turn,
@@ -845,8 +865,10 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     let userInputAskedInTurn = false
 
     const handleEvent = (event: CodexManagerEvent) => {
-      // Only handle events for this thread
-      if (event.threadId !== session.threadId) return
+      // Only the currently active local run may mutate this session. This
+      // prevents late events from a stopped turn from completing or repainting
+      // a newly-started prompt on the same Codex thread.
+      if (!this.eventMatchesActiveRun(session, runId, event)) return
 
       const streamEvents = mapCodexEventToStreamEvents(
         event,
@@ -920,6 +942,15 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         if (status === 'failed') {
           turnFailed = true
         }
+        if (status === 'interrupted') {
+          turnInterrupted = true
+        }
+      }
+
+      if (event.method === 'turn/interrupted') {
+        turnCompleted = true
+        turnInterrupted = true
+        completedTurnId = this.extractEventTurnId(event) ?? completedTurnId
       }
 
       // Track if request_user_input fires anywhere in this turn so we know
@@ -976,53 +1007,156 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         }
       }
 
-      await this.manager.sendTurn(session.threadId, {
+      const turnStart = await this.manager.sendTurn(session.threadId, {
         text: turnText,
         model,
         ...(options?.codexFastMode ? { serviceTier: 'fast' } : {}),
         interactionMode
       })
 
+      if (!this.isRunCurrent(session, runId)) {
+        log.info('Prompt: stale run finished after a newer run started, skipping finalization', {
+          worktreePath,
+          agentSessionId,
+          runId,
+          activeRunId: session.activeRun?.runId ?? null
+        })
+        return
+      }
+
+      activeRun.expectedTurnId = turnStart.turnId || null
+      activeRun.state = 'running'
+
       // Wait for turn completion (the sendTurn starts the turn, but
       // events stream asynchronously via the manager's event emitter)
-      await this.waitForTurnCompletion(session, () => turnCompleted)
+      const completionState = await this.waitForTurnCompletion(session, {
+        runId,
+        expectedTurnId: activeRun.expectedTurnId,
+        isComplete: () => turnCompleted,
+        signal: activeRun.abortController.signal
+      })
+
+      if (!this.isRunCurrent(session, runId)) {
+        log.info('Prompt: stale run finished after wait, skipping finalization', {
+          worktreePath,
+          agentSessionId,
+          runId,
+          activeRunId: session.activeRun?.runId ?? null
+        })
+        return
+      }
+
+      if (completionState === 'interrupted' || turnInterrupted) {
+        activeRun.state = 'finalizing'
+        this.materializeLiveAssistantDraft(session, {
+          aborted: true,
+          terminalizeRunningTools: true,
+          emitTerminalTools: true
+        })
+        session.liveAssistantDraft = null
+        this.persistCanonicalMessages(session)
+        session.status = 'ready'
+        this.settleRun(session, runId)
+        this.emitStatus(session.hiveSessionId, 'idle')
+        return
+      }
 
       // Read canonical thread for properly separated messages
       try {
+        activeRun.state = 'finalizing'
         const threadSnapshot = await this.manager.readThread(session.threadId)
+        if (!this.isRunCurrent(session, runId)) {
+          log.info('Prompt: stale run finished during thread/read, skipping snapshot', {
+            worktreePath,
+            agentSessionId,
+            runId,
+            activeRunId: session.activeRun?.runId ?? null
+          })
+          return
+        }
         const parsed = this.parseThreadSnapshot(threadSnapshot, session.itemTimestampsByTurn)
-        if (parsed.length > 0) {
+        const snapshotMatchesPrompt = this.parsedMessagesContainUserText(parsed, [text, turnText])
+        if (parsed.length > 0 && snapshotMatchesPrompt) {
           session.messages = parsed
+        } else if (parsed.length > 0) {
+          log.warn(
+            'prompt: stale or mismatched thread/read snapshot ignored, preserving live draft',
+            {
+              worktreePath,
+              agentSessionId,
+              runId
+            }
+          )
+          if (!this.materializeLiveAssistantDraft(session)) {
+            const assistantParts: unknown[] = []
+            if (assistantText) {
+              assistantParts.push({
+                type: 'text',
+                text: assistantText,
+                timestamp: new Date().toISOString()
+              })
+            }
+            if (reasoningText) {
+              assistantParts.push({
+                type: 'reasoning',
+                text: reasoningText,
+                timestamp: new Date().toISOString()
+              })
+            }
+            if (assistantParts.length > 0) {
+              session.messages.push({
+                role: 'assistant',
+                parts: assistantParts,
+                timestamp: new Date().toISOString()
+              })
+            }
+          }
+        } else if (parsed.length === 0) {
+          this.materializeLiveAssistantDraft(session)
         }
         this.persistCanonicalMessages(session)
         session.liveAssistantDraft = null
       } catch (readError) {
+        if (!this.isRunCurrent(session, runId)) {
+          log.info(
+            'Prompt: stale run readThread failed after newer run started, skipping fallback',
+            {
+              worktreePath,
+              agentSessionId,
+              runId,
+              activeRunId: session.activeRun?.runId ?? null
+            }
+          )
+          return
+        }
         log.warn('prompt: readThread after turn failed, falling back to accumulated text', {
           agentSessionId,
           error: readError instanceof Error ? readError.message : String(readError)
         })
-        // Fallback: use accumulated text as single message
-        const assistantParts: unknown[] = []
-        if (assistantText) {
-          assistantParts.push({
-            type: 'text',
-            text: assistantText,
-            timestamp: new Date().toISOString()
-          })
-        }
-        if (reasoningText) {
-          assistantParts.push({
-            type: 'reasoning',
-            text: reasoningText,
-            timestamp: new Date().toISOString()
-          })
-        }
-        if (assistantParts.length > 0) {
-          session.messages.push({
-            role: 'assistant',
-            parts: assistantParts,
-            timestamp: new Date().toISOString()
-          })
+        if (!this.materializeLiveAssistantDraft(session)) {
+          // Fallback: use accumulated text as single message
+          const assistantParts: unknown[] = []
+          if (assistantText) {
+            assistantParts.push({
+              type: 'text',
+              text: assistantText,
+              timestamp: new Date().toISOString()
+            })
+          }
+          if (reasoningText) {
+            assistantParts.push({
+              type: 'reasoning',
+              text: reasoningText,
+              timestamp: new Date().toISOString()
+            })
+          }
+          if (assistantParts.length > 0) {
+            session.messages.push({
+              role: 'assistant',
+              parts: assistantParts,
+              timestamp: new Date().toISOString()
+            })
+          }
         }
         this.persistCanonicalMessages(session)
         session.liveAssistantDraft = null
@@ -1091,6 +1225,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       }
 
       session.status = turnFailed ? 'error' : 'ready'
+      this.settleRun(session, runId)
       this.emitStatus(session.hiveSessionId, 'idle')
 
       log.info('Prompt: completed', {
@@ -1100,6 +1235,16 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         reasoningTextLength: reasoningText.length
       })
     } catch (error) {
+      if (!this.isRunCurrent(session, runId)) {
+        log.info('Prompt: stale run failed after newer run started, ignoring error', {
+          worktreePath,
+          agentSessionId,
+          runId,
+          error: error instanceof Error ? error.message : String(error)
+        })
+        return
+      }
+
       const errorMessage = error instanceof Error ? error.message : String(error)
       log.error(
         'Prompt streaming error',
@@ -1109,6 +1254,9 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
 
       session.status = 'error'
       session.liveAssistantDraft = null
+      if (this.isRunCurrent(session, runId)) {
+        this.settleRun(session, runId)
+      }
       emitAgentEvent(this.mainWindow, {
         type: 'session.error',
         sessionId: session.hiveSessionId,
@@ -1181,8 +1329,35 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       return false
     }
 
+    const activeRun = session.activeRun
+    if (activeRun) {
+      activeRun.state = 'aborting'
+    }
+
+    const managerSession = this.manager.getSession(session.threadId)
+    const expectedTurnId = activeRun?.expectedTurnId ?? managerSession?.activeTurnId ?? null
+
+    const materialized = this.materializeLiveAssistantDraft(session, {
+      aborted: true,
+      terminalizeRunningTools: true,
+      emitTerminalTools: true
+    })
+    if (materialized) {
+      this.persistCanonicalMessages(session)
+    }
+    session.liveAssistantDraft = null
+
+    if (activeRun) {
+      activeRun.abortController.abort()
+      this.settleRun(session, activeRun.runId)
+    }
+
     try {
-      await this.manager.interruptTurn(session.threadId)
+      if (expectedTurnId) {
+        await this.manager.interruptTurn(session.threadId, expectedTurnId)
+      } else {
+        await this.manager.interruptTurn(session.threadId)
+      }
     } catch (error) {
       log.warn('Abort: interruptTurn failed, continuing cleanup', {
         worktreePath,
@@ -1192,7 +1367,6 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     }
 
     session.status = 'ready'
-    session.liveAssistantDraft = null
     this.emitStatus(session.hiveSessionId, 'idle')
     return true
   }
@@ -1994,6 +2168,87 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     })
   }
 
+  private beginCodexRun(session: CodexSessionState): CodexActiveRun {
+    const previousRun = session.activeRun
+    if (previousRun && previousRun.state !== 'settled') {
+      previousRun.abortController.abort()
+      session.settledRunIds?.add(previousRun.runId)
+    }
+
+    const activeRun: CodexActiveRun = {
+      runId: randomUUID(),
+      expectedTurnId: null,
+      state: 'starting',
+      startedAt: Date.now(),
+      abortController: new AbortController()
+    }
+    session.activeRun = activeRun
+    session.settledRunIds ??= new Set()
+    return activeRun
+  }
+
+  private isRunCurrent(session: CodexSessionState, runId: string): boolean {
+    return session.activeRun?.runId === runId
+  }
+
+  private settleRun(session: CodexSessionState, runId: string): void {
+    session.settledRunIds ??= new Set()
+    session.settledRunIds.add(runId)
+    if (session.activeRun?.runId === runId) {
+      session.activeRun.state = 'settled'
+      session.activeRun = null
+    }
+  }
+
+  private extractEventTurnId(event: CodexManagerEvent): string | undefined {
+    const payload = asObject(event.payload)
+    return event.turnId ?? asString(payload?.turnId) ?? asString(asObject(payload?.turn)?.id)
+  }
+
+  private eventMatchesActiveRun(
+    session: CodexSessionState,
+    runId: string,
+    event: CodexManagerEvent
+  ): boolean {
+    if (event.threadId !== session.threadId) return false
+    const activeRun = session.activeRun
+    if (!activeRun || activeRun.runId !== runId) return false
+
+    const expectedTurnId = activeRun.expectedTurnId
+    const eventTurnId = this.extractEventTurnId(event)
+    if (!expectedTurnId && eventTurnId) {
+      return false
+    }
+    if (expectedTurnId && eventTurnId && eventTurnId !== expectedTurnId) {
+      return false
+    }
+    return true
+  }
+
+  private parsedMessagesContainUserText(messages: unknown[], candidates: string[]): boolean {
+    const targets = candidates.map((candidate) => candidate.trim()).filter(Boolean)
+    if (targets.length === 0) return true
+
+    for (const message of messages) {
+      const record = asObject(message)
+      if (record?.role !== 'user') continue
+      const parts = Array.isArray(record.parts) ? record.parts : []
+      const text = parts
+        .map((part) => asObject(part))
+        .filter((part) => part?.type === 'text')
+        .map((part) => asString(part?.text) ?? '')
+        .join('\n')
+        .trim()
+      if (!text) continue
+      if (
+        targets.some((target) => text === target || text.includes(target) || target.includes(text))
+      ) {
+        return true
+      }
+    }
+    return false
+  }
+
   private resetLiveAssistantDraft(session: CodexSessionState): void {
     session.liveAssistantDraft = {
       id: `codex-live-${session.threadId}`,
@@ -2035,10 +2290,12 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       callID: string
       tool: string
       state: {
-        status: 'running' | 'completed' | 'error'
+        status: 'running' | 'completed' | 'error' | 'cancelled'
         input?: unknown
         output?: unknown
         error?: unknown
+        metadata?: Record<string, unknown>
+        time?: { start?: number; end?: number }
       }
     }
   ): void {
@@ -2098,7 +2355,9 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       const state = asObject(part.state)
       const statusValue = asString(state?.status)
       const status =
-        statusValue === 'completed' || statusValue === 'error' ? statusValue : 'running'
+        statusValue === 'completed' || statusValue === 'error' || statusValue === 'cancelled'
+          ? statusValue
+          : 'running'
 
       this.upsertLiveAssistantTool(session, {
         callID: asString(part.callID) ?? asString(part.id) ?? '',
@@ -2113,9 +2372,14 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     }
   }
 
-  private cloneLiveAssistantDraftMessage(session: CodexSessionState): unknown | null {
+  private cloneLiveAssistantDraftMessage(
+    session: CodexSessionState,
+    options?: { aborted?: boolean; terminalizeRunningTools?: boolean }
+  ): unknown | null {
     const draft = session.liveAssistantDraft
     if (!draft || draft.parts.length === 0) return null
+
+    const now = Date.now()
 
     return {
       id: draft.id,
@@ -2129,24 +2393,84 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
           type: 'tool',
           callID: part.callID,
           tool: part.tool,
-          state: { ...part.state }
+          state:
+            options?.terminalizeRunningTools && part.state.status === 'running'
+              ? {
+                  ...part.state,
+                  status: 'cancelled',
+                  metadata: { ...(part.state.metadata ?? {}), aborted: true },
+                  time: { ...(part.state.time ?? {}), end: now }
+                }
+              : { ...part.state }
         }
       }),
-      timestamp: draft.timestamp
+      timestamp: draft.timestamp,
+      ...(options?.aborted ? { aborted: true } : {})
     }
+  }
+
+  private materializeLiveAssistantDraft(
+    session: CodexSessionState,
+    options?: { aborted?: boolean; terminalizeRunningTools?: boolean; emitTerminalTools?: boolean }
+  ): boolean {
+    const message = this.cloneLiveAssistantDraftMessage(session, options)
+    if (!message) return false
+
+    const messageId = asString(asObject(message)?.id)
+    const existingIndex = messageId
+      ? session.messages.findIndex((candidate) => asString(asObject(candidate)?.id) === messageId)
+      : -1
+
+    if (existingIndex >= 0) {
+      session.messages[existingIndex] = message
+    } else {
+      session.messages.push(message)
+    }
+
+    if (options?.emitTerminalTools) {
+      const parts = asObject(message)?.parts
+      if (Array.isArray(parts)) {
+        for (const part of parts) {
+          const record = asObject(part)
+          const state = asObject(record?.state)
+          if (record?.type !== 'tool' || state?.status !== 'cancelled') continue
+          emitAgentEvent(this.mainWindow, {
+            type: 'message.part.updated',
+            sessionId: session.hiveSessionId,
+            data: { part }
+          })
+        }
+      }
+    }
+
+    return true
   }
 
   private waitForTurnCompletion(
     session: CodexSessionState,
-    isComplete: () => boolean,
-    timeoutMs = 300_000
-  ): Promise<void> {
-    if (isComplete()) return Promise.resolve()
+    params: {
+      runId: string
+      expectedTurnId?: string | null
+      isComplete: () => boolean
+      signal?: AbortSignal
+      timeoutMs?: number
+    }
+  ): Promise<'completed' | 'interrupted'> {
+    const { runId, expectedTurnId = null, isComplete, signal, timeoutMs = 300_000 } = params
 
-    return new Promise<void>((resolve, reject) => {
+    if (expectedTurnId && session.activeRun?.runId === runId) {
+      session.activeRun.expectedTurnId = expectedTurnId
+    }
+
+    if (isComplete()) return Promise.resolve('completed')
+    if (signal?.aborted) return Promise.resolve('interrupted')
+
+    return new Promise<'completed' | 'interrupted'>((resolve, reject) => {
       let remainingMs = timeoutMs
       let timerStartedAt = Date.now()
       let timer: ReturnType<typeof setTimeout> | null = null
+      let settled = false
+      let onAbort: (() => void) | null = null
 
       const hasPendingHitlForThread = (): boolean => {
         for (const entry of this.pendingQuestions.values()) {
@@ -2158,6 +2482,12 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         return false
       }
 
+      const clearSignalListener = () => {
+        if (onAbort) {
+          signal?.removeEventListener('abort', onAbort)
+        }
+      }
+
       const clearTimer = () => {
         if (timer) {
           clearTimeout(timer)
@@ -2165,12 +2495,33 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         }
       }
 
+      const cleanup = () => {
+        if (settled) return
+        settled = true
+        clearTimer()
+        clearSignalListener()
+        this.manager.removeListener('event', checkEvent)
+      }
+
+      const finish = (result: 'completed' | 'interrupted'): void => {
+        cleanup()
+        resolve(result)
+      }
+
+      const fail = (error: Error): void => {
+        cleanup()
+        reject(error)
+      }
+
+      onAbort = () => {
+        finish('interrupted')
+      }
+
       const startTimer = () => {
         clearTimer()
         timerStartedAt = Date.now()
         timer = setTimeout(() => {
-          cleanup()
-          reject(new Error('Turn timed out'))
+          fail(new Error('Turn timed out'))
         }, remainingMs)
       }
 
@@ -2183,11 +2534,22 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       }
 
       const checkEvent = (event: CodexManagerEvent) => {
-        if (event.threadId !== session.threadId) return
+        if (!this.eventMatchesActiveRun(session, runId, event)) return
 
         if (event.method === 'turn/completed') {
-          cleanup()
-          resolve()
+          const payload = event.payload as Record<string, unknown> | undefined
+          const turnObj = payload?.turn as Record<string, unknown> | undefined
+          const status = (turnObj?.status as string) ?? (payload?.state as string)
+          if (status === 'interrupted') {
+            finish('interrupted')
+            return
+          }
+          finish('completed')
+          return
+        }
+
+        if (event.method === 'turn/interrupted') {
+          finish('interrupted')
           return
         }
 
@@ -2201,8 +2563,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
           event.method === 'session/closed'
 
         if (isFatalError) {
-          cleanup()
-          reject(new Error(event.message ?? 'Codex process error'))
+          fail(new Error(event.message ?? 'Codex process error'))
           return
         }
 
@@ -2217,8 +2578,8 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
             (payload?.error as string) ??
             event.message ??
             'Session entered error state'
-          cleanup()
-          reject(new Error(reason))
+          fail(new Error(reason))
+          return
         }
 
         if (event.kind === 'request') {
@@ -2238,11 +2599,9 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         }
       }
 
-      const cleanup = () => {
-        clearTimer()
-        this.manager.removeListener('event', checkEvent)
+      if (onAbort) {
+        signal?.addEventListener('abort', onAbort, { once: true })
       }
-
       this.manager.on('event', checkEvent)
       if (!hasPendingHitlForThread()) {
         startTimer()
@@ -2250,8 +2609,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
 
       // Check again in case it completed between the start and listener setup
       if (isComplete()) {
-        cleanup()
-        resolve()
+        finish('completed')
       }
     })
   }
@@ -2351,12 +2709,14 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         status: this.mapProviderStatus(providerSession.status),
         messages: [],
         liveAssistantDraft: null,
+        activeRun: null,
+        settledRunIds: new Set(),
         revertMessageID: null,
         revertDiff: null,
         titleGenerated: true,
         titleGenerationStarted: true,
         mapperState: createCodexMapperState(),
-      itemTimestampsByTurn: new Map()
+        itemTimestampsByTurn: new Map()
       }
 
       this.sessions.set(this.getSessionKey(worktreePath, threadId), recovered)
@@ -2538,9 +2898,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       // at `createdAt` / `updatedAt`, so items often fell back to read time and
       // sorted after synthetic activity emitted during the same turn.
       const startedAtSec = asNumber(turnObj.startedAt)
-      const turnStartIso = startedAtSec
-        ? new Date(startedAtSec * 1000).toISOString()
-        : undefined
+      const turnStartIso = startedAtSec ? new Date(startedAtSec * 1000).toISOString() : undefined
       const turnTimestamp =
         turnStartIso ?? asString(turnObj.createdAt) ?? asString(turnObj.updatedAt)
       const items = turnObj.items as unknown[] | undefined
@@ -2574,8 +2932,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         // the turn because codex's thread/read renumbers item ids. Falls back
         // to turnTimestamp (turn startedAt) when the streaming list is too
         // short — happens for past turns we never streamed.
-        const turnPositionalTimestamps =
-          turnId ? (itemTimestampsByTurn?.get(turnId) ?? []) : []
+        const turnPositionalTimestamps = turnId ? (itemTimestampsByTurn?.get(turnId) ?? []) : []
         let itemPositionInTurn = 0
 
         for (const item of items) {
@@ -2585,8 +2942,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
           const itemType = asString(itemObj.type)
           const itemId = asString(itemObj.id)
           const positionalTs = turnPositionalTimestamps[itemPositionInTurn]
-          const itemTimestamp =
-            positionalTs ?? turnTimestamp ?? new Date().toISOString()
+          const itemTimestamp = positionalTs ?? turnTimestamp ?? new Date().toISOString()
           itemPositionInTurn += 1
 
           if (itemType === 'userMessage') {
@@ -2768,10 +3124,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
    * Codex tool lifecycle items are `commandExecution` (Bash) and `fileChange`
    * (apply_patch); anything else is ignored by `isToolLifecycleItem`.
    */
-  private emitAgentToolField(
-    session: CodexSessionState,
-    event: CodexManagerEvent
-  ): void {
+  private emitAgentToolField(session: CodexSessionState, event: CodexManagerEvent): void {
     if (!this.dbService) return
 
     const payload = asObject(event.payload)
