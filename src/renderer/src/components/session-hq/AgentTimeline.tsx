@@ -84,6 +84,20 @@ function isBashToolName(name: string): boolean {
   )
 }
 
+function isXfpToolName(name: string): boolean {
+  const lower = name.toLowerCase()
+  return lower.startsWith('mcp__xuanpu-field__') || lower.startsWith('xfp_')
+}
+
+function formatXfpToolLabel(name: string): string {
+  const normalized = name
+    .replace(/^mcp__xuanpu-field__/i, '')
+    .replace(/^xfp_get_/i, '')
+    .replace(/^xfp_/i, '')
+    .replace(/_/g, ' ')
+  return `XFP · ${normalized || 'field'}`
+}
+
 interface TimelineNode {
   key: string
   cardType: CardType
@@ -357,6 +371,9 @@ const ICON_MAP: Record<CardType, IconConfig> = {
 /** Generate a display label for generic/unrecognized tool calls */
 function getGenericToolLabel(name: string, input?: Record<string, unknown>): string {
   const lower = name.toLowerCase()
+  if (isXfpToolName(name)) {
+    return formatXfpToolLabel(name)
+  }
   if (lower === 'skill' && input?.skill) {
     return `/${input.skill as string}`
   }
@@ -663,10 +680,23 @@ function TimelineNodeView({
       const isSuccess = node.toolUse.status === 'success'
       const isError = node.toolUse.status === 'error'
       const isRunning = node.toolUse.status === 'running' || node.toolUse.status === 'pending'
+      const isXfp = isXfpToolName(node.toolUse.name)
       return (
-        <div className="crisp-subtle-shadow rounded-xl border border-neon-violet/25 bg-neon-violet-soft/55 px-3.5 py-2">
+        <div
+          className={cn(
+            'crisp-subtle-shadow rounded-xl border px-3.5 py-2',
+            isXfp
+              ? 'border-tech-blue/25 bg-tech-blue-soft/55'
+              : 'border-neon-violet/25 bg-neon-violet-soft/55'
+          )}
+        >
           <div className="flex items-center gap-2 text-sm">
-            <span className="crisp-status-dot h-2 w-2 rounded-full bg-neon-violet text-neon-violet" />
+            <span
+              className={cn(
+                'crisp-status-dot h-2 w-2 rounded-full',
+                isXfp ? 'bg-tech-blue text-tech-blue' : 'bg-neon-violet text-neon-violet'
+              )}
+            />
             <span className="font-medium text-ink">{label}</span>
             <span className="text-xs text-muted-foreground">
               {isRunning

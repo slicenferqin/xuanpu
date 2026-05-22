@@ -223,6 +223,21 @@ describe('generateSessionTitle', () => {
     expect(callArgs.prompt).toContain('hello world')
   })
 
+  it('strips Field Context envelopes before title generation', async () => {
+    mockQueryResult('XFP rollout')
+    await generateSessionTitle(`[Field Context - as of 10:41:56]
+## Worktree
+xuanpu--akita
+
+[User Message]
+推进 XFP 落地`)
+
+    const callArgs = mockQuery.mock.calls[0][0]
+    expect(callArgs.prompt).toContain('推进 XFP 落地')
+    expect(callArgs.prompt).not.toContain('[Field Context')
+    expect(callArgs.prompt).not.toContain('[User Message]')
+  })
+
   // ── Never throws ──────────────────────────────────────────────────
 
   it('never throws — always returns string or null', async () => {

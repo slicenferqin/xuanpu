@@ -1844,7 +1844,8 @@ export const messages: Record<AppLocale, MessageTree> = {
         review: 'Review',
         files: 'Files',
         tasks: 'Tasks',
-        goal: 'Goal'
+        goal: 'Goal',
+        diagnostics: 'Diagnostics'
       },
       overview: {
         cost: 'Cost',
@@ -1870,6 +1871,12 @@ export const messages: Record<AppLocale, MessageTree> = {
       },
       terminal: {
         emptyDescription: 'Dock the terminal to the right sidebar to show it in this panel.'
+      },
+      diagnostics: {
+        description:
+          'Inspect field-delivery mode, XFP tool calls, fallback prefixes, and legacy injection activity.',
+        emptyTitle: 'No diagnostics yet',
+        emptyDescription: 'Open a worktree or session to inspect XFP and field delivery activity.'
       },
       review: {
         startReview: 'AI Review',
@@ -4717,7 +4724,8 @@ export const messages: Record<AppLocale, MessageTree> = {
         review: '审查',
         files: '文件',
         tasks: '任务',
-        goal: '目标'
+        goal: '目标',
+        diagnostics: '诊断'
       },
       overview: {
         cost: '花费',
@@ -4742,6 +4750,11 @@ export const messages: Record<AppLocale, MessageTree> = {
       },
       terminal: {
         emptyDescription: '将终端停靠到右侧后，会在这里展示终端面板。'
+      },
+      diagnostics: {
+        description: '查看现场传递模式、XFP 工具调用、fallback 前缀和 legacy injection 活动。',
+        emptyTitle: '暂无诊断',
+        emptyDescription: '打开 worktree 或会话后，可在这里检查 XFP 与现场传递活动。'
       },
       review: {
         startReview: 'AI 审查此差异',

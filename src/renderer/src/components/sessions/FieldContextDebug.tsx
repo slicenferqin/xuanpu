@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import type { XfpAuditEvent } from '@shared/types/xfp-audit'
 
 interface LastInjection {
   preview: string
@@ -68,25 +69,32 @@ interface FieldContextDebugProps {
   fallbackSessionIds?: Array<string | null | undefined>
   /** Worktree id for the Episodic Memory tab (Phase 22B.1). */
   worktreeId?: string | null
+  defaultOpen?: boolean
+  embedded?: boolean
   className?: string
 }
 
 type Tab = 'injection' | 'episodic' | 'semantic' | 'checkpoint'
+type InspectorTab = 'xfp' | Tab
 
 /**
- * Phase 22A/22B debug UI: lets the user inspect what Field Context was injected
- * into the last agent prompt, and what the worktree's episodic memory summary
- * currently contains. Intentionally minimal — Phase 22+ will replace
- * this with a first-class UI.
+ * XFP Inspector + legacy Field Context debug UI.
+ *
+ * XFP is now the primary field access path. The old injection view remains
+ * available as a fallback tab so debugging no longer centers on hidden prompt
+ * prefixes.
  */
 export function FieldContextDebug({
   sessionId,
   fallbackSessionIds = [],
   worktreeId,
+  defaultOpen = false,
+  embedded = false,
   className
 }: FieldContextDebugProps): React.JSX.Element | null {
-  const [open, setOpen] = useState(false)
-  const [tab, setTab] = useState<Tab>('injection')
+  const [open, setOpen] = useState(defaultOpen)
+  const [tab, setTab] = useState<InspectorTab>('xfp')
+  const [xfpAudit, setXfpAudit] = useState<XfpAuditEvent[]>([])
   const [data, setData] = useState<LastInjection | null>(null)
   const [episodic, setEpisodic] = useState<EpisodicMemoryEntry | null>(null)
   const [semantic, setSemantic] = useState<SemanticMemoryEntry | null>(null)
@@ -100,6 +108,10 @@ export function FieldContextDebug({
       const candidates = [sessionId, ...fallbackSessionIds].filter(
         (s): s is string => typeof s === 'string' && s.length > 0
       )
+      const audit =
+        worktreeId || candidates.length > 0 ? await loadXfpAudit(worktreeId, candidates) : []
+      setXfpAudit(audit)
+
       let injection: LastInjection | null = null
       for (const id of candidates) {
         const result = await window.fieldOps.getLastInjection(id)
@@ -136,18 +148,22 @@ export function FieldContextDebug({
   if (!sessionId && fallbackSessionIds.every((s) => !s) && !worktreeId) return null
 
   const headerLabel =
-    tab === 'injection'
-      ? data
-        ? `~${data.approxTokens} tokens • ${new Date(data.timestamp).toLocaleTimeString()}`
-        : 'no injection yet'
-      : episodic
-        ? `${episodic.compactorId} • ${new Date(episodic.compactedAt).toLocaleTimeString()}`
-        : 'no episodic summary yet'
+    tab === 'xfp'
+      ? xfpAudit.length > 0
+        ? `${xfpAudit.length} recent events`
+        : 'no XFP activity yet'
+      : tab === 'injection'
+        ? data
+          ? `~${data.approxTokens} tokens • ${new Date(data.timestamp).toLocaleTimeString()}`
+          : 'no injection yet'
+        : episodic
+          ? `${episodic.compactorId} • ${new Date(episodic.compactedAt).toLocaleTimeString()}`
+          : 'no episodic summary yet'
 
   return (
     <div
       className={cn(
-        'border-t border-border/40 bg-muted/20 text-xs font-mono',
+        embedded ? 'text-xs font-mono' : 'border-t border-border/40 bg-muted/20 text-xs font-mono',
         className
       )}
       data-testid="field-context-debug"
@@ -159,7 +175,7 @@ export function FieldContextDebug({
       >
         <div className="flex items-center gap-1.5">
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          <span>Field Context</span>
+          <span>XFP Inspector</span>
           <span className="text-muted-foreground/70 ml-2">{headerLabel}</span>
         </div>
         {open && (
@@ -186,6 +202,18 @@ export function FieldContextDebug({
           <div className="flex items-center gap-1 mb-2 text-[11px]">
             <button
               type="button"
+              onClick={() => setTab('xfp')}
+              className={cn(
+                'px-2 py-0.5 rounded',
+                tab === 'xfp'
+                  ? 'bg-primary/20 text-foreground'
+                  : 'text-muted-foreground hover:bg-muted/50'
+              )}
+            >
+              XFP Calls
+            </button>
+            <button
+              type="button"
               onClick={() => setTab('injection')}
               className={cn(
                 'px-2 py-0.5 rounded',
@@ -194,7 +222,7 @@ export function FieldContextDebug({
                   : 'text-muted-foreground hover:bg-muted/50'
               )}
             >
-              Last Injection
+              Legacy Injection
             </button>
             <button
               type="button"
@@ -234,13 +262,21 @@ export function FieldContextDebug({
             </button>
           </div>
 
+          {tab === 'xfp' && (
+            <XfpAuditBlock
+              events={xfpAudit}
+              loading={loading}
+              worktreeScoped={Boolean(worktreeId)}
+            />
+          )}
+
           {tab === 'injection' && (
             <>
               {loading && !data && <div className="text-muted-foreground/60">Loading…</div>}
               {!loading && !data && (
                 <div className="text-muted-foreground/60">
-                  No injection recorded yet for this session. Field Context is injected on
-                  the next prompt when field event collection is enabled.
+                  No injection recorded yet for this session. Field Context is injected on the next
+                  prompt when field event collection is enabled.
                 </div>
               )}
               {data && (
@@ -256,15 +292,14 @@ export function FieldContextDebug({
               {loading && !episodic && <div className="text-muted-foreground/60">Loading…</div>}
               {!loading && !episodic && (
                 <div className="text-muted-foreground/60">
-                  No episodic summary yet. Summaries are compacted from the event stream
-                  every 30 minutes (or after ~20 events) when collection is enabled.
+                  No episodic summary yet. Summaries are compacted from the event stream every 30
+                  minutes (or after ~20 events) when collection is enabled.
                 </div>
               )}
               {episodic && (
                 <>
                   <div className="text-muted-foreground/70 mb-1">
-                    {episodic.compactorId} v{episodic.version} • {episodic.sourceEventCount}{' '}
-                    events
+                    {episodic.compactorId} v{episodic.version} • {episodic.sourceEventCount} events
                   </div>
                   <pre className="whitespace-pre-wrap break-words text-[11px] leading-relaxed bg-background/50 rounded p-2 max-h-64 overflow-auto">
                     {episodic.summaryMarkdown}
@@ -276,13 +311,11 @@ export function FieldContextDebug({
 
           {tab === 'semantic' && (
             <>
-              {loading && !semantic && (
-                <div className="text-muted-foreground/60">Loading…</div>
-              )}
+              {loading && !semantic && <div className="text-muted-foreground/60">Loading…</div>}
               {!loading && !semantic && (
                 <div className="text-muted-foreground/60">
-                  Memory injection is disabled. Enable it in Settings → Privacy to include
-                  your memory.md files in agent prompts.
+                  Memory injection is disabled. Enable it in Settings → Privacy to include your
+                  memory.md files in agent prompts.
                 </div>
               )}
               {semantic && (
@@ -296,22 +329,112 @@ export function FieldContextDebug({
 
           {tab === 'checkpoint' && (
             <>
-              {loading && !checkpoint && (
-                <div className="text-muted-foreground/60">Loading…</div>
-              )}
+              {loading && !checkpoint && <div className="text-muted-foreground/60">Loading…</div>}
               {!loading && !checkpoint?.raw && (
                 <div className="text-muted-foreground/60">
-                  No checkpoint for this worktree yet. Checkpoints are generated on
-                  session abort and app shutdown when field collection is enabled.
+                  No checkpoint for this worktree yet. Checkpoints are generated on session abort
+                  and app shutdown when field collection is enabled.
                 </div>
               )}
-              {checkpoint?.raw && (
-                <CheckpointBlock data={checkpoint} />
-              )}
+              {checkpoint?.raw && <CheckpointBlock data={checkpoint} />}
             </>
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+async function loadXfpAudit(
+  worktreeId: string | null | undefined,
+  sessionIds: string[]
+): Promise<XfpAuditEvent[]> {
+  if (worktreeId) {
+    return window.fieldOps.getXfpAuditEvents({ worktreeId, limit: 30 })
+  }
+
+  const results = await Promise.all(
+    sessionIds.map((sessionId) => window.fieldOps.getXfpAuditEvents({ sessionId, limit: 30 }))
+  )
+  const seen = new Set<string>()
+  return results
+    .flat()
+    .filter((event) => {
+      if (seen.has(event.id)) return false
+      seen.add(event.id)
+      return true
+    })
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, 30)
+}
+
+function XfpAuditBlock({
+  events,
+  loading,
+  worktreeScoped
+}: {
+  events: XfpAuditEvent[]
+  loading: boolean
+  worktreeScoped: boolean
+}): React.JSX.Element {
+  if (loading && events.length === 0) {
+    return <div className="text-muted-foreground/60">Loading…</div>
+  }
+
+  if (events.length === 0) {
+    return (
+      <div className="text-muted-foreground/60">
+        No XFP calls recorded yet. Claude Code tool calls and Claude/Codex bounded fallback prefixes
+        will appear here after the next field-sensitive turn.
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="text-[11px] text-muted-foreground/60">
+        Showing latest {events.length} {worktreeScoped ? 'worktree' : 'session'} XFP audit events.
+        Results are summarized; full tool outputs are not stored in this inspector.
+      </div>
+      <div className="space-y-1.5 max-h-72 overflow-auto pr-1">
+        {events.map((event) => (
+          <div key={event.id} className="rounded-md border border-border/50 bg-background/60 p-2">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span
+                    className={cn(
+                      'rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide',
+                      event.kind === 'tool'
+                        ? 'bg-blue-500/10 text-blue-700 dark:text-blue-300'
+                        : event.kind === 'prompt'
+                          ? 'bg-slate-500/10 text-slate-700 dark:text-slate-300'
+                          : 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                    )}
+                  >
+                    {event.kind}
+                  </span>
+                  <span className="truncate font-semibold text-foreground">{event.toolName}</span>
+                  <span className="text-muted-foreground/60">{event.runtimeId}</span>
+                </div>
+                <div className="mt-1 text-[10px] text-muted-foreground/60">
+                  {new Date(event.createdAt).toLocaleTimeString()} • {event.outputChars} chars
+                  {event.truncated ? ' • truncated' : ''}
+                  {event.privacy !== 'allowed' ? ` • privacy: ${event.privacy}` : ''}
+                </div>
+              </div>
+            </div>
+            {Object.keys(event.input).length > 0 && (
+              <pre className="mt-1 whitespace-pre-wrap break-words rounded bg-muted/40 px-2 py-1 text-[10px] text-muted-foreground">
+                input: {JSON.stringify(event.input)}
+              </pre>
+            )}
+            <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/30 px-2 py-1 text-[11px] leading-relaxed text-muted-foreground">
+              {event.outputSummary}
+            </pre>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -365,14 +488,11 @@ function CheckpointBlock({ data }: { data: CheckpointEntry }): React.JSX.Element
       {/* Verifier-evaluated block (what the agent sees) */}
       {verified && (
         <div>
-          <div className="text-muted-foreground/70 mb-1 font-semibold">
-            As seen by agent
-          </div>
+          <div className="text-muted-foreground/70 mb-1 font-semibold">As seen by agent</div>
           <div className="bg-background/50 rounded p-2 space-y-1 text-[11px] leading-relaxed">
             <div>
               <span className="text-muted-foreground/70">age:</span> {verified.ageMinutes}m
-              <span className="text-muted-foreground/70 ml-3">source:</span>{' '}
-              {verified.source}
+              <span className="text-muted-foreground/70 ml-3">source:</span> {verified.source}
             </div>
             <div className="whitespace-pre-wrap break-words">{verified.summary}</div>
             {verified.currentGoal && (
@@ -420,7 +540,9 @@ function CheckpointBlock({ data }: { data: CheckpointEntry }): React.JSX.Element
               <span className="text-muted-foreground/70">branch:</span>{' '}
               {raw.branch ?? <em className="text-muted-foreground/50">null</em>}
               <span className="text-muted-foreground/70 ml-3">HEAD:</span>{' '}
-              {raw.repoHead ? raw.repoHead.slice(0, 8) : (
+              {raw.repoHead ? (
+                raw.repoHead.slice(0, 8)
+              ) : (
                 <em className="text-muted-foreground/50">null</em>
               )}
             </div>
@@ -429,8 +551,7 @@ function CheckpointBlock({ data }: { data: CheckpointEntry }): React.JSX.Element
               {new Date(raw.createdAt).toLocaleString()}
             </div>
             <div>
-              <span className="text-muted-foreground/70">hash:</span>{' '}
-              {raw.packetHash.slice(0, 12)}
+              <span className="text-muted-foreground/70">hash:</span> {raw.packetHash.slice(0, 12)}
             </div>
             {raw.hotFileDigests && (
               <details>

@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { CodexAppServerManager, type CodexManagerEvent } from './codex-app-server-manager'
 import { ensureCodexAppServerLaunchSpec } from './codex-binary-resolver'
 import { createLogger } from './logger'
+import { stripFieldContextEnvelope } from '../../shared/lib/field-context-envelope'
 
 const log = createLogger({ component: 'CodexSessionTitle' })
 
@@ -160,8 +161,11 @@ export async function generateCodexSessionTitle(
   message: string,
   worktreePath?: string
 ): Promise<string | null> {
+  const cleanMessage = stripFieldContextEnvelope(message)
   const truncatedMessage =
-    message.length > MAX_MESSAGE_LENGTH ? message.slice(0, MAX_MESSAGE_LENGTH) + '...' : message
+    cleanMessage.length > MAX_MESSAGE_LENGTH
+      ? cleanMessage.slice(0, MAX_MESSAGE_LENGTH) + '...'
+      : cleanMessage
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const manager = new CodexAppServerManager()

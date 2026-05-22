@@ -14,6 +14,13 @@ export interface AgentRuntimeCapabilities {
   supportsPartialStreaming: boolean
 }
 
+export type AgentPromptPart =
+  | { type: 'text'; text: string }
+  | { type: 'file'; mime: string; url: string; filename?: string }
+  | { type: string; text?: string; mime?: string; url?: string; filename?: string }
+
+export type AgentPromptMessage = string | AgentPromptPart[]
+
 export interface PromptOptions {
   codexFastMode?: boolean
   /** Session mode — used by OpenCode to select the agent (e.g. 'plan' → agent:'plan') */
@@ -24,6 +31,8 @@ export interface PromptOptions {
   successCriteria?: string
   /** Main-process internal objective derived before Field Context injection. */
   goalObjective?: string
+  /** Main-process internal message before Field Context injection. */
+  originalMessage?: AgentPromptMessage
 }
 
 export interface AgentRuntimeAdapter {
@@ -48,24 +57,14 @@ export interface AgentRuntimeAdapter {
   prompt(
     worktreePath: string,
     agentSessionId: string,
-    message:
-      | string
-      | Array<
-          | { type: 'text'; text: string }
-          | { type: 'file'; mime: string; url: string; filename?: string }
-        >,
+    message: AgentPromptMessage,
     modelOverride?: { providerID: string; modelID: string; variant?: string },
     options?: PromptOptions
   ): Promise<void>
   steer?(
     worktreePath: string,
     agentSessionId: string,
-    message:
-      | string
-      | Array<
-          | { type: 'text'; text: string }
-          | { type: 'file'; mime: string; url: string; filename?: string }
-        >,
+    message: AgentPromptMessage,
     modelOverride?: { providerID: string; modelID: string; variant?: string },
     options?: PromptOptions
   ): Promise<void>

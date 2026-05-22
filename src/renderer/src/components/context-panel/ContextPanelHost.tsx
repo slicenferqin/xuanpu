@@ -1,5 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { BarChart3, Files, GitPullRequest, ListTodo, SquareTerminal, Target } from 'lucide-react'
+import {
+  Activity,
+  BarChart3,
+  Files,
+  GitPullRequest,
+  ListTodo,
+  SquareTerminal,
+  Target
+} from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/i18n/useI18n'
@@ -15,6 +23,7 @@ import {
 } from '@/components/context-panel/ReviewWorkflowPanel'
 import { GoalStatusCard } from '@/components/session-hq/cards/GoalStatusCard'
 import { TodoCard } from '@/components/session-hq/cards/TodoCard'
+import { FieldContextDebug } from '@/components/sessions/FieldContextDebug'
 import { extractMissionTasks, type SessionTask } from '@/lib/session-tasks'
 import type { UsageAnalyticsSessionSummary } from '@shared/types/usage-analytics'
 
@@ -39,6 +48,7 @@ const CONTEXT_TABS: Array<{
   { id: 'files', icon: Files, labelKey: 'contextPanel.tabs.files' },
   { id: 'tasks', icon: ListTodo, labelKey: 'contextPanel.tabs.tasks' },
   { id: 'goal', icon: Target, labelKey: 'contextPanel.tabs.goal' },
+  { id: 'diagnostics', icon: Activity, labelKey: 'contextPanel.tabs.diagnostics' },
   { id: 'terminal', icon: SquareTerminal, labelKey: 'bottomPanel.tabs.terminal' }
 ]
 
@@ -524,6 +534,46 @@ function FilesPanel({
   )
 }
 
+function DiagnosticsPanel({
+  activeSessionId,
+  worktreeId
+}: {
+  activeSessionId: string | null
+  worktreeId: string | null
+}): React.JSX.Element {
+  const { t } = useI18n()
+
+  if (!activeSessionId && !worktreeId) {
+    return (
+      <EmptyPanel
+        title={t('contextPanel.diagnostics.emptyTitle')}
+        description={t('contextPanel.diagnostics.emptyDescription')}
+      />
+    )
+  }
+
+  return (
+    <div className="min-h-0 flex-1 overflow-auto p-3" data-testid="context-panel-diagnostics">
+      <section className="crisp-panel-surface rounded-xl p-3">
+        <div className="mb-2">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+            {t('contextPanel.tabs.diagnostics')}
+          </div>
+          <div className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            {t('contextPanel.diagnostics.description')}
+          </div>
+        </div>
+        <FieldContextDebug
+          sessionId={activeSessionId}
+          worktreeId={worktreeId}
+          defaultOpen
+          embedded
+        />
+      </section>
+    </div>
+  )
+}
+
 export function ContextPanelHost({
   worktreePath,
   scopeId,
@@ -662,6 +712,13 @@ export function ContextPanelHost({
         return <TasksPanel activeSessionId={activeSessionId} />
       case 'goal':
         return <GoalPanel activeSessionId={activeSessionId} />
+      case 'diagnostics':
+        return (
+          <DiagnosticsPanel
+            activeSessionId={activeSessionId}
+            worktreeId={!isConnectionMode ? (overviewScopeId ?? null) : null}
+          />
+        )
     }
   }, [
     activeSessionId,
@@ -671,6 +728,7 @@ export function ContextPanelHost({
     onClose,
     onFileClick,
     overviewScopeLabel,
+    overviewScopeId,
     overviewSessionIds,
     worktreePath
   ])

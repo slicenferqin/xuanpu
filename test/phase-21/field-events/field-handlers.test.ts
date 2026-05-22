@@ -37,12 +37,14 @@ vi.mock('../../../src/main/field/emit', () => ({
 }))
 
 import { registerFieldHandlers } from '../../../src/main/ipc/field-handlers'
+import { __resetXfpAuditForTest, recordXfpAuditEvent } from '../../../src/main/xfp/audit'
 
 describe('field-handlers — Phase 21 M5', () => {
   beforeEach(() => {
     handlers.clear()
     mockWorktrees.clear()
     emitSpy.mockReset()
+    __resetXfpAuditForTest()
     registerFieldHandlers()
   })
 
@@ -286,9 +288,8 @@ describe('field-handlers — Phase 21 M5', () => {
   })
 
   it('field:getLastInjection: returns cached entry for known session id', async () => {
-    const { cacheLastInjection, __resetForTest } = await import(
-      '../../../src/main/field/last-injection-cache'
-    )
+    const { cacheLastInjection, __resetForTest } =
+      await import('../../../src/main/field/last-injection-cache')
     __resetForTest()
     cacheLastInjection(['sess-xyz'], 'cached preview', 42)
     const cb = invokeHandlers.get('field:getLastInjection')!
@@ -303,5 +304,59 @@ describe('field-handlers — Phase 21 M5', () => {
   it('field:getLastInjection: returns null for unknown session id', async () => {
     const cb = invokeHandlers.get('field:getLastInjection')!
     expect(await cb({}, 'missing-id')).toBeNull()
+  })
+
+  it('field:getXfpAuditEvents: returns scoped XFP audit events', async () => {
+    recordXfpAuditEvent({
+      worktreeId: 'w-1',
+      sessionId: 's-1',
+      runtimeId: 'claude-code',
+      kind: 'tool',
+      toolName: 'xfp_get_current_focus',
+      outputSummary: 'focus',
+      outputChars: 5
+    })
+    recordXfpAuditEvent({
+      worktreeId: 'w-2',
+      sessionId: 's-2',
+      runtimeId: 'codex',
+      kind: 'fallback',
+      toolName: 'xfp_triggered_fallback',
+      outputSummary: 'fallback',
+      outputChars: 8
+    })
+
+    const cb = invokeHandlers.get('field:getXfpAuditEvents')!
+    const result = (await cb({}, { worktreeId: 'w-1' })) as Array<{ worktreeId: string | null }>
+
+    expect(result).toHaveLength(1)
+    expect(result[0].worktreeId).toBe('w-1')
+  })
+
+  it('field:clearXfpAuditEvents: clears scoped XFP audit events', async () => {
+    recordXfpAuditEvent({
+      worktreeId: 'w-1',
+      sessionId: 's-1',
+      runtimeId: 'claude-code',
+      kind: 'tool',
+      toolName: 'xfp_get_current_focus',
+      outputSummary: 'focus',
+      outputChars: 5
+    })
+    recordXfpAuditEvent({
+      worktreeId: 'w-2',
+      sessionId: 's-2',
+      runtimeId: 'codex',
+      kind: 'fallback',
+      toolName: 'xfp_triggered_fallback',
+      outputSummary: 'fallback',
+      outputChars: 8
+    })
+
+    const clear = invokeHandlers.get('field:clearXfpAuditEvents')!
+    const list = invokeHandlers.get('field:getXfpAuditEvents')!
+
+    expect(await clear({}, { worktreeId: 'w-1' })).toEqual({ deleted: 1 })
+    expect(await list({}, {})).toHaveLength(1)
   })
 })

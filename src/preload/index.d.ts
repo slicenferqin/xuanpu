@@ -1492,6 +1492,14 @@ declare global {
         timestamp: number
         approxTokens: number
       } | null>
+      /** XFP Inspector: fetch recent XFP tool/fallback audit events. */
+      getXfpAuditEvents: (
+        input?: import('../shared/types/xfp-audit').XfpAuditListInput
+      ) => Promise<import('../shared/types/xfp-audit').XfpAuditEvent[]>
+      /** XFP Inspector: clear recent XFP tool/fallback audit events. */
+      clearXfpAuditEvents: (
+        input?: import('../shared/types/xfp-audit').XfpAuditListInput
+      ) => Promise<{ deleted: number }>
       /** Phase 22B.1 debug: fetch the episodic memory summary for a worktree. */
       getEpisodicMemory: (worktreeId: string) => Promise<{
         worktreeId: string
