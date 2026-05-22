@@ -178,8 +178,10 @@ describe('SessionShell plan implement flow (source verification)', () => {
       "if (action === 'send' || action === 'stop_and_send') {\n        resetLiveOverlay(true)"
     )
     expect(source).toContain(
-      "if (action === 'send' || action === 'stop_and_send' || action === 'steer') {\n        // Lock provider/model selectors immediately."
+      "action === 'steer' ||\n        action === 'queue'\n      ) {\n        // Lock provider/model selectors immediately."
     )
+    expect(source).toContain("deliveryStatus: 'queued' as const")
+    expect(source).toContain('attachmentsToMessageParts(attachments)')
     expect(source).toContain(
       "if (action === 'send' || action === 'stop_and_send') {\n          resetLiveOverlay(false)"
     )

@@ -12,7 +12,7 @@ import { SessionTabs } from '../../../src/renderer/src/components/sessions/Sessi
  * Session 8: Tab Context Menus — UI
  *
  * Tests verify:
- * 1. Session tab context menu has Close, Close Others, Close Others to the Right
+ * 1. Session tab context menu has Rename, Copy Resume ID, Close, Close Others, Close Others to the Right
  * 2. File tab context menu has close actions + Copy Relative Path, Copy Absolute Path
  * 3. Diff tab context menu has same items as file tabs
  * 4. Context menu actions call the correct store methods
@@ -79,7 +79,8 @@ function setupStores({
     project_id: projectId,
     name: `Session ${i + 1}`,
     status: 'active' as const,
-    opencode_session_id: null,
+    opencode_session_id: `runtime-${i + 1}`,
+    agent_sdk: 'claude-code' as const,
     mode: 'build' as const,
     model_provider_id: null,
     model_id: null,
@@ -204,24 +205,30 @@ describe('Session 8: Tab Context Menus UI', () => {
 
       await waitFor(() => {
         expect(screen.getByText('Rename')).toBeInTheDocument()
+        expect(screen.getByText('Copy Resume ID')).toBeInTheDocument()
         expect(screen.getByText('Close')).toBeInTheDocument()
         expect(screen.getByText('Close Others')).toBeInTheDocument()
         expect(screen.getByText('Close Others to the Right')).toBeInTheDocument()
       })
     })
 
-    test('session tab context menu does NOT have copy path items', async () => {
+    test('Copy Resume ID copies the runtime session id', async () => {
       render(<SessionTabs />)
 
       const tab = screen.getByTestId('session-tab-s1')
       fireEvent.contextMenu(tab)
 
       await waitFor(() => {
-        expect(screen.getByText('Close')).toBeInTheDocument()
+        expect(screen.getByText('Copy Resume ID')).toBeInTheDocument()
       })
-
       expect(screen.queryByText('Copy Relative Path')).not.toBeInTheDocument()
       expect(screen.queryByText('Copy Absolute Path')).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByText('Copy Resume ID'))
+
+      await waitFor(() => {
+        expect(navigator.clipboard.writeText).toHaveBeenCalledWith('runtime-1')
+      })
     })
 
     test('double-click opens inline edit input and saves new session name', async () => {

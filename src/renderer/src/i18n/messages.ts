@@ -44,6 +44,36 @@ export const messages: Record<AppLocale, MessageTree> = {
             xlarge: 'X-Large'
           }
         },
+        fontFamily: {
+          title: 'Font Family',
+          description:
+            'Choose the primary UI font. System font access may require permission; custom values use CSS font-family syntax.',
+          customPlaceholder: 'e.g. "LXGW WenKai", "SF Pro Text"',
+          presetsGroup: 'Presets',
+          systemGroup: 'System Fonts',
+          loadSystemFonts: 'Load Fonts',
+          preview: 'Xuanpu Aa 123 · 玄圃开发工作台',
+          systemFontsLoaded: '{count} system fonts loaded',
+          systemFontsUnavailable: 'System font list is unavailable in this environment',
+          systemFontsDenied: 'System font access was denied',
+          systemFontsError: 'Failed to load system fonts',
+          presets: {
+            system: 'System',
+            serif: 'Serif',
+            mono: 'Mono',
+            rounded: 'Rounded',
+            custom: 'Custom'
+          }
+        },
+        fontWeight: {
+          title: 'Default Weight',
+          description: 'Tune the default text weight for normal UI copy.',
+          presets: {
+            regular: 'Regular',
+            medium: 'Medium',
+            semibold: 'Semi-bold'
+          }
+        },
         uiScale: {
           title: 'UI Scale',
           description:
@@ -874,6 +904,8 @@ export const messages: Record<AppLocale, MessageTree> = {
     },
     codeBlock: {
       copyButton: 'Copy code',
+      expand: 'Expand',
+      collapse: 'Collapse',
       toasts: {
         copied: 'Code copied to clipboard',
         copyError: 'Failed to copy code'
@@ -1554,6 +1586,7 @@ export const messages: Record<AppLocale, MessageTree> = {
           error: 'Error',
           materializing: 'Starting'
         },
+        context: 'Context',
         tokens: 'tokens',
         compressingContext: 'Compressing context...'
       },
@@ -1732,6 +1765,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         close: 'Close',
         closeOthers: 'Close Others',
         closeToRight: 'Close Others to the Right',
+        copyRuntimeSessionId: 'Copy Resume ID',
         copyRelativePath: 'Copy Relative Path',
         copyAbsolutePath: 'Copy Absolute Path',
         setColor: 'Set Color',
@@ -1752,7 +1786,8 @@ export const messages: Record<AppLocale, MessageTree> = {
         label: 'Context'
       },
       toasts: {
-        copied: 'Copied to clipboard'
+        copied: 'Copied to clipboard',
+        runtimeSessionIdCopied: 'Resume ID copied to clipboard'
       },
       errors: {
         createSession: 'Failed to create session',
@@ -1800,8 +1835,54 @@ export const messages: Record<AppLocale, MessageTree> = {
       ariaLabel: 'Projects and worktrees'
     },
     rightSidebar: {
-      ariaLabel: 'File sidebar',
-      fileSidebarError: 'File sidebar error'
+      ariaLabel: 'Context panel',
+      fileSidebarError: 'Context panel error'
+    },
+    contextPanel: {
+      tabs: {
+        overview: 'Overview',
+        review: 'Review',
+        files: 'Files',
+        tasks: 'Tasks',
+        goal: 'Goal'
+      },
+      overview: {
+        cost: 'Cost',
+        tokens: 'Tokens',
+        input: 'Input',
+        output: 'Output',
+        cacheRead: 'Cache Read',
+        cacheWrite: 'Cache Write',
+        sessions: 'Sessions',
+        sessionCount: '{count} sessions in this {scope}',
+        contextLimit: '{used} / {limit}',
+        worktree: 'Worktree',
+        connection: 'Connection'
+      },
+      tasks: {
+        emptyTitle: 'No tasks yet',
+        emptyDescription: 'Agent todo updates will appear here after the session emits a task list.'
+      },
+      goal: {
+        emptyTitle: 'No goal set',
+        emptyDescription:
+          'Start a goal-mode session to keep objective, status, and criteria visible here.'
+      },
+      terminal: {
+        emptyDescription: 'Dock the terminal to the right sidebar to show it in this panel.'
+      },
+      review: {
+        startReview: 'AI Review',
+        startReviewTitle: 'Start an AI review session for this diff',
+        sessionHint:
+          'Review opens a dedicated agent session and preloads the selected branch comparison.'
+      },
+      empty: {
+        noSessionTitle: 'No active session',
+        noSessionDescription:
+          'Open or start a session to show worktree, usage, tasks, and goal context.',
+        noWorktree: 'No worktree selected'
+      }
     },
     reasoningBlock: {
       thinking: 'Thinking...'
@@ -1919,6 +2000,7 @@ export const messages: Record<AppLocale, MessageTree> = {
       observedSection: 'Observed (Episodic)',
       semanticSection: 'Semantic',
       regenerate: 'Regenerate',
+      refresh: 'Refresh',
       clear: 'Clear',
       open: 'Open',
       create: 'Create',
@@ -2869,6 +2951,36 @@ export const messages: Record<AppLocale, MessageTree> = {
             xlarge: '最大'
           }
         },
+        fontFamily: {
+          title: '界面字体',
+          description:
+            '选择玄圃界面的主要字体。系统字体读取可能需要授权；自定义值使用 CSS font-family 写法。',
+          customPlaceholder: '例如 "霞鹜文楷", "SF Pro Text"',
+          presetsGroup: '预设',
+          systemGroup: '系统字体',
+          loadSystemFonts: '加载字体',
+          preview: '玄圃开发工作台 · Xuanpu Aa 123',
+          systemFontsLoaded: '已加载 {count} 个系统字体',
+          systemFontsUnavailable: '当前环境不支持读取系统字体列表',
+          systemFontsDenied: '系统字体读取授权已拒绝',
+          systemFontsError: '系统字体加载失败',
+          presets: {
+            system: '系统默认',
+            serif: '衬线',
+            mono: '等宽',
+            rounded: '圆体',
+            custom: '自定义'
+          }
+        },
+        fontWeight: {
+          title: '默认字重',
+          description: '调整普通界面文字的默认粗细。',
+          presets: {
+            regular: '常规',
+            medium: '中等',
+            semibold: '半粗体'
+          }
+        },
         uiScale: {
           title: '界面缩放',
           description: '等比缩放整体界面，包括图标和间距。也可使用 Cmd+/Cmd- 快捷键。'
@@ -3675,6 +3787,8 @@ export const messages: Record<AppLocale, MessageTree> = {
     },
     codeBlock: {
       copyButton: '复制代码',
+      expand: '展开',
+      collapse: '收起',
       toasts: {
         copied: '代码已复制到剪贴板',
         copyError: '复制代码失败'
@@ -4345,6 +4459,7 @@ export const messages: Record<AppLocale, MessageTree> = {
           error: '错误',
           materializing: '启动中'
         },
+        context: '上下文',
         tokens: 'tokens',
         compressingContext: '正在压缩上下文...'
       },
@@ -4523,6 +4638,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         close: '关闭',
         closeOthers: '关闭其他标签',
         closeToRight: '关闭右侧其他标签',
+        copyRuntimeSessionId: '复制恢复 ID',
         copyRelativePath: '复制相对路径',
         copyAbsolutePath: '复制绝对路径',
         setColor: '设置颜色',
@@ -4543,7 +4659,8 @@ export const messages: Record<AppLocale, MessageTree> = {
         label: '上下文'
       },
       toasts: {
-        copied: '已复制到剪贴板'
+        copied: '已复制到剪贴板',
+        runtimeSessionIdCopied: '恢复 ID 已复制到剪贴板'
       },
       errors: {
         createSession: '创建会话失败',
@@ -4591,8 +4708,51 @@ export const messages: Record<AppLocale, MessageTree> = {
       ariaLabel: '项目和 worktree'
     },
     rightSidebar: {
-      ariaLabel: '文件侧边栏',
-      fileSidebarError: '文件侧边栏出错'
+      ariaLabel: '上下文面板',
+      fileSidebarError: '上下文面板出错'
+    },
+    contextPanel: {
+      tabs: {
+        overview: '概览',
+        review: '审查',
+        files: '文件',
+        tasks: '任务',
+        goal: '目标'
+      },
+      overview: {
+        cost: '花费',
+        tokens: 'Tokens',
+        input: '输入',
+        output: '输出',
+        cacheRead: '缓存读取',
+        cacheWrite: '缓存写入',
+        sessions: '会话数',
+        sessionCount: '此{scope}下 {count} 个会话',
+        contextLimit: '{used} / {limit}',
+        worktree: 'Worktree',
+        connection: '连接'
+      },
+      tasks: {
+        emptyTitle: '暂无任务',
+        emptyDescription: 'Agent 输出任务列表后，会在这里展示 todo 进度。'
+      },
+      goal: {
+        emptyTitle: '暂无目标',
+        emptyDescription: '开启目标模式会在这里展示目标、状态和成功标准。'
+      },
+      terminal: {
+        emptyDescription: '将终端停靠到右侧后，会在这里展示终端面板。'
+      },
+      review: {
+        startReview: 'AI 审查此差异',
+        startReviewTitle: '为当前差异创建一个 AI 审查会话',
+        sessionHint: '审查会创建独立的 Agent 会话，并预置当前选择的分支对比提示。'
+      },
+      empty: {
+        noSessionTitle: '暂无活跃会话',
+        noSessionDescription: '打开或创建会话后，这里会展示 worktree、用量、任务和目标上下文。',
+        noWorktree: '未选择 worktree'
+      }
     },
     reasoningBlock: {
       thinking: '思考中...'
@@ -4710,6 +4870,7 @@ export const messages: Record<AppLocale, MessageTree> = {
       observedSection: '观察记忆（Episodic）',
       semanticSection: '语义记忆（Semantic）',
       regenerate: '重新压缩',
+      refresh: '刷新',
       clear: '清空',
       open: '打开',
       create: '创建',

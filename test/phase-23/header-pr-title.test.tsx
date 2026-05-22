@@ -1,22 +1,30 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import { Header } from '@/components/layout/Header'
-import { useConnectionStore } from '@/stores/useConnectionStore'
+import { ContextPanelHost } from '@/components/context-panel/ContextPanelHost'
 import { useGitStore } from '@/stores/useGitStore'
+import { useLayoutStore } from '@/stores/useLayoutStore'
 import { useProjectStore } from '@/stores/useProjectStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useWorktreeStore } from '@/stores/useWorktreeStore'
 
-vi.mock('@/hooks/usePRDetection', () => ({
-  usePRDetection: vi.fn()
+vi.mock('@/components/file-tree/FileTree', () => ({
+  FileTree: () => <div data-testid="file-tree">FileTree</div>
 }))
 
-vi.mock('@/lib/platform', () => ({
-  isMac: () => false
+vi.mock('@/components/file-tree/ChangesView', () => ({
+  ChangesView: () => <div data-testid="changes-view">ChangesView</div>
 }))
 
-vi.mock('@/assets/icon.png', () => ({
-  default: 'mock-icon.png'
+vi.mock('@/components/file-tree/BranchDiffView', () => ({
+  BranchDiffView: () => <div data-testid="branch-diff-view">BranchDiffView</div>
+}))
+
+vi.mock('@/components/diff-comments/DiffCommentsViewer', () => ({
+  DiffCommentsViewer: () => <div data-testid="diff-comments-viewer">DiffCommentsViewer</div>
+}))
+
+vi.mock('@/components/pr-review/PrReviewViewer', () => ({
+  PrReviewViewer: () => <div data-testid="pr-review-viewer">PrReviewViewer</div>
 }))
 
 const listBranchesWithStatusMock = vi.fn()
@@ -57,7 +65,7 @@ const worktree = {
   last_accessed_at: '2026-05-09T00:00:00.000Z'
 }
 
-describe('Header PR title badge', () => {
+describe('Review context panel PR title badge', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     listBranchesWithStatusMock.mockResolvedValue({ success: true, branches: [] })
@@ -78,7 +86,7 @@ describe('Header PR title badge', () => {
     })
 
     useSettingsStore.setState({ locale: 'en', vimModeEnabled: false })
-    useConnectionStore.setState({ connections: [], selectedConnectionId: null })
+    useLayoutStore.setState({ rightContextTab: 'review', rightReviewTab: 'changes' })
     useProjectStore.setState({ projects: [project], selectedProjectId: 'proj-1' })
     useWorktreeStore.setState({
       selectedWorktreeId: 'wt-1',
@@ -105,8 +113,14 @@ describe('Header PR title badge', () => {
     })
   })
 
-  test('loads and shows the attached PR title on the badge', async () => {
-    render(<Header />)
+  test('loads and exposes the attached PR title on the badge', async () => {
+    render(
+      <ContextPanelHost
+        worktreePath="/repos/xuanpu/hive-upstream"
+        onClose={vi.fn()}
+        onFileClick={vi.fn()}
+      />
+    )
 
     await waitFor(() => {
       expect(getPRStateMock).toHaveBeenCalledWith('/repos/xuanpu', 42)
@@ -114,9 +128,9 @@ describe('Header PR title badge', () => {
 
     const badge = screen.getByTestId('pr-badge')
 
+    expect(badge).toHaveTextContent('PR #42')
     await waitFor(() => {
-      expect(badge).toHaveTextContent('Show PR title in notification widget')
+      expect(badge).toHaveAttribute('title', 'PR #42: Show PR title in notification widget')
     })
-    expect(badge).toHaveAttribute('title', 'PR #42: Show PR title in notification widget')
   })
 })

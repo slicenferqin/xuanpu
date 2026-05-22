@@ -7,6 +7,9 @@ const mockUpdateSetting = vi.fn()
 let mockSettingsState: Record<string, unknown> = {}
 
 vi.mock('@/stores/useSettingsStore', () => ({
+  applyFontFamily: vi.fn(),
+  applyFontScale: vi.fn(),
+  applyFontWeight: vi.fn(),
   useSettingsStore: Object.assign(
     (selector?: (state: unknown) => unknown) => {
       return selector ? selector(mockSettingsState) : mockSettingsState
@@ -92,6 +95,11 @@ describe('Settings i18n', () => {
       showModelProvider: false,
       showUsageIndicator: true,
       keepAwakeEnabled: true,
+      uiFontScale: 1,
+      uiFontFamily: 'system',
+      uiCustomFontFamily: '',
+      uiFontWeight: 'regular',
+      uiZoomLevel: 0,
       defaultAgentSdk: 'opencode',
       updateChannel: 'stable',
       stripAtMentions: true,
@@ -111,6 +119,12 @@ describe('Settings i18n', () => {
         getVersion: vi.fn().mockResolvedValue('1.0.71'),
         checkForUpdate: vi.fn().mockResolvedValue(undefined)
       }
+    })
+
+    Object.defineProperty(window, 'queryLocalFonts', {
+      configurable: true,
+      writable: true,
+      value: undefined
     })
   })
 
@@ -152,6 +166,39 @@ describe('Settings i18n', () => {
     expect(screen.getByText('外观')).toBeInTheDocument()
     expect(screen.getByTestId('dark-themes-header')).toHaveTextContent('深色主题')
     expect(screen.getByTestId('light-themes-header')).toHaveTextContent('浅色主题')
+    expect(screen.getByText('界面字体')).toBeInTheDocument()
+    expect(screen.getByTestId('font-family-select')).toHaveTextContent('系统默认')
+    expect(screen.getByTestId('load-system-fonts')).toHaveTextContent('加载字体')
+    expect(screen.getByText('默认字重')).toBeInTheDocument()
+    expect(screen.getByTestId('font-weight-regular')).toHaveTextContent('常规')
+  })
+
+  it('loads and selects a system font in SettingsAppearance', async () => {
+    Object.defineProperty(window, 'queryLocalFonts', {
+      configurable: true,
+      writable: true,
+      value: vi.fn().mockResolvedValue([
+        { family: 'Test Sans', fullName: 'Test Sans Regular' },
+        { family: 'Test Sans', fullName: 'Test Sans Bold' },
+        { family: 'Test Mono', fullName: 'Test Mono Regular' }
+      ])
+    })
+
+    const { SettingsAppearance } = await import('@/components/settings/SettingsAppearance')
+    render(<SettingsAppearance />)
+
+    await userEvent.click(screen.getByTestId('load-system-fonts'))
+    await waitFor(() => {
+      expect(screen.getByText('已加载 2 个系统字体')).toBeInTheDocument()
+    })
+
+    await userEvent.selectOptions(screen.getByTestId('font-family-select'), 'system:Test Sans')
+
+    expect(mockUpdateSetting).toHaveBeenCalledWith(
+      'uiCustomFontFamily',
+      '"Test Sans", system-ui, sans-serif'
+    )
+    expect(mockUpdateSetting).toHaveBeenCalledWith('uiFontFamily', 'custom')
   })
 
   it('renders translated labels in SettingsUpdates', async () => {

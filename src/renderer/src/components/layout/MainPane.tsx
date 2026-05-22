@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, lazy, Suspense } from 'react'
 import { Loader2 } from 'lucide-react'
-import { SessionTabs } from '@/components/sessions'
 import { FileViewer } from '@/components/file-viewer'
 import { InlineDiffViewer, ImageDiffView } from '@/components/diff'
 import { isImageFile } from '@shared/types/file-utils'
@@ -39,6 +38,13 @@ interface MainPaneProps {
   children?: React.ReactNode
 }
 
+function getSessionRuntimeKind(session: {
+  runtime_id?: string | null
+  agent_sdk?: string | null
+}): string | null {
+  return session.runtime_id ?? session.agent_sdk ?? null
+}
+
 export function MainPane({ children }: MainPaneProps): React.JSX.Element {
   const { t } = useI18n()
   const selectedWorktreeId = useWorktreeStore((state) => state.selectedWorktreeId)
@@ -63,11 +69,11 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
     const state = useSessionStore.getState()
     for (const sessions of state.sessionsByWorktree.values()) {
       const found = sessions.find((s) => s.id === sid)
-      if (found) return found.runtime_id
+      if (found) return getSessionRuntimeKind(found)
     }
     for (const sessions of state.sessionsByConnection.values()) {
       const found = sessions.find((s) => s.id === sid)
-      if (found) return found.runtime_id
+      if (found) return getSessionRuntimeKind(found)
     }
     return null
   }, [])
@@ -79,14 +85,14 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
     if (selectedWorktreeId) {
       const sessions = sessionsByWorktree.get(selectedWorktreeId) || []
       for (const s of sessions) {
-        if (s.runtime_id === 'terminal') terminals.push(s.id)
+        if (getSessionRuntimeKind(s) === 'terminal') terminals.push(s.id)
       }
     }
 
     if (selectedConnectionId) {
       const sessions = sessionsByConnection.get(selectedConnectionId) || []
       for (const s of sessions) {
-        if (s.runtime_id === 'terminal') terminals.push(s.id)
+        if (getSessionRuntimeKind(s) === 'terminal') terminals.push(s.id)
       }
     }
 
@@ -191,7 +197,7 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
             src={onboardingBgDark}
             alt=""
             aria-hidden="true"
-            className="pointer-events-none absolute inset-0 hidden h-full w-full object-cover opacity-40 dark:block"
+            className="pointer-events-none absolute inset-0 hidden h-full w-full object-cover opacity-25 dark:block"
           />
           <div className="relative text-center">
             <p className="text-lg font-medium">{t('mainPane.welcomeTitle')}</p>
@@ -300,11 +306,18 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
         return null
       }
       return (
-        <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>}>
-          {sessionUiV2
-            ? <SessionShell key={inlineConnectionSessionId} sessionId={inlineConnectionSessionId} />
-            : <SessionView key={inlineConnectionSessionId} sessionId={inlineConnectionSessionId} />
+        <Suspense
+          fallback={
+            <div className="flex-1 flex items-center justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
           }
+        >
+          {sessionUiV2 ? (
+            <SessionShell key={inlineConnectionSessionId} sessionId={inlineConnectionSessionId} />
+          ) : (
+            <SessionView key={inlineConnectionSessionId} sessionId={inlineConnectionSessionId} />
+          )}
         </Suspense>
       )
     }
@@ -323,7 +336,7 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
             src={onboardingBgDark}
             alt=""
             aria-hidden="true"
-            className="pointer-events-none absolute inset-0 hidden h-full w-full object-cover opacity-40 dark:block"
+            className="pointer-events-none absolute inset-0 hidden h-full w-full object-cover opacity-25 dark:block"
           />
           <div className="relative text-center">
             <p className="text-lg font-medium">{t('mainPane.noActiveSessionTitle')}</p>
@@ -339,11 +352,18 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
       return null
     }
     return (
-      <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>}>
-        {sessionUiV2
-          ? <SessionShell key={activeSessionId} sessionId={activeSessionId} />
-          : <SessionView key={activeSessionId} sessionId={activeSessionId} />
+      <Suspense
+        fallback={
+          <div className="flex-1 flex items-center justify-center">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
         }
+      >
+        {sessionUiV2 ? (
+          <SessionShell key={activeSessionId} sessionId={activeSessionId} />
+        ) : (
+          <SessionView key={activeSessionId} sessionId={activeSessionId} />
+        )}
       </Suspense>
     )
   }
@@ -353,14 +373,19 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
       className="flex-1 flex flex-col min-w-0 bg-background overflow-hidden"
       data-testid="main-pane"
     >
-      {(selectedWorktreeId || selectedConnectionId) && <SessionTabs />}
       {renderContent()}
       {/* Always-mounted terminal sessions — kept alive to preserve PTY state across tab switches */}
       {mountedTerminalSessionIds.map((sessionId) => {
         const isActive = visibleTerminalId === sessionId
         return (
           <div key={sessionId} className={isActive ? 'flex-1 flex flex-col min-h-0' : 'hidden'}>
-            <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>}>
+            <Suspense
+              fallback={
+                <div className="flex-1 flex items-center justify-center">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              }
+            >
               <SessionTerminalView sessionId={sessionId} isVisible={isActive} />
             </Suspense>
           </div>

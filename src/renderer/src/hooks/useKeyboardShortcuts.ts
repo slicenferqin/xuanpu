@@ -343,8 +343,13 @@ function getShortcutHandlers(
         } else {
           store.createTab(worktreeId, worktreePath ?? '/')
         }
-        // Ensure the bottom panel is showing the terminal tab
-        useLayoutStore.getState().setBottomPanelTab('terminal')
+        const layout = useLayoutStore.getState()
+        // Ensure the terminal surface is visible in its current dock.
+        layout.setBottomPanelTab('terminal')
+        if (layout.terminalDock === 'right') {
+          layout.setRightSidebarCollapsed(false)
+          layout.setRightContextTab('terminal')
+        }
       }
     },
     {

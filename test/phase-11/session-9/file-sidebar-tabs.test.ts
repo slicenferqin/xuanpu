@@ -25,13 +25,16 @@ describe('Session 9: File Sidebar Tabs', () => {
       expect(content).toBeTruthy()
     })
 
-    test('renders two tabs: Changes and Files', () => {
+    test('renders file/review tabs through i18n labels', () => {
       const content = readFile('FileSidebar.tsx')
       expect(content).toContain("'changes'")
       expect(content).toContain("'files'")
-      // Tab text content inside button elements
-      expect(content).toMatch(/>\s*Changes\s*/)
-      expect(content).toMatch(/>\s*Files\s*/)
+      expect(content).toContain("'diffs'")
+      expect(content).toContain("'comments'")
+      expect(content).toContain("t('fileTree.sidebar.changes')")
+      expect(content).toContain("t('fileTree.sidebar.files')")
+      expect(content).toContain("t('fileTree.sidebar.diffs')")
+      expect(content).toContain("t('fileTree.sidebar.comments')")
       expect(content).toContain("setActiveTab('changes')")
       expect(content).toContain("setActiveTab('files')")
     })
@@ -39,7 +42,7 @@ describe('Session 9: File Sidebar Tabs', () => {
     test('defaults to Changes tab', () => {
       const content = readFile('FileSidebar.tsx')
       // useState defaults to 'changes'
-      expect(content).toContain("useState<'changes' | 'files'>('changes')")
+      expect(content).toContain("useState<'changes' | 'files' | 'diffs' | 'comments'>('changes')")
     })
 
     test('Changes tab embeds ChangesView', () => {
@@ -73,13 +76,12 @@ describe('Session 9: File Sidebar Tabs', () => {
       const content = readFile('FileSidebar.tsx')
       expect(content).toContain('onClose')
       expect(content).toContain('<X')
-      expect(content).toContain('aria-label="Close sidebar"')
+      expect(content).toContain("aria-label={t('fileTree.sidebar.closeSidebar')}")
     })
 
-    test('active tab has underline indicator', () => {
+    test('active tab has selected sidebar accent styles', () => {
       const content = readFile('FileSidebar.tsx')
-      // Active tab should have a bottom border indicator
-      expect(content).toContain('h-0.5 bg-primary')
+      expect(content).toContain('bg-sidebar-accent text-sidebar-accent-foreground')
     })
   })
 
@@ -132,11 +134,11 @@ describe('Session 9: File Sidebar Tabs', () => {
   })
 
   describe('RightSidebar integration', () => {
-    test('RightSidebar uses FileSidebar as the entire top half', () => {
+    test('RightSidebar hosts file views through ContextPanelHost', () => {
       const rightSidebarPath = path.join(fileTreeDir, '..', 'layout', 'RightSidebar.tsx')
       const content = fs.readFileSync(rightSidebarPath, 'utf-8')
-      expect(content).toContain('FileSidebar')
-      expect(content).toContain('<FileSidebar')
+      expect(content).toContain('ContextPanelHost')
+      expect(content).toContain('<ContextPanelHost')
       // Should NOT directly render FileTree or GitStatusPanel anymore
       expect(content).not.toContain('<FileTree')
       expect(content).not.toContain('<GitStatusPanel')

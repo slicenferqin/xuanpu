@@ -1,11 +1,10 @@
-import { useCallback, useMemo, useRef } from 'react'
+import { useMemo } from 'react'
 import { useLayoutStore } from '@/stores/useLayoutStore'
-import { LAYOUT_CONSTRAINTS } from '@/stores/useLayoutStore'
 import { useWorktreeStore } from '@/stores/useWorktreeStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { useFileViewerStore } from '@/stores/useFileViewerStore'
 import { ResizeHandle } from './ResizeHandle'
-import { FileSidebar } from '@/components/file-tree'
+import { ContextPanelHost } from '@/components/context-panel/ContextPanelHost'
 import { BottomPanel } from './BottomPanel'
 import { TerminalManager } from '@/components/terminal/TerminalManager'
 import { ErrorBoundary, ErrorFallback } from '@/components/error'
@@ -16,9 +15,8 @@ export function RightSidebar(): React.JSX.Element {
   const { rightSidebarWidth, rightSidebarCollapsed, setRightSidebarWidth, toggleRightSidebar } =
     useLayoutStore()
   const bottomPanelTab = useLayoutStore((s) => s.bottomPanelTab)
+  const rightContextTab = useLayoutStore((s) => s.rightContextTab)
   const terminalDock = useLayoutStore((s) => s.terminalDock)
-  const splitFractionByEntity = useLayoutStore((s) => s.splitFractionByEntity)
-  const setSplitFraction = useLayoutStore((s) => s.setSplitFraction)
 
   const { selectedWorktreeId, worktreesByProject } = useWorktreeStore()
   const selectedConnectionId = useConnectionStore((s) => s.selectedConnectionId)
@@ -26,13 +24,6 @@ export function RightSidebar(): React.JSX.Element {
     s.selectedConnectionId ? s.connections.find((c) => c.id === s.selectedConnectionId) : null
   )
   const isConnectionMode = !!selectedConnectionId && !selectedWorktreeId
-
-  const entityKey = selectedWorktreeId || selectedConnectionId
-  const splitFraction = entityKey
-    ? (splitFractionByEntity[entityKey] ?? LAYOUT_CONSTRAINTS.splitFraction.default)
-    : LAYOUT_CONSTRAINTS.splitFraction.default
-
-  const sidebarRef = useRef<HTMLElement>(null)
 
   // Get the selected worktree path by searching all projects' worktrees
   const selectedWorktreePath = useMemo(() => {
@@ -57,18 +48,6 @@ export function RightSidebar(): React.JSX.Element {
     setRightSidebarWidth(rightSidebarWidth + delta)
   }
 
-  const handleVerticalResize = useCallback(
-    (delta: number) => {
-      if (!entityKey || !sidebarRef.current) return
-      const totalHeight = sidebarRef.current.clientHeight
-      if (totalHeight <= 0) return
-      const fractionDelta = delta / totalHeight
-      const current = splitFractionByEntity[entityKey] ?? LAYOUT_CONSTRAINTS.splitFraction.default
-      setSplitFraction(entityKey, current + fractionDelta)
-    },
-    [entityKey, splitFractionByEntity, setSplitFraction]
-  )
-
   const handleFileClick = (node: { path: string; name: string; isDirectory: boolean }): void => {
     // Open file in the file viewer tab
     const contextId = selectedWorktreeId || selectedConnectionId
@@ -84,13 +63,23 @@ export function RightSidebar(): React.JSX.Element {
   // PTY state across sidebar collapse/expand and worktree switches.
   // When terminal is docked to bottom, TerminalManager lives in BottomDock instead.
   const isDockRight = terminalDock === 'right'
+  const terminalPanelVisible = isDockRight && rightContextTab === 'terminal'
   const terminalManager = isDockRight ? (
     <TerminalManager
       selectedWorktreeId={selectedWorktreeId}
       worktreePath={selectedWorktreePath}
-      isVisible={!rightSidebarCollapsed && effectiveBottomPanelTab === 'terminal'}
+      isVisible={
+        !rightSidebarCollapsed && terminalPanelVisible && effectiveBottomPanelTab === 'terminal'
+      }
     />
   ) : null
+  const terminalPanel = isDockRight ? (
+    <BottomPanel
+      terminalSlot={terminalManager}
+      isConnectionMode={isConnectionMode}
+      worktreePath={selectedWorktreePath}
+    />
+  ) : undefined
 
   if (rightSidebarCollapsed) {
     return (
@@ -105,59 +94,32 @@ export function RightSidebar(): React.JSX.Element {
     <div className="flex flex-shrink-0" data-testid="right-sidebar-container">
       <ResizeHandle onResize={handleResize} direction="right" />
       <aside
-        ref={sidebarRef}
-        className="flex flex-col overflow-hidden border-l border-sidebar-border/60 bg-sidebar text-sidebar-foreground"
+        className="flex flex-col overflow-hidden border-l border-sidebar-border/45 bg-sidebar/70 text-sidebar-foreground backdrop-blur-sm"
         style={{ width: rightSidebarWidth }}
         data-testid="right-sidebar"
         data-width={rightSidebarWidth}
         role="complementary"
         aria-label={t('rightSidebar.ariaLabel')}
       >
-        {/* Top half: Tabbed sidebar (Changes / Files) */}
-        <div
-          className="flex min-h-0 flex-col overflow-hidden"
-          style={{ flex: isDockRight ? `${splitFraction} 1 0%` : '1 1 0%' }}
-          data-testid="right-sidebar-top"
-        >
-          <ErrorBoundary
-            componentName="FileSidebar"
-            fallback={
-              <div className="flex-1 p-2">
-                <ErrorFallback compact title={t('rightSidebar.fileSidebarError')} />
-              </div>
-            }
-          >
-            <FileSidebar
-              worktreePath={selectedWorktreePath}
-              isConnectionMode={isConnectionMode}
-              connectionMembers={selectedConnection?.members}
-              onClose={toggleRightSidebar}
-              onFileClick={handleFileClick}
-              className="flex-1 min-h-0"
-            />
-          </ErrorBoundary>
-        </div>
-
-        {/* Bottom panel — only when terminal is docked to right */}
-        {isDockRight && (
-          <>
-            {/* Draggable divider between top and bottom panels */}
-            <ResizeHandle
-              onResize={handleVerticalResize}
-              direction="up"
-              className="h-px border-0 bg-sidebar-border/60 hover:bg-primary/20 active:bg-primary/30"
-            />
-
-            {/* Bottom half: Tab panel */}
-            <div
-              className="flex min-h-0 flex-col overflow-hidden bg-sidebar"
-              style={{ flex: `${1 - splitFraction} 1 0%` }}
-              data-testid="right-sidebar-bottom"
-            >
-              <BottomPanel terminalSlot={terminalManager} isConnectionMode={isConnectionMode} worktreePath={selectedWorktreePath} />
+        <ErrorBoundary
+          componentName="ContextPanelHost"
+          fallback={
+            <div className="flex-1 p-2">
+              <ErrorFallback compact title={t('rightSidebar.fileSidebarError')} />
             </div>
-          </>
-        )}
+          }
+        >
+          <ContextPanelHost
+            worktreePath={selectedWorktreePath}
+            scopeId={isConnectionMode ? selectedConnectionId : selectedWorktreeId}
+            isConnectionMode={isConnectionMode}
+            connectionMembers={selectedConnection?.members}
+            onClose={toggleRightSidebar}
+            onFileClick={handleFileClick}
+            terminalPanel={terminalPanel}
+            className="flex-1 min-h-0"
+          />
+        </ErrorBoundary>
       </aside>
     </div>
   )

@@ -3,6 +3,8 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 
 export type BottomPanelTab = 'setup' | 'run' | 'terminal'
 export type TerminalDock = 'right' | 'bottom'
+export type RightContextTab = 'overview' | 'review' | 'files' | 'tasks' | 'goal' | 'terminal'
+export type RightReviewTab = 'changes' | 'diffs' | 'comments'
 
 const LEFT_SIDEBAR_DEFAULT = 240
 const LEFT_SIDEBAR_MIN = 200
@@ -25,6 +27,8 @@ interface LayoutState {
   rightSidebarWidth: number
   rightSidebarCollapsed: boolean
   bottomPanelTab: BottomPanelTab
+  rightContextTab: RightContextTab
+  rightReviewTab: RightReviewTab
   terminalDock: TerminalDock
   bottomDockHeight: number
   ghosttyOverlaySuppressed: boolean
@@ -36,6 +40,8 @@ interface LayoutState {
   toggleRightSidebar: () => void
   setRightSidebarCollapsed: (collapsed: boolean) => void
   setBottomPanelTab: (tab: BottomPanelTab) => void
+  setRightContextTab: (tab: RightContextTab) => void
+  setRightReviewTab: (tab: RightReviewTab) => void
   setTerminalDock: (dock: TerminalDock) => void
   setBottomDockHeight: (height: number) => void
   setGhosttyOverlaySuppressed: (suppressed: boolean) => void
@@ -52,6 +58,8 @@ export const useLayoutStore = create<LayoutState>()(
       rightSidebarWidth: RIGHT_SIDEBAR_DEFAULT,
       rightSidebarCollapsed: false,
       bottomPanelTab: 'terminal' as BottomPanelTab,
+      rightContextTab: 'overview' as RightContextTab,
+      rightReviewTab: 'changes' as RightReviewTab,
       terminalDock: 'right' as TerminalDock,
       bottomDockHeight: BOTTOM_DOCK_HEIGHT_DEFAULT,
       ghosttyOverlaySuppressed: false,
@@ -84,6 +92,14 @@ export const useLayoutStore = create<LayoutState>()(
 
       setBottomPanelTab: (tab: BottomPanelTab) => {
         set({ bottomPanelTab: tab })
+      },
+
+      setRightContextTab: (tab: RightContextTab) => {
+        set({ rightContextTab: tab })
+      },
+
+      setRightReviewTab: (tab: RightReviewTab) => {
+        set({ rightReviewTab: tab })
       },
 
       setTerminalDock: (dock: TerminalDock) => {
@@ -129,6 +145,8 @@ export const useLayoutStore = create<LayoutState>()(
         leftSidebarCollapsed: state.leftSidebarCollapsed,
         rightSidebarWidth: state.rightSidebarWidth,
         rightSidebarCollapsed: state.rightSidebarCollapsed,
+        rightContextTab: state.rightContextTab,
+        rightReviewTab: state.rightReviewTab,
         splitFractionByEntity: state.splitFractionByEntity,
         terminalDock: state.terminalDock,
         bottomDockHeight: state.bottomDockHeight

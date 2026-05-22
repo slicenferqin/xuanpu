@@ -1,5 +1,4 @@
 import { render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { AgentTimeline } from '../../src/renderer/src/components/session-hq/AgentTimeline'
 import type { TimelineMessage } from '../../src/shared/lib/timeline-types'
 
@@ -19,30 +18,7 @@ vi.mock('../../src/renderer/src/components/session-hq/cards', () => ({
   TextCard: ({ content, isStreaming = false }: { content: string; isStreaming?: boolean }) => (
     <div data-testid={isStreaming ? 'streaming-text-card' : 'text-card'}>{content}</div>
   ),
-  TodoCard: () => <div>TodoCard</div>,
-  GoalStatusCard: ({
-    goal,
-    onDismiss
-  }: {
-    goal: {
-      objective: string
-      successCriteria?: string
-      tokensUsed?: number
-      tokenBudget?: number | null
-    }
-    onDismiss?: () => void
-  }) => (
-    <div data-testid="goal-status-card">
-      {goal.objective}
-      {goal.successCriteria}
-      {goal.tokensUsed === 1200 && goal.tokenBudget === 50000 ? '1.2K / 50K tokens' : null}
-      {onDismiss ? (
-        <button type="button" data-testid="goal-status-dismiss" onClick={onDismiss}>
-          dismiss
-        </button>
-      ) : null}
-    </div>
-  )
+  TodoCard: () => <div>TodoCard</div>
 }))
 
 function makeAssistantTextMessage(id: string, content: string): TimelineMessage {
@@ -88,59 +64,39 @@ describe('AgentTimeline connector rendering', () => {
     expect(screen.queryByTestId('goal-status-card')).not.toBeInTheDocument()
   })
 
-  it('renders a goal card above the timeline when a goal is present', () => {
+  it('renders queued optimistic user messages with their attachments', () => {
     render(
       <AgentTimeline
-        timelineMessages={[makeAssistantTextMessage('a-3', 'final assistant reply')]}
+        timelineMessages={[
+          {
+            id: 'queued-1',
+            role: 'user',
+            content: 'Review this screenshot next',
+            timestamp: '2026-04-17T14:34:59.000Z',
+            deliveryStatus: 'queued',
+            attachments: [
+              {
+                type: 'file',
+                mime: 'image/png',
+                url: 'data:image/png;base64,queued-image',
+                filename: 'queued.png'
+              }
+            ]
+          }
+        ]}
         streamingContent=""
         streamingParts={[]}
         isStreaming={false}
-        lifecycle="idle"
-        sessionGoal={{
-          threadId: 'thread-1',
-          objective: 'Build the goal foundation',
-          successCriteria: 'Focused tests pass',
-          status: 'active',
-          tokenBudget: 50000,
-          tokensUsed: 1200,
-          timeUsedSeconds: 90,
-          createdAt: 10,
-          updatedAt: 20
-        }}
+        lifecycle="busy"
       />
     )
 
-    expect(screen.getByTestId('goal-status-sticky')).toContainElement(
-      screen.getByTestId('goal-status-card')
+    expect(screen.getByText('QUEUED')).toBeInTheDocument()
+    expect(screen.getByText('Review this screenshot next')).toBeInTheDocument()
+    expect(screen.getByAltText('queued.png')).toHaveAttribute(
+      'src',
+      'data:image/png;base64,queued-image'
     )
-    expect(screen.getByTestId('goal-status-card')).toHaveTextContent('Build the goal foundation')
-    expect(screen.getByTestId('goal-status-card')).toHaveTextContent('Focused tests pass')
-    expect(screen.getByTestId('goal-status-card')).toHaveTextContent('1.2K / 50K tokens')
-  })
-
-  it('passes the goal dismiss callback through to the sticky goal card', async () => {
-    const user = userEvent.setup()
-    const onDismissSessionGoal = vi.fn()
-
-    render(
-      <AgentTimeline
-        timelineMessages={[makeAssistantTextMessage('a-3b', 'final assistant reply')]}
-        streamingContent=""
-        streamingParts={[]}
-        isStreaming={false}
-        lifecycle="idle"
-        sessionGoal={{
-          threadId: 'thread-1',
-          objective: 'Build the goal foundation',
-          successCriteria: 'Focused tests pass',
-          status: 'completed'
-        }}
-        onDismissSessionGoal={onDismissSessionGoal}
-      />
-    )
-
-    await user.click(screen.getByTestId('goal-status-dismiss'))
-    expect(onDismissSessionGoal).toHaveBeenCalledTimes(1)
   })
 
   it('routes token-saver MCP bash tools to the Bash card in committed messages', () => {

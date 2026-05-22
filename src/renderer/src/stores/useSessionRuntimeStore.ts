@@ -17,6 +17,7 @@ import type {
   SharedAgentRuntimeId
 } from '@shared/types/agent-protocol'
 import type { StreamingPart } from '@shared/lib/timeline-types'
+import type { SessionTask } from '@/lib/session-tasks'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -636,6 +637,7 @@ export interface SessionEventGuardResult {
 }
 
 const _sessionEventGuards = new Map<string, SessionEventGuardState>()
+const _sessionEventGuardIds = new Map<string, { runEpoch: number; eventIds: Set<string> }>()
 const DEFAULT_EVENT_GUARD_STATE: Readonly<SessionEventGuardState> = {
   activeRunEpoch: 0,
   lastAppliedSequence: -1
@@ -647,11 +649,14 @@ export function getSessionEventGuardState(sessionId: string): SessionEventGuardS
 }
 
 export function acceptSessionEvent(
-  event: Pick<CanonicalAgentEvent, 'sessionId' | 'runEpoch' | 'sessionSequence'>
+  event: Pick<CanonicalAgentEvent, 'sessionId' | 'runEpoch' | 'sessionSequence'> & {
+    eventId?: string
+  }
 ): SessionEventGuardResult {
   const current = _sessionEventGuards.get(event.sessionId) ?? DEFAULT_EVENT_GUARD_STATE
   const nextRunEpoch = event.runEpoch
   const nextSequence = event.sessionSequence
+  const nextEventId = event.eventId
 
   if (nextRunEpoch < current.activeRunEpoch) {
     return {
@@ -667,10 +672,23 @@ export function acceptSessionEvent(
       lastAppliedSequence: nextSequence
     }
     _sessionEventGuards.set(event.sessionId, nextState)
+    _sessionEventGuardIds.set(event.sessionId, {
+      runEpoch: nextRunEpoch,
+      eventIds: nextEventId ? new Set([nextEventId]) : new Set()
+    })
     return {
       accepted: true,
       advancedRun: true,
       state: { ...nextState }
+    }
+  }
+
+  const guardIds = _sessionEventGuardIds.get(event.sessionId)
+  if (nextEventId && guardIds?.runEpoch === nextRunEpoch && guardIds.eventIds.has(nextEventId)) {
+    return {
+      accepted: false,
+      advancedRun: false,
+      state: { ...current }
     }
   }
 
@@ -687,6 +705,16 @@ export function acceptSessionEvent(
     lastAppliedSequence: nextSequence
   }
   _sessionEventGuards.set(event.sessionId, nextState)
+  if (nextEventId) {
+    if (guardIds?.runEpoch === nextRunEpoch) {
+      guardIds.eventIds.add(nextEventId)
+    } else {
+      _sessionEventGuardIds.set(event.sessionId, {
+        runEpoch: nextRunEpoch,
+        eventIds: new Set([nextEventId])
+      })
+    }
+  }
   return {
     accepted: true,
     advancedRun: false,
@@ -696,10 +724,12 @@ export function acceptSessionEvent(
 
 export function clearSessionEventGuard(sessionId: string): void {
   _sessionEventGuards.delete(sessionId)
+  _sessionEventGuardIds.delete(sessionId)
 }
 
 export function resetSessionEventGuardsForTests(): void {
   _sessionEventGuards.clear()
+  _sessionEventGuardIds.clear()
 }
 
 // ---------------------------------------------------------------------------
@@ -717,6 +747,8 @@ interface SessionRuntimeStoreState {
   interruptQueues: Map<string, InterruptItem[]>
   /** Per-session pending message queue (Phase 5 — composer state machine). */
   pendingMessages: Map<string, PendingMessage[]>
+  /** Per-session latest task snapshot for the right-side context panel. */
+  sessionTasks: Map<string, SessionTask[]>
 }
 
 interface SessionRuntimeStoreActions {
@@ -751,6 +783,11 @@ interface SessionRuntimeStoreActions {
   getInterruptsByType(sessionId: string, type: InterruptType): InterruptItem[]
   clearSessionInterrupts(sessionId: string): void
 
+  // Task snapshot
+  setSessionTasks(sessionId: string, tasks: SessionTask[]): void
+  getSessionTasks(sessionId: string): SessionTask[]
+  clearSessionTasks(sessionId: string): void
+
   // Per-session event dispatch (for SessionView streaming)
   subscribeToSessionEvents(sessionId: string, cb: EventCallback): () => void
   dispatchToSession(sessionId: string, event: CanonicalAgentEvent): void
@@ -777,6 +814,7 @@ export type SessionRuntimeStore = SessionRuntimeStoreState & SessionRuntimeStore
 // references on every call, which would cause useSyncExternalStore (#185) loops.
 const EMPTY_INTERRUPT_QUEUE: InterruptItem[] = []
 const EMPTY_PENDING_MESSAGES: PendingMessage[] = []
+const EMPTY_SESSION_TASKS: SessionTask[] = []
 
 function getDurablePendingMessageApi(): Window['db']['sessionPendingMessage'] | null {
   if (typeof window === 'undefined') return null
@@ -888,6 +926,7 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
   dismissedGoalSignatures: new Map(),
   interruptQueues: new Map(),
   pendingMessages: new Map(),
+  sessionTasks: new Map(),
 
   // -- Session state --
   getSession(sessionId) {
@@ -1075,6 +1114,35 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
       if (!queues.has(sessionId)) return state
       queues.delete(sessionId)
       return { interruptQueues: queues }
+    })
+  },
+
+  // -- Task snapshot --
+  setSessionTasks(sessionId, tasks) {
+    set((state) => {
+      const sessionTasks = new Map(state.sessionTasks)
+      if (tasks.length === 0) {
+        sessionTasks.delete(sessionId)
+      } else {
+        sessionTasks.set(
+          sessionId,
+          tasks.map((task) => ({ ...task }))
+        )
+      }
+      return { sessionTasks }
+    })
+  },
+
+  getSessionTasks(sessionId) {
+    return get().sessionTasks.get(sessionId) ?? EMPTY_SESSION_TASKS
+  },
+
+  clearSessionTasks(sessionId) {
+    set((state) => {
+      if (!state.sessionTasks.has(sessionId)) return state
+      const sessionTasks = new Map(state.sessionTasks)
+      sessionTasks.delete(sessionId)
+      return { sessionTasks }
     })
   },
 
@@ -1356,17 +1424,20 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
       const dismissedGoalSignatures = new Map(state.dismissedGoalSignatures)
       const queues = new Map(state.interruptQueues)
       const pending = new Map(state.pendingMessages)
+      const sessionTasks = new Map(state.sessionTasks)
       sessions.delete(sessionId)
       goals.delete(sessionId)
       dismissedGoalSignatures.delete(sessionId)
       queues.delete(sessionId)
       pending.delete(sessionId)
+      sessionTasks.delete(sessionId)
       return {
         sessions,
         goals,
         dismissedGoalSignatures,
         interruptQueues: queues,
-        pendingMessages: pending
+        pendingMessages: pending,
+        sessionTasks
       }
     })
     _sessionEventCallbacks.delete(sessionId)
@@ -1374,6 +1445,7 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
     _emptyStreamingBufferSnapshots.delete(sessionId)
     _pendingStreamingBufferFlushes.delete(sessionId)
     _sessionEventGuards.delete(sessionId)
+    _sessionEventGuardIds.delete(sessionId)
     if (hadPending) {
       for (const id of cancelledIds) {
         persistPendingMessageCancel(id)

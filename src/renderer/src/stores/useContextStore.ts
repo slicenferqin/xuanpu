@@ -58,18 +58,31 @@ const EMPTY_TOKENS: TokenInfo = {
   cacheWrite: 0
 }
 
+const DEFAULT_MODEL_CONTEXT_LIMITS: Record<string, number> = {
+  opus: 200_000,
+  sonnet: 200_000,
+  haiku: 200_000
+}
+
 function resolveModelLimit(
   modelLimits: Record<string, number>,
   model?: SessionModelRef
 ): number | undefined {
   if (!model) return undefined
 
-  for (const alias of getModelAliases(model.modelID)) {
+  const aliases = getModelAliases(model.modelID)
+
+  for (const alias of aliases) {
     const exact = modelLimits[getModelLimitKey(alias, model.providerID)]
     if (typeof exact === 'number' && exact > 0) return exact
 
     const wildcard = modelLimits[getModelLimitKey(alias)]
     if (typeof wildcard === 'number' && wildcard > 0) return wildcard
+  }
+
+  for (const alias of aliases) {
+    const defaultLimit = DEFAULT_MODEL_CONTEXT_LIMITS[alias]
+    if (typeof defaultLimit === 'number' && defaultLimit > 0) return defaultLimit
   }
 
   return undefined

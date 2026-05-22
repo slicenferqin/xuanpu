@@ -4,8 +4,6 @@
  * Composition root for the new session UI. Wires together hooks and
  * passes data to child components:
  *
- *   SessionHeader    — provider badge, model, lifecycle, tokens
- *   MissionControl   — current task display + progress bar (inside scroll)
  *   AgentTimeline    — vertical timeline of agent actions
  *   InterruptDock    — first pending HITL prompt
  *   ComposerBar      — glassmorphism floating input (Phase 5 state machine)
@@ -24,10 +22,8 @@ import React, {
   useMemo,
   useSyncExternalStore
 } from 'react'
-import { SessionHeader } from './SessionHeader'
 import { AgentTimeline } from './AgentTimeline'
 import type { ThreadStatusRowData } from './ThreadStatusRow'
-import { MissionControl, type MissionTask } from './MissionControl'
 import { InterruptDock } from './InterruptDock'
 import { ComposerBar } from './ComposerBar'
 import { FieldContextDebug } from '@/components/sessions/FieldContextDebug'
@@ -73,6 +69,7 @@ import { applySessionContextUsage } from '@/lib/context-usage'
 import { mapRawTranscriptToTimeline } from '@shared/lib/timeline-mappers'
 import { lastSendMode, messageSendTimes } from '@/lib/message-send-times'
 import { refreshSessionLastMessageAt } from '@/lib/session-last-message'
+import { extractMissionTasks, type SessionTask } from '@/lib/session-tasks'
 import {
   getMessageDisplayContent,
   getUserMessageForkCutoff,
@@ -83,49 +80,30 @@ import { useSessionSmartScroll } from '@/hooks/useSessionSmartScroll'
 import { toast } from 'sonner'
 import { isTodoWriteTool } from '@/components/sessions/tools/todo-utils'
 
-function getGoalSignature(goal: {
-  threadId?: string
-  objective: string
-  successCriteria?: string
-  status: string
-  createdAt?: number | null
-}): string {
-  return [
-    goal.threadId?.trim() ?? '',
-    goal.objective.trim(),
-    goal.successCriteria?.trim() ?? '',
-    goal.status.trim().toLowerCase(),
-    goal.createdAt ?? ''
-  ].join('|')
+function attachmentToMessagePart(attachment: Attachment): MessagePart | null {
+  if (attachment.kind !== 'data') return null
+  return {
+    type: 'file',
+    mime: attachment.mime,
+    url: attachment.dataUrl,
+    filename: attachment.name
+  }
 }
 
-// ---------------------------------------------------------------------------
-// Extract mission tasks from committed timeline messages
-// ---------------------------------------------------------------------------
+function attachmentsToMessageParts(attachments: Attachment[]): MessagePart[] {
+  return attachments
+    .map(attachmentToMessagePart)
+    .filter((part): part is MessagePart => part != null)
+}
 
-function extractMissionTasks(messages: TimelineMessage[]): MissionTask[] {
-  // Scan from end to find the latest todo-like tool snapshot
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i]
-    if (msg.role !== 'assistant') continue
-
-    for (const part of msg.parts ?? []) {
-      if (part.type !== 'tool_use' || !part.toolUse) continue
-      const toolName = part.toolUse.name?.toLowerCase() ?? ''
-      if (!isTodoWriteTool(toolName)) continue
-
-      const todos = part.toolUse.input?.todos
-      if (!Array.isArray(todos)) continue
-
-      return todos.map((t: Record<string, unknown>, idx: number) => ({
-        id: String(t.id ?? `todo-${idx}`),
-        content: String(t.content ?? t.subject ?? t.activeForm ?? ''),
-        status: (t.status as MissionTask['status']) ?? 'pending'
-      }))
-    }
-  }
-
-  return []
+function cacheMessageAttachments(
+  cache: Map<string, MessagePart[]>,
+  message: TimelineMessage
+): void {
+  if (message.role !== 'user') return
+  if (!message.content.trim()) return
+  if (!message.attachments || message.attachments.length === 0) return
+  cache.set(message.content.trim(), message.attachments)
 }
 
 function escapeContextAttribute(value: string): string {
@@ -327,15 +305,16 @@ function useTimeline(
     // Clearing early causes a flash-of-empty and loses optimistic messages
     // when SessionShell remounts (e.g. tab switch).
     attachmentCacheRef.current.clear()
+    for (const msg of optimisticRef.current) {
+      cacheMessageAttachments(attachmentCacheRef.current, msg)
+    }
     refresh()
   }, [sessionId, refresh])
 
   // Optimistic insert — append a local user message before the server confirms
   const appendOptimistic = useCallback((msg: TimelineMessage) => {
     // Cache attachments keyed by normalised content for restoreUserAttachments
-    if (msg.attachments && msg.attachments.length > 0 && msg.content.trim()) {
-      attachmentCacheRef.current.set(msg.content.trim(), msg.attachments)
-    }
+    cacheMessageAttachments(attachmentCacheRef.current, msg)
     // Track optimistic messages so they survive tab switches via streaming buffer
     optimisticRef.current = [...optimisticRef.current, msg]
     setMessages((prev) => [...prev, msg])
@@ -350,14 +329,10 @@ function useTimeline(
 
 function useSessionRuntime(sessionId: string) {
   const lifecycle = useSessionRuntimeStore((s) => s.getSession(sessionId).lifecycle)
-  const goal = useSessionRuntimeStore((s) => s.getSessionGoal(sessionId))
-  const dismissedGoalSignature = useSessionRuntimeStore((s) =>
-    s.getDismissedGoalSignature(sessionId)
-  )
   const interruptQueue = useSessionRuntimeStore((s) => s.getInterruptQueue(sessionId))
   const pendingCount = useSessionRuntimeStore((s) => s.getPendingCount(sessionId))
 
-  return { lifecycle, goal, dismissedGoalSignature, interruptQueue, pendingCount }
+  return { lifecycle, interruptQueue, pendingCount }
 }
 
 function useStreamingMirror(sessionId: string) {
@@ -503,8 +478,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     opencodeSessionId: opcSessionId ?? droidSessionId,
     agentSdk
   })
-  const { lifecycle, goal, dismissedGoalSignature, interruptQueue, pendingCount } =
-    useSessionRuntime(sessionId)
+  const { lifecycle, interruptQueue, pendingCount } = useSessionRuntime(sessionId)
 
   useEffect(() => {
     void useSessionRuntimeStore.getState().hydratePendingMessages(sessionId)
@@ -540,46 +514,19 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     setSuccessCriteria('')
   }, [sessionId])
 
-  const visibleSessionGoal = useMemo(() => {
-    if (!goal) return null
-    if (goal.status.trim().toLowerCase() !== 'completed') return goal
-    const signature = getGoalSignature(goal)
-    if (dismissedGoalSignature === signature) return null
-    return goal
-  }, [goal, dismissedGoalSignature])
-
-  const dismissGoalCard = useCallback(() => {
-    if (!goal || goal.status.trim().toLowerCase() !== 'completed') return
-    useSessionRuntimeStore.getState().dismissGoalSignature(sessionId, getGoalSignature(goal))
-  }, [goal, sessionId])
-
-  // --- Cost / tokens ---
-  const sessionCost = useContextStore((s) => s.costBySession?.[sessionId] ?? 0)
-  const rawTokens = useContextStore((s) => s.tokensBySession?.[sessionId] ?? null)
-  const sessionTokens = useMemo(() => {
-    if (!rawTokens) return null
-    return {
-      input: rawTokens.input ?? 0,
-      output: rawTokens.output ?? 0,
-      cacheRead: rawTokens.cacheRead ?? 0,
-      cacheWrite: rawTokens.cacheWrite ?? 0
-    }
-  }, [rawTokens])
-
   // --- Persisted usage summary (survives restart) ---
-  const [usageSummary, setUsageSummary] = useState<
-    import('@shared/types/usage-analytics').UsageAnalyticsSessionSummary | null
-  >(null)
   const refreshUsageSummary = useCallback(async (): Promise<void> => {
-    if (!window.usageAnalyticsOps?.fetchSessionSummary) return
+    if (!window.usageAnalyticsOps?.fetchSessionSummary) {
+      return
+    }
 
     try {
       const result = await window.usageAnalyticsOps.fetchSessionSummary(sessionId)
-      if (!result.success || !result.data) return
+      if (!result.success || !result.data) {
+        return
+      }
 
       const data = result.data
-      setUsageSummary(data)
-
       const store = useContextStore.getState()
       if ((store.costBySession[sessionId] ?? 0) < data.total_cost) {
         store.setSessionCost(sessionId, data.total_cost)
@@ -680,7 +627,6 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     },
     [agentSdk, mode, promptOptions, supportsSessionGoalMode]
   )
-  const currentModelId = resolvedModel?.modelID ?? ''
   const currentProviderId = resolvedModel?.providerID ?? ''
   const skipForkFromMessageConfirm = useSettingsStore((s) => s.skipForkFromMessageConfirm)
 
@@ -741,14 +687,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       console.error('[SessionShell] drainNextPending failed:', err)
       return false
     }
-  }, [
-    droidSessionId,
-    pendingDrainController,
-    promptOptions,
-    requestModel,
-    sessionId,
-    worktreePath
-  ])
+  }, [droidSessionId, pendingDrainController, promptOptions, requestModel, sessionId, worktreePath])
 
   useEffect(() => {
     if (lifecycle !== 'idle' || pendingCount === 0) return
@@ -811,26 +750,25 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     [sessionId]
   )
 
-  // --- Mission Control task state ---
-  const [missionTasks, setMissionTasks] = useState<MissionTask[]>([])
-  const [triggerMessageContent, setTriggerMessageContent] = useState<string | null>(null)
-  const [missionVisible, setMissionVisible] = useState(false)
-  const missionTasksRef = useRef<MissionTask[]>([])
-  const missionVisibleRef = useRef(false)
+  // --- Mission task state (shared with the right-side context panel) ---
+  const missionTasksRef = useRef<SessionTask[]>([])
   const timelineMessagesRef = useRef<TimelineMessage[]>([])
 
-  // Keep refs in sync
-  useEffect(() => {
-    missionVisibleRef.current = missionVisible
-  }, [missionVisible])
   useEffect(() => {
     timelineMessagesRef.current = timelineMessages
   }, [timelineMessages])
 
-  const allTasksComplete = useMemo(
-    () => missionTasks.length > 0 && missionTasks.every((t) => t.status === 'completed'),
-    [missionTasks]
+  const setSharedMissionTasks = useCallback(
+    (tasks: SessionTask[]) => {
+      missionTasksRef.current = tasks
+      useSessionRuntimeStore.getState().setSessionTasks(sessionId, tasks)
+    },
+    [sessionId]
   )
+
+  useEffect(() => {
+    missionTasksRef.current = useSessionRuntimeStore.getState().getSessionTasks(sessionId)
+  }, [sessionId])
 
   const lastUserMessageId = useMemo(() => {
     for (let i = timelineMessages.length - 1; i >= 0; i--) {
@@ -901,30 +839,6 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       )
     }
   }, [hasDurableCompactionMessage, compactionState, sessionId])
-
-  // Auto-hide MissionControl after all tasks complete
-  useEffect(() => {
-    if (allTasksComplete && missionVisible) {
-      const timer = setTimeout(() => {
-        setMissionVisible(false)
-        setTriggerMessageContent(null)
-      }, 2000)
-      return () => clearTimeout(timer)
-    }
-  }, [allTasksComplete, missionVisible])
-
-  // Failsafe: hide MissionControl when streaming stops and all tasks are done.
-  // The primary timer above can be disrupted by rapid state updates; this
-  // guarantees the panel disappears once the session goes idle.
-  useEffect(() => {
-    if (allTasksComplete && !isStreaming && missionVisible) {
-      const failsafe = setTimeout(() => {
-        setMissionVisible(false)
-        setTriggerMessageContent(null)
-      }, 4000)
-      return () => clearTimeout(failsafe)
-    }
-  }, [allTasksComplete, isStreaming, missionVisible])
 
   const transitionToolStatus = useCallback(
     (toolUseID: string, status: 'success' | 'error', error?: string) => {
@@ -1147,50 +1061,33 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
             if (isTodoWriteTool(lowerToolName)) {
               const todos = (state.input as Record<string, unknown>)?.todos
               if (Array.isArray(todos)) {
-                const newTasks: MissionTask[] = todos.map(
+                const newTasks: SessionTask[] = todos.map(
                   (t: Record<string, unknown>, idx: number) => ({
                     id: String(t.id ?? `todo-${idx}`),
                     content: String(t.content ?? t.subject ?? t.activeForm ?? ''),
-                    status: (t.status as MissionTask['status']) ?? 'pending'
+                    status: (t.status as SessionTask['status']) ?? 'pending'
                   })
                 )
-                missionTasksRef.current = newTasks
-                setMissionTasks(newTasks)
-                if (!missionVisibleRef.current) {
-                  const lastUserMsg = [...timelineMessagesRef.current]
-                    .reverse()
-                    .find((m) => m.role === 'user')
-                  setTriggerMessageContent(lastUserMsg?.content?.trim() ?? null)
-                  setMissionVisible(true)
-                  missionVisibleRef.current = true
-                }
+                setSharedMissionTasks(newTasks)
               }
             } else if (lowerToolName === 'taskcreate' || lowerToolName === 'task_create') {
               const input = (state.input as Record<string, unknown>) ?? {}
-              const newTask: MissionTask = {
+              const newTask: SessionTask = {
                 id: String(input.taskId ?? `task-${Date.now()}`),
                 content: String(input.subject ?? input.description ?? ''),
                 status: 'pending'
               }
-              missionTasksRef.current = [...missionTasksRef.current, newTask]
-              setMissionTasks([...missionTasksRef.current])
-              if (!missionVisibleRef.current) {
-                const lastUserMsg = [...timelineMessagesRef.current]
-                  .reverse()
-                  .find((m) => m.role === 'user')
-                setTriggerMessageContent(lastUserMsg?.content?.trim() ?? null)
-                setMissionVisible(true)
-                missionVisibleRef.current = true
-              }
+              setSharedMissionTasks([...missionTasksRef.current, newTask])
             } else if (lowerToolName === 'taskupdate' || lowerToolName === 'task_update') {
               const input = (state.input as Record<string, unknown>) ?? {}
               const taskId = String(input.taskId ?? '')
-              const newStatus = input.status as MissionTask['status'] | undefined
+              const newStatus = input.status as SessionTask['status'] | undefined
               if (taskId && newStatus) {
-                missionTasksRef.current = missionTasksRef.current.map((t) =>
-                  t.id === taskId ? { ...t, status: newStatus } : t
+                setSharedMissionTasks(
+                  missionTasksRef.current.map((t) =>
+                    t.id === taskId ? { ...t, status: newStatus } : t
+                  )
                 )
-                setMissionTasks([...missionTasksRef.current])
               }
             }
           }
@@ -1235,8 +1132,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
                       missionTasksRef.current.length > 0 &&
                       missionTasksRef.current.every((t) => t.status === 'completed')
                     if (!currentAllComplete) {
-                      missionTasksRef.current = extracted
-                      setMissionTasks(extracted)
+                      setSharedMissionTasks(extracted)
                     }
                   }
                 }
@@ -1330,7 +1226,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     optimisticRef,
     currentProviderId,
     drainQueuedMessage,
-    refreshUsageSummary
+    refreshUsageSummary,
+    setSharedMissionTasks
   ])
 
   // --- Composer action handler ---
@@ -1386,7 +1283,12 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         resetLiveOverlay(true)
       }
 
-      if (action === 'send' || action === 'stop_and_send' || action === 'steer') {
+      if (
+        action === 'send' ||
+        action === 'stop_and_send' ||
+        action === 'steer' ||
+        action === 'queue'
+      ) {
         // Lock provider/model selectors immediately. Main process also stamps
         // first_message_at via createSessionMessage / upsertSessionActivity,
         // but the UI shouldn't wait for the round-trip.
@@ -1401,22 +1303,24 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       // Optimistic insert — show user message immediately in the timeline
       if (
         (contentToSend.trim() || attachments.length > 0) &&
-        (action === 'send' || action === 'stop_and_send' || action === 'steer')
+        (action === 'send' ||
+          action === 'stop_and_send' ||
+          action === 'steer' ||
+          action === 'queue')
       ) {
-        const optimisticAttachments: MessagePart[] = attachments
-          .filter((a) => a.kind === 'data')
-          .map((a) => ({ type: 'file' as const, mime: a.mime, url: a.dataUrl, filename: a.name }))
+        const optimisticAttachments = attachmentsToMessageParts(attachments)
         const optimisticMsg: TimelineMessage = {
-          id: `optimistic-${Date.now()}`,
+          id: `${action === 'queue' ? 'queued' : 'optimistic'}-${Date.now()}`,
           role: 'user',
           content: contentToSend.trim(),
           timestamp: new Date().toISOString(),
+          ...(action === 'queue' ? { deliveryStatus: 'queued' as const } : {}),
           ...(optimisticAttachments.length > 0 ? { attachments: optimisticAttachments } : {})
         }
         optimisticMessageId = optimisticMsg.id
         appendOptimistic(optimisticMsg)
-        // Sync ref immediately so MissionControl's streaming callback can find
-        // the user message before the next useEffect tick
+        // Sync ref immediately so streaming callbacks can find the user message
+        // before the next useEffect tick.
         timelineMessagesRef.current = [...timelineMessagesRef.current, optimisticMsg]
         syncOptimisticMessagesToMirror()
       }
@@ -1924,26 +1828,6 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
   return (
     <div className="flex flex-col h-full">
-      <SessionHeader
-        sessionId={sessionId}
-        session={sessionRecord}
-        lifecycle={lifecycle}
-        modelId={currentModelId}
-        providerId={currentProviderId}
-        sessionCost={sessionCost}
-        sessionTokens={sessionTokens}
-        usageSummary={usageSummary}
-      />
-
-      {/* Mission Control — sticky floating task progress panel */}
-      <MissionControl
-        tasks={missionTasks}
-        triggerQuestion={triggerMessageContent}
-        visible={missionVisible}
-        allComplete={allTasksComplete}
-        isStreaming={isStreaming}
-      />
-
       {/* Main content area — relative for floating ComposerBar */}
       <div className="flex-1 flex flex-col overflow-hidden relative">
         <AgentTimeline
@@ -1953,11 +1837,9 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           isStreaming={isStreaming}
           activeRunStartedAt={runStartedAt}
           lifecycle={lifecycle}
-          sessionGoal={visibleSessionGoal}
-          onDismissSessionGoal={dismissGoalCard}
           ephemeralStatusRows={ephemeralStatusRows}
           inflightCompaction={inflightCompactionRow}
-          suppressTodoCards={missionVisible}
+          suppressTodoCards
           sessionId={sessionId}
           worktreePath={worktreePath}
           childPartsMap={childPartsMap}
@@ -2004,6 +1886,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           superpowersAvailable={false}
         />
 
+        <div className="crisp-composer-veil pointer-events-none absolute bottom-0 left-0 right-0 z-10 h-44" />
+
         <ComposerBar
           containerRef={composerBarRef}
           sessionId={sessionId}
@@ -2025,24 +1909,20 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           worktreePath={worktreePath}
           commandsVersion={commandsVersion}
           contextAttachmentSlot={<DiffCommentAttachments />}
+          controlSlot={<MemoryPanel worktreeId={worktreeId} variant="composer" />}
         />
 
-        {/* v1.4.2: User-facing Memory panel — Pinned Facts / Observed
-            (Episodic) / Semantic. Sits above the FieldContextDebug
-            (which is dev-only) so it's the daily-driver for memory edits. */}
-        <div className="absolute bottom-0 left-0 right-0 z-30">
-          <MemoryPanel worktreeId={worktreeId} />
-          {/* Phase 22A debug: collapsible view of the last Field Context injection.
-              Only visible in dev builds — production users use the MemoryPanel
-              above for daily memory inspection. */}
-          {process.env.NODE_ENV === 'development' && (
+        {process.env.NODE_ENV === 'development' && (
+          <div className="absolute bottom-0 left-0 right-0 z-30">
+            {/* Phase 22A debug: collapsible view of the last Field Context injection.
+                Production users inspect memory through the Composer console. */}
             <FieldContextDebug
               sessionId={droidSessionId}
               fallbackSessionIds={[sessionId]}
               worktreeId={worktreeId}
             />
-          )}
-        </div>
+          </div>
+        )}
 
         <ForkFromMessageConfirmDialog
           open={pendingForkMessageId !== null}

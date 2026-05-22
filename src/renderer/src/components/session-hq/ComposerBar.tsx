@@ -78,6 +78,7 @@ export interface ComposerBarProps {
   commandsVersion?: number
   containerRef?: React.RefObject<HTMLDivElement | null>
   contextAttachmentSlot?: React.ReactNode
+  controlSlot?: React.ReactNode
 }
 
 // ---------------------------------------------------------------------------
@@ -292,6 +293,7 @@ interface ComposerToolbarProps {
   primaryLabel: string
   onAttach: (file: Omit<Attachment, 'id'>) => void
   voiceSlot?: React.ReactNode
+  controlSlot?: React.ReactNode
 }
 
 const ComposerToolbar = React.memo(function ComposerToolbar({
@@ -311,7 +313,8 @@ const ComposerToolbar = React.memo(function ComposerToolbar({
   iconHint,
   primaryLabel,
   onAttach,
-  voiceSlot
+  voiceSlot,
+  controlSlot
 }: ComposerToolbarProps): React.JSX.Element {
   const { t } = useI18n()
   const showQueueShortcutHint = iconHint === 'steer' && availableAlternatives.includes('queue')
@@ -319,6 +322,7 @@ const ComposerToolbar = React.memo(function ComposerToolbar({
     <div className="flex items-center gap-2 px-3 pb-3 pt-1">
       <AttachmentButton onAttach={onAttach} disabled={disabled} />
       {voiceSlot}
+      {controlSlot}
 
       {/* Plan mode toggle */}
       {pendingPlan ? (
@@ -451,7 +455,8 @@ export function ComposerBar({
   worktreePath,
   commandsVersion = 0,
   containerRef,
-  contextAttachmentSlot
+  contextAttachmentSlot,
+  controlSlot
 }: ComposerBarProps): React.JSX.Element {
   const { t } = useI18n()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -605,10 +610,12 @@ export function ComposerBar({
 
       const consumed = await onAction(action, snapshotContent, snapshotAttachments)
       if (!consumed) {
-        // Send failed — restore the text so the user can retry. Attachments
-        // aren't restored (files have been consumed by the optimistic path).
+        // Send failed or was rejected by the busy-state action policy. Restore
+        // the full payload so attachments are not silently dropped.
         contentRef.current = snapshotContent
+        attachmentsRef.current = snapshotAttachments
         setContent(snapshotContent)
+        setAttachments(snapshotAttachments)
       }
     },
     [clearInput, onAction]
@@ -838,9 +845,9 @@ export function ComposerBar({
         ? t('sessionHq.composer.placeholders.queueFollowUp')
         : actionSet.primary === 'steer' || canSteerBusyTurn
           ? t('sessionHq.composer.placeholders.steerCurrent')
-        : actionSet.iconHint === 'stop'
-          ? t('sessionHq.composer.placeholders.stopAndSend')
-          : t('sessionHq.composer.placeholders.message')
+          : actionSet.iconHint === 'stop'
+            ? t('sessionHq.composer.placeholders.stopAndSend')
+            : t('sessionHq.composer.placeholders.message')
 
   // Determine if button should be enabled
   const buttonEnabled =
@@ -872,16 +879,13 @@ export function ComposerBar({
       className={cn(
         'absolute bottom-16 z-20',
         'w-[85%] ml-[5%]',
-        'rounded-2xl border border-border/50',
-        'bg-background/70 backdrop-blur-xl',
-        'shadow-lg shadow-black/5 dark:shadow-black/20',
-        voiceCaptureVisible &&
-          'border-cyan-300/50 bg-cyan-500/[0.035] shadow-[0_0_0_1px_rgba(103,232,249,0.14),0_20px_70px_rgba(6,182,212,0.16)] dark:border-cyan-300/30 dark:bg-cyan-400/[0.045]'
+        'crisp-floating-surface rounded-xl backdrop-blur-xl',
+        voiceCaptureVisible && 'crisp-voice-surface'
       )}
     >
       {voiceCaptureVisible && (
         <div
-          className="pointer-events-none absolute inset-0 rounded-2xl bg-[radial-gradient(circle_at_18%_0%,rgba(34,211,238,0.18),transparent_30%),radial-gradient(circle_at_82%_100%,rgba(14,165,233,0.14),transparent_34%)]"
+          className="crisp-voice-aura pointer-events-none absolute inset-0 rounded-xl"
           data-testid="composer-voice-field-aura"
         />
       )}
@@ -970,6 +974,7 @@ export function ComposerBar({
           hasPendingMessages: pendingCount > 0
         })}
         onAttach={handleAttach}
+        controlSlot={controlSlot}
         voiceSlot={
           voiceInputEnabled ? (
             <VoiceRecorderButton

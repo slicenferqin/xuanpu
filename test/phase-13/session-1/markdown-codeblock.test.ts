@@ -80,17 +80,16 @@ describe('Session 1: Markdown Code Block Fix', () => {
   })
 
   describe('inline code is unaffected', () => {
-    test('inline code renders with bg-muted styling', () => {
+    test('inline code renders with neutral card-muted styling', () => {
       const content = readMarkdownRenderer()
-      expect(content).toContain(
-        '<code className="bg-muted px-1.5 py-0.5 rounded text-sm font-mono">'
-      )
+      expect(content).toContain('bg-agent-card-muted')
+      expect(content).toContain('font-mono text-sm text-ink')
     })
 
     test('inline code uses children directly (not content variable)', () => {
       const content = readMarkdownRenderer()
       // The inline code path should still render {children} directly
-      expect(content).toContain('rounded text-sm font-mono">{children}</code>')
+      expect(content).toContain('{children}')
     })
   })
 
@@ -133,7 +132,14 @@ describe('Session 1: Markdown Code Block Fix', () => {
       // And CodeBlock preserves whitespace via <pre> tag
       const codeBlock = readCodeBlock()
       expect(codeBlock).toContain('<pre')
-      expect(codeBlock).toContain('<code>{containsAnsi(code) ? <Ansi>{code}</Ansi> : code}</code>')
+      expect(codeBlock).toContain('<code>{renderCodeContent(code, language)}</code>')
+    })
+
+    test('shell code receives lightweight command highlighting', () => {
+      const codeBlock = readCodeBlock()
+      expect(codeBlock).toContain('const SHELL_LANGUAGES')
+      expect(codeBlock).toContain('function renderShellCode')
+      expect(codeBlock).toContain('text-[var(--code-block-accent)]')
     })
   })
 })

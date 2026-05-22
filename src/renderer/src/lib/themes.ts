@@ -7,84 +7,128 @@ export interface ThemePreset {
 
 export const THEME_PRESETS: ThemePreset[] = [
   // =====================
-  // DARK THEME — Catppuccin Mocha
-  // https://github.com/catppuccin/catppuccin
+  // DARK THEME — Nordic Night Tech
   // =====================
   {
     id: 'mocha',
-    name: 'Mocha',
+    name: 'Nordic Night',
     type: 'dark',
     colors: {
-      background: 'hsl(240 21% 15%)',         // Base
-      foreground: 'hsl(226 64% 88%)',          // Text
-      card: 'hsl(240 21% 12%)',                // Mantle
-      'card-foreground': 'hsl(226 64% 88%)',   // Text
-      popover: 'hsl(240 21% 12%)',             // Mantle
-      'popover-foreground': 'hsl(226 64% 88%)',// Text
-      primary: 'hsl(232 97% 85%)',             // Lavender
-      'primary-foreground': 'hsl(240 23% 9%)', // Crust
-      secondary: 'hsl(237 16% 23%)',           // Surface0
-      'secondary-foreground': 'hsl(228 24% 72%)', // Subtext0
-      muted: 'hsl(237 16% 23%)',               // Surface0
-      'muted-foreground': 'hsl(230 13% 55%)',  // Overlay1
-      accent: 'hsl(237 16% 23%)',              // Surface0
-      'accent-foreground': 'hsl(226 64% 88%)', // Text
-      destructive: 'hsl(343 81% 75%)',         // Red
-      'destructive-foreground': 'hsl(240 23% 9%)', // Crust
-      border: 'hsl(234 13% 31%)',              // Surface1
-      input: 'hsl(234 13% 31%)',               // Surface1
-      ring: 'hsl(232 97% 85%)',                // Lavender
-      sidebar: 'hsl(240 23% 9%)',              // Crust
-      'sidebar-foreground': 'hsl(228 24% 72%)',// Subtext0
-      'sidebar-primary': 'hsl(232 97% 85%)',   // Lavender
-      'sidebar-primary-foreground': 'hsl(240 23% 9%)', // Crust
-      'sidebar-accent': 'hsl(237 16% 23%)',    // Surface0
-      'sidebar-accent-foreground': 'hsl(226 64% 88%)', // Text
-      'sidebar-border': 'hsl(234 13% 31%)',    // Surface1
-      'sidebar-ring': 'hsl(232 97% 85%)',      // Lavender
-      celadon: 'hsl(170 57% 73%)',             // Teal
-      'celadon-foreground': 'hsl(240 23% 9%)'  // Crust
+      background: '#101827',
+      foreground: '#C3CBE0',
+      card: '#151F2F',
+      'card-foreground': '#C3CBE0',
+      popover: '#151F2F',
+      'popover-foreground': '#C3CBE0',
+      primary: '#7AA7FF',
+      'primary-foreground': '#08111F',
+      secondary: '#1A2436',
+      'secondary-foreground': '#A9B3C8',
+      muted: '#1A2436',
+      'muted-foreground': '#8994AA',
+      accent: '#22304A',
+      'accent-foreground': '#C3CBE0',
+      destructive: '#FB7185',
+      'destructive-foreground': '#2A0712',
+      border: '#2A364A',
+      input: '#334155',
+      ring: '#7AA7FF',
+      sidebar: '#0F1724',
+      'sidebar-foreground': '#A9B3C8',
+      'sidebar-primary': '#7AA7FF',
+      'sidebar-primary-foreground': '#08111F',
+      'sidebar-accent': '#151F2F',
+      'sidebar-accent-foreground': '#C3CBE0',
+      'sidebar-border': '#263247',
+      'sidebar-ring': '#7AA7FF',
+      celadon: '#2DD4BF',
+      'celadon-foreground': '#08111F',
+      'agent-canvas': '#101827',
+      'agent-sheet': '#121C2B',
+      'agent-card': '#151F2F',
+      'agent-card-muted': '#1A2436',
+      'agent-hover': '#253247',
+      'agent-shadow-rgb': '0 0 0',
+      'code-block-bg': '#131C2B',
+      'code-block-header': '#101827',
+      'code-block-border': '#263247',
+      'code-block-text': '#CBD5E1',
+      'code-block-muted': '#8492A8',
+      'code-block-accent': '#8BC7FF',
+      'code-block-warm': '#F6D36B',
+      ink: '#C3CBE0',
+      steel: '#8994AA',
+      'tech-blue': '#7AA7FF',
+      'tech-blue-soft': '#172A48',
+      'neon-mint': '#2DD4BF',
+      'neon-mint-soft': '#123834',
+      'neon-pink': '#FB7185',
+      'neon-pink-soft': '#3F1725',
+      'neon-violet': '#B29DFF',
+      'neon-violet-soft': '#30294B'
     }
   },
 
   // =====================
-  // LIGHT THEME — Catppuccin Latte
-  // https://github.com/catppuccin/catppuccin
+  // LIGHT THEME — Nordic Crisp Tech
   // =====================
   {
     id: 'latte',
-    name: 'Latte',
+    name: 'Nordic',
     type: 'light',
     colors: {
-      background: 'hsl(220 23% 95%)',          // Base
-      foreground: 'hsl(234 16% 35%)',          // Text
-      card: 'hsl(220 22% 92%)',                // Mantle
-      'card-foreground': 'hsl(234 16% 35%)',   // Text
-      popover: 'hsl(220 22% 92%)',             // Mantle
-      'popover-foreground': 'hsl(234 16% 35%)',// Text
-      primary: 'hsl(231 97% 72%)',             // Lavender
-      'primary-foreground': 'hsl(220 23% 95%)',// Base
-      secondary: 'hsl(223 16% 83%)',           // Surface0
-      'secondary-foreground': 'hsl(233 10% 47%)', // Subtext0
-      muted: 'hsl(223 16% 83%)',               // Surface0
-      'muted-foreground': 'hsl(231 10% 59%)',  // Overlay1
-      accent: 'hsl(223 16% 83%)',              // Surface0
-      'accent-foreground': 'hsl(234 16% 35%)', // Text
-      destructive: 'hsl(347 87% 44%)',         // Red
-      'destructive-foreground': 'hsl(220 23% 95%)', // Base
-      border: 'hsl(225 14% 77%)',              // Surface1
-      input: 'hsl(225 14% 77%)',               // Surface1
-      ring: 'hsl(231 97% 72%)',                // Lavender
-      sidebar: 'hsl(220 21% 89%)',             // Crust
-      'sidebar-foreground': 'hsl(233 10% 47%)',// Subtext0
-      'sidebar-primary': 'hsl(231 97% 72%)',   // Lavender
-      'sidebar-primary-foreground': 'hsl(220 23% 95%)', // Base
-      'sidebar-accent': 'hsl(223 16% 83%)',    // Surface0
-      'sidebar-accent-foreground': 'hsl(234 16% 35%)', // Text
-      'sidebar-border': 'hsl(225 14% 77%)',    // Surface1
-      'sidebar-ring': 'hsl(231 97% 72%)',      // Lavender
-      celadon: 'hsl(183 74% 35%)',             // Teal
-      'celadon-foreground': 'hsl(220 23% 95%)' // Base
+      background: '#F1F5F9', // Soft slate canvas, less glare than white
+      foreground: '#4B526B', // Soft slate-lavender ink
+      card: '#FFFFFF', // Floating sheet
+      'card-foreground': '#4B526B',
+      popover: '#FFFFFF',
+      'popover-foreground': '#4B526B',
+      primary: '#2563EB', // Calmer electric blue
+      'primary-foreground': '#FFFFFF',
+      secondary: '#F8FAFC',
+      'secondary-foreground': '#5C657A',
+      muted: '#F1F5F9',
+      'muted-foreground': '#6B7488',
+      accent: '#EFF6FF',
+      'accent-foreground': '#4B526B',
+      destructive: '#E11D48', // Instrument red, readable without glare
+      'destructive-foreground': '#FFFFFF',
+      border: '#E2E8F0',
+      input: '#CBD5E1',
+      ring: '#2563EB',
+      sidebar: '#F1F5F9',
+      'sidebar-foreground': '#5C657A',
+      'sidebar-primary': '#2563EB',
+      'sidebar-primary-foreground': '#FFFFFF',
+      'sidebar-accent': '#FFFFFF',
+      'sidebar-accent-foreground': '#4B526B',
+      'sidebar-border': '#E2E8F0',
+      'sidebar-ring': '#2563EB',
+      celadon: '#0FBEA7',
+      'celadon-foreground': '#FFFFFF',
+      'agent-canvas': '#F1F5F9',
+      'agent-sheet': '#FFFFFF',
+      'agent-card': '#FFFFFF',
+      'agent-card-muted': '#F8FAFC',
+      'agent-hover': '#E8EEF7',
+      'agent-shadow-rgb': '15 23 42',
+      'code-block-bg': '#1E293B',
+      'code-block-header': '#172033',
+      'code-block-border': '#334155',
+      'code-block-text': '#E2E8F0',
+      'code-block-muted': '#94A3B8',
+      'code-block-accent': '#7DD3FC',
+      'code-block-warm': '#FCD34D',
+      ink: '#4B526B',
+      steel: '#6B7488',
+      'tech-blue': '#2563EB',
+      'tech-blue-soft': '#EFF6FF',
+      'neon-mint': '#0FBEA7',
+      'neon-mint-soft': '#E9FBF7',
+      'neon-pink': '#E11D48',
+      'neon-pink-soft': '#FFEBF0',
+      'neon-violet': '#6D5BD0',
+      'neon-violet-soft': '#F1EDFF'
     }
   }
 ]

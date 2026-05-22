@@ -12,7 +12,10 @@ vi.mock('../../src/main/services/logger', () => ({
   })
 }))
 
-import { FunAsrClient } from '../../src/main/services/voice/funasr-client'
+import {
+  FUNASR_WEBSOCKET_SUBPROTOCOL,
+  FunAsrClient
+} from '../../src/main/services/voice/funasr-client'
 
 const servers: WebSocketServer[] = []
 
@@ -42,9 +45,16 @@ function closeServer(server: WebSocketServer): Promise<void> {
 }
 
 async function createServer(
-  onConnection: (ws: import('ws').WebSocket) => void
+  onConnection: (ws: import('ws').WebSocket) => void,
+  options?: { requireBinarySubprotocol?: boolean }
 ): Promise<{ url: string; close: () => Promise<void> }> {
-  const server = new WebSocketServer({ port: 0 })
+  const server = new WebSocketServer({
+    port: 0,
+    handleProtocols: options?.requireBinarySubprotocol
+      ? (protocols) =>
+          protocols.has(FUNASR_WEBSOCKET_SUBPROTOCOL) ? FUNASR_WEBSOCKET_SUBPROTOCOL : false
+      : undefined
+  })
   servers.push(server)
   server.on('connection', onConnection)
 
@@ -61,6 +71,39 @@ afterEach(async () => {
 })
 
 describe('FunAsrClient', () => {
+  it('uses the FunASR binary subprotocol for health checks', async () => {
+    let observedProtocol = ''
+    const server = await createServer(
+      (ws) => {
+        observedProtocol = ws.protocol
+      },
+      { requireBinarySubprotocol: true }
+    )
+
+    const client = new FunAsrClient()
+    await expect(client.healthCheck(server.url, 1000)).resolves.toBe(true)
+    expect(observedProtocol).toBe(FUNASR_WEBSOCKET_SUBPROTOCOL)
+  })
+
+  it('uses the FunASR binary subprotocol for transcription sessions', async () => {
+    let observedProtocol = ''
+    const server = await createServer(
+      (ws) => {
+        observedProtocol = ws.protocol
+      },
+      { requireBinarySubprotocol: true }
+    )
+
+    const client = new FunAsrClient()
+    const sessionId = await client.connect(defaultOptions(server.url), {
+      onTranscript: vi.fn(),
+      onError: vi.fn()
+    })
+    client.disconnect(sessionId)
+
+    expect(observedProtocol).toBe(FUNASR_WEBSOCKET_SUBPROTOCOL)
+  })
+
   it('rejects when the WebSocket endpoint cannot be reached', async () => {
     const server = await createServer((ws) => ws.close())
     const port = Number(new URL(server.url).port)

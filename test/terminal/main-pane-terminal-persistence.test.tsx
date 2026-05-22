@@ -98,10 +98,10 @@ describe('MainPane terminal persistence', () => {
     })
   })
 
-  test('keeps each terminal instance mounted across tab switches and transient session reloads', () => {
+  test('keeps each terminal instance mounted across tab switches and transient session reloads', async () => {
     render(<MainPane />)
 
-    const firstTerminalNode = screen.getByTestId('session-terminal-term-1')
+    const firstTerminalNode = await screen.findByTestId('session-terminal-term-1')
     expect(terminalMounts.get('term-1')).toBe(1)
     expect(terminalMounts.get('term-2')).toBe(1)
 
@@ -133,10 +133,13 @@ describe('MainPane terminal persistence', () => {
     expect(terminalMounts.get('term-2')).toBe(1)
   })
 
-  test('hides terminal surfaces when overlay suppression is enabled', () => {
+  test('hides terminal surfaces when overlay suppression is enabled', async () => {
     render(<MainPane />)
 
-    expect(screen.getByTestId('session-terminal-term-1')).toHaveAttribute('data-visible', 'true')
+    expect(await screen.findByTestId('session-terminal-term-1')).toHaveAttribute(
+      'data-visible',
+      'true'
+    )
 
     act(() => {
       useLayoutStore.getState().pushGhosttySuppression('test-overlay')
@@ -146,11 +149,11 @@ describe('MainPane terminal persistence', () => {
     expect(screen.getByTestId('session-terminal-term-2')).toHaveAttribute('data-visible', 'false')
   })
 
-  test('removes terminal from mounted list when session is closed via store signal', () => {
+  test('removes terminal from mounted list when session is closed via store signal', async () => {
     render(<MainPane />)
 
     // Both terminals are mounted
-    expect(screen.getByTestId('session-terminal-term-1')).toBeInTheDocument()
+    expect(await screen.findByTestId('session-terminal-term-1')).toBeInTheDocument()
     expect(screen.getByTestId('session-terminal-term-2')).toBeInTheDocument()
 
     // Simulate closeSession: remove from sessions map AND signal via closedTerminalSessionIds
@@ -167,11 +170,11 @@ describe('MainPane terminal persistence', () => {
     expect(screen.getByTestId('session-terminal-term-2')).toBeInTheDocument()
   })
 
-  test('preserves terminal state across worktree switches', () => {
+  test('preserves terminal state across worktree switches', async () => {
     render(<MainPane />)
 
     // Both terminals mounted in wt-1
-    expect(screen.getByTestId('session-terminal-term-1')).toBeInTheDocument()
+    expect(await screen.findByTestId('session-terminal-term-1')).toBeInTheDocument()
     expect(screen.getByTestId('session-terminal-term-2')).toBeInTheDocument()
     expect(terminalMounts.get('term-1')).toBe(1)
 
@@ -189,7 +192,7 @@ describe('MainPane terminal persistence', () => {
     })
 
     // term-3 is now mounted, term-1 and term-2 are still mounted (hidden)
-    expect(screen.getByTestId('session-terminal-term-3')).toBeInTheDocument()
+    expect(await screen.findByTestId('session-terminal-term-3')).toBeInTheDocument()
     expect(screen.getByTestId('session-terminal-term-1')).toBeInTheDocument()
     expect(screen.getByTestId('session-terminal-term-2')).toBeInTheDocument()
 

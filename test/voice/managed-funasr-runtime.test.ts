@@ -15,7 +15,12 @@ vi.mock('../../src/main/services/logger', () => ({
   })
 }))
 
-import { isManagedFunAsrCommandLine } from '../../src/main/services/voice/managed-funasr-runtime'
+import {
+  MANAGED_FUNASR_REQUIRED_PYTHON_PACKAGES,
+  isManagedFunAsrCommandLine,
+  isSupportedFunAsrPythonVersion,
+  parsePythonVersionOutput
+} from '../../src/main/services/voice/managed-funasr-runtime'
 
 const MANAGED_SERVER_SCRIPT =
   '/Users/tester/.xuanpu/voice/funasr/runtime/FunASR/runtime/python/websocket/funasr_wss_server.py'
@@ -49,5 +54,36 @@ describe('managed FunASR runtime process ownership', () => {
         { hostPort: 10095 }
       )
     ).toBe(false)
+  })
+})
+
+describe('managed FunASR Python runtime selection', () => {
+  it('parses Python version output from stdout or stderr text', () => {
+    expect(parsePythonVersionOutput('Python 3.11.9')).toEqual({
+      major: 3,
+      minor: 11,
+      patch: 9
+    })
+    expect(parsePythonVersionOutput('warning\nPython 3.12.2\n')).toEqual({
+      major: 3,
+      minor: 12,
+      patch: 2
+    })
+    expect(parsePythonVersionOutput('not python')).toBeNull()
+  })
+
+  it('accepts PyTorch-compatible Python versions and rejects 3.14', () => {
+    expect(isSupportedFunAsrPythonVersion(parsePythonVersionOutput('Python 3.10.13'))).toBe(true)
+    expect(isSupportedFunAsrPythonVersion(parsePythonVersionOutput('Python 3.11.9'))).toBe(true)
+    expect(isSupportedFunAsrPythonVersion(parsePythonVersionOutput('Python 3.12.2'))).toBe(true)
+    expect(isSupportedFunAsrPythonVersion(parsePythonVersionOutput('Python 3.9.6'))).toBe(false)
+    expect(isSupportedFunAsrPythonVersion(parsePythonVersionOutput('Python 3.14.5'))).toBe(false)
+  })
+
+  it('pins PyTorch packages required by the FunASR websocket server', () => {
+    expect(MANAGED_FUNASR_REQUIRED_PYTHON_PACKAGES).toContain('torch==2.11.0')
+    expect(MANAGED_FUNASR_REQUIRED_PYTHON_PACKAGES).toContain('torchaudio==2.11.0')
+    expect(MANAGED_FUNASR_REQUIRED_PYTHON_PACKAGES).toContain('funasr==1.3.1')
+    expect(MANAGED_FUNASR_REQUIRED_PYTHON_PACKAGES).toContain('modelscope==1.37.0')
   })
 })

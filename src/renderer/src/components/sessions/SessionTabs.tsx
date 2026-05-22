@@ -95,6 +95,7 @@ interface SessionTabProps {
   name: string
   isActive: boolean
   agentSdk: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+  runtimeSessionId: string | null
   color: string | null
   onClick: () => void
   onClose: (e: React.MouseEvent) => void
@@ -111,6 +112,11 @@ interface SessionTabProps {
   onCloseOthers: () => void
   onCloseToRight: () => void
   hintCode?: string
+}
+
+interface SessionTabsProps {
+  variant?: 'default' | 'topbar'
+  className?: string
 }
 
 const SessionTab = memo(function SessionTab({
@@ -131,6 +137,7 @@ const SessionTab = memo(function SessionTab({
   isDragging,
   isDragOver,
   worktreeId: _worktreeId,
+  runtimeSessionId,
   onCloseOthers,
   onCloseToRight,
   hintCode
@@ -214,11 +221,10 @@ const SessionTab = memo(function SessionTab({
           className={cn(
             'group relative flex items-center gap-1 px-3 py-1 text-sm cursor-pointer select-none',
             'rounded-md transition-colors min-w-[100px] max-w-[200px] my-0.5 mx-0.5',
-            !color && (
-              isActive
+            !color &&
+              (isActive
                 ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:bg-background/50 hover:text-foreground'
-            ),
+                : 'text-muted-foreground hover:bg-background/50 hover:text-foreground'),
             color && isActive && 'shadow-sm',
             isDragging && 'opacity-50',
             isDragOver && 'bg-accent/50'
@@ -304,6 +310,15 @@ const SessionTab = memo(function SessionTab({
         >
           {t('sessionTabs.menu.rename')}
         </ContextMenuItem>
+        {runtimeSessionId && agentSdk !== 'terminal' && (
+          <ContextMenuItem
+            onSelect={() =>
+              copyToClipboard(runtimeSessionId, t('sessionTabs.toasts.runtimeSessionIdCopied'))
+            }
+          >
+            {t('sessionTabs.menu.copyRuntimeSessionId')}
+          </ContextMenuItem>
+        )}
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={(e) => onClose(e as unknown as React.MouseEvent)}>
           {t('sessionTabs.menu.close')}
@@ -334,10 +349,7 @@ const SessionTab = memo(function SessionTab({
             {SESSION_COLOR_PALETTE.map((c) => (
               <ContextMenuItem key={c.label} onSelect={() => onSetColor(c.value)}>
                 <span className="flex items-center gap-2">
-                  <span
-                    className="h-3 w-3 rounded-full"
-                    style={{ backgroundColor: c.swatch }}
-                  />
+                  <span className="h-3 w-3 rounded-full" style={{ backgroundColor: c.swatch }} />
                   {c.label}
                 </span>
               </ContextMenuItem>
@@ -618,7 +630,10 @@ const ConnectionSessionTab = memo(function ConnectionSessionTab({
   )
 })
 
-export function SessionTabs(): React.JSX.Element | null {
+export function SessionTabs({
+  variant = 'default',
+  className
+}: SessionTabsProps = {}): React.JSX.Element | null {
   const { t } = useI18n()
   const tabsContainerRef = useRef<HTMLDivElement>(null)
   const [showLeftArrow, setShowLeftArrow] = useState(false)
@@ -1082,11 +1097,17 @@ export function SessionTabs(): React.JSX.Element | null {
 
   // Determine if a file/diff tab is the active one
   const isFileTabActive = activeFilePath !== null
+  const isTopbar = variant === 'topbar'
 
   return (
     <div
-      className="flex items-center border-b border-border/40 bg-muted/30 px-1"
+      className={cn(
+        'flex min-w-0 items-center',
+        isTopbar ? 'h-10 flex-1 bg-transparent px-0' : 'border-b border-border/40 bg-muted/30 px-1',
+        className
+      )}
       data-testid="session-tabs"
+      data-variant={variant}
     >
       {/* New session button - on the left */}
       {/* Right-click shows provider menu with session type options */}
@@ -1099,7 +1120,10 @@ export function SessionTabs(): React.JSX.Element | null {
         <ContextMenuTrigger asChild>
           <button
             onClick={handleCreateSession}
-            className="p-1.5 rounded-md hover:bg-background/50 transition-colors shrink-0"
+            className={cn(
+              'rounded-md transition-colors shrink-0',
+              isTopbar ? 'h-7 w-7 p-1.5 hover:bg-background/70' : 'p-1.5 hover:bg-background/50'
+            )}
             data-testid="create-session"
             title={t('sessionTabs.actions.createSession')}
           >
@@ -1126,7 +1150,7 @@ export function SessionTabs(): React.JSX.Element | null {
             availableAgentSdks?.claude ||
             availableAgentSdks?.codex) && <ContextMenuSeparator />}
           <ContextMenuItem onSelect={() => handleCreateSessionWithSdk('terminal')}>
-            <TerminalSquare className="h-4 w-4 mr-2 text-emerald-500" />
+            <TerminalSquare className="h-4 w-4 mr-2 text-tech-blue" />
             {t('sessionTabs.actions.newTerminal')}
           </ContextMenuItem>
         </ContextMenuContent>
@@ -1136,7 +1160,7 @@ export function SessionTabs(): React.JSX.Element | null {
         open={newSessionDialogOpen}
         onOpenChange={setNewSessionDialogOpen}
         worktreeId={isConnectionMode ? null : selectedWorktreeId}
-        projectId={isConnectionMode ? null : project?.id ?? null}
+        projectId={isConnectionMode ? null : (project?.id ?? null)}
         connectionId={isConnectionMode ? selectedConnectionId : null}
         defaultIndex={
           isConnectionMode && selectedConnectionId
@@ -1218,6 +1242,7 @@ export function SessionTabs(): React.JSX.Element | null {
                 sessionId={session.id}
                 name={session.name || t('sessionTabs.common.untitled')}
                 agentSdk={session.agent_sdk}
+                runtimeSessionId={session.opencode_session_id}
                 color={session.color ?? null}
                 isActive={
                   session.id === activeSessionId && !isFileTabActive && !inlineConnectionSessionId
@@ -1338,9 +1363,7 @@ export function SessionTabs(): React.JSX.Element | null {
       )}
 
       {/* Global session status indicator (Phase 6) */}
-      <SessionStatusIndicator
-        onJumpToSession={(sid) => handleSessionTabClick(sid)}
-      />
+      <SessionStatusIndicator onJumpToSession={(sid) => handleSessionTabClick(sid)} />
     </div>
   )
 }

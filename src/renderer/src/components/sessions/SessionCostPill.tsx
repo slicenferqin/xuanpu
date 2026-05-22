@@ -21,6 +21,8 @@ interface SessionCostPillProps {
     cacheRead: number
     cacheWrite: number
   } | null
+  popoverSide?: 'top' | 'bottom' | 'left' | 'right'
+  popoverAlign?: 'start' | 'center' | 'end'
 }
 
 function formatCurrency(amount: number): string {
@@ -50,17 +52,34 @@ function formatDuration(seconds: number): string {
 export function SessionCostPill({
   summary,
   fallbackCost,
-  fallbackTokens: _fallbackTokens
+  fallbackTokens,
+  popoverSide = 'top',
+  popoverAlign = 'start'
 }: SessionCostPillProps): React.JSX.Element | null {
   const { t } = useI18n()
   const modelSummary = formatModelLabelSummary(getSessionSummaryModelLabels(summary))
   const totalCost = Math.max(summary?.total_cost ?? 0, fallbackCost ?? 0)
   const hasSummaryTokens = (summary?.total_tokens ?? 0) > 0
-  const totalTokens = summary?.total_tokens ?? 0
+  const fallbackTotalTokens = fallbackTokens
+    ? fallbackTokens.input +
+      fallbackTokens.output +
+      fallbackTokens.cacheRead +
+      fallbackTokens.cacheWrite
+    : 0
+  const totalTokens = hasSummaryTokens ? (summary?.total_tokens ?? 0) : fallbackTotalTokens
+  const hasAnyTokens = totalTokens > 0
+  const inputTokens = hasSummaryTokens ? (summary?.input_tokens ?? 0) : (fallbackTokens?.input ?? 0)
+  const outputTokens = hasSummaryTokens
+    ? (summary?.output_tokens ?? 0)
+    : (fallbackTokens?.output ?? 0)
+  const cacheWriteTokens = hasSummaryTokens
+    ? (summary?.cache_write_tokens ?? 0)
+    : (fallbackTokens?.cacheWrite ?? 0)
+  const cacheReadTokens = hasSummaryTokens
+    ? (summary?.cache_read_tokens ?? 0)
+    : (fallbackTokens?.cacheRead ?? 0)
 
-  void _fallbackTokens
-
-  if (totalCost <= 0 && !hasSummaryTokens) return null
+  if (totalCost <= 0 && !hasAnyTokens) return null
 
   return (
     <Popover>
@@ -70,7 +89,7 @@ export function SessionCostPill({
           variant="ghost"
           size="sm"
           className={cn(
-            'h-7 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 text-[12px] font-medium text-emerald-700 shadow-[0_0_0_1px_rgba(16,185,129,0.08)] transition-colors hover:bg-emerald-500/14 hover:text-emerald-800 dark:border-emerald-400/30 dark:bg-emerald-500/12 dark:text-emerald-200 dark:hover:bg-emerald-500/18'
+            'h-7 rounded-full border border-neon-pink/20 bg-neon-pink-soft px-2.5 text-[12px] font-medium text-neon-pink shadow-none transition-colors hover:bg-neon-pink-soft/85 hover:text-neon-pink dark:bg-neon-pink-soft/35 dark:hover:bg-neon-pink-soft/45'
           )}
           data-testid="session-cost-pill"
         >
@@ -79,10 +98,10 @@ export function SessionCostPill({
           {summary?.partial && <TriangleAlert className="h-3.5 w-3.5 text-amber-500" />}
         </Button>
       </PopoverTrigger>
-      <PopoverContent side="top" align="start" className="w-72">
+      <PopoverContent side={popoverSide} align={popoverAlign} className="w-72">
         <PopoverHeader className="gap-2">
           <PopoverTitle className="flex items-center gap-2 text-sm">
-            <DollarSign className="h-4 w-4 text-emerald-600 dark:text-emerald-300" />
+            <DollarSign className="h-4 w-4 text-neon-pink" />
             {t('sessionView.costPill.title')}
           </PopoverTitle>
         </PopoverHeader>
@@ -93,7 +112,7 @@ export function SessionCostPill({
           </div>
           <div className="flex items-center justify-between gap-3">
             <span className="text-muted-foreground">{t('sessionView.costPill.totalTokens')}</span>
-            {hasSummaryTokens ? (
+            {hasAnyTokens ? (
               <span className="font-mono">{formatTokens(totalTokens)}</span>
             ) : (
               <span className="text-muted-foreground">
@@ -101,35 +120,31 @@ export function SessionCostPill({
               </span>
             )}
           </div>
-          {hasSummaryTokens ? (
+          {hasAnyTokens ? (
             <div className="grid grid-cols-2 gap-2 border-t border-border/70 pt-2">
               <div className="rounded-lg bg-muted/45 px-2 py-1.5">
                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
                   {t('sessionView.costPill.input')}
                 </div>
-                <div className="mt-1 font-mono">{formatTokens(summary?.input_tokens ?? 0)}</div>
+                <div className="mt-1 font-mono">{formatTokens(inputTokens)}</div>
               </div>
               <div className="rounded-lg bg-muted/45 px-2 py-1.5">
                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
                   {t('sessionView.costPill.output')}
                 </div>
-                <div className="mt-1 font-mono">{formatTokens(summary?.output_tokens ?? 0)}</div>
+                <div className="mt-1 font-mono">{formatTokens(outputTokens)}</div>
               </div>
               <div className="rounded-lg bg-muted/45 px-2 py-1.5">
                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
                   {t('sessionView.costPill.cacheWrite')}
                 </div>
-                <div className="mt-1 font-mono">
-                  {formatTokens(summary?.cache_write_tokens ?? 0)}
-                </div>
+                <div className="mt-1 font-mono">{formatTokens(cacheWriteTokens)}</div>
               </div>
               <div className="rounded-lg bg-muted/45 px-2 py-1.5">
                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
                   {t('sessionView.costPill.cacheRead')}
                 </div>
-                <div className="mt-1 font-mono">
-                  {formatTokens(summary?.cache_read_tokens ?? 0)}
-                </div>
+                <div className="mt-1 font-mono">{formatTokens(cacheReadTokens)}</div>
               </div>
             </div>
           ) : null}

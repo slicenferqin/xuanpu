@@ -10,17 +10,25 @@ interface MarkdownRendererProps {
 }
 
 const components: Components = {
-  h1: ({ children }) => <h1 className="text-xl font-bold mt-6 mb-3 first:mt-0">{children}</h1>,
-  h2: ({ children }) => <h2 className="text-lg font-semibold mt-5 mb-2 first:mt-0">{children}</h2>,
-  h3: ({ children }) => (
-    <h3 className="text-base font-semibold mt-4 mb-2 first:mt-0">{children}</h3>
+  h1: ({ children }) => (
+    <h1 className="crisp-strong-title text-xl mt-6 mb-3 first:mt-0">{children}</h1>
   ),
-  p: ({ children }) => <p className="mb-3 last:mb-0 leading-relaxed">{children}</p>,
-  ul: ({ children }) => <ul className="list-disc pl-6 mb-3 space-y-1">{children}</ul>,
-  ol: ({ children }) => <ol className="list-decimal pl-6 mb-3 space-y-1">{children}</ol>,
-  li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+  h2: ({ children }) => (
+    <h2 className="crisp-strong-title text-lg mt-5 mb-2 first:mt-0">{children}</h2>
+  ),
+  h3: ({ children }) => (
+    <h3 className="crisp-strong-title text-base mt-4 mb-2 first:mt-0">{children}</h3>
+  ),
+  p: ({ children }) => <p className="mb-3 last:mb-0 leading-[1.6]">{children}</p>,
+  ul: ({ children }) => (
+    <ul className="list-disc pl-6 mb-3 space-y-1.5 marker:text-steel/70">{children}</ul>
+  ),
+  ol: ({ children }) => (
+    <ol className="list-decimal pl-6 mb-3 space-y-1.5 marker:text-steel/70">{children}</ol>
+  ),
+  li: ({ children }) => <li className="leading-[1.6]">{children}</li>,
   blockquote: ({ children }) => (
-    <blockquote className="border-l-2 border-muted-foreground/40 pl-4 italic text-muted-foreground my-3">
+    <blockquote className="my-3 border-l-2 border-steel/25 pl-4 italic text-muted-foreground">
       {children}
     </blockquote>
   ),
@@ -40,7 +48,7 @@ const components: Components = {
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="text-blue-500 hover:text-blue-400 underline underline-offset-2"
+      className="text-primary hover:text-neon-violet underline underline-offset-2"
     >
       {children}
     </a>
@@ -58,7 +66,11 @@ const components: Components = {
       return <CodeBlock code={code} language={match?.[1] ?? 'text'} />
     }
 
-    return <code className="bg-muted px-1.5 py-0.5 rounded text-sm font-mono">{children}</code>
+    return (
+      <code className="rounded border border-border/70 bg-agent-card-muted px-1.5 py-0.5 font-mono text-sm text-ink">
+        {children}
+      </code>
+    )
   },
   pre: ({ children }) => <>{children}</>
 }

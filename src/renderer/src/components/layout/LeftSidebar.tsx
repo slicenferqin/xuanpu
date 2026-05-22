@@ -120,7 +120,7 @@ export function LeftSidebar(): React.JSX.Element {
   return (
     <div className="flex flex-shrink-0" data-testid="left-sidebar-container">
       <aside
-        className="bg-sidebar text-sidebar-foreground border-r border-sidebar-border/60 flex flex-col overflow-hidden"
+        className="bg-sidebar/85 text-sidebar-foreground border-r border-sidebar-border/45 flex flex-col overflow-hidden backdrop-blur-sm"
         style={{ width: leftSidebarWidth }}
         data-testid="left-sidebar"
         data-width={leftSidebarWidth}
@@ -128,7 +128,7 @@ export function LeftSidebar(): React.JSX.Element {
         aria-label={t('leftSidebar.ariaLabel')}
       >
         {connectionModeActive ? (
-          <div className="px-4 py-3 border-b border-sidebar-border/60 flex items-center justify-between bg-muted/50">
+          <div className="px-4 py-3 border-b border-sidebar-border/45 flex items-center justify-between bg-agent-card-muted/60">
             <div className="flex items-center gap-2 text-sm font-medium min-w-0">
               <Link className="h-4 w-4 text-primary shrink-0" />
               <span className="truncate">{t('sidebar.connectionMode.selectWorktrees')}</span>
@@ -164,7 +164,7 @@ export function LeftSidebar(): React.JSX.Element {
             </div>
           </div>
         ) : (
-          <div className="px-3 pt-2 pb-0 border-b border-sidebar-border/60">
+          <div className="px-3 pt-3 pb-0 border-b border-sidebar-border/45">
             {/* Tab row */}
             <div className="flex items-center gap-3">
               <button
@@ -194,7 +194,9 @@ export function LeftSidebar(): React.JSX.Element {
                 <Link className="h-3 w-3 shrink-0" />
                 {t('connectionList.title')}
                 {connectionCount > 0 && (
-                  <span className="text-[10px] tabular-nums text-muted-foreground">{connectionCount}</span>
+                  <span className="text-[10px] tabular-nums text-muted-foreground">
+                    {connectionCount}
+                  </span>
                 )}
                 {sidebarTab === 'connections' && (
                   <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-primary" />
@@ -221,16 +223,16 @@ export function LeftSidebar(): React.JSX.Element {
           </div>
         )}
         {!connectionModeActive && sidebarTab === 'projects' && projectCount > 1 && (
-          <div className="px-4 py-3 border-b border-sidebar-border/70">
+          <div className="px-4 py-3 border-b border-sidebar-border/45">
             <ProjectFilter value={filterQuery} onChange={setFilterQuery} />
           </div>
         )}
         {sidebarTab === 'projects' && activeLanguages.length > 0 && (
-          <div className="px-4 py-2 border-b border-sidebar-border/70">
+          <div className="px-4 py-2 border-b border-sidebar-border/45">
             <FilterChips languages={activeLanguages} onRemove={removeLanguage} />
           </div>
         )}
-        <div className="flex-1 overflow-auto px-3 py-3" data-testid="sidebar-scroll-container">
+        <div className="flex-1 overflow-auto px-3 py-4" data-testid="sidebar-scroll-container">
           {sidebarTab === 'projects' || connectionModeActive ? (
             <>
               <PinnedList />
@@ -246,11 +248,11 @@ export function LeftSidebar(): React.JSX.Element {
         </div>
         {!connectionModeActive &&
           (showUsageIndicator ? (
-            <div className="border-t border-sidebar-border/70">
+            <div className="border-t border-sidebar-border/45">
               <UsageIndicator />
             </div>
           ) : (
-            <div className="border-t border-sidebar-border/70 px-2 py-2">
+            <div className="border-t border-sidebar-border/45 px-2 py-2">
               <SpacesTabBar />
             </div>
           ))}

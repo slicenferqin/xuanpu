@@ -42,7 +42,7 @@ export function ActionCard({
   return (
     <div
       className={cn(
-        'rounded-lg border border-border/50 bg-card/80 overflow-hidden',
+        'crisp-subtle-shadow overflow-hidden rounded-[10px] border border-border/60 bg-agent-card/85',
         accentClass,
         className
       )}
@@ -78,9 +78,7 @@ export function ActionCard({
 
       {/* Body */}
       {children && expanded && (
-        <div className="px-3.5 py-3 text-sm text-muted-foreground leading-relaxed">
-          {children}
-        </div>
+        <div className="px-3.5 py-3 text-sm text-muted-foreground leading-relaxed">{children}</div>
       )}
     </div>
   )

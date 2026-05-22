@@ -45,6 +45,12 @@ vi.mock('@/components/sessions/SessionView', () => ({
   )
 }))
 
+vi.mock('@/components/session-hq/SessionShell', () => ({
+  SessionShell: ({ sessionId }: { sessionId: string }) => (
+    <div data-testid={`session-view-${sessionId}`}>Session: {sessionId}</div>
+  )
+}))
+
 // ---------- Mock FileViewer ----------
 vi.mock('@/components/file-viewer', () => ({
   FileViewer: () => <div data-testid="file-viewer" />
@@ -382,7 +388,7 @@ describe('Session 9: SessionView & MainPane Integration', () => {
       expect(screen.getByText('Select a project or worktree to get started.')).toBeInTheDocument()
     })
 
-    test('renders session tabs when a connection is selected', async () => {
+    test('keeps session tabs out of the main pane when a connection is selected', async () => {
       const connection = makeConnection()
       const session = makeSession()
 
@@ -405,7 +411,8 @@ describe('Session 9: SessionView & MainPane Integration', () => {
         render(<MainPane />)
       })
 
-      expect(screen.getByTestId('session-tabs')).toBeInTheDocument()
+      expect(screen.queryByTestId('session-tabs')).not.toBeInTheDocument()
+      expect(screen.getByTestId('session-view-session-1')).toBeInTheDocument()
     })
 
     test('renders SessionView when connection session is active', async () => {
@@ -496,7 +503,7 @@ describe('Session 9: SessionView & MainPane Integration', () => {
   })
 
   describe('SessionTabs connection mode', () => {
-    test('reads sessions from sessionsByConnection when connection is active', async () => {
+    test('reads sessions from sessionsByConnection in the merged header topbar', async () => {
       const connection = makeConnection()
       const session = makeSession()
 
@@ -515,14 +522,14 @@ describe('Session 9: SessionView & MainPane Integration', () => {
       })
 
       await act(async () => {
-        render(<MainPane />)
+        render(<Header />)
       })
 
       expect(screen.getByTestId('session-tab-session-1')).toBeInTheDocument()
       expect(screen.getByText('Session 1')).toBeInTheDocument()
     })
 
-    test('create button works in connection mode', async () => {
+    test('create button works in connection mode from the merged header topbar', async () => {
       const user = userEvent.setup()
       const connection = makeConnection()
 
@@ -540,7 +547,7 @@ describe('Session 9: SessionView & MainPane Integration', () => {
       })
 
       await act(async () => {
-        render(<MainPane />)
+        render(<Header />)
       })
 
       const createButton = screen.getByTestId('create-session')
@@ -550,7 +557,7 @@ describe('Session 9: SessionView & MainPane Integration', () => {
       expect(mockConnectionOps.get).toHaveBeenCalledWith('conn-1')
     })
 
-    test('shows empty state when connection has no sessions', async () => {
+    test('shows empty state in the merged header topbar when connection has no sessions', async () => {
       const connection = makeConnection()
 
       mockDb.session.getActiveByConnection.mockResolvedValue([])
@@ -567,7 +574,7 @@ describe('Session 9: SessionView & MainPane Integration', () => {
       })
 
       await act(async () => {
-        render(<MainPane />)
+        render(<Header />)
       })
 
       expect(screen.getByTestId('no-sessions')).toBeInTheDocument()
@@ -576,7 +583,7 @@ describe('Session 9: SessionView & MainPane Integration', () => {
   })
 
   describe('Header', () => {
-    test('shows connection name and member projects when connection is selected', () => {
+    test('shows connection name and keeps member projects out of the compact merged topbar', () => {
       const connection = makeConnection()
 
       useConnectionStore.setState({
@@ -592,10 +599,11 @@ describe('Session 9: SessionView & MainPane Integration', () => {
 
       expect(screen.getByTestId('header-connection-info')).toBeInTheDocument()
       expect(screen.getByText('golden-retriever')).toBeInTheDocument()
-      expect(screen.getByText('(Frontend + Backend)')).toBeInTheDocument()
+      expect(screen.queryByText('(Frontend + Backend)')).not.toBeInTheDocument()
+      expect(screen.getByTestId('session-tabs')).toBeInTheDocument()
     })
 
-    test('shows project/branch info when worktree is selected (not connection)', () => {
+    test('shows project name and keeps branch info out of the compact merged topbar', () => {
       useWorktreeStore.setState({
         selectedWorktreeId: 'wt-1',
         worktreesByProject: new Map([['proj-1', [makeWorktree({ branch_name: 'feat/auth' })]]])
@@ -609,7 +617,8 @@ describe('Session 9: SessionView & MainPane Integration', () => {
 
       expect(screen.getByTestId('header-project-info')).toBeInTheDocument()
       expect(screen.getByText('My Project')).toBeInTheDocument()
-      expect(screen.getByText('(feat/auth)')).toBeInTheDocument()
+      expect(screen.queryByText('(feat/auth)')).not.toBeInTheDocument()
+      expect(screen.getByTestId('session-tabs')).toBeInTheDocument()
     })
 
     test('hides git UI (PR, merge, archive) when connection is selected', () => {
@@ -638,7 +647,7 @@ describe('Session 9: SessionView & MainPane Integration', () => {
       expect(screen.queryByTestId('fix-conflicts-button')).not.toBeInTheDocument()
     })
 
-    test('switching from connection to worktree restores git UI', () => {
+    test('switching from connection to worktree restores project identity without header PR UI', () => {
       useWorktreeStore.setState({
         selectedWorktreeId: 'wt-1',
         worktreesByProject: new Map([['proj-1', [makeWorktree()]]])
@@ -663,8 +672,8 @@ describe('Session 9: SessionView & MainPane Integration', () => {
       expect(screen.getByTestId('header-project-info')).toBeInTheDocument()
       expect(screen.queryByTestId('header-connection-info')).not.toBeInTheDocument()
 
-      // PR button should be visible now (worktree mode with GitHub remote)
-      expect(screen.getByTestId('pr-button')).toBeInTheDocument()
+      // PR/review actions now live in the right Review context panel, not Header.
+      expect(screen.queryByTestId('pr-button')).not.toBeInTheDocument()
     })
 
     test('shows Xuanpu text when nothing is selected', () => {

@@ -14,6 +14,7 @@ import { createLogger } from '../logger'
 
 const log = createLogger({ component: 'FunAsrClient' })
 const TRANSCRIPTION_CONNECT_TIMEOUT_MS = 10000
+export const FUNASR_WEBSOCKET_SUBPROTOCOL = 'binary'
 
 type AudioChunk = ArrayBuffer | ArrayBufferView
 
@@ -65,7 +66,7 @@ export class FunAsrClient {
 
   async healthCheck(wsUrl: string, timeoutMs = 5000): Promise<boolean> {
     return new Promise((resolve) => {
-      const ws = new WebSocket(wsUrl)
+      const ws = new WebSocket(wsUrl, FUNASR_WEBSOCKET_SUBPROTOCOL)
       let settled = false
       const finish = (ready: boolean): void => {
         if (settled) return
@@ -95,7 +96,7 @@ export class FunAsrClient {
     const id = randomUUID()
 
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(options.wsUrl)
+      const ws = new WebSocket(options.wsUrl, FUNASR_WEBSOCKET_SUBPROTOCOL)
       let connected = false
       let rejected = false
 

@@ -3,7 +3,7 @@
  *
  * Supports two modes:
  *   1. toolUse mode — renders from a single tool_use (normal timeline rendering)
- *   2. tasks mode — renders from an aggregated task list (final card after MissionControl)
+ *   2. tasks mode — renders from an aggregated task list (right context panel)
  */
 
 import React from 'react'
@@ -19,7 +19,7 @@ interface TodoCardPropsToolUse {
 
 interface TodoCardPropsTasks {
   toolUse?: never
-  /** Aggregated task list — used for the final card after MissionControl fades */
+  /** Aggregated task list — used by the right context panel and optional timeline summaries */
   tasks: Array<{ id: string; content: string; status: string }>
 }
 
