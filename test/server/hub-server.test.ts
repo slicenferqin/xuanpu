@@ -11,6 +11,7 @@ vi.mock('../../src/main/services/logger', () => ({
 
 import Database from 'better-sqlite3'
 import type { AddressInfo } from 'net'
+import { WebSocket } from 'ws'
 import {
   createHubServer,
   COOKIE_NAME,
@@ -20,6 +21,8 @@ import {
 } from '../../src/main/services/hub/hub-server'
 import { HubRegistry } from '../../src/main/services/hub/hub-registry'
 import { LoginRateLimiter } from '../../src/main/services/hub/hub-auth'
+
+type HubServerBridge = Parameters<typeof createHubServer>[0]['bridge']
 
 // Minimal in-memory schema — just the hub tables + the tables our read-only
 // session routes touch. Keeps tests from depending on the full migration set.
@@ -58,7 +61,11 @@ function makeDb(): Database.Database {
       id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL
     );
     CREATE TABLE worktrees (
-      id TEXT PRIMARY KEY, project_id TEXT NOT NULL, name TEXT NOT NULL, path TEXT NOT NULL
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      path TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active'
     );
     CREATE TABLE sessions (
       id TEXT PRIMARY KEY,
@@ -96,13 +103,14 @@ interface TestCtx {
 }
 
 async function boot(
-  overrides: { rateLimiter?: LoginRateLimiter } = {}
+  overrides: { rateLimiter?: LoginRateLimiter; bridge?: HubServerBridge } = {}
 ): Promise<TestCtx> {
   const db = makeDb()
   const registry = new HubRegistry({ localDeviceId: 'dev-local', localDeviceName: 'laptop' })
   const server = createHubServer({
     db,
     registry,
+    bridge: overrides.bridge,
     rateLimiter: overrides.rateLimiter
   })
   await server.start(0)
@@ -121,6 +129,33 @@ async function boot(
   ;(server as any).boundPort = addr.port
   const baseUrl = `http://127.0.0.1:${addr.port}`
   return { db, registry, server, baseUrl }
+}
+
+function waitForWsOpen(ws: WebSocket): Promise<void> {
+  return new Promise((resolve, reject) => {
+    ws.once('open', () => resolve())
+    ws.once('error', reject)
+  })
+}
+
+function waitForWsMessages(ws: WebSocket, count: number): Promise<unknown[]> {
+  return new Promise((resolve, reject) => {
+    const messages: unknown[] = []
+    const timer = setTimeout(() => {
+      reject(new Error(`timed out waiting for ${count} websocket messages`))
+    }, 1_000)
+    ws.on('message', (raw) => {
+      messages.push(JSON.parse(raw.toString('utf8')))
+      if (messages.length >= count) {
+        clearTimeout(timer)
+        resolve(messages)
+      }
+    })
+    ws.once('error', (error) => {
+      clearTimeout(timer)
+      reject(error)
+    })
+  })
 }
 
 interface FetchResult {
@@ -417,6 +452,74 @@ describe('hub-server: protected routes', () => {
     ]) {
       const r = await req(`${ctx.baseUrl}${p}`)
       expect(r.status, p).toBe(401)
+    }
+  })
+})
+
+describe('hub-server: websocket snapshots', () => {
+  let cookie: string
+
+  beforeEach(async () => {
+    const bridge = {
+      getHistorySnapshot: vi.fn(() => [
+        {
+          id: 'history-1',
+          role: 'user',
+          ts: 1,
+          seq: 0,
+          parts: [{ type: 'text', text: 'persisted hello' }]
+        }
+      ]),
+      handleClientMessage: vi.fn(async () => undefined)
+    } as unknown as HubServerBridge
+    ctx = await boot({ bridge })
+    const status = await req(`${ctx.baseUrl}/api/setup/status`)
+    const setup = await req(`${ctx.baseUrl}/api/setup`, {
+      method: 'POST',
+      json: {
+        setupKey: (status.body as { setupKey: string }).setupKey,
+        username: 'alice',
+        password: 'password123'
+      }
+    })
+    cookie = setup.cookie!
+  })
+
+  it('sends durable snapshot and still replays live buffered frames on connect', async () => {
+    const seq = ctx.registry.nextSeq('dev-local', 'sess-1')
+    ctx.registry.broadcast('dev-local', 'sess-1', {
+      type: 'permission/request',
+      seq,
+      requestId: 'perm-1',
+      toolName: 'Bash'
+    })
+
+    const wsUrl = ctx.baseUrl.replace('http://', 'ws://') + '/ws/ui/dev-local/sess-1'
+    const ws = new WebSocket(wsUrl, {
+      headers: {
+        cookie,
+        origin: ctx.baseUrl
+      }
+    })
+
+    try {
+      const messagesPromise = waitForWsMessages(ws, 2)
+      await waitForWsOpen(ws)
+      const messages = await messagesPromise
+      expect(messages).toEqual([
+        expect.objectContaining({
+          type: 'session/snapshot',
+          messages: [expect.objectContaining({ id: 'history-1' })]
+        }),
+        expect.objectContaining({
+          type: 'permission/request',
+          seq,
+          requestId: 'perm-1',
+          toolName: 'Bash'
+        })
+      ])
+    } finally {
+      ws.close()
     }
   })
 })

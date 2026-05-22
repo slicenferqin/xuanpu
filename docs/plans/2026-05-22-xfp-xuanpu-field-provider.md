@@ -1,9 +1,9 @@
 # XFP: Xuanpu Field Provider Migration Plan
 
-**Date**: 2026-05-22  
-**Status**: In progress  
-**Target window**: v1.5.x  
-**Scope**: Field Context migration, XFP provider protocol, Claude Code/Codex field access  
+**Date**: 2026-05-22
+**Status**: In progress
+**Target window**: v1.5.x
+**Scope**: Field Context migration, XFP provider protocol, Claude Code/Codex field access
 **Related docs**: `docs/VISION.md`, `docs/plans/2026-05-17-context-kernel-and-provider-local-capabilities.md`, `docs/prd/phase-22a-working-memory.md`
 
 ---

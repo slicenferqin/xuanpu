@@ -1,6 +1,6 @@
 # XFP Smoke Checklist
 
-Date: 2026-05-22  
+Date: 2026-05-22
 Scope: Claude Code and Codex field-delivery validation after XFP migration.
 
 ## Goal

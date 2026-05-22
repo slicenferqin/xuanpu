@@ -271,11 +271,16 @@ describe('createPendingMessage', () => {
 
   it('stores content and attachments', () => {
     const attachments = [{ kind: 'data', id: 'a1', name: 'file.txt', mime: 'text/plain' }]
-    const msg = createPendingMessage('test', attachments as never[])
+    const msg = createPendingMessage('test', attachments as never[], {
+      promptOptions: { goalMode: true, successCriteria: 'green tests' },
+      model: { providerID: 'codex', modelID: 'gpt-5.4' }
+    })
     expect(msg.content).toBe('test')
     expect(msg.attachments).toEqual(attachments)
     expect(msg.queuedAt).toBeGreaterThan(0)
     expect(msg.status).toBe('pending')
+    expect(msg.promptOptions).toEqual({ goalMode: true, successCriteria: 'green tests' })
+    expect(msg.model).toEqual({ providerID: 'codex', modelID: 'gpt-5.4' })
   })
 
   it('defaults attachments to empty array', () => {
@@ -320,7 +325,12 @@ describe('executeSendAction', () => {
   })
 
   it('queue: uses queueSessionId and preserves runtime metadata for durable queue rows', async () => {
-    const ctx = makeSendContext({ queueSessionId: 'db-sess-1', runtimeId: 'codex' })
+    const ctx = makeSendContext({
+      queueSessionId: 'db-sess-1',
+      runtimeId: 'codex',
+      promptOptions: { goalMode: true, successCriteria: 'done' },
+      model: { providerID: 'codex', modelID: 'gpt-5.4' }
+    })
     const result = await executeSendAction('queue', 'later', [], ctx)
 
     expect(result).toBe(true)
@@ -329,7 +339,9 @@ describe('executeSendAction', () => {
       expect.objectContaining({
         content: 'later',
         runtimeId: 'codex',
-        agentSessionId: 'sess-1'
+        agentSessionId: 'sess-1',
+        promptOptions: { goalMode: true, successCriteria: 'done' },
+        model: { providerID: 'codex', modelID: 'gpt-5.4' }
       })
     )
   })
@@ -398,7 +410,10 @@ describe('drainNextPending', () => {
   })
 
   it('dequeues and sends when queue has messages', async () => {
-    const pending = createPendingMessage('queued message')
+    const pending = createPendingMessage('queued message', [], {
+      promptOptions: { goalMode: true, successCriteria: 'done' },
+      model: { providerID: 'codex', modelID: 'gpt-5.4' }
+    })
     const dequeue = vi.fn().mockReturnValue(pending)
     const prompt = vi.fn().mockResolvedValue({ success: true })
     const complete = vi.fn()

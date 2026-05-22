@@ -57,6 +57,8 @@ function makePendingMessage(overrides: Partial<PendingMessage> = {}): PendingMes
     status: overrides.status ?? 'pending',
     runtimeId: overrides.runtimeId ?? 'codex',
     agentSessionId: overrides.agentSessionId ?? 'agent-1',
+    promptOptions: overrides.promptOptions,
+    model: overrides.model,
     sendingAt: overrides.sendingAt,
     lastError: overrides.lastError
   }
@@ -908,8 +910,52 @@ describe('useSessionRuntimeStore', () => {
         attachments_json: JSON.stringify([
           { kind: 'data', id: 'a1', name: 'note.txt', mime: 'text/plain' }
         ]),
+        prompt_options_json: null,
+        model_json: null,
         enqueued_at: 123
       })
+    })
+
+    it('persists queued prompt options and model snapshot', () => {
+      const durable = installDurablePendingMessageMock()
+      const message = makePendingMessage({
+        id: 'pending-db-snapshot',
+        promptOptions: { goalMode: true, successCriteria: 'tests pass' },
+        model: { providerID: 'codex', modelID: 'gpt-5.4', variant: 'fast' }
+      })
+
+      useSessionRuntimeStore.getState().queueMessage('sess-1', message)
+
+      expect(durable.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt_options_json: JSON.stringify({
+            goalMode: true,
+            successCriteria: 'tests pass'
+          }),
+          model_json: JSON.stringify({
+            providerID: 'codex',
+            modelID: 'gpt-5.4',
+            variant: 'fast'
+          })
+        })
+      )
+    })
+
+    it('removes a queued message if durable create fails', async () => {
+      installDurablePendingMessageMock({
+        create: vi.fn().mockRejectedValue(new Error('db down'))
+      })
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      useSessionRuntimeStore.getState().queueMessage(
+        'sess-1',
+        makePendingMessage({ id: 'pending-create-fail' })
+      )
+
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(useSessionRuntimeStore.getState().getPendingMessages('sess-1')).toEqual([])
+      warnSpy.mockRestore()
     })
 
     it('mirrors claim, complete, restore, and cancel operations by durable row id', () => {
@@ -944,8 +990,14 @@ describe('useSessionRuntimeStore', () => {
             status: 'pending',
             content: 'first',
             attachments_json: null,
-            prompt_options_json: null,
-            model_json: null,
+            prompt_options_json: JSON.stringify({
+              goalMode: true,
+              successCriteria: 'ship it'
+            }),
+            model_json: JSON.stringify({
+              providerID: 'codex',
+              modelID: 'gpt-5.4'
+            }),
             enqueued_at: 100,
             updated_at: 100,
             sending_run_epoch: null,
@@ -1003,6 +1055,8 @@ describe('useSessionRuntimeStore', () => {
             content: message.content,
             status: message.status,
             attachments: message.attachments,
+            promptOptions: message.promptOptions,
+            model: message.model,
             lastError: message.lastError
           }))
       ).toEqual([
@@ -1011,6 +1065,14 @@ describe('useSessionRuntimeStore', () => {
           content: 'first',
           status: 'pending',
           attachments: [],
+          promptOptions: {
+            goalMode: true,
+            successCriteria: 'ship it'
+          },
+          model: {
+            providerID: 'codex',
+            modelID: 'gpt-5.4'
+          },
           lastError: undefined
         },
         {
@@ -1018,6 +1080,8 @@ describe('useSessionRuntimeStore', () => {
           content: 'second',
           status: 'pending',
           attachments: [{ kind: 'data', id: 'a2' }],
+          promptOptions: undefined,
+          model: undefined,
           lastError: 'Recovered queued message after interrupted send'
         }
       ])

@@ -33,13 +33,7 @@ Observed context
   })
 
   it('tolerates leading wrapper whitespace and preserves user message whitespace', () => {
-    const input = `  
-	[Field Context]
-context
-
-  [User Message]  
-  hello  
-`
+    const input = '  \n\t[Field Context]\ncontext\n\n  [User Message]  \n  hello  \n'
 
     expect(stripFieldContextEnvelope(input)).toBe('  hello  \n')
   })

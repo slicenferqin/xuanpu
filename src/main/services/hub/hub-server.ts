@@ -60,6 +60,7 @@ import {
 } from './hub-auth'
 import type { HubBridge } from './hub-bridge'
 import type { HubRegistry, HubSubscriber } from './hub-registry'
+import type { HubMessage, ServerMsg } from './hub-protocol'
 
 const log = createLogger({ component: 'HubServer' })
 
@@ -186,6 +187,22 @@ function setSessionCookie(res: ServerResponse, sid: string, maxAgeMs: number): v
 
 function clearSessionCookie(res: ServerResponse): void {
   res.setHeader('set-cookie', `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`)
+}
+
+export function replayFramesAfterSnapshot(history: HubMessage[], frames: ServerMsg[]): ServerMsg[] {
+  const seenMessageIds = new Set(history.map((message) => message.id))
+  const replay: ServerMsg[] = []
+
+  for (const frame of frames) {
+    if (frame.type === 'session/snapshot') continue
+    if (frame.type === 'message/append') {
+      if (seenMessageIds.has(frame.message.id)) continue
+      seenMessageIds.add(frame.message.id)
+    }
+    replay.push(frame)
+  }
+
+  return replay
 }
 
 // ─── settings & users ───────────────────────────────────────────────────────
@@ -994,14 +1011,8 @@ class HubServerImpl implements HubServer {
           lastSeq: snapshot.lastSeq
         })
       )
-      // Only replay the in-memory ring buffer when there's no DB history.
-      // With history present, replaying ring buffer frames re-appends bubbles
-      // that are already in the snapshot (DB persisted + ring buffer emitted
-      // the same turn), producing duplicates on re-entry. Live frames emitted
-      // AFTER subscribe() still flow through broadcast normally.
-      if (history.length === 0) {
-        for (const f of snapshot.frames) ws.send(JSON.stringify(f))
-      }
+      const replayFrames = replayFramesAfterSnapshot(history, snapshot.frames)
+      for (const f of replayFrames) ws.send(JSON.stringify(f))
     } catch {
       /* ignore */
     }

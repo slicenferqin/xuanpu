@@ -154,7 +154,7 @@ describeIf('session pending message database queue', () => {
     expect(db.listSessionPendingMessages(session.id, ['sent'])[0].id).toBe(message.id)
   })
 
-  it('does not mark unclaimed pending messages as sent', () => {
+  it('allows completion from pending to tolerate a lost claim mirror', () => {
     const session = createSession('codex')
     const message = db.createSessionPendingMessage({
       session_id: session.id,
@@ -162,9 +162,9 @@ describeIf('session pending message database queue', () => {
       content: 'not accepted yet'
     })
 
-    expect(db.completeSessionPendingMessage(message.id)).toBeNull()
+    expect(db.completeSessionPendingMessage(message.id)).toMatchObject({ status: 'sent' })
     expect(db.getSessionPendingMessage(message.id)).toMatchObject({
-      status: 'pending',
+      status: 'sent',
       error: null
     })
   })

@@ -1798,7 +1798,7 @@ export class DatabaseService {
   }
 
   completeSessionPendingMessage(id: string): SessionPendingMessage | null {
-    return this.updateSessionPendingMessageStatus(id, 'sent', undefined, ['sending'])
+    return this.updateSessionPendingMessageStatus(id, 'sent', undefined, ['pending', 'sending'])
   }
 
   restoreSessionPendingMessage(id: string, error?: string): SessionPendingMessage | null {

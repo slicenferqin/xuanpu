@@ -673,8 +673,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
             wp,
             sid,
             messageParts ?? message.content,
-            requestModel,
-            promptOptions
+            message.model ?? requestModel,
+            message.promptOptions ?? promptOptions
           )
         },
         worktreePath,
@@ -1331,6 +1331,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           sessionId: droidSessionId,
           queueSessionId: sessionId,
           runtimeId: agentSdk ?? undefined,
+          model: requestModel,
+          promptOptions,
           prompt: async (wp, sid, c) => {
             let messageParts: MessagePart[] | undefined
             if (attachments.length > 0) {
@@ -1457,6 +1459,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           sessionId: droidSessionId,
           queueSessionId: sessionId,
           runtimeId: agentSdk ?? undefined,
+          model: requestModel,
+          promptOptions,
           prompt: (wp, sid, content) =>
             window.agentOps.prompt(wp, sid, content, requestModel, promptOptions),
           abort: (wp, sid) => window.agentOps.abort(wp, sid),
@@ -1651,6 +1655,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         sessionId: droidSessionId,
         queueSessionId: sessionId,
         runtimeId: agentSdk ?? undefined,
+        model: requestModel,
+        promptOptions,
         prompt: (wp, sid, c) => window.agentOps.prompt(wp, sid, c, requestModel, promptOptions),
         abort: (wp, sid) => window.agentOps.abort(wp, sid),
         queueMessage: (sid, msg) => useSessionRuntimeStore.getState().queueMessage(sid, msg)

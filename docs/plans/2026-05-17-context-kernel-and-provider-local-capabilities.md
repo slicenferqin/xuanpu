@@ -1,9 +1,9 @@
 # Xuanpu — Context Kernel + Provider-local Model Capabilities
 
-**Date**: 2026-05-17  
-**Status**: Draft  
-**Target window**: v1.5.x / v1.6.x  
-**Scope**: Context package, capability-aware model fit, explainable prompt injection  
+**Date**: 2026-05-17
+**Status**: Draft
+**Target window**: v1.5.x / v1.6.x
+**Scope**: Context package, capability-aware model fit, explainable prompt injection
 
 ---
 
@@ -677,4 +677,3 @@ Context tab：
 一句话目标：
 
 > 让玄圃从“会注入现场”升级为“会解释、预算和校验现场”。
-

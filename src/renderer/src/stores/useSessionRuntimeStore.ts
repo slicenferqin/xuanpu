@@ -39,6 +39,18 @@ export interface InterruptItem {
 /** A message queued while the agent is busy (Phase 5 — composer state machine) */
 export type PendingMessageStatus = 'pending' | 'sending'
 
+export interface PendingMessagePromptOptions {
+  mode?: 'build' | 'plan'
+  goalMode?: boolean
+  successCriteria?: string
+}
+
+export interface PendingMessageModelSnapshot {
+  providerID: string
+  modelID: string
+  variant?: string
+}
+
 export interface PendingMessage {
   id: string
   content: string
@@ -48,6 +60,8 @@ export interface PendingMessage {
   status: PendingMessageStatus
   runtimeId?: SharedAgentRuntimeId
   agentSessionId?: string | null
+  promptOptions?: PendingMessagePromptOptions
+  model?: PendingMessageModelSnapshot | null
   sendingAt?: number
   lastError?: string
 }
@@ -62,6 +76,8 @@ interface DurablePendingMessageRow {
   status: DurablePendingMessageStatus
   content: string
   attachments_json: string | null
+  prompt_options_json: string | null
+  model_json: string | null
   enqueued_at: number
   updated_at: number
   error: string | null
@@ -838,6 +854,29 @@ function parsePendingAttachments(raw: string | null): PendingMessage['attachment
   }
 }
 
+function parsePendingPromptOptions(raw: string | null): PendingMessage['promptOptions'] {
+  if (!raw) return undefined
+  try {
+    const parsed = JSON.parse(raw) as PendingMessagePromptOptions
+    if (!parsed || typeof parsed !== 'object') return undefined
+    return parsed
+  } catch {
+    return undefined
+  }
+}
+
+function parsePendingModel(raw: string | null): PendingMessage['model'] {
+  if (!raw) return undefined
+  try {
+    const parsed = JSON.parse(raw) as PendingMessageModelSnapshot
+    if (!parsed || typeof parsed !== 'object') return undefined
+    if (typeof parsed.providerID !== 'string' || typeof parsed.modelID !== 'string') return undefined
+    return parsed
+  } catch {
+    return undefined
+  }
+}
+
 function mapDurablePendingMessage(row: DurablePendingMessageRow): PendingMessage {
   return {
     id: row.id,
@@ -847,12 +886,23 @@ function mapDurablePendingMessage(row: DurablePendingMessageRow): PendingMessage
     status: row.status === 'sending' ? 'sending' : 'pending',
     runtimeId: row.runtime_id,
     agentSessionId: row.agent_session_id,
+    promptOptions: parsePendingPromptOptions(row.prompt_options_json),
+    model: parsePendingModel(row.model_json),
     sendingAt: row.status === 'sending' ? row.updated_at : undefined,
     lastError: row.error ?? undefined
   }
 }
 
-function persistPendingMessageCreate(sessionId: string, message: PendingMessage): void {
+function stringifyPendingJson(value: unknown): string | null {
+  if (value == null) return null
+  return JSON.stringify(value)
+}
+
+function persistPendingMessageCreate(
+  sessionId: string,
+  message: PendingMessage,
+  onFailure?: (error: unknown) => void
+): void {
   const api = getDurablePendingMessageApi()
   if (!api) return
 
@@ -864,9 +914,14 @@ function persistPendingMessageCreate(sessionId: string, message: PendingMessage)
       runtime_id: message.runtimeId ?? 'opencode',
       content: message.content,
       attachments_json: JSON.stringify(message.attachments ?? []),
+      prompt_options_json: stringifyPendingJson(message.promptOptions),
+      model_json: stringifyPendingJson(message.model),
       enqueued_at: message.queuedAt
     })
-    .catch((error) => warnDurablePendingFailure('create', error))
+    .catch((error) => {
+      warnDurablePendingFailure('create', error)
+      onFailure?.(error)
+    })
 }
 
 function persistPendingMessageClaim(message: PendingMessage): void {
@@ -1191,7 +1246,21 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
       pending.set(sessionId, queue)
       return { pendingMessages: pending }
     })
-    persistPendingMessageCreate(sessionId, queuedMessage)
+    persistPendingMessageCreate(sessionId, queuedMessage, () => {
+      set((state) => {
+        const queue = state.pendingMessages.get(sessionId)
+        if (!queue?.some((message) => message.id === queuedMessage.id)) return state
+        const nextQueue = queue.filter((message) => message.id !== queuedMessage.id)
+        const pending = new Map(state.pendingMessages)
+        if (nextQueue.length === 0) {
+          pending.delete(sessionId)
+        } else {
+          pending.set(sessionId, nextQueue)
+        }
+        return { pendingMessages: pending }
+      })
+      syncQueuedState(sessionId, get().pendingMessages.get(sessionId)?.length ? true : false)
+    })
     syncQueuedState(sessionId, true)
   },
 

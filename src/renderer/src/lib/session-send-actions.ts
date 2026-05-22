@@ -176,7 +176,7 @@ export function createPendingMessage(
     mime: string
     [k: string]: unknown
   }> = [],
-  options: Pick<PendingMessage, 'runtimeId' | 'agentSessionId'> = {}
+  options: Pick<PendingMessage, 'runtimeId' | 'agentSessionId' | 'promptOptions' | 'model'> = {}
 ): PendingMessage {
   return {
     id: `pending-${_nextPendingId++}`,
@@ -185,7 +185,9 @@ export function createPendingMessage(
     queuedAt: Date.now(),
     status: 'pending',
     runtimeId: options.runtimeId,
-    agentSessionId: options.agentSessionId
+    agentSessionId: options.agentSessionId,
+    promptOptions: options.promptOptions,
+    model: options.model
   }
 }
 
@@ -226,6 +228,10 @@ export interface SendContext {
   waitForAbortReady?: () => Promise<void>
   /** Runtime used to persist durable queued-message metadata. */
   runtimeId?: PendingMessage['runtimeId']
+  /** Prompt options captured when the user queued the message. */
+  promptOptions?: PendingMessage['promptOptions']
+  /** Model captured when the user queued the message. */
+  model?: PendingMessage['model']
   /** Store: enqueue a pending message */
   queueMessage: (sessionId: string, message: PendingMessage) => void
 }
@@ -274,7 +280,9 @@ export async function executeSendAction(
     case 'queue': {
       const msg = createPendingMessage(content, attachments, {
         runtimeId: ctx.runtimeId,
-        agentSessionId: ctx.sessionId
+        agentSessionId: ctx.sessionId,
+        promptOptions: ctx.promptOptions,
+        model: ctx.model
       })
       ctx.queueMessage(ctx.queueSessionId ?? ctx.sessionId, msg)
       return true
