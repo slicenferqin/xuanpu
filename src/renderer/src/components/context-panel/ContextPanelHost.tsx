@@ -1,43 +1,32 @@
-import React, { useEffect, useMemo, useState } from 'react'
-import { BarChart3, Files, GitPullRequest, ListTodo, Target, X } from 'lucide-react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { BarChart3, Files, GitPullRequest, ListTodo, SquareTerminal, Target } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/i18n/useI18n'
-import { useLayoutStore, type RightContextTab, type RightReviewTab } from '@/stores/useLayoutStore'
+import { useLayoutStore, type RightContextTab } from '@/stores/useLayoutStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
-import { useWorktreeStore } from '@/stores/useWorktreeStore'
-import { useGitStore } from '@/stores/useGitStore'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useSessionRuntimeStore } from '@/stores/useSessionRuntimeStore'
-import { useContextStore, type SessionContextUsage } from '@/stores/useContextStore'
+import { useContextStore } from '@/stores/useContextStore'
 import { FileTree } from '@/components/file-tree/FileTree'
-import { ChangesView } from '@/components/file-tree/ChangesView'
-import { BranchDiffView } from '@/components/file-tree/BranchDiffView'
-import { DiffCommentsViewer } from '@/components/diff-comments/DiffCommentsViewer'
-import { PrReviewViewer } from '@/components/pr-review/PrReviewViewer'
+import {
+  ReviewWorkflowPanel,
+  type ConnectionMemberInfo
+} from '@/components/context-panel/ReviewWorkflowPanel'
 import { GoalStatusCard } from '@/components/session-hq/cards/GoalStatusCard'
 import { TodoCard } from '@/components/session-hq/cards/TodoCard'
 import { extractMissionTasks, type SessionTask } from '@/lib/session-tasks'
 import type { UsageAnalyticsSessionSummary } from '@shared/types/usage-analytics'
 
-interface ConnectionMemberInfo {
-  worktree_path: string
-  project_name: string
-  worktree_branch: string
-}
-
 interface ContextPanelHostProps {
   worktreePath: string | null
+  scopeId?: string | null
   isConnectionMode?: boolean
   connectionMembers?: ConnectionMemberInfo[]
   onClose: () => void
   onFileClick: (node: { path: string; name: string; isDirectory: boolean }) => void
+  terminalPanel?: React.ReactNode
   className?: string
-}
-
-interface ContextMetric {
-  label: string
-  value: string
-  muted?: string
 }
 
 const CONTEXT_TABS: Array<{
@@ -49,14 +38,10 @@ const CONTEXT_TABS: Array<{
   { id: 'review', icon: GitPullRequest, labelKey: 'contextPanel.tabs.review' },
   { id: 'files', icon: Files, labelKey: 'contextPanel.tabs.files' },
   { id: 'tasks', icon: ListTodo, labelKey: 'contextPanel.tabs.tasks' },
-  { id: 'goal', icon: Target, labelKey: 'contextPanel.tabs.goal' }
+  { id: 'goal', icon: Target, labelKey: 'contextPanel.tabs.goal' },
+  { id: 'terminal', icon: SquareTerminal, labelKey: 'bottomPanel.tabs.terminal' }
 ]
 
-const REVIEW_TABS: Array<{ id: RightReviewTab; labelKey: string }> = [
-  { id: 'changes', labelKey: 'fileTree.sidebar.changes' },
-  { id: 'diffs', labelKey: 'fileTree.sidebar.diffs' },
-  { id: 'comments', labelKey: 'fileTree.sidebar.comments' }
-]
 const EMPTY_TASKS: SessionTask[] = []
 
 function formatCompactNumber(value: number): string {
@@ -70,6 +55,11 @@ function formatCost(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return '$0'
   if (value < 0.01) return `$${value.toFixed(4)}`
   return `$${value.toFixed(2)}`
+}
+
+function idsEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false
+  return a.every((id, index) => id === b[index])
 }
 
 function EmptyPanel({
@@ -89,32 +79,84 @@ function EmptyPanel({
   )
 }
 
-function MetricCard({ metric }: { metric: ContextMetric }): React.JSX.Element {
+function OverviewTokenRow({
+  label,
+  amount,
+  value,
+  max,
+  tone = 'default'
+}: {
+  label: string
+  amount: number
+  value: string
+  max: number
+  tone?: 'mint' | 'lavender' | 'muted'
+}): React.JSX.Element {
+  const percent =
+    max > 0 && Number.isFinite(amount) && amount > 0 ? Math.max(3, (amount / max) * 100) : 0
+
   return (
-    <div className="rounded-lg border border-sidebar-border/70 bg-sidebar-accent/25 px-3 py-2.5">
-      <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-        {metric.label}
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0 truncate text-[11px] font-medium text-muted-foreground">
+          {label}
+        </div>
+        <div
+          className={cn(
+            'shrink-0 font-mono text-xs font-medium tabular-nums',
+            tone === 'muted' ? 'text-muted-foreground/80' : 'text-steel'
+          )}
+        >
+          {value}
+        </div>
       </div>
-      <div className="mt-1 text-lg font-semibold tabular-nums text-sidebar-foreground">
-        {metric.value}
+      <div className="h-1.5 overflow-hidden rounded-full bg-neon-mint-soft/80">
+        <div
+          className={cn(
+            'h-full rounded-full',
+            tone === 'mint'
+              ? 'bg-neon-mint'
+              : tone === 'lavender'
+                ? 'bg-neon-violet/75'
+                : 'bg-steel/25'
+          )}
+          style={{ width: `${Math.min(percent, 100)}%` }}
+        />
       </div>
-      {metric.muted && (
-        <div className="mt-0.5 text-[11px] text-muted-foreground">{metric.muted}</div>
-      )}
     </div>
   )
 }
 
-function findSessionById(state: ReturnType<typeof useSessionStore.getState>, sessionId: string) {
-  for (const sessions of state.sessionsByWorktree.values()) {
-    const match = sessions.find((session) => session.id === sessionId)
-    if (match) return match
-  }
-  for (const sessions of state.sessionsByConnection.values()) {
-    const match = sessions.find((session) => session.id === sessionId)
-    if (match) return match
-  }
-  return null
+function OverviewHeroMetric({
+  label,
+  value,
+  tone = 'default'
+}: {
+  label: string
+  value: string
+  tone?: 'default' | 'cost' | 'tokens'
+}): React.JSX.Element {
+  return (
+    <div className="relative flex min-w-0 flex-col gap-1 overflow-hidden rounded-[10px] border border-sidebar-border bg-agent-card px-3.5 py-2">
+      <div
+        className={cn(
+          'absolute left-0 right-0 top-0 h-0.5',
+          tone === 'cost' ? 'bg-neon-pink' : tone === 'tokens' ? 'bg-neon-mint' : 'bg-tech-blue'
+        )}
+      />
+      <div className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/85">
+        {label}
+      </div>
+      <div
+        className={cn(
+          'shrink-0 whitespace-nowrap font-mono text-[24px] font-semibold leading-none tabular-nums tracking-tight',
+          tone === 'cost' ? 'text-neon-pink' : tone === 'tokens' ? 'text-neon-mint' : 'text-ink'
+        )}
+      >
+        {value}
+      </div>
+    </div>
+  )
 }
 
 function getGoalSignature(goal: {
@@ -171,114 +213,216 @@ function useSessionTasks(activeSessionId: string | null): SessionTask[] {
 }
 
 function OverviewPanel({
-  activeSessionId,
+  sessionIds,
   worktreePath,
-  usage
+  scopeLabel
 }: {
-  activeSessionId: string | null
+  sessionIds: string[]
   worktreePath: string | null
-  usage: SessionContextUsage | null
+  scopeLabel: string
 }): React.JSX.Element {
   const { t } = useI18n()
-  const [summary, setSummary] = useState<UsageAnalyticsSessionSummary | null>(null)
+  const sessionIdsKey = sessionIds.join('|')
+  const [summaryBySession, setSummaryBySession] = useState<
+    Record<string, UsageAnalyticsSessionSummary>
+  >({})
+  const summaryBySessionRef = useRef(summaryBySession)
   const activityTick = useSessionRuntimeStore((state) =>
-    activeSessionId ? state.getSession(activeSessionId).lastActivityAt : 0
+    sessionIds.map((sessionId) => state.sessions.get(sessionId)?.lastActivityAt ?? 0).join('|')
   )
+  const { tokensBySession, costBySession } = useContextStore(
+    useShallow((state) => ({
+      tokensBySession: state.tokensBySession,
+      costBySession: state.costBySession
+    }))
+  )
+
+  useEffect(() => {
+    summaryBySessionRef.current = summaryBySession
+  }, [summaryBySession])
 
   useEffect(() => {
     let cancelled = false
 
-    if (!activeSessionId || !window.usageAnalyticsOps?.fetchSessionSummary) {
-      setSummary(null)
+    if (sessionIds.length === 0 || !window.usageAnalyticsOps?.fetchSessionSummary) {
+      setSummaryBySession({})
       return () => {
         cancelled = true
       }
     }
 
-    window.usageAnalyticsOps
-      .fetchSessionSummary(activeSessionId)
-      .then((result) => {
-        if (cancelled) return
-        const nextSummary = result.success && result.data ? result.data : null
-        setSummary(nextSummary)
-        if (nextSummary && nextSummary.total_cost > 0) {
-          const store = useContextStore.getState()
-          if ((store.costBySession[activeSessionId] ?? 0) < nextSummary.total_cost) {
-            store.setSessionCost(activeSessionId, nextSummary.total_cost)
-          }
+    Promise.all(
+      sessionIds.map(async (sessionId) => {
+        try {
+          const result = await window.usageAnalyticsOps.fetchSessionSummary(sessionId)
+          if (!result.success || !result.data) return null
+          return [sessionId, result.data] as const
+        } catch {
+          return null
         }
       })
+    )
+      .then((entries) => {
+        if (cancelled) return
+
+        const next: Record<string, UsageAnalyticsSessionSummary> = {}
+        const store = useContextStore.getState()
+        for (const entry of entries) {
+          if (!entry) continue
+          const [sessionId, summary] = entry
+          next[sessionId] = summary
+          if (
+            summary.total_cost > 0 &&
+            (store.costBySession[sessionId] ?? 0) < summary.total_cost
+          ) {
+            store.setSessionCost(sessionId, summary.total_cost)
+          }
+        }
+        if (
+          Object.keys(next).length === 0 &&
+          Object.keys(summaryBySessionRef.current).length === 0
+        ) {
+          return
+        }
+        setSummaryBySession(next)
+      })
       .catch(() => {
-        if (!cancelled) setSummary(null)
+        if (!cancelled) setSummaryBySession({})
       })
 
     return () => {
       cancelled = true
     }
-  }, [activeSessionId, activityTick])
+  }, [activityTick, sessionIds, sessionIdsKey])
 
-  if (!activeSessionId) {
+  if (!worktreePath && sessionIds.length === 0) {
     return (
       <EmptyPanel
-        title={t('contextPanel.empty.noSessionTitle')}
+        title={t('contextPanel.empty.noWorktree')}
         description={t('contextPanel.empty.noSessionDescription')}
       />
     )
   }
 
-  const tokens = usage?.tokens
-  const liveTotalTokens = tokens
-    ? tokens.input + tokens.output + tokens.reasoning + tokens.cacheRead + tokens.cacheWrite
-    : 0
-  const totalCost = Math.max(summary?.total_cost ?? 0, usage?.cost ?? 0)
-  const totalTokens =
-    summary?.total_tokens && summary.total_tokens > 0 ? summary.total_tokens : liveTotalTokens
-  const inputTokens = summary?.input_tokens ?? tokens?.input ?? 0
-  const outputTokens = summary?.output_tokens ?? tokens?.output ?? 0
-  const cacheReadTokens = summary?.cache_read_tokens ?? tokens?.cacheRead ?? 0
-  const cacheWriteTokens = summary?.cache_write_tokens ?? tokens?.cacheWrite ?? 0
-  const metrics: ContextMetric[] = [
-    {
-      label: t('contextPanel.overview.cost'),
-      value: formatCost(totalCost)
+  const totals = sessionIds.reduce(
+    (acc, sessionId) => {
+      const summary = summaryBySession[sessionId]
+      const tokens = tokensBySession[sessionId]
+      const liveTotalTokens = tokens
+        ? tokens.input + tokens.output + tokens.reasoning + tokens.cacheRead + tokens.cacheWrite
+        : 0
+
+      acc.totalCost += Math.max(summary?.total_cost ?? 0, costBySession[sessionId] ?? 0)
+      acc.totalTokens += Math.max(summary?.total_tokens ?? 0, liveTotalTokens)
+      acc.inputTokens += Math.max(summary?.input_tokens ?? 0, tokens?.input ?? 0)
+      acc.outputTokens += Math.max(summary?.output_tokens ?? 0, tokens?.output ?? 0)
+      acc.cacheReadTokens += Math.max(summary?.cache_read_tokens ?? 0, tokens?.cacheRead ?? 0)
+      acc.cacheWriteTokens += Math.max(summary?.cache_write_tokens ?? 0, tokens?.cacheWrite ?? 0)
+      return acc
     },
     {
-      label: t('contextPanel.overview.tokens'),
-      value: formatCompactNumber(totalTokens),
-      muted:
-        usage?.limit && usage.limit > 0
-          ? t('contextPanel.overview.contextLimit', {
-              used: formatCompactNumber(usage.used),
-              limit: formatCompactNumber(usage.limit)
-            })
-          : undefined
-    },
+      totalCost: 0,
+      totalTokens: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0
+    }
+  )
+  const maxTokenSlice = Math.max(
+    totals.inputTokens,
+    totals.outputTokens,
+    totals.cacheReadTokens,
+    totals.cacheWriteTokens,
+    1
+  )
+  const tokenRows = [
     {
       label: t('contextPanel.overview.input'),
-      value: formatCompactNumber(inputTokens),
-      muted: `${t('contextPanel.overview.output')} ${formatCompactNumber(outputTokens)}`
+      amount: totals.inputTokens,
+      tone: 'mint' as const
+    },
+    {
+      label: t('contextPanel.overview.output'),
+      amount: totals.outputTokens,
+      tone: 'lavender' as const
     },
     {
       label: t('contextPanel.overview.cacheRead'),
-      value: formatCompactNumber(cacheReadTokens),
-      muted: `${t('contextPanel.overview.cacheWrite')} ${formatCompactNumber(cacheWriteTokens)}`
+      amount: totals.cacheReadTokens,
+      tone: 'muted' as const
+    },
+    {
+      label: t('contextPanel.overview.cacheWrite'),
+      amount: totals.cacheWriteTokens,
+      tone: 'muted' as const
     }
   ]
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto p-3" data-testid="context-panel-overview">
-      <div className="grid grid-cols-2 gap-2">
-        {metrics.map((metric) => (
-          <MetricCard key={metric.label} metric={metric} />
-        ))}
-      </div>
-      <div className="mt-3 rounded-lg border border-sidebar-border/70 bg-sidebar-accent/20 px-3 py-2.5">
-        <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          {t('contextPanel.overview.worktree')}
-        </div>
-        <div className="mt-1 truncate font-mono text-xs text-sidebar-foreground">
-          {worktreePath ?? t('contextPanel.empty.noWorktree')}
-        </div>
+    <div className="min-h-0 flex-1 overflow-auto px-2.5 py-3" data-testid="context-panel-overview">
+      <div className="space-y-2.5">
+        <section className="crisp-floating-surface relative overflow-hidden rounded-xl p-3">
+          <div className="pointer-events-none absolute -right-12 -top-12 h-28 w-28 rounded-full bg-tech-blue-soft blur-2xl" />
+          <div className="relative min-w-0">
+            <div className="min-w-0">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-steel">
+                {scopeLabel} · {t('contextPanel.tabs.overview')}
+              </div>
+              <div className="mt-1.5 truncate text-[11px] text-muted-foreground">
+                {t('contextPanel.overview.sessionCount', {
+                  count: sessionIds.length,
+                  scope: scopeLabel
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div className="relative mt-3 space-y-1.5">
+            <OverviewHeroMetric
+              label={t('contextPanel.overview.cost')}
+              value={formatCost(totals.totalCost)}
+              tone="cost"
+            />
+            <OverviewHeroMetric
+              label={t('contextPanel.overview.tokens')}
+              value={formatCompactNumber(totals.totalTokens)}
+              tone="tokens"
+            />
+          </div>
+        </section>
+
+        <section className="crisp-panel-surface rounded-xl p-3">
+          <div className="mb-2.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+            {t('contextPanel.overview.tokens')}
+          </div>
+          <div className="space-y-2.5">
+            {tokenRows.map((row) => (
+              <OverviewTokenRow
+                key={row.label}
+                label={row.label}
+                amount={row.amount}
+                value={formatCompactNumber(row.amount)}
+                max={maxTokenSlice}
+                tone={row.tone}
+              />
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-sidebar-border bg-agent-card px-3 py-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              {scopeLabel}
+            </div>
+            <div className="text-[10px] font-medium text-muted-foreground">
+              {t('contextPanel.overview.sessions')}: {formatCompactNumber(sessionIds.length)}
+            </div>
+          </div>
+          <div className="mt-1.5 break-all font-mono text-[11px] leading-relaxed text-steel">
+            {worktreePath ?? t('contextPanel.empty.noWorktree')}
+          </div>
+        </section>
       </div>
     </div>
   )
@@ -358,80 +502,6 @@ function TasksPanel({ activeSessionId }: { activeSessionId: string | null }): Re
   )
 }
 
-function ReviewPanel({
-  worktreePath,
-  isConnectionMode,
-  connectionMembers
-}: Pick<
-  ContextPanelHostProps,
-  'worktreePath' | 'isConnectionMode' | 'connectionMembers'
->): React.JSX.Element {
-  const { t } = useI18n()
-  const selectedWorktreeId = useWorktreeStore((s) => s.selectedWorktreeId)
-  const activeReviewTab = useLayoutStore((s) => s.rightReviewTab)
-  const setRightReviewTab = useLayoutStore((s) => s.setRightReviewTab)
-  const hasAttachedPR = useGitStore(
-    (s) => !!(selectedWorktreeId && s.attachedPR.get(selectedWorktreeId))
-  )
-  const effectiveReviewTab =
-    !selectedWorktreeId && activeReviewTab === 'comments' ? 'changes' : activeReviewTab
-
-  useEffect(() => {
-    if (!selectedWorktreeId && activeReviewTab === 'comments') {
-      setRightReviewTab('changes')
-    }
-  }, [activeReviewTab, selectedWorktreeId, setRightReviewTab])
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col" data-testid="context-panel-review">
-      <div className="border-b border-sidebar-border/60 px-2.5 py-2">
-        <div className="inline-flex min-w-max items-center gap-1 rounded-lg bg-sidebar-accent/40 p-0.5">
-          {REVIEW_TABS.map((tab) => {
-            if (tab.id === 'comments' && !selectedWorktreeId) return null
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                className={cn(
-                  'shrink-0 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-colors',
-                  effectiveReviewTab === tab.id
-                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                    : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground'
-                )}
-                onClick={() => setRightReviewTab(tab.id)}
-                data-testid={`context-panel-review-${tab.id}`}
-              >
-                {t(tab.labelKey)}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        {effectiveReviewTab === 'comments' && selectedWorktreeId ? (
-          <div className="flex min-h-0 flex-1 flex-col">
-            <DiffCommentsViewer
-              worktreeId={selectedWorktreeId}
-              worktreePath={worktreePath}
-              compact={hasAttachedPR}
-            />
-            {hasAttachedPR && <PrReviewViewer worktreeId={selectedWorktreeId} />}
-          </div>
-        ) : effectiveReviewTab === 'diffs' ? (
-          <BranchDiffView worktreePath={worktreePath} />
-        ) : (
-          <ChangesView
-            worktreePath={worktreePath}
-            isConnectionMode={isConnectionMode}
-            connectionMembers={connectionMembers}
-          />
-        )}
-      </div>
-    </div>
-  )
-}
-
 function FilesPanel({
   worktreePath,
   isConnectionMode,
@@ -456,10 +526,12 @@ function FilesPanel({
 
 export function ContextPanelHost({
   worktreePath,
+  scopeId,
   isConnectionMode,
   connectionMembers,
   onClose,
   onFileClick,
+  terminalPanel,
   className
 }: ContextPanelHostProps): React.JSX.Element {
   const { t } = useI18n()
@@ -468,18 +540,73 @@ export function ContextPanelHost({
   const setRightReviewTab = useLayoutStore((s) => s.setRightReviewTab)
   const vimModeEnabled = useSettingsStore((s) => s.vimModeEnabled)
   const activeSessionId = useSessionStore((s) => s.inlineConnectionSessionId ?? s.activeSessionId)
-  const activeSession = useSessionStore((s) => {
-    const sessionId = s.inlineConnectionSessionId ?? s.activeSessionId
-    return sessionId ? findSessionById(s, sessionId) : null
-  })
-  const contextState = useContextStore()
-  const usage = activeSessionId
-    ? contextState.getContextUsage(
-        activeSessionId,
-        activeSession?.model_id ?? '',
-        activeSession?.model_provider_id ?? undefined
-      )
-    : null
+  const fallbackOverviewScopeId = useSessionStore((s) =>
+    isConnectionMode ? s.activeConnectionId : s.activeWorktreeId
+  )
+  const overviewScopeId = scopeId ?? fallbackOverviewScopeId
+  const cachedOverviewSessionIds = useSessionStore(
+    useShallow((s) => {
+      const sessions = overviewScopeId
+        ? isConnectionMode
+          ? (s.sessionsByConnection.get(overviewScopeId) ?? [])
+          : (s.sessionsByWorktree.get(overviewScopeId) ?? [])
+        : []
+      const ids = sessions.map((session) => session.id)
+      if (ids.length > 0) return ids
+      return activeSessionId ? [activeSessionId] : []
+    })
+  )
+  const cachedOverviewSessionIdsKey = cachedOverviewSessionIds.join('|')
+  const [overviewSessionIds, setOverviewSessionIds] = useState<string[]>(cachedOverviewSessionIds)
+  const tabs = useMemo(
+    () => (terminalPanel ? CONTEXT_TABS : CONTEXT_TABS.filter((tab) => tab.id !== 'terminal')),
+    [terminalPanel]
+  )
+  const overviewScopeLabel = isConnectionMode
+    ? t('contextPanel.overview.connection')
+    : t('contextPanel.overview.worktree')
+
+  useEffect(() => {
+    let cancelled = false
+
+    setOverviewSessionIds((current) =>
+      idsEqual(current, cachedOverviewSessionIds) ? current : cachedOverviewSessionIds
+    )
+
+    if (!overviewScopeId || !window.db?.session) {
+      return () => {
+        cancelled = true
+      }
+    }
+
+    const loadSessions = isConnectionMode
+      ? window.db.session.getByConnection
+      : window.db.session.getByWorktree
+
+    loadSessions(overviewScopeId)
+      .then((sessions) => {
+        if (cancelled) return
+        const ids = sessions.map((session) => session.id)
+        const nextIds = ids.length > 0 ? ids : cachedOverviewSessionIds
+        setOverviewSessionIds((current) => (idsEqual(current, nextIds) ? current : nextIds))
+      })
+      .catch(() => {
+        if (cancelled) return
+        setOverviewSessionIds((current) =>
+          idsEqual(current, cachedOverviewSessionIds) ? current : cachedOverviewSessionIds
+        )
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [cachedOverviewSessionIds, cachedOverviewSessionIdsKey, isConnectionMode, overviewScopeId])
+
+  useEffect(() => {
+    if (activeTab === 'terminal' && !terminalPanel) {
+      setRightContextTab('overview')
+    }
+  }, [activeTab, setRightContextTab, terminalPanel])
 
   useEffect(() => {
     const handler = (event: Event): void => {
@@ -489,6 +616,10 @@ export function ContextPanelHost({
         setRightContextTab('files')
         return
       }
+      if (tab === 'terminal' && terminalPanel) {
+        setRightContextTab('terminal')
+        return
+      }
       if (tab === 'changes' || tab === 'diffs' || tab === 'comments') {
         setRightContextTab('review')
         setRightReviewTab(tab)
@@ -496,21 +627,23 @@ export function ContextPanelHost({
     }
     window.addEventListener('hive:right-sidebar-tab', handler)
     return () => window.removeEventListener('hive:right-sidebar-tab', handler)
-  }, [setRightContextTab, setRightReviewTab, vimModeEnabled])
+  }, [setRightContextTab, setRightReviewTab, terminalPanel, vimModeEnabled])
 
-  const content = useMemo(() => {
+  const mainContent = useMemo(() => {
     switch (activeTab) {
+      case 'terminal':
+        return null
       case 'overview':
         return (
           <OverviewPanel
-            activeSessionId={activeSessionId}
+            sessionIds={overviewSessionIds}
             worktreePath={worktreePath}
-            usage={usage}
+            scopeLabel={overviewScopeLabel}
           />
         )
       case 'review':
         return (
-          <ReviewPanel
+          <ReviewWorkflowPanel
             worktreePath={worktreePath}
             isConnectionMode={isConnectionMode}
             connectionMembers={connectionMembers}
@@ -537,50 +670,75 @@ export function ContextPanelHost({
     isConnectionMode,
     onClose,
     onFileClick,
-    usage,
+    overviewScopeLabel,
+    overviewSessionIds,
     worktreePath
   ])
 
   return (
-    <div
-      className={cn('flex h-full flex-col bg-transparent', className)}
-      data-testid="context-panel-host"
-    >
-      <div className="flex items-center gap-2 border-b border-sidebar-border/60 px-2.5 py-2">
-        <div className="min-w-0 flex-1 overflow-x-auto">
-          <div className="inline-flex min-w-max items-center gap-1 rounded-lg bg-sidebar-accent/40 p-0.5">
-            {CONTEXT_TABS.map((tab) => {
-              const Icon = tab.icon
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  className={cn(
-                    'inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-colors',
-                    activeTab === tab.id
-                      ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                      : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground'
-                  )}
-                  onClick={() => setRightContextTab(tab.id)}
-                  data-testid={`context-panel-tab-${tab.id}`}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {t(tab.labelKey)}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="ml-auto rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
-          aria-label={t('fileTree.sidebar.closeSidebar')}
+    <div className={cn('flex h-full bg-transparent', className)} data-testid="context-panel-host">
+      <div
+        className="flex min-w-0 flex-1 flex-col overflow-hidden bg-transparent"
+        data-testid="context-panel-content"
+      >
+        <div
+          className={cn(
+            'min-h-0 flex-1 flex-col overflow-hidden',
+            activeTab === 'terminal' ? 'hidden' : 'flex'
+          )}
+          data-testid="context-panel-main-content"
+          aria-hidden={activeTab === 'terminal'}
         >
-          <X className="h-3.5 w-3.5" />
-        </button>
+          {mainContent}
+        </div>
+
+        {terminalPanel && (
+          <div
+            className={cn(
+              'min-h-0 flex-1 flex-col overflow-hidden',
+              activeTab === 'terminal' ? 'flex' : 'hidden'
+            )}
+            data-testid="context-panel-terminal-content"
+            aria-hidden={activeTab !== 'terminal'}
+          >
+            {terminalPanel}
+          </div>
+        )}
       </div>
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-transparent">{content}</div>
+
+      <div
+        className="flex w-12 shrink-0 flex-col items-center border-l border-sidebar-border/35 bg-agent-canvas/45 px-1.5 py-2 backdrop-blur-sm dark:bg-agent-canvas/70"
+        data-testid="context-panel-rail"
+      >
+        <div className="flex flex-col items-center gap-1 rounded-xl border border-sidebar-border/70 bg-agent-card/80 p-1 dark:border-sidebar-border/45 dark:bg-agent-card/40">
+          {tabs.map((tab) => {
+            const Icon = tab.icon
+            const label = t(tab.labelKey)
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                className={cn(
+                  'relative flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors',
+                  activeTab === tab.id
+                    ? 'bg-tech-blue-soft text-tech-blue shadow-sm ring-1 ring-tech-blue/20 dark:bg-tech-blue-soft/70 dark:ring-tech-blue/15'
+                    : 'hover:bg-agent-hover/70 hover:text-sidebar-accent-foreground dark:hover:bg-agent-hover/45'
+                )}
+                onClick={() => setRightContextTab(tab.id)}
+                data-testid={`context-panel-tab-${tab.id}`}
+                data-active={activeTab === tab.id}
+                aria-label={label}
+                title={label}
+              >
+                {activeTab === tab.id && (
+                  <span className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full bg-primary" />
+                )}
+                <Icon className="h-4 w-4" />
+              </button>
+            )
+          })}
+        </div>
+      </div>
     </div>
   )
 }

@@ -1,32 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { isMac } from '@/lib/platform'
 import {
   PanelRightClose,
   PanelRightOpen,
-  History,
   Settings,
   AlertTriangle,
   Loader2,
-  GitPullRequest,
-  GitMerge,
-  Archive,
-  ChevronDown,
-  FileSearch,
-  X,
-  Coffee
+  Zap
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem
-} from '@/components/ui/dropdown-menu'
-import { Popover, PopoverTrigger, PopoverContent, PopoverAnchor } from '@/components/ui/popover'
-import { toast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 import { useLayoutStore } from '@/stores/useLayoutStore'
-import { useSessionHistoryStore } from '@/stores/useSessionHistoryStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useProjectStore } from '@/stores/useProjectStore'
 import { useWorktreeStore } from '@/stores/useWorktreeStore'
@@ -35,6 +20,11 @@ import { useSessionStore } from '@/stores/useSessionStore'
 import { useGitStore } from '@/stores/useGitStore'
 import { useWorktreeStatusStore } from '@/stores/useWorktreeStatusStore'
 import { useVimModeStore } from '@/stores/useVimModeStore'
+import { useContextStore } from '@/stores/useContextStore'
+import { useSessionRuntimeStore, type SessionLifecycle } from '@/stores/useSessionRuntimeStore'
+import { ModelSelector } from '@/components/sessions/ModelSelector'
+import { SessionTabs } from '@/components/sessions/SessionTabs'
+import { ErrorBoundary } from '@/components/error'
 
 import { usePRDetection } from '@/hooks/usePRDetection'
 import appLogo from '@/assets/icon.png'
@@ -66,9 +56,188 @@ function isConflictFixActiveStatus(status: string | null): boolean {
   )
 }
 
+type HeaderSessionGlanceSession = {
+  id: string
+  name: string | null
+  agent_sdk: string
+  model_id: string | null
+  model_provider_id: string | null
+}
+
+type HeaderContextMeter = {
+  percent: number | null
+  used: number
+  limit: number | null
+  isRefreshing: boolean
+}
+
+const HEADER_PROVIDER_LABELS: Record<string, string> = {
+  'claude-code': 'Claude',
+  opencode: 'OpenCode',
+  codex: 'Codex'
+}
+
+const HEADER_LIFECYCLE_DOT: Record<SessionLifecycle, string> = {
+  idle: 'bg-muted-foreground/45',
+  busy: 'bg-neon-mint crisp-status-dot animate-pulse',
+  retry: 'bg-neon-violet crisp-status-dot animate-pulse',
+  error: 'bg-neon-pink crisp-status-dot',
+  materializing: 'bg-tech-blue crisp-status-dot animate-pulse'
+}
+
+function getHeaderProviderLabel(sdk: string, t: ReturnType<typeof useI18n>['t']): string {
+  if (sdk === 'terminal') return t('bottomPanel.tabs.terminal')
+  return HEADER_PROVIDER_LABELS[sdk] ?? sdk
+}
+
+function getHeaderLifecycleLabel(
+  lifecycle: SessionLifecycle,
+  t: ReturnType<typeof useI18n>['t']
+): string {
+  return t(`sessionHq.header.lifecycle.${lifecycle}`)
+}
+
+function formatHeaderTokens(value: number): string | null {
+  if (!Number.isFinite(value) || value <= 0) return null
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`
+  return String(Math.round(value))
+}
+
+function formatHeaderCost(value: number): string | null {
+  if (!Number.isFinite(value) || value <= 0) return null
+  return `$${value.toFixed(4)}`
+}
+
+function safeTokenValue(value: number | undefined): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function clampPercent(value: number): number {
+  if (!Number.isFinite(value)) return 0
+  return Math.min(100, Math.max(0, Math.round(value)))
+}
+
+function getHeaderContextPercent(used: number, limit: number | undefined, percent: number | null) {
+  if (typeof percent === 'number' && Number.isFinite(percent)) return clampPercent(percent)
+  if (typeof limit === 'number' && limit > 0 && used > 0) return clampPercent((used / limit) * 100)
+  return null
+}
+
+function getHeaderContextTitle(
+  context: HeaderContextMeter,
+  t: ReturnType<typeof useI18n>['t']
+): string {
+  const usedLabel = formatHeaderTokens(context.used) ?? '0'
+  const limitLabel = context.limit ? formatHeaderTokens(context.limit) : null
+  const percentLabel = context.percent == null ? null : `${context.percent}%`
+  const parts = [
+    t('sessionHq.header.context'),
+    percentLabel,
+    limitLabel && `${usedLabel}/${limitLabel}`
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  return context.isRefreshing ? `${parts} · ${t('sessionHq.header.compressingContext')}` : parts
+}
+
+function HeaderSessionGlance({
+  session,
+  lifecycle,
+  totalCost,
+  context
+}: {
+  session: HeaderSessionGlanceSession
+  lifecycle: SessionLifecycle
+  totalCost: number
+  context: HeaderContextMeter | null
+}): React.JSX.Element {
+  const { t } = useI18n()
+  const sessionTitle = session.name || t('sessionTabs.common.untitled')
+  const providerLabel = getHeaderProviderLabel(session.agent_sdk, t)
+  const lifecycleLabel = getHeaderLifecycleLabel(lifecycle, t)
+  const costLabel = formatHeaderCost(totalCost)
+  const contextFillPercent =
+    context?.percent ?? (context && (context.used > 0 || context.isRefreshing) ? 18 : 0)
+
+  return (
+    <div
+      className="crisp-panel-surface crisp-subtle-shadow hidden h-8 min-w-0 shrink-0 items-center gap-2 rounded-lg bg-agent-card/90 px-2 text-[11px] text-muted-foreground backdrop-blur-md lg:flex"
+      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+      data-testid="header-session-glance"
+      title={`${sessionTitle} · ${providerLabel} · ${lifecycleLabel}`}
+    >
+      <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', HEADER_LIFECYCLE_DOT[lifecycle])} />
+      <span className="shrink-0 font-medium text-foreground/85">{providerLabel}</span>
+      {session.agent_sdk !== 'terminal' && (
+        <ModelSelector sessionId={session.id} compact showProviderPrefix={false} />
+      )}
+      <span className="shrink-0 rounded-full bg-background/55 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+        {lifecycleLabel}
+      </span>
+      {context && (
+        <div
+          className="flex h-6 w-16 shrink-0 items-center rounded-full border border-border/60 bg-agent-card px-1.5"
+          title={getHeaderContextTitle(context, t)}
+          data-testid="header-context-meter"
+          aria-label={getHeaderContextTitle(context, t)}
+        >
+          <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+            <span
+              className={cn(
+                'block h-full rounded-full bg-neon-mint transition-[width] duration-300',
+                context.percent == null && 'bg-muted-foreground/35',
+                context.isRefreshing && 'animate-pulse'
+              )}
+              style={{ width: `${contextFillPercent}%` }}
+              data-testid="header-context-meter-fill"
+            />
+          </span>
+        </div>
+      )}
+      {costLabel && (
+        <span
+          className="shrink-0 rounded-full border border-neon-pink/20 bg-neon-pink-soft px-1.5 py-0.5 font-mono text-[10px] text-neon-pink dark:bg-neon-pink-soft/40"
+          title={t('sessionView.costPill.title')}
+          data-testid="header-cost-pill"
+        >
+          {costLabel}
+        </span>
+      )}
+    </div>
+  )
+}
+
+function HeaderSessionGlanceFallback({
+  session,
+  lifecycle
+}: {
+  session: HeaderSessionGlanceSession
+  lifecycle: SessionLifecycle
+}): React.JSX.Element {
+  const { t } = useI18n()
+  const sessionTitle = session.name || t('sessionTabs.common.untitled')
+  const providerLabel = getHeaderProviderLabel(session.agent_sdk, t)
+  const lifecycleLabel = getHeaderLifecycleLabel(lifecycle, t)
+
+  return (
+    <div
+      className="crisp-panel-surface hidden h-8 min-w-0 shrink-0 items-center gap-2 rounded-lg bg-agent-card/90 px-2 text-[11px] text-muted-foreground lg:flex"
+      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+      data-testid="header-session-glance-fallback"
+      title={`${sessionTitle} · ${providerLabel} · ${lifecycleLabel}`}
+    >
+      <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', HEADER_LIFECYCLE_DOT[lifecycle])} />
+      <span className="shrink-0 font-medium text-foreground/85">{providerLabel}</span>
+      <span className="shrink-0 rounded-full bg-background/55 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+        {lifecycleLabel}
+      </span>
+    </div>
+  )
+}
+
 export function Header(): React.JSX.Element {
   const { rightSidebarCollapsed, toggleRightSidebar } = useLayoutStore()
-  const { openPanel: openSessionHistory } = useSessionHistoryStore()
   const openSettings = useSettingsStore((s) => s.openSettings)
   const selectedProjectId = useProjectStore((s) => s.selectedProjectId)
   const projects = useProjectStore((s) => s.projects)
@@ -83,9 +252,98 @@ export function Header(): React.JSX.Element {
   const sessionStatuses = useWorktreeStatusStore((s) => s.sessionStatuses)
   const getWorktreeStatus = useWorktreeStatusStore((s) => s.getWorktreeStatus)
   const getConnectionStatus = useWorktreeStatusStore((s) => s.getConnectionStatus)
-  const showVimHints = vimModeEnabled && vimMode === 'normal'
+  const activeHeaderSession = useSessionStore(
+    useShallow((state) => {
+      const activeId = state.inlineConnectionSessionId ?? state.activeSessionId
+      if (!activeId) return null
+
+      const sessionsByWorktree =
+        state.sessionsByWorktree instanceof Map ? state.sessionsByWorktree : new Map()
+      const sessionsByConnection =
+        state.sessionsByConnection instanceof Map ? state.sessionsByConnection : new Map()
+
+      for (const sessions of sessionsByWorktree.values()) {
+        const match = sessions.find((session) => session.id === activeId)
+        if (match) {
+          return {
+            id: match.id,
+            name: match.name,
+            agent_sdk: match.agent_sdk,
+            model_id: match.model_id,
+            model_provider_id: match.model_provider_id
+          }
+        }
+      }
+
+      for (const sessions of sessionsByConnection.values()) {
+        const match = sessions.find((session) => session.id === activeId)
+        if (match) {
+          return {
+            id: match.id,
+            name: match.name,
+            agent_sdk: match.agent_sdk,
+            model_id: match.model_id,
+            model_provider_id: match.model_provider_id
+          }
+        }
+      }
+
+      return null
+    })
+  )
+  const activeHeaderLifecycle = useSessionRuntimeStore((state) =>
+    activeHeaderSession ? (state.sessions.get(activeHeaderSession.id)?.lifecycle ?? 'idle') : 'idle'
+  )
+  const activeHeaderUsage = useContextStore(
+    useShallow((state) => {
+      if (!activeHeaderSession) {
+        return {
+          totalCost: 0,
+          contextUsed: 0,
+          contextLimit: null,
+          contextPercent: null,
+          contextRefreshing: false,
+          hasContext: false
+        }
+      }
+
+      const tokens = state.tokensBySession[activeHeaderSession.id]
+      const fallbackUsedTokens = tokens
+        ? safeTokenValue(tokens.input) +
+          safeTokenValue(tokens.output) +
+          safeTokenValue(tokens.reasoning) +
+          safeTokenValue(tokens.cacheRead) +
+          safeTokenValue(tokens.cacheWrite)
+        : 0
+      const usage = state.getContextUsage(
+        activeHeaderSession.id,
+        activeHeaderSession.model_id ?? '',
+        activeHeaderSession.model_provider_id ?? undefined
+      )
+      const used = usage.used > 0 ? usage.used : fallbackUsedTokens
+      const limit = typeof usage.limit === 'number' && usage.limit > 0 ? usage.limit : null
+      const percent = getHeaderContextPercent(used, limit ?? undefined, usage.percent)
+
+      return {
+        totalCost: state.costBySession[activeHeaderSession.id] ?? 0,
+        contextUsed: used,
+        contextLimit: limit,
+        contextPercent: percent,
+        contextRefreshing: usage.isRefreshing,
+        hasContext: used > 0 || percent != null || usage.isRefreshing
+      }
+    })
+  )
+  const activeHeaderContext = activeHeaderUsage.hasContext
+    ? {
+        percent: activeHeaderUsage.contextPercent,
+        used: activeHeaderUsage.contextUsed,
+        limit: activeHeaderUsage.contextLimit,
+        isRefreshing: activeHeaderUsage.contextRefreshing
+      }
+    : null
   const [conflictFixFlow, setConflictFixFlow] = useState<ConflictFixFlow | null>(null)
-  const { t, supportsFirstCharHint } = useI18n()
+  const { t } = useI18n()
 
   // Monitor PR session stream events for PR URL detection
   usePRDetection(selectedWorktreeId)
@@ -102,7 +360,17 @@ export function Header(): React.JSX.Element {
 
   // Connection mode detection
   const selectedConnectionId = useConnectionStore((s) => s.selectedConnectionId)
+  const selectedConnection = useConnectionStore((s) =>
+    selectedConnectionId
+      ? s.connections.find((connection) => connection.id === selectedConnectionId)
+      : null
+  )
   const isConnectionMode = !!selectedConnectionId && !selectedWorktreeId
+  const connectionProjects =
+    selectedConnection?.members
+      .map((member) => member.project_name)
+      .filter((name, index, names) => name && names.indexOf(name) === index)
+      .join(' + ') ?? ''
   const isKeepAwakeActive = useMemo(() => {
     if (!Object.values(sessionStatuses).some(Boolean)) {
       return false
@@ -137,42 +405,6 @@ export function Header(): React.JSX.Element {
     (state) =>
       (selectedWorktree?.path ? state.conflictsByWorktree[selectedWorktree.path] : false) ?? false
   )
-
-  // PR / remote info
-  const remoteInfo = useGitStore((state) =>
-    selectedWorktreeId ? state.remoteInfo.get(selectedWorktreeId) : undefined
-  )
-  const isGitHub = remoteInfo?.isGitHub ?? false
-  const prTargetBranch = useGitStore((state) =>
-    selectedWorktreeId ? state.prTargetBranch.get(selectedWorktreeId) : undefined
-  )
-  const setPrTargetBranch = useGitStore((state) => state.setPrTargetBranch)
-  const reviewTargetBranch = useGitStore((state) =>
-    selectedWorktreeId ? state.reviewTargetBranch.get(selectedWorktreeId) : undefined
-  )
-  const setReviewTargetBranch = useGitStore((state) => state.setReviewTargetBranch)
-  const branchInfoByWorktree = useGitStore((state) => state.branchInfoByWorktree)
-  const branchInfo = selectedWorktree?.path
-    ? branchInfoByWorktree.get(selectedWorktree.path)
-    : undefined
-  const isOperating = useGitStore((state) => state.isPushing || state.isPulling)
-
-  // PR lifecycle state (new persistent model)
-  const prCreation = useGitStore((s) =>
-    selectedWorktreeId ? s.prCreation.get(selectedWorktreeId) : undefined
-  )
-  const attachedPR = useGitStore((s) =>
-    selectedWorktreeId ? s.attachedPR.get(selectedWorktreeId) : undefined
-  )
-  const isCreatingPR = prCreation?.creating ?? false
-  const hasAttachedPR = !!attachedPR
-  const attachedPRNumber = attachedPR?.number
-
-  // Clean tree detection for merge button visibility
-  const fileStatuses = useGitStore((s) =>
-    selectedWorktree?.path ? s.fileStatusesByWorktree.get(selectedWorktree.path) : undefined
-  )
-  const isCleanTree = !fileStatuses || fileStatuses.length === 0
 
   const conflictFixSessionStatus = useWorktreeStatusStore((state) =>
     conflictFixFlow?.phase === 'running'
@@ -231,269 +463,6 @@ export function Header(): React.JSX.Element {
     }
   }, [conflictFixFlow, conflictFixSessionStatus])
 
-  // Load remote branches for the PR target and review target dropdowns
-  const [remoteBranches, setRemoteBranches] = useState<{ name: string }[]>([])
-  const [isMergingPR, setIsMergingPR] = useState(false)
-  const [isArchivingWorktree, setIsArchivingWorktree] = useState(false)
-
-  // PR picker popover state
-  const [prPickerOpen, setPrPickerOpen] = useState(false)
-  const [prList, setPrList] = useState<
-    Array<{ number: number; title: string; author: string; headRefName: string }>
-  >([])
-  const [prListLoading, setPrListLoading] = useState(false)
-  const [prLiveState, setPrLiveState] = useState<{
-    number?: number
-    state?: string
-    title?: string
-  } | null>(null)
-  const currentPRLiveState = prLiveState?.number === attachedPRNumber ? prLiveState : null
-
-  const refreshAttachedPRState = useCallback(async (): Promise<void> => {
-    if (attachedPRNumber == null || !selectedProject?.path) {
-      setPrLiveState(null)
-      return
-    }
-
-    try {
-      const res = await window.gitOps.getPRState(selectedProject.path, attachedPRNumber)
-      if (res.success) {
-        setPrLiveState({ number: attachedPRNumber, state: res.state, title: res.title })
-      }
-    } catch {
-      /* non-critical */
-    }
-  }, [attachedPRNumber, selectedProject?.path])
-
-  useEffect(() => {
-    if (!selectedWorktree?.path) {
-      setRemoteBranches([])
-      return
-    }
-    window.gitOps.listBranchesWithStatus(selectedWorktree.path).then((result) => {
-      if (result.success) {
-        setRemoteBranches(result.branches.filter((b: { isRemote: boolean }) => b.isRemote))
-      }
-    })
-  }, [selectedWorktree?.path])
-
-  useEffect(() => {
-    void refreshAttachedPRState()
-  }, [refreshAttachedPRState])
-
-  // Fetch PR list when picker opens; refresh the attached PR metadata too.
-  useEffect(() => {
-    if (!prPickerOpen || !selectedProject?.path) return
-    setPrListLoading(true)
-
-    const fetchPRs = window.gitOps
-      .listPRs(selectedProject.path)
-      .then((res) => {
-        if (res.success) {
-          // Sort: branch-matching PR first, then by number descending
-          const currentBranch = branchInfo?.name ?? ''
-          const sorted = [...res.prs].sort((a, b) => {
-            const aMatch = a.headRefName === currentBranch ? 1 : 0
-            const bMatch = b.headRefName === currentBranch ? 1 : 0
-            if (aMatch !== bMatch) return bMatch - aMatch
-            return b.number - a.number
-          })
-          setPrList(sorted)
-        } else {
-          toast.error(res.error || t('header.toasts.loadPRsError'))
-          setPrPickerOpen(false)
-        }
-      })
-      .catch(() => {
-        toast.error(t('header.toasts.loadPRsError'))
-        setPrPickerOpen(false)
-      })
-
-    Promise.all([fetchPRs, refreshAttachedPRState()]).finally(() => setPrListLoading(false))
-  }, [prPickerOpen, selectedProject?.path, branchInfo?.name, refreshAttachedPRState, t])
-
-  const handleCreatePR = useCallback(async () => {
-    if (!selectedWorktree?.path) return
-
-    const wtId = selectedWorktreeId
-    if (!wtId) {
-      toast.error(t('header.toasts.noWorktreeSelected'))
-      return
-    }
-
-    let projectId = ''
-    const worktreeStore = useWorktreeStore.getState()
-    for (const [projId, wts] of worktreeStore.worktreesByProject) {
-      if (wts.some((w) => w.id === wtId)) {
-        projectId = projId
-        break
-      }
-    }
-    if (!projectId) {
-      toast.error(t('header.toasts.projectNotFound'))
-      return
-    }
-
-    const targetBranch = prTargetBranch || branchInfo?.tracking || 'origin/main'
-
-    const sessionStore = useSessionStore.getState()
-    const result = await sessionStore.createSession(wtId, projectId)
-    if (!result.success || !result.session) {
-      toast.error(t('header.toasts.createPRSessionError'))
-      return
-    }
-
-    await sessionStore.updateSessionName(
-      result.session.id,
-      t('header.sessionNames.pr', { branch: targetBranch })
-    )
-    sessionStore.setPendingMessage(
-      result.session.id,
-      [
-        `Create a pull request targeting ${targetBranch}.`,
-        `Use \`gh pr create\` to create the PR.`,
-        `Base the PR title and description on the git diff between HEAD and ${targetBranch}.`,
-        `Make the description comprehensive, summarizing all changes.`
-      ].join(' ')
-    )
-
-    // Tag this session as a PR session for detection
-    useGitStore.getState().setPrCreation(wtId, {
-      creating: true,
-      sessionId: result.session.id
-    })
-  }, [selectedWorktree?.path, selectedWorktreeId, prTargetBranch, branchInfo, t])
-
-  const handleReview = useCallback(async () => {
-    if (!selectedWorktree?.path) return
-
-    const wtId = selectedWorktreeId
-    if (!wtId) {
-      toast.error(t('header.toasts.noWorktreeSelected'))
-      return
-    }
-
-    let projectId = ''
-    const worktreeStore = useWorktreeStore.getState()
-    for (const [projId, wts] of worktreeStore.worktreesByProject) {
-      if (wts.some((w) => w.id === wtId)) {
-        projectId = projId
-        break
-      }
-    }
-    if (!projectId) {
-      toast.error(t('header.toasts.projectNotFound'))
-      return
-    }
-
-    const targetBranch = reviewTargetBranch || branchInfo?.tracking || 'origin/main'
-    const branchName = branchInfo?.name || t('gitStatusPanel.unknownBranch')
-
-    let reviewTemplate = ''
-    try {
-      const tmpl = await window.fileOps.readPrompt('review.md')
-      if (tmpl.success && tmpl.content) {
-        reviewTemplate = tmpl.content
-      }
-    } catch {
-      // readPrompt failed, use fallback
-    }
-
-    const prompt = reviewTemplate
-      ? [
-          reviewTemplate,
-          '',
-          '---',
-          '',
-          `Compare the current branch (${branchName}) against ${targetBranch}.`,
-          `Use \`git diff ${targetBranch}...HEAD\` to see all changes.`
-        ].join('\n')
-      : [
-          `Please review the changes on branch "${branchName}" compared to ${targetBranch}.`,
-          `Use \`git diff ${targetBranch}...HEAD\` to get the full diff.`,
-          'Focus on: bugs, logic errors, and code quality.'
-        ].join('\n')
-
-    const sessionStore = useSessionStore.getState()
-    const result = await sessionStore.createSession(wtId, projectId)
-    if (!result.success || !result.session) {
-      toast.error(t('header.toasts.createReviewSessionError'))
-      return
-    }
-
-    await sessionStore.updateSessionName(
-      result.session.id,
-      t('header.sessionNames.review', { branch: branchName, target: targetBranch })
-    )
-    sessionStore.setPendingMessage(result.session.id, prompt)
-  }, [selectedWorktree?.path, selectedWorktreeId, reviewTargetBranch, branchInfo, t])
-
-  const handleMergePR = useCallback(async () => {
-    if (!selectedWorktree?.path || !selectedWorktreeId) return
-    const pr = useGitStore.getState().attachedPR.get(selectedWorktreeId)
-    if (!pr?.number) return
-
-    setIsMergingPR(true)
-    try {
-      const result = await window.gitOps.prMerge(selectedWorktree.path, pr.number)
-      if (result.success) {
-        toast.success(t('header.toasts.prMergedSuccess'))
-        setPrLiveState({
-          number: pr.number,
-          state: 'MERGED',
-          title: currentPRLiveState?.title
-        })
-      } else {
-        toast.error(t('header.toasts.mergePRErrorWithReason', { error: result.error }))
-      }
-    } catch {
-      toast.error(t('header.toasts.mergePRError'))
-    } finally {
-      setIsMergingPR(false)
-    }
-  }, [selectedWorktree?.path, selectedWorktreeId, currentPRLiveState?.title, t])
-
-  const handleArchiveWorktree = useCallback(async () => {
-    if (!selectedWorktreeId || !selectedWorktree || !selectedProject) return
-    setIsArchivingWorktree(true)
-    try {
-      const result = await useWorktreeStore
-        .getState()
-        .archiveWorktree(
-          selectedWorktreeId,
-          selectedWorktree.path,
-          selectedWorktree.branch_name,
-          selectedProject.path
-        )
-
-      if (!result.success && result.error) {
-        toast.error(result.error)
-      }
-    } finally {
-      setIsArchivingWorktree(false)
-    }
-  }, [selectedWorktreeId, selectedWorktree, selectedProject])
-
-  const handleSelectPR = useCallback(
-    (pr: { number: number; headRefName: string; title?: string }) => {
-      if (!selectedWorktreeId || !remoteInfo?.url) return
-      // Construct PR URL from remote URL + number
-      const cleanUrl = remoteInfo.url.replace(/\.git$/, '')
-      const prUrl = `${cleanUrl}/pull/${pr.number}`
-      useGitStore.getState().attachPR(selectedWorktreeId, pr.number, prUrl)
-      setPrLiveState({ number: pr.number, state: 'OPEN', title: pr.title })
-      setPrPickerOpen(false)
-    },
-    [selectedWorktreeId, remoteInfo?.url]
-  )
-
-  const handleDetachPR = useCallback(() => {
-    if (!selectedWorktreeId) return
-    useGitStore.getState().detachPR(selectedWorktreeId)
-    setPrPickerOpen(false)
-    setPrLiveState(null)
-  }, [selectedWorktreeId])
-
   const handleFixConflicts = async () => {
     if (!selectedWorktreeId || !selectedProjectId || !selectedWorktree?.path) return
 
@@ -527,39 +496,100 @@ export function Header(): React.JSX.Element {
     conflictFixFlow.worktreePath === selectedWorktree.path
 
   const showFixConflictsButton = hasConflicts || isFixConflictsLoading
-  const attachedPRTitle = currentPRLiveState?.title?.trim() ?? ''
-  const prBadgeTitle =
-    attachedPRNumber == null
-      ? ''
-      : attachedPRTitle
-        ? `PR #${attachedPRNumber}: ${attachedPRTitle}`
-        : `PR #${attachedPRNumber}`
+  const showTopbarTabs = Boolean(selectedWorktreeId || selectedConnectionId)
 
   return (
     <header
-      className="h-[54px] border-b border-border/70 bg-background/90 backdrop-blur-xl flex items-center justify-between px-5 flex-shrink-0 select-none"
+      className="relative h-10 border-b border-border/45 bg-background/75 backdrop-blur-xl flex items-center gap-2 px-3 flex-shrink-0 select-none"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       data-testid="header"
     >
       {/* Spacer for macOS traffic lights */}
-      {isMac() && <div className="w-[72px] flex-shrink-0" />}
-      <div className="flex items-center gap-3 flex-1 min-w-0">
-        <div className="flex items-center gap-3 min-w-0 rounded-xl border border-border/60 bg-muted/35 px-3 py-1.5">
-          <img src={appLogo} alt="玄圃" className="h-5 w-5 shrink-0 rounded-md" draggable={false} />
-          <span className="text-sm font-semibold">玄圃</span>
+      {isMac() && <div className="w-[70px] flex-shrink-0" />}
+      <div
+        className={cn(
+          'crisp-panel-surface flex h-7 min-w-0 items-center gap-2.5 rounded-lg bg-agent-card/85 px-2.5',
+          showTopbarTabs ? 'max-w-[190px]' : 'max-w-[360px] flex-1'
+        )}
+      >
+        <img
+          src={appLogo}
+          alt="Xuanpu"
+          className="h-[18px] w-[18px] shrink-0 rounded-[5px]"
+          draggable={false}
+        />
+        {isConnectionMode && selectedConnection ? (
+          <div className="flex min-w-0 items-baseline gap-1.5" data-testid="header-connection-info">
+            <div className="truncate text-xs font-semibold">{selectedConnection.name}</div>
+            {connectionProjects && !showTopbarTabs && (
+              <div className="truncate text-[10px] text-muted-foreground">
+                ({connectionProjects})
+              </div>
+            )}
+          </div>
+        ) : selectedProject ? (
+          <div className="flex min-w-0 items-baseline gap-1.5" data-testid="header-project-info">
+            <div className="truncate text-xs font-semibold">{selectedProject.name}</div>
+            {!showTopbarTabs &&
+              selectedWorktree?.branch_name &&
+              selectedWorktree.branch_name !== '(no-worktree)' &&
+              selectedWorktree.branch_name !== selectedProject.name && (
+                <div className="truncate text-[10px] text-muted-foreground">
+                  ({selectedWorktree.branch_name})
+                </div>
+              )}
+          </div>
+        ) : (
+          <span className="truncate text-xs font-semibold">Xuanpu</span>
+        )}
+      </div>
+      {showTopbarTabs && (
+        <div
+          className="min-w-[180px] flex-1"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        >
+          <SessionTabs variant="topbar" />
         </div>
+      )}
+      <div
+        className="ml-auto flex min-w-0 items-center gap-2"
+        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+      >
+        {/*
+         * Session glance is intentionally right-aligned in the merged topbar:
+         * tabs own the main horizontal span while provider/model/cost remain
+         * compact low-frequency widgets.
+         */}
         {vimModeEnabled && (
           <span
             className={cn(
-              'text-[10px] font-mono px-2 py-1 rounded-md border select-none',
+              'text-[9px] font-mono px-1.5 py-0.5 rounded-md border select-none',
               vimMode === 'normal'
-                ? 'text-muted-foreground bg-muted/60 border-border/50'
+                ? 'text-muted-foreground bg-muted/50 border-border/50'
                 : 'text-primary bg-primary/10 border-primary/30'
             )}
             data-testid="vim-mode-pill"
           >
             {vimMode === 'normal' ? 'NORMAL' : 'INSERT'}
           </span>
+        )}
+        {activeHeaderSession && (
+          <ErrorBoundary
+            componentName="HeaderSessionGlance"
+            fallback={
+              <HeaderSessionGlanceFallback
+                session={activeHeaderSession}
+                lifecycle={activeHeaderLifecycle}
+              />
+            }
+          >
+            <HeaderSessionGlance
+              session={activeHeaderSession}
+              lifecycle={activeHeaderLifecycle}
+              totalCost={activeHeaderUsage.totalCost}
+              context={activeHeaderContext}
+            />
+          </ErrorBoundary>
         )}
       </div>
       {!isConnectionMode && showFixConflictsButton && (
@@ -583,371 +613,25 @@ export function Header(): React.JSX.Element {
           </Button>
         </div>
       )}
-      <div className="flex-1" />
       <div
-        className="flex items-center gap-1.5"
+        className="flex items-center gap-1"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
-        {!isConnectionMode &&
-          isGitHub &&
-          hasAttachedPR &&
-          currentPRLiveState?.state === 'MERGED' &&
-          !selectedWorktree?.is_default && (
-            <Button
-              size="sm"
-              variant="destructive"
-              className="h-7 text-xs"
-              onClick={handleArchiveWorktree}
-              disabled={isArchivingWorktree}
-              title={t('header.controls.archiveWorktreeTitle')}
-              data-testid="pr-archive-button"
-            >
-              {isArchivingWorktree ? (
-                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-              ) : (
-                <Archive className="h-3.5 w-3.5 mr-1" />
-              )}
-              {isArchivingWorktree ? (
-                t('header.controls.archiving')
-              ) : showVimHints ? (
-                supportsFirstCharHint ? (
-                  <span>
-                    <span className="text-primary font-bold">A</span>
-                    {t('header.controls.archive').slice(1)}
-                  </span>
-                ) : (
-                  t('header.controls.archive')
-                )
-              ) : (
-                t('header.controls.archive')
-              )}
-            </Button>
-          )}
-        {!isConnectionMode &&
-          isGitHub &&
-          hasAttachedPR &&
-          currentPRLiveState?.state !== 'MERGED' &&
-          currentPRLiveState?.state !== 'CLOSED' &&
-          isCleanTree && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 text-xs bg-emerald-600/10 border-emerald-600/30 text-emerald-500 hover:bg-emerald-600/20"
-              onClick={handleMergePR}
-              disabled={isMergingPR}
-              title={t('header.controls.mergePRTitle')}
-              data-testid="pr-merge-button"
-            >
-              {isMergingPR ? (
-                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-              ) : (
-                <GitMerge className="h-3.5 w-3.5 mr-1" />
-              )}
-              {isMergingPR ? (
-                t('header.controls.merging')
-              ) : showVimHints ? (
-                supportsFirstCharHint ? (
-                  <span>
-                    <span className="text-primary font-bold">M</span>
-                    {t('header.controls.mergePR').slice(1)}
-                  </span>
-                ) : (
-                  t('header.controls.mergePR')
-                )
-              ) : (
-                t('header.controls.mergePR')
-              )}
-            </Button>
-          )}
-        {!isConnectionMode && selectedWorktree && (
-          <>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 rounded-full px-3 text-[12px] font-medium"
-              onClick={handleReview}
-              disabled={isOperating}
-              title={t('header.controls.reviewTitle')}
-              data-testid="review-button"
-            >
-              <FileSearch className="h-3.5 w-3.5 mr-1" />
-              {showVimHints ? (
-                supportsFirstCharHint ? (
-                  <span>
-                    <span className="text-primary font-bold">R</span>
-                    {t('header.controls.review').slice(1)}
-                  </span>
-                ) : (
-                  t('header.controls.review')
-                )
-              ) : (
-                t('header.controls.review')
-              )}
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-8 rounded-full px-3 text-[12px] text-muted-foreground hover:text-foreground hover:bg-muted/60"
-                  data-testid="review-target-branch-trigger"
-                >
-                  vs {reviewTargetBranch || branchInfo?.tracking || 'origin/main'}
-                  <ChevronDown className="h-3 w-3 ml-1" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="max-h-60 overflow-y-auto">
-                {remoteBranches.length === 0 ? (
-                  <DropdownMenuItem disabled>
-                    {t('header.controls.noRemoteBranches')}
-                  </DropdownMenuItem>
-                ) : (
-                  remoteBranches.map((branch) => (
-                    <DropdownMenuItem
-                      key={branch.name}
-                      onClick={() =>
-                        selectedWorktreeId && setReviewTargetBranch(selectedWorktreeId, branch.name)
-                      }
-                      data-testid={`review-target-branch-${branch.name}`}
-                    >
-                      {branch.name}
-                    </DropdownMenuItem>
-                  ))
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </>
-        )}
-        {/* PR Badge with Popover Picker — shown when a PR is attached and not creating */}
-        {!isConnectionMode && isGitHub && hasAttachedPR && !isCreatingPR && (
-          <Popover open={prPickerOpen} onOpenChange={setPrPickerOpen}>
-            <PopoverTrigger asChild>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 max-w-[320px] rounded-full px-3 text-[12px] font-medium"
-                title={prBadgeTitle}
-                data-testid="pr-badge"
-              >
-                <GitPullRequest className="h-3.5 w-3.5 mr-1" />
-                <span className="shrink-0">PR #{attachedPR!.number}</span>
-                {attachedPRTitle && (
-                  <span className="min-w-0 max-w-[170px] truncate text-muted-foreground">
-                    · {attachedPRTitle}
-                  </span>
-                )}
-                {currentPRLiveState?.state === 'MERGED' && (
-                  <span className="text-muted-foreground ml-1 shrink-0">
-                    · {t('header.controls.merged')}
-                  </span>
-                )}
-                {currentPRLiveState?.state === 'CLOSED' && (
-                  <span className="text-muted-foreground ml-1 shrink-0">
-                    · {t('header.controls.closed')}
-                  </span>
-                )}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-80 p-0">
-              {/* Attached PR header */}
-              <div className="px-3 py-2 border-b">
-                <div className="text-xs font-medium text-muted-foreground">
-                  {t('header.controls.attached')}: #{attachedPR!.number}
-                </div>
-                {currentPRLiveState?.title && (
-                  <div className="text-sm truncate">
-                    {currentPRLiveState.title}
-                    {currentPRLiveState?.state && (
-                      <span className="text-muted-foreground ml-1 text-xs">
-                        ({currentPRLiveState.state.toLowerCase()})
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
-              {/* PR list */}
-              <div className="max-h-48 overflow-y-auto">
-                {prListLoading ? (
-                  <div className="px-3 py-4 text-center text-xs text-muted-foreground">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin inline mr-1" />
-                    {t('header.controls.loadingPRs')}
-                  </div>
-                ) : prList.length === 0 ? (
-                  <div className="px-3 py-4 text-center text-xs text-muted-foreground">
-                    {t('header.controls.noOpenPRs')}
-                  </div>
-                ) : (
-                  prList.map((pr) => (
-                    <button
-                      key={pr.number}
-                      className={cn(
-                        'w-full text-left px-3 py-2 text-sm hover:bg-accent cursor-pointer',
-                        'flex items-center gap-2',
-                        pr.number === attachedPR!.number && 'bg-accent/50'
-                      )}
-                      onClick={() => handleSelectPR(pr)}
-                      data-testid={`pr-picker-item-${pr.number}`}
-                    >
-                      <span
-                        className={cn(
-                          'text-xs font-mono shrink-0',
-                          pr.number === attachedPR!.number && 'text-primary font-bold'
-                        )}
-                      >
-                        {pr.number === attachedPR!.number ? '●' : ' '} #{pr.number}
-                      </span>
-                      <span className="truncate">{pr.title}</span>
-                    </button>
-                  ))
-                )}
-              </div>
-              {/* Detach action */}
-              <div className="border-t">
-                <button
-                  className="w-full text-left px-3 py-2 text-sm text-destructive hover:bg-destructive/10 cursor-pointer flex items-center gap-1"
-                  onClick={handleDetachPR}
-                  data-testid="pr-detach-button"
-                >
-                  <X className="h-3.5 w-3.5" />
-                  {t('header.controls.detachPR')}
-                </button>
-              </div>
-            </PopoverContent>
-          </Popover>
-        )}
-        {/* Creating PR spinner */}
-        {!isConnectionMode && isGitHub && isCreatingPR && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 rounded-full px-3 text-[12px] font-medium"
-            disabled
-            data-testid="pr-creating-button"
-          >
-            <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-            PR
-          </Button>
-        )}
-        {/* Create PR button — shown when no PR attached and not creating */}
-        {!isConnectionMode && isGitHub && !hasAttachedPR && !isCreatingPR && (
-          <Popover open={prPickerOpen} onOpenChange={setPrPickerOpen}>
-            <PopoverAnchor asChild>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 rounded-full px-3 text-[12px] font-medium"
-                onClick={handleCreatePR}
-                onContextMenu={(e) => {
-                  e.preventDefault()
-                  setPrPickerOpen(true)
-                }}
-                disabled={isOperating}
-                title={t('header.controls.createPRTitle')}
-                data-testid="pr-button"
-              >
-                <GitPullRequest className="h-3.5 w-3.5 mr-1" />
-                {showVimHints ? (
-                  <span>
-                    <span className="text-primary font-bold">P</span>R
-                  </span>
-                ) : (
-                  'PR'
-                )}
-              </Button>
-            </PopoverAnchor>
-            <PopoverContent align="end" className="w-80 p-0">
-              <div className="px-3 py-2 border-b">
-                <div className="text-xs font-medium text-muted-foreground">
-                  {t('header.controls.attachExistingPR')}
-                </div>
-              </div>
-              <div className="max-h-48 overflow-y-auto">
-                {prListLoading ? (
-                  <div className="px-3 py-4 text-center text-xs text-muted-foreground">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin inline mr-1" />
-                    {t('header.controls.loadingPRs')}
-                  </div>
-                ) : prList.length === 0 ? (
-                  <div className="px-3 py-4 text-center text-xs text-muted-foreground">
-                    {t('header.controls.noOpenPRs')}
-                  </div>
-                ) : (
-                  prList.map((pr) => (
-                    <button
-                      key={pr.number}
-                      className={cn(
-                        'w-full text-left px-3 py-2 text-sm hover:bg-accent cursor-pointer',
-                        'flex items-center gap-2'
-                      )}
-                      onClick={() => handleSelectPR(pr)}
-                      data-testid={`pr-picker-item-${pr.number}`}
-                    >
-                      <span className="text-xs font-mono shrink-0">#{pr.number}</span>
-                      <span className="truncate">{pr.title}</span>
-                    </button>
-                  ))
-                )}
-              </div>
-            </PopoverContent>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-8 rounded-full px-3 text-[12px] text-muted-foreground hover:text-foreground hover:bg-muted/60"
-                  data-testid="pr-target-branch-trigger"
-                >
-                  → {prTargetBranch || branchInfo?.tracking || 'origin/main'}
-                  <ChevronDown className="h-3 w-3 ml-1" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="max-h-60 overflow-y-auto">
-                {remoteBranches.length === 0 ? (
-                  <DropdownMenuItem disabled>
-                    {t('header.controls.noRemoteBranches')}
-                  </DropdownMenuItem>
-                ) : (
-                  remoteBranches.map((branch) => (
-                    <DropdownMenuItem
-                      key={branch.name}
-                      onClick={() =>
-                        selectedWorktreeId && setPrTargetBranch(selectedWorktreeId, branch.name)
-                      }
-                      data-testid={`pr-target-branch-${branch.name}`}
-                    >
-                      {branch.name}
-                    </DropdownMenuItem>
-                  ))
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </Popover>
-        )}
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60"
-          onClick={openSessionHistory}
-          title={t('header.controls.sessionHistoryTitle')}
-          data-testid="session-history-toggle"
-        >
-          <History className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60"
+          className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/55"
           onClick={() => openSettings()}
           title={t('header.controls.settingsTitle')}
           data-testid="settings-toggle"
         >
-          <Settings className="h-4 w-4" />
+          <Settings className="h-3.5 w-3.5" />
         </Button>
         {keepAwakeEnabled && (
           <div
             className={cn(
-              'inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground',
-              isKeepAwakeActive && 'text-amber-500'
+              'inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground',
+              isKeepAwakeActive && 'text-neon-mint'
             )}
             title={t(
               isKeepAwakeActive
@@ -956,14 +640,14 @@ export function Header(): React.JSX.Element {
             )}
             data-testid="keep-awake-indicator"
           >
-            <Coffee className="h-4 w-4" />
+            <Zap className="h-3.5 w-3.5" />
           </div>
         )}
         <Button
           onClick={toggleRightSidebar}
           variant="ghost"
           size="icon"
-          className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60"
+          className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/55"
           title={
             rightSidebarCollapsed
               ? t('header.controls.showSidebar')
@@ -972,9 +656,9 @@ export function Header(): React.JSX.Element {
           data-testid="right-sidebar-toggle"
         >
           {rightSidebarCollapsed ? (
-            <PanelRightOpen className="h-4 w-4" />
+            <PanelRightOpen className="h-3.5 w-3.5" />
           ) : (
-            <PanelRightClose className="h-4 w-4" />
+            <PanelRightClose className="h-3.5 w-3.5" />
           )}
         </Button>
       </div>

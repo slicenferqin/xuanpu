@@ -298,7 +298,7 @@ function formatDuration(ms: number): string {
 function getLeftBorderColor(status: ToolStatus): string {
   switch (status) {
     case 'pending':
-      return 'hsl(var(--muted-foreground))'
+      return 'var(--muted-foreground)'
     case 'running':
       return '#3b82f6' // blue-500
     case 'success':
@@ -323,7 +323,7 @@ const TOOL_RENDERERS: Record<string, React.FC<ToolViewProps>> = {
   Bash: BashToolView,
   bash: BashToolView,
   // Token Saver: agent sees Bash via in-process MCP under this name.
-  'mcp__xuanpu__bash': BashToolView,
+  mcp__xuanpu__bash: BashToolView,
   Task: TaskToolView,
   task: TaskToolView,
   mcp_question: QuestionToolView,
@@ -384,9 +384,12 @@ function shortenPath(filePath: string, cwd?: string | null): string {
 }
 
 function resolveToolFilePath(input: Record<string, unknown>): string {
-  const direct =
-    (input.filePath || input.file_path || input.path || input.displayName || input.filename ||
-      '') as string
+  const direct = (input.filePath ||
+    input.file_path ||
+    input.path ||
+    input.displayName ||
+    input.filename ||
+    '') as string
   if (direct) return direct
   const paths = input.paths
   if (Array.isArray(paths) && typeof paths[0] === 'string') return paths[0]

@@ -9,7 +9,7 @@ import {
   type VoiceInputSettings
 } from '@shared/types/voice'
 import { DEFAULT_LOCALE, type AppLocale } from '@/i18n/messages'
-import { applyFontScale } from '@/lib/font-size'
+import { applyTypographySettings, type UiFontFamily, type UiFontWeight } from '@/lib/font-size'
 
 // ==========================================
 // Migration helpers
@@ -31,7 +31,12 @@ export function migrateSettingsShape(raw: Record<string, any>): Record<string, a
 }
 
 // Re-export for convenience
-export { applyFontScale } from '@/lib/font-size'
+export {
+  applyFontScale,
+  applyFontFamily,
+  applyFontWeight,
+  applyTypographySettings
+} from '@/lib/font-size'
 
 // ==========================================
 // Types
@@ -158,6 +163,9 @@ export interface AppSettings {
   // Appearance
   uiZoomLevel: number
   uiFontScale: number
+  uiFontFamily: UiFontFamily
+  uiCustomFontFamily: string
+  uiFontWeight: UiFontWeight
 
   // Voice input
   voiceInput: VoiceInputSettings
@@ -229,9 +237,19 @@ const DEFAULT_SETTINGS: AppSettings = {
   keepAwakeEnabled: false,
   uiZoomLevel: 0,
   uiFontScale: 1,
+  uiFontFamily: 'system',
+  uiCustomFontFamily: '',
+  uiFontWeight: 'regular',
   voiceInput: DEFAULT_VOICE_INPUT_SETTINGS,
   sessionUiV2Enabled: true
 }
+
+const TYPOGRAPHY_SETTING_KEYS = new Set<keyof AppSettings>([
+  'uiFontScale',
+  'uiFontFamily',
+  'uiCustomFontFamily',
+  'uiFontWeight'
+])
 
 function samePatternSet(left: string[], right: string[]): boolean {
   if (left.length !== right.length) return false
@@ -407,6 +425,9 @@ function extractSettings(state: SettingsState): AppSettings {
     keepAwakeEnabled: state.keepAwakeEnabled,
     uiZoomLevel: state.uiZoomLevel,
     uiFontScale: state.uiFontScale,
+    uiFontFamily: state.uiFontFamily,
+    uiCustomFontFamily: state.uiCustomFontFamily,
+    uiFontWeight: state.uiFontWeight,
     voiceInput: state.voiceInput,
     sessionUiV2Enabled: state.sessionUiV2Enabled
   }
@@ -456,6 +477,9 @@ export const useSettingsStore = create<SettingsState>()(
 
       updateSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
         set({ [key]: value } as Partial<SettingsState>)
+        if (TYPOGRAPHY_SETTING_KEYS.has(key)) {
+          applyTypographySettings({ ...get(), [key]: value } as SettingsState)
+        }
         // Persist to database
         const settings = extractSettings({ ...get(), [key]: value } as SettingsState)
         saveToDatabase(settings)
@@ -558,6 +582,7 @@ export const useSettingsStore = create<SettingsState>()(
 
       resetToDefaults: () => {
         set({ ...DEFAULT_SETTINGS })
+        applyTypographySettings(DEFAULT_SETTINGS)
         saveToDatabase(DEFAULT_SETTINGS)
       },
 
@@ -627,6 +652,9 @@ export const useSettingsStore = create<SettingsState>()(
         keepAwakeEnabled: state.keepAwakeEnabled,
         uiZoomLevel: state.uiZoomLevel,
         uiFontScale: state.uiFontScale,
+        uiFontFamily: state.uiFontFamily,
+        uiCustomFontFamily: state.uiCustomFontFamily,
+        uiFontWeight: state.uiFontWeight,
         voiceInput: state.voiceInput,
         sessionUiV2Enabled: state.sessionUiV2Enabled
       }),
@@ -658,11 +686,8 @@ if (typeof window !== 'undefined') {
           window.systemOps.setZoomLevel(zoomLevel)
         }
 
-        // Apply saved font scale (Tailwind CSS variable override)
-        const fontScale = useSettingsStore.getState().uiFontScale
-        if (fontScale !== 1) {
-          applyFontScale(fontScale)
-        }
+        // Apply saved typography settings after DB settings replace persisted cache.
+        applyTypographySettings(useSettingsStore.getState())
       })
   }, 200)
 

@@ -8,13 +8,17 @@ import { useMemo, useState } from 'react'
 import { Lock, TerminalSquare, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ModelSelector } from '../sessions/ModelSelector'
+import { ContextIndicator } from '../sessions/ContextIndicator'
+import { SessionCostPill } from '../sessions/SessionCostPill'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useSessionStore } from '@/stores/useSessionStore'
+import { useContextStore } from '@/stores/useContextStore'
 import { useI18n } from '@/i18n/useI18n'
 import { toast } from '@/lib/toast'
 import type { SessionLifecycle } from '@/stores/useSessionRuntimeStore'
+import type { UsageAnalyticsSessionSummary } from '@shared/types/usage-analytics'
 
 type AgentSdk = 'opencode' | 'claude-code' | 'codex' | 'terminal'
 
@@ -49,10 +53,10 @@ function getLifecycleLabel(
 
 const LIFECYCLE_META: Record<SessionLifecycle, { dotClass: string }> = {
   idle: { dotClass: 'bg-muted-foreground/50' },
-  busy: { dotClass: 'bg-celadon animate-pulse' },
-  retry: { dotClass: 'bg-yellow-500 animate-pulse' },
-  error: { dotClass: 'bg-red-500' },
-  materializing: { dotClass: 'bg-blue-500 animate-pulse' }
+  busy: { dotClass: 'bg-neon-mint crisp-status-dot animate-pulse' },
+  retry: { dotClass: 'bg-neon-violet crisp-status-dot animate-pulse' },
+  error: { dotClass: 'bg-neon-pink crisp-status-dot' },
+  materializing: { dotClass: 'bg-tech-blue crisp-status-dot animate-pulse' }
 }
 
 function ProviderCapsule({
@@ -146,7 +150,7 @@ function ProviderCapsule({
               )}
             >
               <span className="flex items-center gap-1.5">
-                {s === 'terminal' && <TerminalSquare className="h-3.5 w-3.5 text-emerald-500" />}
+                {s === 'terminal' && <TerminalSquare className="h-3.5 w-3.5 text-tech-blue" />}
                 {getProviderLabel(s, t)}
               </span>
               {active && <Check className="h-3.5 w-3.5" />}
@@ -162,20 +166,25 @@ export interface SessionHeaderProps {
   sessionId: string
   session: {
     agent_sdk: string
+    opencode_session_id: string | null
     model_id: string | null
     model_provider_id: string | null
     first_message_at?: number | null
   }
   lifecycle: SessionLifecycle
+  usageSummary?: UsageAnalyticsSessionSummary | null
 }
 
 export function SessionHeader({
   sessionId,
   session,
-  lifecycle
+  lifecycle,
+  usageSummary
 }: SessionHeaderProps): React.JSX.Element {
   const locked = session.first_message_at != null
   const isTerminal = session.agent_sdk === 'terminal'
+  const sessionCostSnapshot = useContextStore((state) => state.costBySession[sessionId] ?? 0)
+  const sessionTokenSnapshot = useContextStore((state) => state.tokensBySession[sessionId] ?? null)
 
   return (
     <div className="flex items-center gap-2 px-4 py-2 border-b border-border/60 shrink-0">
@@ -186,6 +195,29 @@ export function SessionHeader({
         locked={locked}
       />
       {!isTerminal && <ModelSelector sessionId={sessionId} compact showProviderPrefix={false} />}
+      {!isTerminal && (
+        <ContextIndicator
+          sessionId={sessionId}
+          modelId={session.model_id ?? ''}
+          providerId={session.model_provider_id ?? undefined}
+        />
+      )}
+      {!isTerminal && (
+        <SessionCostPill
+          summary={usageSummary}
+          fallbackCost={sessionCostSnapshot}
+          fallbackTokens={
+            sessionTokenSnapshot
+              ? {
+                  input: sessionTokenSnapshot.input,
+                  output: sessionTokenSnapshot.output,
+                  cacheRead: sessionTokenSnapshot.cacheRead,
+                  cacheWrite: sessionTokenSnapshot.cacheWrite
+                }
+              : null
+          }
+        />
+      )}
 
       <div className="flex-1" />
     </div>

@@ -152,8 +152,9 @@ export function WorktreeItem({
     (state) => state.lastMessageTimeByWorktree[worktree.id] ?? null
   )
   // Show last activity time: prefer last message time, fallback to last_accessed_at
-  const displayTime = lastMessageTime
-    ?? (worktree.last_accessed_at ? new Date(worktree.last_accessed_at).getTime() : null)
+  const displayTime =
+    lastMessageTime ??
+    (worktree.last_accessed_at ? new Date(worktree.last_accessed_at).getTime() : null)
   const liveBranch = useGitStore((s) => s.branchInfoByWorktree.get(worktree.path))
   const activeBranchName = liveBranch?.name ?? worktree.branch_name
   const displayName = liveBranch?.name ?? worktree.name
@@ -530,8 +531,8 @@ export function WorktreeItem({
       <>
         <div
           className={cn(
-            'group flex items-center gap-2 pl-8 pr-1.5 py-2 rounded-lg cursor-pointer transition-colors',
-            isChecked ? 'bg-accent/30' : 'hover:bg-accent/50',
+            'group flex items-center gap-2 pl-8 pr-1.5 py-2.5 rounded-lg cursor-pointer transition-colors',
+            isChecked ? 'crisp-active-row' : 'crisp-hover-row',
             isSource && isChecked && 'bg-accent/20',
             isArchiving && 'opacity-50 pointer-events-none'
           )}
@@ -589,10 +590,8 @@ export function WorktreeItem({
       <ContextMenuTrigger asChild>
         <div
           className={cn(
-            'group flex items-center gap-2.5 pl-6 pr-2 py-2 rounded-lg cursor-pointer transition-colors',
-            isSelected
-              ? 'bg-sidebar-accent text-sidebar-accent-foreground ring-1 ring-sidebar-border/60 shadow-sm'
-              : 'hover:bg-sidebar-accent/70',
+            'group flex items-center gap-2.5 pl-6 pr-2 py-2.5 rounded-lg cursor-pointer transition-colors',
+            isSelected ? 'crisp-active-row pl-7' : 'crisp-hover-row',
             isArchiving && 'opacity-50 pointer-events-none',
             isDragging && 'opacity-50',
             isDragOver && 'border-t-2 border-primary'

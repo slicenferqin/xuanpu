@@ -14,8 +14,8 @@
  *      existing files show an [Open] CTA that asks the system to open
  *      them in the user's editor.
  *
- * Mounted as a sibling of `FieldContextDebug`. Unlike FieldContextDebug,
- * which we now hide outside dev builds, this panel is the daily-driver
+ * Mounted either as a standalone panel or as a compact Composer console
+ * control. FieldContextDebug remains dev-only; this is the daily-driver
  * view for inspecting and editing memory.
  */
 import { useCallback, useEffect, useState } from 'react'
@@ -63,11 +63,16 @@ interface SemanticMemoryEntry {
 interface MemoryPanelProps {
   worktreeId: string | null | undefined
   className?: string
+  variant?: 'panel' | 'composer'
 }
 
 type Tab = 'pinned' | 'observed' | 'semantic'
 
-export function MemoryPanel({ worktreeId, className }: MemoryPanelProps): React.JSX.Element | null {
+export function MemoryPanel({
+  worktreeId,
+  className,
+  variant = 'panel'
+}: MemoryPanelProps): React.JSX.Element | null {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<Tab>('pinned')
@@ -138,6 +143,95 @@ export function MemoryPanel({ worktreeId, className }: MemoryPanelProps): React.
           : t('memory.empty.observed')
         : t('memory.semanticSection')
 
+  const body = (
+    <>
+      {/* Tab bar */}
+      <div className="flex items-center gap-1 mb-2 text-[11px]">
+        <TabButton
+          active={tab === 'pinned'}
+          onClick={() => setTab('pinned')}
+          icon={<Pin size={11} />}
+          label={t('memory.pinnedSection')}
+        />
+        <TabButton
+          active={tab === 'observed'}
+          onClick={() => setTab('observed')}
+          icon={<Brain size={11} />}
+          label={t('memory.observedSection')}
+        />
+        <TabButton
+          active={tab === 'semantic'}
+          onClick={() => setTab('semantic')}
+          icon={<FolderOpen size={11} />}
+          label={t('memory.semanticSection')}
+        />
+      </div>
+
+      {tab === 'pinned' && (
+        <div className="bg-background/30 rounded">
+          <PinnedFactsCard worktreeId={worktreeId} />
+        </div>
+      )}
+
+      {tab === 'observed' && (
+        <ObservedSection
+          episodic={episodic}
+          loading={loading}
+          actionPending={actionPending}
+          onRegenerate={handleRegenerate}
+          onClear={handleClear}
+        />
+      )}
+
+      {tab === 'semantic' && <SemanticSection semantic={semantic} loading={loading} />}
+    </>
+  )
+
+  if (variant === 'composer') {
+    return (
+      <div className={cn('relative shrink-0', className)} data-testid="memory-panel">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className={cn(
+            'inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors',
+            open
+              ? 'border-tech-blue/35 bg-tech-blue-soft text-tech-blue'
+              : 'border-border/70 bg-background/65 text-muted-foreground hover:border-border hover:bg-background/85 hover:text-foreground'
+          )}
+          data-testid="memory-panel-trigger"
+        >
+          <Brain size={12} className={open ? 'text-tech-blue' : 'text-muted-foreground'} />
+          <span>{t('memory.title')}</span>
+        </button>
+        {open && (
+          <div className="absolute bottom-full left-0 z-50 mb-2 w-[min(540px,calc(100vw-4rem))] overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-xl">
+            <div className="flex items-center justify-between gap-3 border-b border-border/60 px-3 py-2">
+              <div className="min-w-0 text-xs">
+                <div className="font-semibold text-foreground">{t('memory.title')}</div>
+                <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                  {headerLabel}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void refresh()}
+                className={cn(
+                  'rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground',
+                  loading && 'animate-spin text-muted-foreground/60'
+                )}
+                title={t('memory.refresh')}
+              >
+                <RefreshCw size={13} />
+              </button>
+            </div>
+            <div className="max-h-[58vh] overflow-auto px-3 pb-3 pt-2">{body}</div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div
       className={cn('border-t border-border/40 bg-muted/20 text-xs', className)}
@@ -150,7 +244,7 @@ export function MemoryPanel({ worktreeId, className }: MemoryPanelProps): React.
       >
         <div className="flex items-center gap-1.5">
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          <Brain size={12} className="text-amber-400" />
+          <Brain size={12} className="text-tech-blue" />
           <span>{t('memory.title')}</span>
           <span className="text-muted-foreground/70 ml-2 truncate max-w-[40ch]">{headerLabel}</span>
         </div>
@@ -173,56 +267,14 @@ export function MemoryPanel({ worktreeId, className }: MemoryPanelProps): React.
               'p-1 rounded hover:bg-muted/50',
               loading && 'animate-spin text-muted-foreground/60'
             )}
-            title="Refresh"
+            title={t('memory.refresh')}
           >
             <RefreshCw size={12} />
           </span>
         )}
       </button>
 
-      {open && (
-        <div className="px-3 pb-3 pt-1 max-h-[60vh] overflow-auto">
-          {/* Tab bar */}
-          <div className="flex items-center gap-1 mb-2 text-[11px]">
-            <TabButton
-              active={tab === 'pinned'}
-              onClick={() => setTab('pinned')}
-              icon={<Pin size={11} />}
-              label={t('memory.pinnedSection')}
-            />
-            <TabButton
-              active={tab === 'observed'}
-              onClick={() => setTab('observed')}
-              icon={<Brain size={11} />}
-              label={t('memory.observedSection')}
-            />
-            <TabButton
-              active={tab === 'semantic'}
-              onClick={() => setTab('semantic')}
-              icon={<FolderOpen size={11} />}
-              label={t('memory.semanticSection')}
-            />
-          </div>
-
-          {tab === 'pinned' && (
-            <div className="bg-background/30 rounded">
-              <PinnedFactsCard worktreeId={worktreeId} />
-            </div>
-          )}
-
-          {tab === 'observed' && (
-            <ObservedSection
-              episodic={episodic}
-              loading={loading}
-              actionPending={actionPending}
-              onRegenerate={handleRegenerate}
-              onClear={handleClear}
-            />
-          )}
-
-          {tab === 'semantic' && <SemanticSection semantic={semantic} loading={loading} />}
-        </div>
-      )}
+      {open && <div className="px-3 pb-3 pt-1 max-h-[60vh] overflow-auto">{body}</div>}
     </div>
   )
 }
@@ -245,9 +297,7 @@ function TabButton({ active, onClick, icon, label }: TabButtonProps): React.JSX.
       onClick={onClick}
       className={cn(
         'inline-flex items-center gap-1 px-2 py-0.5 rounded',
-        active
-          ? 'bg-primary/20 text-foreground'
-          : 'text-muted-foreground hover:bg-muted/50'
+        active ? 'bg-primary/20 text-foreground' : 'text-muted-foreground hover:bg-muted/50'
       )}
     >
       {icon}
@@ -307,9 +357,7 @@ function ObservedSection({
           {t('memory.clear')}
         </Button>
       </div>
-      {loading && !episodic && (
-        <div className="text-muted-foreground/60">Loading…</div>
-      )}
+      {loading && !episodic && <div className="text-muted-foreground/60">Loading…</div>}
       {!loading && !episodic && (
         <div className="text-muted-foreground/60 italic">{t('memory.empty.observed')}</div>
       )}

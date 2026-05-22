@@ -3,7 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 
 export type BottomPanelTab = 'setup' | 'run' | 'terminal'
 export type TerminalDock = 'right' | 'bottom'
-export type RightContextTab = 'overview' | 'review' | 'files' | 'tasks' | 'goal'
+export type RightContextTab = 'overview' | 'review' | 'files' | 'tasks' | 'goal' | 'terminal'
 export type RightReviewTab = 'changes' | 'diffs' | 'comments'
 
 const LEFT_SIDEBAR_DEFAULT = 240

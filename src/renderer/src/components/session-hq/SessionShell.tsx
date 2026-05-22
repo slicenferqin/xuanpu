@@ -4,7 +4,6 @@
  * Composition root for the new session UI. Wires together hooks and
  * passes data to child components:
  *
- *   SessionHeader    — provider badge, model, lifecycle
  *   AgentTimeline    — vertical timeline of agent actions
  *   InterruptDock    — first pending HITL prompt
  *   ComposerBar      — glassmorphism floating input (Phase 5 state machine)
@@ -23,7 +22,6 @@ import React, {
   useMemo,
   useSyncExternalStore
 } from 'react'
-import { SessionHeader } from './SessionHeader'
 import { AgentTimeline } from './AgentTimeline'
 import type { ThreadStatusRowData } from './ThreadStatusRow'
 import { InterruptDock } from './InterruptDock'
@@ -518,11 +516,15 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
   // --- Persisted usage summary (survives restart) ---
   const refreshUsageSummary = useCallback(async (): Promise<void> => {
-    if (!window.usageAnalyticsOps?.fetchSessionSummary) return
+    if (!window.usageAnalyticsOps?.fetchSessionSummary) {
+      return
+    }
 
     try {
       const result = await window.usageAnalyticsOps.fetchSessionSummary(sessionId)
-      if (!result.success || !result.data) return
+      if (!result.success || !result.data) {
+        return
+      }
 
       const data = result.data
       const store = useContextStore.getState()
@@ -1826,8 +1828,6 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
   return (
     <div className="flex flex-col h-full">
-      <SessionHeader sessionId={sessionId} session={sessionRecord} lifecycle={lifecycle} />
-
       {/* Main content area — relative for floating ComposerBar */}
       <div className="flex-1 flex flex-col overflow-hidden relative">
         <AgentTimeline
@@ -1886,6 +1886,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           superpowersAvailable={false}
         />
 
+        <div className="crisp-composer-veil pointer-events-none absolute bottom-0 left-0 right-0 z-10 h-44" />
+
         <ComposerBar
           containerRef={composerBarRef}
           sessionId={sessionId}
@@ -1907,24 +1909,20 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           worktreePath={worktreePath}
           commandsVersion={commandsVersion}
           contextAttachmentSlot={<DiffCommentAttachments />}
+          controlSlot={<MemoryPanel worktreeId={worktreeId} variant="composer" />}
         />
 
-        {/* v1.4.2: User-facing Memory panel — Pinned Facts / Observed
-            (Episodic) / Semantic. Sits above the FieldContextDebug
-            (which is dev-only) so it's the daily-driver for memory edits. */}
-        <div className="absolute bottom-0 left-0 right-0 z-30">
-          <MemoryPanel worktreeId={worktreeId} />
-          {/* Phase 22A debug: collapsible view of the last Field Context injection.
-              Only visible in dev builds — production users use the MemoryPanel
-              above for daily memory inspection. */}
-          {process.env.NODE_ENV === 'development' && (
+        {process.env.NODE_ENV === 'development' && (
+          <div className="absolute bottom-0 left-0 right-0 z-30">
+            {/* Phase 22A debug: collapsible view of the last Field Context injection.
+                Production users inspect memory through the Composer console. */}
             <FieldContextDebug
               sessionId={droidSessionId}
               fallbackSessionIds={[sessionId]}
               worktreeId={worktreeId}
             />
-          )}
-        </div>
+          </div>
+        )}
 
         <ForkFromMessageConfirmDialog
           open={pendingForkMessageId !== null}

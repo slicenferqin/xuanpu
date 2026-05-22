@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Plus, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useBottomTerminalStore } from '@/stores/useBottomTerminalStore'
+import { useBottomTerminalStore, type BottomTerminalTab } from '@/stores/useBottomTerminalStore'
 import { useTerminalStore } from '@/stores/useTerminalStore'
 import { useLayoutStore } from '@/stores/useLayoutStore'
 import {
@@ -17,6 +17,8 @@ interface TerminalTabBarProps {
   worktreeId: string
   worktreeCwd: string
 }
+
+const EMPTY_TABS: BottomTerminalTab[] = []
 
 function StatusDot({ tabId }: { tabId: string }): React.JSX.Element {
   const status = useTerminalStore((s) => s.terminals.get(tabId)?.status ?? 'creating')
@@ -37,7 +39,7 @@ export function TerminalTabBar({
   worktreeId,
   worktreeCwd
 }: TerminalTabBarProps): React.JSX.Element {
-  const tabs = useBottomTerminalStore((s) => s.getTabsForWorktree(worktreeId))
+  const tabs = useBottomTerminalStore((s) => s.tabsByWorktree.get(worktreeId) ?? EMPTY_TABS)
   const activeTabId = useBottomTerminalStore((s) => s.getActiveTabId(worktreeId))
   const { createTab, closeTab, closeOtherTabs, setActiveTab, renameTab } =
     useBottomTerminalStore()

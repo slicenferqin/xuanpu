@@ -2,21 +2,23 @@ import './styles/globals.css'
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
-import { applyFontScale } from '@/lib/font-size'
+import { applyTypographySettings } from '@/lib/font-size'
 
-// Apply persisted font scale from localStorage before first paint to avoid flash.
+// Apply persisted typography settings from localStorage before first paint to avoid flash.
 // (Zoom is already applied in preload via webFrame.setZoomFactor.)
 try {
   const stored = localStorage.getItem('hive-settings')
   if (stored) {
     const parsed = JSON.parse(stored)
-    const scale = parsed?.state?.uiFontScale
-    if (typeof scale === 'number' && scale !== 1) {
-      applyFontScale(scale)
-    }
+    applyTypographySettings({
+      uiFontScale: parsed?.state?.uiFontScale,
+      uiFontFamily: parsed?.state?.uiFontFamily,
+      uiCustomFontFamily: parsed?.state?.uiCustomFontFamily,
+      uiFontWeight: parsed?.state?.uiFontWeight
+    })
   }
 } catch {
-  // Ignore — default font sizes will be used
+  // Ignore — default typography will be used
 }
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(

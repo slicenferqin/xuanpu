@@ -27,10 +27,10 @@ function TokenSaverBadge({ parsed }: { parsed: ParsedTokenSaverFooter }): React.
   const { t } = useI18n()
   return (
     <div
-      className="mb-2 flex flex-wrap items-center gap-2 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] text-emerald-700 dark:text-emerald-200"
+      className="mb-2 flex flex-wrap items-center gap-2 rounded-md border border-neon-mint/20 bg-neon-mint-soft px-2.5 py-1.5 text-[11px] text-neon-mint dark:bg-neon-mint-soft/35"
       data-testid="token-saver-badge"
     >
-      <Sparkles className="h-3.5 w-3.5 text-emerald-500" />
+      <Sparkles className="h-3.5 w-3.5 text-neon-mint" />
       <span className="font-semibold">
         {t('toolViews.tokenSaver.savedBadge', {
           percent: parsed.savedPercent,
@@ -38,7 +38,7 @@ function TokenSaverBadge({ parsed }: { parsed: ParsedTokenSaverFooter }): React.
           after: formatBytes(parsed.afterBytes)
         })}
       </span>
-      <span className="text-emerald-700/70 dark:text-emerald-300/70">
+      <span className="text-steel">
         {t('toolViews.tokenSaver.viaRules', { rules: parsed.rules.join(', ') })}
       </span>
     </div>
@@ -81,7 +81,7 @@ function OriginalOutputButton({ archivePath }: { archivePath: string }): React.J
       <button
         type="button"
         onClick={() => void toggle()}
-        className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 transition-colors hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300"
+        className="inline-flex items-center gap-1.5 text-xs font-medium text-tech-blue transition-colors hover:text-tech-blue/80"
         data-testid="token-saver-show-original"
       >
         <FileText className="h-3.5 w-3.5" />
@@ -96,7 +96,7 @@ function OriginalOutputButton({ archivePath }: { archivePath: string }): React.J
           )}
           {error && <div className="text-xs text-red-500">{error}</div>}
           {content !== null && (
-            <pre className="mt-1 max-h-80 overflow-y-auto whitespace-pre-wrap break-all rounded-md bg-zinc-950/80 p-2 font-mono text-[11px] text-zinc-300">
+            <pre className="mt-1 max-h-80 overflow-y-auto whitespace-pre-wrap break-all rounded-md border border-[color:var(--code-block-border)] bg-[var(--code-block-bg)] p-2 font-mono text-[11px] text-[var(--code-block-text)]">
               {content}
             </pre>
           )}
@@ -126,7 +126,7 @@ export function BashCard({ toolUse }: BashCardProps): React.JSX.Element {
     <ActionCard
       headerLeft={
         <div className="flex items-center gap-2 font-mono text-xs min-w-0">
-          <span className="text-celadon font-semibold shrink-0">$_</span>
+          <span className="text-tech-blue font-semibold shrink-0">$_</span>
           <span className="truncate text-foreground">{command}</span>
         </div>
       }
@@ -143,7 +143,7 @@ export function BashCard({ toolUse }: BashCardProps): React.JSX.Element {
                 : t('sessionHq.cards.bash.exitZero')}
           </span>
           {parsed && (
-            <span className="rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+            <span className="rounded border border-neon-mint/25 bg-neon-mint-soft px-1.5 py-0.5 text-[10px] font-semibold text-neon-mint dark:bg-neon-mint-soft/35">
               {t('sessionHq.cards.bash.tokenSaverCompact', { percent: parsed.savedPercent })}
             </span>
           )}

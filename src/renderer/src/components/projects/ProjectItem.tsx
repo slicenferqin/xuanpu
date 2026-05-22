@@ -286,10 +286,8 @@ export function ProjectItem({
         <ContextMenuTrigger asChild>
           <div
             className={cn(
-              'group flex items-center gap-2 px-2.5 py-2.5 rounded-xl cursor-pointer transition-colors',
-              isSelected
-                ? 'bg-sidebar-accent text-sidebar-accent-foreground ring-1 ring-sidebar-border/60 shadow-sm'
-                : 'hover:bg-sidebar-accent/70',
+              'group flex items-center gap-2 px-2.5 py-3 rounded-xl cursor-pointer transition-colors',
+              isSelected ? 'crisp-parent-active-row' : 'crisp-hover-row',
               isDragging && 'opacity-50',
               isDragOver && 'border-t-2 border-primary'
             )}
@@ -358,7 +356,7 @@ export function ProjectItem({
                   <HighlightedText
                     text={project.path}
                     indices={pathMatchIndices}
-                    className="text-[11px] text-muted-foreground/90 truncate block mt-0.5"
+                    className="text-[11px] text-muted-foreground/70 truncate block mt-0.5"
                   />
                 )}
               </div>

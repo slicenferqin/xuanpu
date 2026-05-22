@@ -256,7 +256,11 @@ export function useVimNavigation(): void {
           u: 'run',
           t: 'terminal'
         }
-        layout.setBottomPanelTab(tabMap[event.key])
+        const nextTab = tabMap[event.key]
+        layout.setBottomPanelTab(nextTab)
+        if (nextTab === 'terminal' && layout.terminalDock === 'right') {
+          layout.setRightContextTab('terminal')
+        }
         event.preventDefault()
         return
       }
@@ -279,33 +283,49 @@ export function useVimNavigation(): void {
         const btn = document.querySelector<HTMLElement>('[data-testid="review-button"]')
         if (btn) {
           btn.click()
-          event.preventDefault()
-          return
+        } else {
+          const layout = useLayoutStore.getState()
+          layout.setRightSidebarCollapsed(false)
+          layout.setRightContextTab('review')
         }
+        event.preventDefault()
+        return
       }
       if (event.key === 'p') {
         const btn = document.querySelector<HTMLElement>('[data-testid="pr-button"]')
         if (btn) {
           btn.click()
-          event.preventDefault()
-          return
+        } else {
+          const layout = useLayoutStore.getState()
+          layout.setRightSidebarCollapsed(false)
+          layout.setRightContextTab('review')
         }
+        event.preventDefault()
+        return
       }
       if (event.key === 'm') {
         const btn = document.querySelector<HTMLElement>('[data-testid="pr-merge-button"]')
         if (btn) {
           btn.click()
-          event.preventDefault()
-          return
+        } else {
+          const layout = useLayoutStore.getState()
+          layout.setRightSidebarCollapsed(false)
+          layout.setRightContextTab('review')
         }
+        event.preventDefault()
+        return
       }
       if (event.key === 'a') {
         const btn = document.querySelector<HTMLElement>('[data-testid="pr-archive-button"]')
         if (btn) {
           btn.click()
-          event.preventDefault()
-          return
+        } else {
+          const layout = useLayoutStore.getState()
+          layout.setRightSidebarCollapsed(false)
+          layout.setRightContextTab('review')
         }
+        event.preventDefault()
+        return
       }
 
       // --- Hint dispatch: idle mode → uppercase starts pending ---

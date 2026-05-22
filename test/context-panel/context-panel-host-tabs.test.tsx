@@ -7,7 +7,11 @@ import { useSessionStore } from '@/stores/useSessionStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useContextStore } from '@/stores/useContextStore'
 import { useSessionRuntimeStore } from '@/stores/useSessionRuntimeStore'
+import { useProjectStore } from '@/stores/useProjectStore'
+import { useWorktreeStore } from '@/stores/useWorktreeStore'
+import { useGitStore } from '@/stores/useGitStore'
 import type { TimelineMessage } from '@shared/lib/timeline-types'
+import type React from 'react'
 
 vi.mock('@/components/file-tree/FileTree', () => ({
   FileTree: () => <div data-testid="file-tree">FileTree</div>
@@ -29,8 +33,16 @@ vi.mock('@/components/pr-review/PrReviewViewer', () => ({
   PrReviewViewer: () => <div data-testid="pr-review-viewer">PrReviewViewer</div>
 }))
 
-function renderHost(): void {
-  render(<ContextPanelHost worktreePath="/tmp/worktree" onClose={vi.fn()} onFileClick={vi.fn()} />)
+function renderHost(options: { terminalPanel?: React.ReactNode } = {}): void {
+  render(
+    <ContextPanelHost
+      worktreePath="/tmp/worktree"
+      scopeId="wt-1"
+      onClose={vi.fn()}
+      onFileClick={vi.fn()}
+      terminalPanel={options.terminalPanel}
+    />
+  )
 }
 
 function todoTimeline(): TimelineMessage[] {
@@ -71,6 +83,25 @@ describe('ContextPanelHost', () => {
       inlineConnectionSessionId: null
     })
     useSettingsStore.setState({ vimModeEnabled: true })
+    useProjectStore.setState({
+      projects: [],
+      selectedProjectId: null
+    })
+    useWorktreeStore.setState({
+      selectedWorktreeId: null,
+      worktreesByProject: new Map()
+    })
+    useGitStore.setState({
+      remoteInfo: new Map(),
+      prTargetBranch: new Map(),
+      reviewTargetBranch: new Map(),
+      prCreation: new Map(),
+      attachedPR: new Map(),
+      branchInfoByWorktree: new Map(),
+      fileStatusesByWorktree: new Map(),
+      isPushing: false,
+      isPulling: false
+    })
     useContextStore.setState({
       tokensBySession: {},
       modelBySession: {},
@@ -101,6 +132,33 @@ describe('ContextPanelHost', () => {
         fetchSessionSummary: vi.fn().mockResolvedValue({ success: false })
       }
     })
+    Object.defineProperty(window, 'db', {
+      configurable: true,
+      writable: true,
+      value: {
+        session: {
+          getByWorktree: vi.fn().mockResolvedValue([]),
+          getByConnection: vi.fn().mockResolvedValue([])
+        }
+      }
+    })
+    Object.defineProperty(window, 'gitOps', {
+      configurable: true,
+      writable: true,
+      value: {
+        listBranchesWithStatus: vi.fn().mockResolvedValue({ success: true, branches: [] }),
+        listPRs: vi.fn().mockResolvedValue({ success: true, prs: [] }),
+        getPRState: vi.fn().mockResolvedValue({ success: false }),
+        prMerge: vi.fn().mockResolvedValue({ success: true })
+      }
+    })
+    Object.defineProperty(window, 'fileOps', {
+      configurable: true,
+      writable: true,
+      value: {
+        readPrompt: vi.fn().mockResolvedValue({ success: false })
+      }
+    })
   })
 
   it('switches between overview, review, and files without owning terminal state', async () => {
@@ -117,6 +175,52 @@ describe('ContextPanelHost', () => {
     expect(screen.getByTestId('file-tree')).toBeInTheDocument()
   })
 
+  it('keeps the content area on the left and the vertical rail on the right', () => {
+    useSessionStore.setState({ activeSessionId: 'sess-overview' })
+    renderHost()
+
+    const host = screen.getByTestId('context-panel-host')
+    expect(host.children[0]).toBe(screen.getByTestId('context-panel-content'))
+    expect(host.children[1]).toBe(screen.getByTestId('context-panel-rail'))
+    expect(screen.getByTestId('context-panel-tab-overview')).toHaveAttribute(
+      'aria-label',
+      'Overview'
+    )
+  })
+
+  it('shows the terminal entry only when a right-docked terminal panel is provided', async () => {
+    const user = userEvent.setup()
+    renderHost({ terminalPanel: <div data-testid="context-panel-terminal">Terminal panel</div> })
+
+    await user.click(screen.getByTestId('context-panel-tab-terminal'))
+
+    expect(screen.getByTestId('context-panel-terminal')).toBeInTheDocument()
+  })
+
+  it('keeps the terminal panel mounted while switching away and back', async () => {
+    const user = userEvent.setup()
+    renderHost({ terminalPanel: <div data-testid="context-panel-terminal">Terminal panel</div> })
+
+    await user.click(screen.getByTestId('context-panel-tab-terminal'))
+
+    const terminalContent = screen.getByTestId('context-panel-terminal-content')
+    expect(screen.getByTestId('context-panel-terminal')).toBeInTheDocument()
+    expect(terminalContent).not.toHaveClass('hidden')
+    expect(terminalContent).toHaveAttribute('aria-hidden', 'false')
+
+    await user.click(screen.getByTestId('context-panel-tab-overview'))
+
+    expect(screen.getByTestId('context-panel-terminal')).toBeInTheDocument()
+    expect(terminalContent).toHaveClass('hidden')
+    expect(terminalContent).toHaveAttribute('aria-hidden', 'true')
+
+    await user.click(screen.getByTestId('context-panel-tab-terminal'))
+
+    expect(screen.getByTestId('context-panel-terminal')).toBeInTheDocument()
+    expect(terminalContent).not.toHaveClass('hidden')
+    expect(terminalContent).toHaveAttribute('aria-hidden', 'false')
+  })
+
   it('keeps vim right-sidebar tab events compatible with review sub-tabs', () => {
     renderHost()
 
@@ -127,6 +231,82 @@ describe('ContextPanelHost', () => {
     expect(screen.getByTestId('branch-diff-view')).toBeInTheDocument()
     expect(useLayoutStore.getState().rightContextTab).toBe('review')
     expect(useLayoutStore.getState().rightReviewTab).toBe('diffs')
+  })
+
+  it('keeps AI review and PR actions inside the review context panel', async () => {
+    const user = userEvent.setup()
+    useProjectStore.setState({
+      projects: [
+        {
+          id: 'proj-1',
+          name: 'Project',
+          path: '/tmp/project',
+          description: null,
+          tags: null,
+          language: null,
+          custom_icon: null,
+          setup_script: null,
+          run_script: null,
+          archive_script: null,
+          auto_assign_port: false,
+          sort_order: 0,
+          created_at: '2026-05-21T00:00:00.000Z',
+          last_accessed_at: '2026-05-21T00:00:00.000Z'
+        }
+      ],
+      selectedProjectId: 'proj-1'
+    })
+    useWorktreeStore.setState({
+      selectedWorktreeId: 'wt-1',
+      worktreesByProject: new Map([
+        [
+          'proj-1',
+          [
+            {
+              id: 'wt-1',
+              project_id: 'proj-1',
+              name: 'feature',
+              branch_name: 'feature',
+              path: '/tmp/worktree',
+              status: 'active',
+              is_default: false,
+              branch_renamed: 0,
+              last_message_at: null,
+              session_titles: '[]',
+              last_model_provider_id: null,
+              last_model_id: null,
+              last_model_variant: null,
+              created_at: '2026-05-21T00:00:00.000Z',
+              last_accessed_at: '2026-05-21T00:00:00.000Z',
+              github_pr_number: null,
+              github_pr_url: null
+            }
+          ]
+        ]
+      ])
+    })
+    useGitStore.setState({
+      remoteInfo: new Map([
+        ['wt-1', { hasRemote: true, isGitHub: true, url: 'git@github.com:org/repo.git' }]
+      ]),
+      branchInfoByWorktree: new Map([
+        ['/tmp/worktree', { name: 'feature', tracking: 'origin/main', ahead: 0, behind: 0 }]
+      ])
+    })
+    window.gitOps.listBranchesWithStatus = vi.fn().mockResolvedValue({
+      success: true,
+      branches: [{ name: 'origin/main', isRemote: true }]
+    })
+
+    renderHost()
+    await user.click(screen.getByTestId('context-panel-tab-review'))
+
+    expect(screen.getByTestId('context-panel-review-actions')).toBeInTheDocument()
+    expect(screen.getByTestId('review-button')).toHaveTextContent('AI Review')
+    expect(screen.getByTestId('review-target-branch-trigger')).toHaveTextContent('origin/main')
+    expect(screen.getByTestId('pr-section')).toBeInTheDocument()
+    expect(screen.getByTestId('pr-button')).toBeInTheDocument()
+    expect(screen.getByTestId('pr-target-branch-trigger')).toHaveTextContent('origin/main')
   })
 
   it('renders latest session tasks from the shared timeline extraction helper', async () => {
@@ -185,34 +365,80 @@ describe('ContextPanelHost', () => {
     })
   })
 
-  it('shows cumulative usage summary in the overview panel', async () => {
-    useSessionStore.setState({ activeSessionId: 'sess-usage' })
-    window.usageAnalyticsOps.fetchSessionSummary = vi.fn().mockResolvedValue({
-      success: true,
-      data: {
-        session_id: 'sess-usage',
-        engine: 'codex',
-        total_cost: 0.0234,
-        total_tokens: 12_000,
-        input_tokens: 3_000,
-        output_tokens: 7_000,
-        cache_write_tokens: 500,
-        cache_read_tokens: 1_500,
-        duration_seconds: 120,
-        last_used_at: '2026-05-21T00:00:00.000Z',
-        model_labels: [],
-        latest_model_label: null,
-        partial: false
+  it('shows worktree-wide cumulative usage summary in the overview panel', async () => {
+    const sessions = ['sess-usage-a', 'sess-usage-b'].map((id, index) => ({
+      id,
+      worktree_id: 'wt-1',
+      project_id: 'proj-1',
+      connection_id: null,
+      name: `Session ${index + 1}`,
+      status: 'active' as const,
+      opencode_session_id: `runtime-${index + 1}`,
+      agent_sdk: 'codex' as const,
+      mode: 'build' as const,
+      model_provider_id: null,
+      model_id: null,
+      model_variant: null,
+      first_message_at: null,
+      created_at: '2026-05-21T00:00:00.000Z',
+      updated_at: '2026-05-21T00:00:00.000Z',
+      completed_at: null
+    }))
+    useSessionStore.setState({
+      activeSessionId: 'sess-usage-a',
+      activeWorktreeId: 'wt-1',
+      sessionsByWorktree: new Map([['wt-1', sessions]]),
+      tabOrderByWorktree: new Map([['wt-1', sessions.map((session) => session.id)]])
+    })
+    window.db.session.getByWorktree = vi.fn().mockResolvedValue(sessions)
+    window.usageAnalyticsOps.fetchSessionSummary = vi.fn(async (sessionId: string) => {
+      const dataBySession = {
+        'sess-usage-a': {
+          session_id: 'sess-usage-a',
+          engine: 'codex',
+          total_cost: 0.0234,
+          total_tokens: 12_000,
+          input_tokens: 3_000,
+          output_tokens: 7_000,
+          cache_write_tokens: 500,
+          cache_read_tokens: 1_500
+        },
+        'sess-usage-b': {
+          session_id: 'sess-usage-b',
+          engine: 'codex',
+          total_cost: 0.033,
+          total_tokens: 5_500,
+          input_tokens: 1_100,
+          output_tokens: 2_200,
+          cache_write_tokens: 700,
+          cache_read_tokens: 1_500
+        }
+      } as const
+      const data = dataBySession[sessionId as keyof typeof dataBySession]
+      return {
+        success: !!data,
+        data: data
+          ? {
+              ...data,
+              duration_seconds: 120,
+              last_used_at: '2026-05-21T00:00:00.000Z',
+              model_labels: [],
+              latest_model_label: null,
+              partial: false
+            }
+          : undefined
       }
     })
 
     renderHost()
 
     await waitFor(() => {
-      expect(screen.getByText('$0.02')).toBeInTheDocument()
-      expect(screen.getByText('12.0K')).toBeInTheDocument()
+      expect(screen.getByText('$0.06')).toBeInTheDocument()
+      expect(screen.getByText('17.5K')).toBeInTheDocument()
+      expect(screen.getByText('4.1K')).toBeInTheDocument()
+      expect(screen.getByText('9.2K')).toBeInTheDocument()
       expect(screen.getByText('3.0K')).toBeInTheDocument()
-      expect(screen.getByText('1.5K')).toBeInTheDocument()
+      expect(screen.getByText('2 sessions in this Worktree')).toBeInTheDocument()
     })
   })
 })

@@ -193,7 +193,14 @@ export function AppLayout({ children }: AppLayoutProps): React.JSX.Element {
 
   return (
     <div className="h-screen flex flex-col bg-background text-foreground" data-testid="app-layout">
-      <ErrorBoundary componentName="Header" fallback={<div className="h-12 bg-muted" />}>
+      <ErrorBoundary
+        componentName="Header"
+        fallback={
+          <div className="h-10 flex shrink-0 items-center border-b border-border/45 bg-background/75 px-3 text-xs font-semibold text-foreground">
+            Xuanpu
+          </div>
+        }
+      >
         <Header />
       </ErrorBoundary>
       <div className="flex-1 flex flex-col min-h-0" data-testid="layout-content">

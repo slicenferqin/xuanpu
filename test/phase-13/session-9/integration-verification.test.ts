@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, beforeEach, vi, afterEach } from 'vitest'
+import { describe, test, expect, vi, afterEach } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
@@ -44,14 +44,15 @@ describe('Session 9: Integration & Verification', () => {
     test('inline code is unaffected by the fix', () => {
       const source = readSource('src/renderer/src/components/sessions/MarkdownRenderer.tsx')
       // Inline code still uses the simple <code> element
-      expect(source).toContain('bg-muted px-1.5 py-0.5 rounded text-sm font-mono')
-      expect(source).toContain('{children}</code>')
+      expect(source).toContain('bg-agent-card-muted')
+      expect(source).toContain('font-mono text-sm text-ink')
+      expect(source).toContain('{children}')
     })
 
     test('CodeBlock component preserves whitespace with pre tag', () => {
       const source = readSource('src/renderer/src/components/sessions/CodeBlock.tsx')
       expect(source).toContain('<pre')
-      expect(source).toContain('<code>')
+      expect(source).toContain('<code>{renderCodeContent(code, language)}</code>')
       expect(source).toContain('data-testid="code-block"')
     })
   })
@@ -209,15 +210,15 @@ describe('Session 9: Integration & Verification', () => {
   describe('S5: Refresh project context menu', () => {
     test('ProjectItem has Refresh Project menu item', () => {
       const source = readSource('src/renderer/src/components/projects/ProjectItem.tsx')
-      expect(source).toContain('Refresh Project')
+      expect(source).toContain('projectItem.menu.refreshProject')
       expect(source).toContain('handleRefreshProject')
-      expect(source).toContain("toast.success('Project refreshed')")
+      expect(source).toContain("toast.success(t('projectItem.toasts.refreshed'))")
     })
 
     test('Refresh Project appears after Refresh Language', () => {
       const source = readSource('src/renderer/src/components/projects/ProjectItem.tsx')
-      const langIndex = source.indexOf('Refresh Language')
-      const projectIndex = source.indexOf('Refresh Project')
+      const langIndex = source.indexOf('projectItem.menu.refreshLanguage')
+      const projectIndex = source.indexOf('projectItem.menu.refreshProject')
       expect(langIndex).toBeGreaterThan(-1)
       expect(projectIndex).toBeGreaterThan(-1)
       expect(projectIndex).toBeGreaterThan(langIndex)
@@ -233,9 +234,9 @@ describe('Session 9: Integration & Verification', () => {
   // ─── S6: Quick Action Buttons ──────────────────────────────────────────────
 
   describe('S6: Quick actions are all accessible', () => {
-    test('has four individual buttons with data-testid attributes', () => {
+    test('has individual buttons with data-testid attributes', () => {
       const source = readSource('src/renderer/src/components/layout/QuickActions.tsx')
-      expect(source).toContain('data-testid="quick-action-cursor"')
+      expect(source).toContain('data-testid="quick-action-editor"')
       expect(source).toContain('data-testid="quick-action-terminal"')
       expect(source).toContain('data-testid="quick-action-copy-path"')
       expect(source).toContain('data-testid="quick-action-finder"')
@@ -249,9 +250,9 @@ describe('Session 9: Integration & Verification', () => {
       expect(source).not.toContain('ChevronDown')
     })
 
-    test('Cursor button has label and terminal label is dynamic', () => {
+    test('editor and terminal labels are dynamic', () => {
       const source = readSource('src/renderer/src/components/layout/QuickActions.tsx')
-      expect(source).toContain('<span>Cursor</span>')
+      expect(source).toContain('<span>{editorLabel}</span>')
       expect(source).toContain('<span>{terminalLabel}</span>')
     })
 
@@ -302,9 +303,10 @@ describe('Session 9: Integration & Verification', () => {
       expect(source).toMatch(/>Xuanpu<\/span>/)
     })
 
-    test('header layout includes QuickActions in center', () => {
+    test('header layout uses merged topbar tabs instead of legacy QuickActions slot', () => {
       const source = readSource('src/renderer/src/components/layout/Header.tsx')
-      expect(source).toContain('<QuickActions')
+      expect(source).toContain('<SessionTabs variant="topbar" />')
+      expect(source).not.toContain('<QuickActions')
     })
 
     test('long names are truncated', () => {
@@ -397,8 +399,10 @@ describe('Session 9: Integration & Verification', () => {
 
     test('git:init IPC handler exists in project-handlers', () => {
       const source = readSource('src/main/ipc/project-handlers.ts')
+      const serviceSource = readSource('src/main/services/project-ops.ts')
       expect(source).toContain("'git:init'")
-      expect(source).toContain('git init --initial-branch=main')
+      expect(source).toContain('return initRepository(path)')
+      expect(serviceSource).toContain('git init --initial-branch=main')
     })
 
     test('initRepository is exposed in preload bridge', () => {
@@ -446,10 +450,11 @@ describe('Session 9: Integration & Verification', () => {
   })
 
   describe('Cross-feature: Quick Actions + Header layout', () => {
-    test('QuickActions is rendered inside Header', () => {
+    test('QuickActions is no longer rendered inside the merged Header topbar', () => {
       const source = readSource('src/renderer/src/components/layout/Header.tsx')
-      expect(source).toContain('<QuickActions')
-      expect(source).toContain("import { QuickActions } from './QuickActions'")
+      expect(source).toContain('<SessionTabs variant="topbar" />')
+      expect(source).not.toContain('<QuickActions')
+      expect(source).not.toContain("import { QuickActions } from './QuickActions'")
     })
 
     test('QuickActions uses same worktree store as Header', () => {

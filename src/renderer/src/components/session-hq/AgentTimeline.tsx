@@ -304,42 +304,50 @@ interface IconConfig {
 const ICON_MAP: Record<CardType, IconConfig> = {
   'user-message': {
     icon: User,
-    colorClass: 'text-blue-600 dark:text-blue-400',
-    bgClass: 'bg-blue-500/15'
+    colorClass: 'text-tech-blue',
+    bgClass: 'bg-tech-blue-soft'
   },
-  system: { icon: MessageSquare, colorClass: 'text-muted-foreground', bgClass: 'bg-muted' },
+  system: { icon: MessageSquare, colorClass: 'text-steel', bgClass: 'bg-agent-card-muted' },
   'task-notification': {
     icon: MessageSquare,
-    colorClass: 'text-muted-foreground',
-    bgClass: 'bg-muted'
+    colorClass: 'text-steel',
+    bgClass: 'bg-agent-card-muted'
   },
-  thinking: { icon: Brain, colorClass: 'text-muted-foreground', bgClass: 'bg-muted' },
-  bash: { icon: Terminal, colorClass: 'text-celadon', bgClass: 'bg-celadon/15' },
-  'file-read': { icon: FileText, colorClass: 'text-celadon', bgClass: 'bg-celadon/15' },
+  thinking: {
+    icon: Brain,
+    colorClass: 'text-neon-violet',
+    bgClass: 'bg-neon-violet-soft'
+  },
+  bash: { icon: Terminal, colorClass: 'text-neon-mint', bgClass: 'bg-neon-mint-soft' },
+  'file-read': { icon: FileText, colorClass: 'text-neon-mint', bgClass: 'bg-neon-mint-soft' },
   'file-write': {
     icon: Pencil,
-    colorClass: 'text-blue-600 dark:text-blue-400',
-    bgClass: 'bg-blue-500/15'
+    colorClass: 'text-tech-blue',
+    bgClass: 'bg-tech-blue-soft'
   },
-  search: { icon: Search, colorClass: 'text-celadon', bgClass: 'bg-celadon/15' },
+  search: { icon: Search, colorClass: 'text-neon-mint', bgClass: 'bg-neon-mint-soft' },
   'sub-agent': {
     icon: Users,
-    colorClass: 'text-purple-600 dark:text-purple-400',
-    bgClass: 'bg-purple-500/15'
+    colorClass: 'text-neon-violet',
+    bgClass: 'bg-neon-violet-soft'
   },
   plan: {
     icon: ClipboardList,
-    colorClass: 'text-purple-600 dark:text-purple-400',
-    bgClass: 'bg-purple-500/15'
+    colorClass: 'text-neon-violet',
+    bgClass: 'bg-neon-violet-soft'
   },
   'ask-user': {
     icon: HelpCircle,
-    colorClass: 'text-amber-600 dark:text-amber-400',
-    bgClass: 'bg-amber-500/15'
+    colorClass: 'text-neon-pink',
+    bgClass: 'bg-neon-pink-soft'
   },
-  todo: { icon: CheckSquare, colorClass: 'text-celadon', bgClass: 'bg-celadon/15' },
-  'tool-call': { icon: Terminal, colorClass: 'text-muted-foreground', bgClass: 'bg-muted' },
-  text: { icon: MessageSquare, colorClass: 'text-foreground', bgClass: 'bg-muted' }
+  todo: { icon: CheckSquare, colorClass: 'text-neon-mint', bgClass: 'bg-neon-mint-soft' },
+  'tool-call': {
+    icon: Terminal,
+    colorClass: 'text-neon-violet',
+    bgClass: 'bg-neon-violet-soft'
+  },
+  text: { icon: MessageSquare, colorClass: 'text-ink', bgClass: 'bg-agent-card-muted' }
 }
 
 // ---------------------------------------------------------------------------
@@ -421,10 +429,10 @@ function TimelineNodeView({
 
       return (
         <div className="group/user-message">
-          <div className="bg-blue-500/5 border border-blue-500/20 rounded-[10px] px-3.5 py-2.5">
+          <div className="crisp-subtle-shadow rounded-xl border border-tech-blue/15 bg-tech-blue-soft/70 px-3.5 py-2.5">
             {node.message.steered === true && (
               <div className="mb-2">
-                <span className="inline-flex items-center rounded-md bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold text-sky-500">
+                <span className="inline-flex items-center rounded-md bg-neon-violet-soft px-2 py-0.5 text-[10px] font-semibold text-neon-violet">
                   {t('sessionHq.timeline.steered')}
                 </span>
               </div>
@@ -494,7 +502,7 @@ function TimelineNodeView({
             ) : displayText ? (
               <div
                 className={cn(
-                  'text-sm text-foreground whitespace-pre-wrap break-words',
+                  'crisp-readable text-sm text-foreground whitespace-pre-wrap break-words',
                   (images.length > 0 || files.length > 0) && 'mt-2'
                 )}
               >
@@ -656,9 +664,10 @@ function TimelineNodeView({
       const isError = node.toolUse.status === 'error'
       const isRunning = node.toolUse.status === 'running' || node.toolUse.status === 'pending'
       return (
-        <div className="rounded-lg border border-border/50 bg-card/80 px-3.5 py-2">
+        <div className="crisp-subtle-shadow rounded-xl border border-neon-violet/25 bg-neon-violet-soft/55 px-3.5 py-2">
           <div className="flex items-center gap-2 text-sm">
-            <span className="font-medium text-foreground">{label}</span>
+            <span className="crisp-status-dot h-2 w-2 rounded-full bg-neon-violet text-neon-violet" />
+            <span className="font-medium text-ink">{label}</span>
             <span className="text-xs text-muted-foreground">
               {isRunning
                 ? t('sessionHq.timeline.genericToolStatus.running')
@@ -974,6 +983,8 @@ export function AgentTimeline({
     })
   }, [streamingParts, suppressTodoCards, committedToolUseIds])
 
+  const safeBottomPadding = Math.max(bottomFloatingHeight + 88, 140)
+
   return (
     <div
       ref={scrollContainerRef}
@@ -990,11 +1001,9 @@ export function AgentTimeline({
         style={{
           // The ComposerBar is `absolute bottom-16` (64px from viewport bottom).
           // Its TOP edge sits `composerHeight + 64` above the bottom. Reserve
-          // that much plus 24px breathing room so the last transcript node is
-          // never hidden behind it. Fallback is generous (360px) because the
-          // initial ResizeObserver tick can arrive AFTER the first paint — a
-          // small 232px fallback leaves the last node covered for one frame.
-          paddingBottom: `${Math.max(bottomFloatingHeight + 88, 360)}px`
+          // that much plus breathing room so the last transcript node is never
+          // hidden behind it. Keep a hard 140px minimum for the floating console.
+          paddingBottom: `${safeBottomPadding}px`
         }}
       >
         {/* Inline compaction marker inserted by timestamp. */}
@@ -1058,7 +1067,7 @@ export function AgentTimeline({
                 <div className="relative pl-10 mb-4">
                   {/* Vertical line */}
                   {renderConnector && (
-                    <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border" />
+                    <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-agent-hover/70" />
                   )}
                   <TimelineNodeView
                     node={node}
@@ -1093,7 +1102,7 @@ export function AgentTimeline({
               <div className="relative pl-10 mb-4">
                 {/* Vertical line */}
                 {renderConnector && (
-                  <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border" />
+                  <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-agent-hover/70" />
                 )}
 
                 {/* Icon node */}
@@ -1140,7 +1149,7 @@ export function AgentTimeline({
         {/* Final aggregated TodoCard — rendered only when a parent explicitly passes it. */}
         {finalTodoTasks && finalTodoTasks.length > 0 && (
           <div className="relative pl-10 mb-4">
-            <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border" />
+            <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-agent-hover/70" />
             <div
               className={cn(
                 'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
@@ -1166,13 +1175,13 @@ export function AgentTimeline({
             if (node.cardType === 'text') {
               return (
                 <div key={node.key} className="relative pl-10 mb-4">
-                  <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border" />
+                  <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-agent-hover/70" />
                   <div
                     className={cn(
                       'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
                       'flex items-center justify-center z-10',
                       isLastStreamNode
-                        ? 'bg-muted text-foreground'
+                        ? 'bg-neon-mint-soft text-neon-mint'
                         : iconCfg.bgClass + ' ' + iconCfg.colorClass
                     )}
                   >
@@ -1189,7 +1198,7 @@ export function AgentTimeline({
 
             return (
               <div key={node.key} className="relative pl-10 mb-4">
-                <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border" />
+                <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-agent-hover/70" />
                 <div
                   className={cn(
                     'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
@@ -1228,7 +1237,7 @@ export function AgentTimeline({
               className={cn(
                 'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
                 'flex items-center justify-center z-10',
-                'bg-muted text-muted-foreground'
+                'bg-neon-mint-soft text-neon-mint'
               )}
             >
               <Loader2 className="h-3 w-3 animate-spin" />

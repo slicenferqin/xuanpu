@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, waitFor } from '@testing-library/react'
 
 // ---------------------------------------------------------------------------
 // Mock ALL stores Header.tsx imports (must be before component import)
@@ -34,7 +34,21 @@ vi.mock('@/stores/useSessionHistoryStore', () => {
   return { useSessionHistoryStore }
 })
 
-const settingsState = { openSettings: vi.fn() }
+const settingsState = {
+  openSettings: vi.fn(),
+  vimModeEnabled: true,
+  keepAwakeEnabled: false,
+  locale: 'en',
+  defaultAgentSdk: 'codex',
+  selectedModel: null,
+  selectedModelByProvider: {},
+  showModelProvider: false,
+  favoriteModels: [] as string[],
+  toggleFavoriteModel: vi.fn(),
+  getModelVariantDefault: vi.fn(() => null),
+  setModelVariantDefault: vi.fn(),
+  setSelectedModelForSdk: vi.fn()
+}
 
 vi.mock('@/stores/useSettingsStore', () => {
   const useSettingsStore = vi.fn((selector?: unknown) =>
@@ -44,7 +58,14 @@ vi.mock('@/stores/useSettingsStore', () => {
   )
   useSettingsStore.getState = vi.fn(() => settingsState)
   useSettingsStore.subscribe = vi.fn(() => () => {})
-  return { useSettingsStore }
+  return {
+    useSettingsStore,
+    resolveModelForSdk: vi.fn(() => ({
+      providerID: 'openai',
+      modelID: 'gpt-5.4',
+      variant: undefined
+    }))
+  }
 })
 
 const projectState = { selectedProjectId: null, projects: [] as unknown[] }
@@ -96,7 +117,12 @@ const sessionState = {
   createSession: vi.fn(),
   updateSessionName: vi.fn(),
   setPendingMessage: vi.fn(),
-  setActiveSession: vi.fn()
+  setActiveSession: vi.fn(),
+  setSessionModel: vi.fn(),
+  activeSessionId: null as string | null,
+  inlineConnectionSessionId: null as string | null,
+  sessionsByWorktree: new Map<string, unknown[]>(),
+  sessionsByConnection: new Map<string, unknown[]>()
 }
 
 vi.mock('@/stores/useSessionStore', () => {
@@ -178,6 +204,7 @@ vi.mock('@/lib/toast', () => ({
 // ---------------------------------------------------------------------------
 
 import { useVimModeStore } from '@/stores/useVimModeStore'
+import { useContextStore } from '@/stores/useContextStore'
 
 // ---------------------------------------------------------------------------
 // Import component under test AFTER mocks
@@ -193,6 +220,18 @@ function resetStores(): void {
   useVimModeStore.setState({
     mode: 'normal',
     helpOverlayOpen: false
+  })
+  sessionState.activeSessionId = null
+  sessionState.inlineConnectionSessionId = null
+  sessionState.sessionsByWorktree = new Map()
+  sessionState.sessionsByConnection = new Map()
+  useContextStore.setState({
+    tokensBySession: {},
+    modelBySession: {},
+    contextSnapshotsBySession: {},
+    costBySession: {},
+    costEventKeysBySession: {},
+    modelLimits: {}
   })
 }
 
@@ -249,5 +288,129 @@ describe('Header mode pill', () => {
     expect(pill.className).toContain('text-primary')
     expect(pill.className).toContain('bg-primary/10')
     expect(pill.className).toContain('border-primary/30')
+  })
+
+  it('keeps the header visible when an active session is present', async () => {
+    Object.defineProperty(window, 'agentOps', {
+      configurable: true,
+      writable: true,
+      value: {
+        ...(window.agentOps ?? {}),
+        listModels: vi.fn().mockResolvedValue({
+          success: true,
+          providers: [
+            {
+              id: 'openai',
+              name: 'OpenAI',
+              models: {
+                'gpt-5.4': { id: 'gpt-5.4', name: 'GPT-5.4' }
+              }
+            }
+          ]
+        })
+      }
+    })
+
+    sessionState.activeSessionId = 'session-1'
+    sessionState.sessionsByWorktree = new Map([
+      [
+        'worktree-1',
+        [
+          {
+            id: 'session-1',
+            name: 'Infra session',
+            agent_sdk: 'codex',
+            model_id: 'gpt-5.4',
+            model_provider_id: 'openai'
+          }
+        ]
+      ]
+    ])
+    useContextStore.setState({
+      tokensBySession: {
+        'session-1': {
+          input: 100_000,
+          output: 20_000,
+          reasoning: 0,
+          cacheRead: 0,
+          cacheWrite: 0
+        }
+      },
+      costBySession: {
+        'session-1': 1.2345
+      },
+      modelLimits: {
+        'openai::gpt-5.4': 200_000
+      }
+    })
+
+    render(<Header />)
+
+    expect(screen.getByTestId('header')).toBeInTheDocument()
+    expect(screen.getByText('Xuanpu')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByTestId('header-session-glance')).toBeInTheDocument()
+      expect(screen.getByTestId('model-selector')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('header-context-meter')).toBeInTheDocument()
+    expect(screen.getByTestId('header-context-meter-fill')).toHaveStyle({ width: '50%' })
+    expect(screen.getByTestId('header-cost-pill')).toHaveTextContent('$1.2345')
+    expect(screen.queryByText(/tokens/i)).not.toBeInTheDocument()
+  })
+
+  it('uses the default Claude context limit when model metadata has not arrived', async () => {
+    Object.defineProperty(window, 'agentOps', {
+      configurable: true,
+      writable: true,
+      value: {
+        ...(window.agentOps ?? {}),
+        listModels: vi.fn().mockResolvedValue({
+          success: true,
+          providers: [
+            {
+              id: 'anthropic',
+              name: 'Anthropic',
+              models: {
+                opus: { id: 'opus', name: 'Opus 4.7' }
+              }
+            }
+          ]
+        })
+      }
+    })
+
+    sessionState.activeSessionId = 'session-claude'
+    sessionState.sessionsByWorktree = new Map([
+      [
+        'worktree-1',
+        [
+          {
+            id: 'session-claude',
+            name: 'Claude session',
+            agent_sdk: 'claude-code',
+            model_id: 'opus',
+            model_provider_id: 'claude-code'
+          }
+        ]
+      ]
+    ])
+    useContextStore.setState({
+      tokensBySession: {
+        'session-claude': {
+          input: 183_100,
+          output: 42_000,
+          reasoning: 0,
+          cacheRead: 0,
+          cacheWrite: 0
+        }
+      }
+    })
+
+    render(<Header />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('header-context-meter')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('header-context-meter-fill')).toHaveStyle({ width: '92%' })
   })
 })

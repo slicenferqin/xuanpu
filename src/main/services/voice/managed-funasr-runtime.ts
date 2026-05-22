@@ -27,10 +27,30 @@ const log = createLogger({ component: 'ManagedFunAsrRuntime' })
 
 const FUNASR_REPO_URL = 'https://github.com/modelscope/FunASR.git'
 const FUNASR_REPO_REF = 'b842ff8107e1da950947ada0d11ae3c008baeb54'
-const PINNED_PYTHON_PACKAGES = ['modelscope==1.37.0', 'funasr==1.3.1'] as const
-const INSTALL_MARKER = 'xuanpu-managed-runtime-v2'
+export const MANAGED_FUNASR_REQUIRED_PYTHON_PACKAGES = [
+  'torch==2.11.0',
+  'torchaudio==2.11.0',
+  'modelscope==1.37.0',
+  'funasr==1.3.1'
+] as const
+const REQUIRED_PYTHON_MODULES = ['torch', 'torchaudio', 'funasr', 'websockets'] as const
+const INSTALL_MARKER = 'xuanpu-managed-runtime-v3'
 const LOCAL_PROXY_PORT = 6244
 const LOCAL_PROXY_URL = `http://127.0.0.1:${LOCAL_PROXY_PORT}`
+const SUPPORTED_PYTHON_COMMANDS = [
+  '/opt/homebrew/bin/python3.11',
+  '/usr/local/bin/python3.11',
+  'python3.11',
+  '/opt/homebrew/bin/python3.12',
+  '/usr/local/bin/python3.12',
+  'python3.12',
+  '/opt/homebrew/bin/python3.10',
+  '/usr/local/bin/python3.10',
+  'python3.10',
+  'python3',
+  '/usr/bin/python3',
+  '/opt/homebrew/bin/python3'
+] as const
 
 interface RunResult {
   stdout: string
@@ -51,8 +71,39 @@ interface RuntimeInstallManifest {
   pythonPackages: string[]
 }
 
+export interface PythonVersion {
+  major: number
+  minor: number
+  patch: number
+}
+
 function normalizeCommandText(value: string): string {
   return value.replace(/\\/g, '/')
+}
+
+export function parsePythonVersionOutput(output: string): PythonVersion | null {
+  const match = output.match(/Python\s+(\d+)\.(\d+)(?:\.(\d+))?/)
+  if (!match) return null
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3] ?? 0)
+  }
+}
+
+export function isSupportedFunAsrPythonVersion(version: PythonVersion | null): boolean {
+  if (!version) return false
+  if (version.major !== 3) return false
+
+  // FunASR's Python server imports PyTorch at module load. PyTorch macOS arm64
+  // wheels are reliable for 3.10-3.12; newer Homebrew `python3` may point to
+  // 3.14 and create a venv that cannot install torch/torchaudio.
+  return version.minor >= 10 && version.minor <= 12
+}
+
+function formatPythonVersion(version: PythonVersion | null): string {
+  if (!version) return 'unknown'
+  return `${version.major}.${version.minor}.${version.patch}`
 }
 
 export function isManagedFunAsrCommandLine(
@@ -112,7 +163,8 @@ export class ManagedFunAsrRuntime {
     if (!(await this.findPythonCommand())) {
       return {
         status: 'python_missing',
-        message: 'Python 3 is required to prepare the local FunASR runtime'
+        message: 'Python 3.10-3.12 is required to prepare the local FunASR runtime',
+        detail: 'PyTorch wheels are not available for newer Python versions such as 3.14'
       }
     }
 
@@ -157,7 +209,10 @@ export class ManagedFunAsrRuntime {
 
     const python = await this.findPythonCommand()
     if (!python) {
-      throw new Error('Python 3 is required to prepare the local FunASR runtime')
+      throw new Error(
+        'Python 3.10-3.12 is required to prepare the local FunASR runtime. ' +
+          'Install Python 3.11 or 3.12 so PyTorch wheels are available.'
+      )
     }
 
     if (!existsSync(getFunAsrSourceDir()) || !this.isRuntimeInstalled()) {
@@ -169,19 +224,14 @@ export class ManagedFunAsrRuntime {
       await this.ensureFunAsrSource(git, onProgress)
     }
 
-    if (!existsSync(this.venvPython())) {
-      onProgress({
-        status: 'installing_runtime',
-        message: 'Creating local Python runtime',
-        detail: getFunAsrVenvDir()
-      })
-      await this.run(python, ['-m', 'venv', getFunAsrVenvDir()], {
-        timeoutMs: 5 * 60 * 1000,
-        onOutput: (chunk) => appendRuntimeLog(chunk.trimEnd())
-      })
+    await this.ensureCompatibleVenv(python, onProgress)
+
+    let needsDependencyInstall = !this.isRuntimeInstalled()
+    if (!needsDependencyInstall) {
+      needsDependencyInstall = !(await this.hasRequiredRuntimeModules())
     }
 
-    if (!this.isRuntimeInstalled()) {
+    if (needsDependencyInstall) {
       onProgress({
         status: 'installing_runtime',
         message: 'Installing FunASR runtime dependencies',
@@ -201,7 +251,7 @@ export class ManagedFunAsrRuntime {
       })
       await this.run(
         this.venvPython(),
-        ['-m', 'pip', 'install', '--upgrade', ...PINNED_PYTHON_PACKAGES],
+        ['-m', 'pip', 'install', '--upgrade', ...MANAGED_FUNASR_REQUIRED_PYTHON_PACKAGES],
         {
           timeoutMs: 30 * 60 * 1000,
           onOutput: (chunk) => {
@@ -235,6 +285,7 @@ export class ManagedFunAsrRuntime {
       this.writeInstallManifest()
     }
 
+    await this.verifyRequiredRuntimeModules()
     await this.start(runtime, onProgress)
   }
 
@@ -400,7 +451,7 @@ export class ManagedFunAsrRuntime {
       marker: INSTALL_MARKER,
       funasrRepoUrl: FUNASR_REPO_URL,
       funasrRepoRef: FUNASR_REPO_REF,
-      pythonPackages: [...PINNED_PYTHON_PACKAGES]
+      pythonPackages: [...MANAGED_FUNASR_REQUIRED_PYTHON_PACKAGES]
     }
   }
 
@@ -437,15 +488,101 @@ export class ManagedFunAsrRuntime {
   }
 
   private async findPythonCommand(): Promise<string | null> {
-    for (const command of ['python3', '/usr/bin/python3', '/opt/homebrew/bin/python3']) {
+    const attempted: Array<{ command: string; version?: string; supported?: boolean }> = []
+    for (const command of Array.from(new Set(SUPPORTED_PYTHON_COMMANDS))) {
       try {
-        const result = await this.run(command, ['--version'], { timeoutMs: 5000 })
-        if (result.code === 0) return command
+        const version = await this.getPythonVersion(command)
+        const supported = isSupportedFunAsrPythonVersion(version)
+        attempted.push({ command, version: formatPythonVersion(version), supported })
+        if (supported) {
+          log.info('Selected Python for managed FunASR runtime', {
+            command,
+            version: formatPythonVersion(version)
+          })
+          return command
+        }
       } catch {
         // Try the next common Python location.
       }
     }
+    log.warn('No supported Python found for managed FunASR runtime', { attempted })
     return null
+  }
+
+  private async getPythonVersion(command: string): Promise<PythonVersion | null> {
+    const result = await this.run(command, ['--version'], { timeoutMs: 5000 })
+    return parsePythonVersionOutput(`${result.stdout}\n${result.stderr}`)
+  }
+
+  private async ensureCompatibleVenv(
+    python: string,
+    onProgress: (progress: VoiceRuntimeProgress) => void
+  ): Promise<void> {
+    if (existsSync(this.venvPython())) {
+      let version: PythonVersion | null = null
+      try {
+        version = await this.getPythonVersion(this.venvPython())
+      } catch {
+        version = null
+      }
+
+      if (!isSupportedFunAsrPythonVersion(version)) {
+        appendRuntimeLog(
+          `Recreating FunASR Python runtime because venv uses unsupported Python ${formatPythonVersion(
+            version
+          )}`
+        )
+        onProgress({
+          status: 'installing_runtime',
+          message: 'Recreating local Python runtime',
+          detail: `Unsupported Python ${formatPythonVersion(version)}`
+        })
+        rmSync(getFunAsrVenvDir(), { force: true, recursive: true })
+      }
+    }
+
+    if (existsSync(this.venvPython())) return
+
+    onProgress({
+      status: 'installing_runtime',
+      message: 'Creating local Python runtime',
+      detail: getFunAsrVenvDir()
+    })
+    await this.run(python, ['-m', 'venv', getFunAsrVenvDir()], {
+      timeoutMs: 5 * 60 * 1000,
+      onOutput: (chunk) => appendRuntimeLog(chunk.trimEnd())
+    })
+  }
+
+  private runtimeModuleProbe(): string {
+    return [
+      'import importlib.util',
+      `modules = ${JSON.stringify(REQUIRED_PYTHON_MODULES)}`,
+      'missing = [name for name in modules if importlib.util.find_spec(name) is None]',
+      'raise SystemExit("Missing runtime Python modules: " + ", ".join(missing) if missing else 0)'
+    ].join('; ')
+  }
+
+  private async hasRequiredRuntimeModules(): Promise<boolean> {
+    if (!existsSync(this.venvPython())) return false
+    try {
+      await this.run(this.venvPython(), ['-c', this.runtimeModuleProbe()], { timeoutMs: 30000 })
+      return true
+    } catch (error) {
+      appendRuntimeLog(
+        `FunASR runtime dependency check failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      )
+      return false
+    }
+  }
+
+  private async verifyRequiredRuntimeModules(): Promise<void> {
+    if (await this.hasRequiredRuntimeModules()) return
+    throw new Error(
+      `Missing required local FunASR Python modules: ${REQUIRED_PYTHON_MODULES.join(', ')}`
+    )
   }
 
   private async findGitCommand(): Promise<string | null> {
