@@ -26,7 +26,7 @@ describe('SessionShell plan implement flow (source verification)', () => {
 
     expect(source).toContain('buildPlanImplementationPrompt(pendingBeforeAction.planContent)')
     expect(source).toContain('const implementPrompt = isClaudeCode')
-    expect(source).toContain("sessionRecord?.agent_sdk === 'codex'")
+    expect(source).toContain("agentSdk === 'codex'")
     expect(source).toContain("'Implement the plan.'")
   })
 
@@ -108,5 +108,83 @@ describe('SessionShell plan implement flow (source verification)', () => {
     expect(source).toContain('queueSessionId: sessionId')
     expect(source).toContain('waitForAbortReady: () => waitForSessionIdleAfterAbort(sessionId)')
     expect(source).toContain("if (action === 'send' || action === 'stop_and_send') {")
+  })
+
+  test('auto-drain uses a per-session drain controller instead of direct concurrent sends', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../../src/renderer/src/components/session-hq/SessionShell.tsx'),
+      'utf-8'
+    )
+
+    expect(source).toContain('createPendingDrainController')
+    expect(source).toContain(
+      'const pendingDrainController = useMemo(() => createPendingDrainController(), [])'
+    )
+    expect(source).toContain('pendingDrainController')
+    expect(source).toContain('.drainNextPending(')
+    expect(source).toContain('claimNextPendingMessage(sid)')
+    expect(source).toContain('restorePendingMessage(sid, message.id)')
+    expect(source).toContain('completePendingMessage(sid, message.id)')
+  })
+
+  test('SessionShell hydrates durable pending queue before auto-drain can observe it', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../../src/renderer/src/components/session-hq/SessionShell.tsx'),
+      'utf-8'
+    )
+
+    expect(source).toContain('hydratePendingMessages(sessionId)')
+    expect(source).toContain('runtimeId: agentSdk ?? undefined')
+  })
+
+  test('SessionShell drains hydrated pending queue when an idle session is opened', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../../src/renderer/src/components/session-hq/SessionShell.tsx'),
+      'utf-8'
+    )
+
+    expect(source).toContain('const drainQueuedMessage = useCallback')
+    expect(source).toContain("if (lifecycle !== 'idle' || pendingCount === 0) return")
+    expect(source).toContain('void drainQueuedMessage()')
+  })
+
+  test('composer prefers Codex active-turn steer without changing Claude queue semantics', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../../src/renderer/src/components/session-hq/SessionShell.tsx'),
+      'utf-8'
+    )
+
+    expect(source).toContain("const preferSteerWhenBusy = agentSdk === 'codex'")
+    expect(source).toContain('preferSteerWhenBusy={preferSteerWhenBusy}')
+  })
+
+  test('composer steer keeps the live overlay while send and stop-and-send reset it', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../../src/renderer/src/components/session-hq/SessionShell.tsx'),
+      'utf-8'
+    )
+
+    expect(source).toContain(
+      "if (action === 'send' || action === 'stop_and_send') {\n        resetLiveOverlay(true)"
+    )
+    expect(source).toContain(
+      "if (action === 'send' || action === 'stop_and_send' || action === 'steer') {\n        // Lock provider/model selectors immediately."
+    )
+    expect(source).toContain(
+      "if (action === 'send' || action === 'stop_and_send') {\n          resetLiveOverlay(false)"
+    )
+    expect(source).not.toContain(
+      "if (action === 'send' || action === 'stop_and_send' || action === 'steer') {\n        resetLiveOverlay"
+    )
   })
 })

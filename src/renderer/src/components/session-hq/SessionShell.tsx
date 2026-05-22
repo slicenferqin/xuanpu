@@ -58,7 +58,7 @@ import {
 } from '@/stores/useSessionRuntimeStore'
 import {
   executeSendAction,
-  drainNextPending,
+  createPendingDrainController,
   type ComposerAction
 } from '@/lib/session-send-actions'
 import { buildPlanImplementationPrompt } from '@/lib/proposedPlan'
@@ -506,6 +506,10 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   const { lifecycle, goal, dismissedGoalSignature, interruptQueue, pendingCount } =
     useSessionRuntime(sessionId)
 
+  useEffect(() => {
+    void useSessionRuntimeStore.getState().hydratePendingMessages(sessionId)
+  }, [sessionId])
+
   // --- Connect or reconnect to agent runtime on mount ---
 
   // --- Plan mode ---
@@ -691,15 +695,65 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   const childPartsMap = streamingMirror.childParts
   const timelineBottomAreaRef = useRef<HTMLDivElement>(null)
   const composerBarRef = useRef<HTMLDivElement>(null)
+  const pendingDrainController = useMemo(() => createPendingDrainController(), [])
 
   // Incremented when session.commands_available fires — triggers ComposerBar re-fetch
   const [commandsVersion, setCommandsVersion] = useState(0)
   const [supportsSteer, setSupportsSteer] = useState(agentSdk === 'codex')
+  const preferSteerWhenBusy = agentSdk === 'codex'
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [editingContent, setEditingContent] = useState('')
   const [forkingMessageId, setForkingMessageId] = useState<string | null>(null)
   const [pendingForkMessageId, setPendingForkMessageId] = useState<string | null>(null)
   const [forkConfirmDismissChecked, setForkConfirmDismissChecked] = useState(false)
+
+  const drainQueuedMessage = useCallback(async (): Promise<boolean> => {
+    if (!worktreePath || !droidSessionId) return false
+
+    try {
+      const drained = await pendingDrainController.drainNextPending(
+        sessionId,
+        droidSessionId,
+        (sid) => useSessionRuntimeStore.getState().claimNextPendingMessage(sid),
+        async (wp, sid, message) => {
+          let messageParts: MessagePart[] | undefined
+          if (message.attachments.length > 0) {
+            messageParts = await buildMessageParts(
+              message.attachments as Attachment[],
+              message.content
+            )
+          }
+          return window.agentOps.prompt(
+            wp,
+            sid,
+            messageParts ?? message.content,
+            requestModel,
+            promptOptions
+          )
+        },
+        worktreePath,
+        (sid, message) => useSessionRuntimeStore.getState().restorePendingMessage(sid, message.id),
+        (sid, message) => useSessionRuntimeStore.getState().completePendingMessage(sid, message.id)
+      )
+      if (drained) void refreshSessionLastMessageAt(sessionId)
+      return drained
+    } catch (err) {
+      console.error('[SessionShell] drainNextPending failed:', err)
+      return false
+    }
+  }, [
+    droidSessionId,
+    pendingDrainController,
+    promptOptions,
+    requestModel,
+    sessionId,
+    worktreePath
+  ])
+
+  useEffect(() => {
+    if (lifecycle !== 'idle' || pendingCount === 0) return
+    void drainQueuedMessage()
+  }, [drainQueuedMessage, lifecycle, pendingCount])
 
   const syncOptimisticMessagesToMirror = useCallback(() => {
     updateStreamingBuffer(
@@ -1198,36 +1252,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
               })
 
             // Auto-drain pending message queue
-            if (worktreePath && droidSessionId) {
-              drainNextPending(
-                sessionId,
-                droidSessionId,
-                (sid) => useSessionRuntimeStore.getState().dequeueMessage(sid),
-                async (wp, sid, message) => {
-                  let messageParts: MessagePart[] | undefined
-                  if (message.attachments.length > 0) {
-                    messageParts = await buildMessageParts(
-                      message.attachments as Attachment[],
-                      message.content
-                    )
-                  }
-                  return window.agentOps.prompt(
-                    wp,
-                    sid,
-                    messageParts ?? message.content,
-                    requestModel,
-                    promptOptions
-                  )
-                },
-                worktreePath,
-                (sid, message) =>
-                  useSessionRuntimeStore.getState().requeueMessageFront(sid, message)
-              )
-                .then((drained) => {
-                  if (drained) void refreshSessionLastMessageAt(sessionId)
-                })
-                .catch((err) => console.error('[SessionShell] drainNextPending failed:', err))
-            }
+            void drainQueuedMessage()
           }
         }
 
@@ -1304,8 +1329,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     droidSessionId,
     optimisticRef,
     currentProviderId,
-    requestModel,
-    promptOptions,
+    drainQueuedMessage,
     refreshUsageSummary
   ])
 
@@ -1402,6 +1426,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           worktreePath,
           sessionId: droidSessionId,
           queueSessionId: sessionId,
+          runtimeId: agentSdk ?? undefined,
           prompt: async (wp, sid, c) => {
             let messageParts: MessagePart[] | undefined
             if (attachments.length > 0) {
@@ -1462,6 +1487,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       supportsSessionGoalMode,
       requestModel,
       promptOptions,
+      agentSdk,
       resetLiveOverlay,
       setMessages,
       syncOptimisticMessagesToMirror
@@ -1526,6 +1552,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           worktreePath,
           sessionId: droidSessionId,
           queueSessionId: sessionId,
+          runtimeId: agentSdk ?? undefined,
           prompt: (wp, sid, content) =>
             window.agentOps.prompt(wp, sid, content, requestModel, promptOptions),
           abort: (wp, sid) => window.agentOps.abort(wp, sid),
@@ -1551,6 +1578,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       appendOptimistic,
       requestModel,
       promptOptions,
+      agentSdk,
       resetLiveOverlay,
       syncOptimisticMessagesToMirror,
       t,
@@ -1652,7 +1680,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     if (!worktreePath || !droidSessionId || !pendingPlan) return
 
     const pendingBeforeAction = pendingPlan
-    const isClaudeCode = sessionRecord?.agent_sdk === 'claude-code'
+    const isClaudeCode = agentSdk === 'claude-code'
 
     useSessionStore.getState().clearPendingPlan(sessionId)
     useSessionRuntimeStore.getState().removeInterrupt(sessionId, pendingBeforeAction.requestId)
@@ -1686,7 +1714,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       // don't show a fake implementation request when the backend is still blocked.
       const implementPrompt = isClaudeCode
         ? 'Implement this plan'
-        : sessionRecord?.agent_sdk === 'codex'
+        : agentSdk === 'codex'
           ? 'Implement the plan.'
           : buildPlanImplementationPrompt(pendingBeforeAction.planContent)
 
@@ -1718,6 +1746,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         worktreePath,
         sessionId: droidSessionId,
         queueSessionId: sessionId,
+        runtimeId: agentSdk ?? undefined,
         prompt: (wp, sid, c) => window.agentOps.prompt(wp, sid, c, requestModel, promptOptions),
         abort: (wp, sid) => window.agentOps.abort(wp, sid),
         queueMessage: (sid, msg) => useSessionRuntimeStore.getState().queueMessage(sid, msg)
@@ -1733,7 +1762,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     worktreePath,
     droidSessionId,
     pendingPlan,
-    sessionRecord?.agent_sdk,
+    agentSdk,
     sessionId,
     appendOptimistic,
     resetLiveOverlay,
@@ -1984,6 +2013,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           onAction={handleComposerAction}
           isConnected={!!droidSessionId && !!worktreePath}
           supportsSteer={supportsSteer}
+          preferSteerWhenBusy={preferSteerWhenBusy}
           mode={mode}
           onToggleMode={toggleMode}
           pendingPlan={pendingPlan}

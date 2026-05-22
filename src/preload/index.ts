@@ -195,6 +195,47 @@ const db = {
     list: (sessionId: string) => ipcRenderer.invoke('db:sessionActivity:list', sessionId)
   },
 
+  sessionPendingMessage: {
+    create: (data: {
+      id?: string
+      session_id: string
+      agent_session_id?: string | null
+      runtime_id: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+      content: string
+      attachments_json?: string | null
+      prompt_options_json?: string | null
+      model_json?: string | null
+      enqueued_at?: number
+    }) => ipcRenderer.invoke('db:sessionPendingMessage:create', data),
+    get: (id: string) => ipcRenderer.invoke('db:sessionPendingMessage:get', id),
+    list: (
+      sessionId: string,
+      statuses?: Array<'pending' | 'sending' | 'sent' | 'failed' | 'cancelled'>
+    ) => ipcRenderer.invoke('db:sessionPendingMessage:list', sessionId, statuses),
+    claimNext: (
+      sessionId: string,
+      options?: {
+        agent_session_id?: string | null
+        sending_run_epoch?: number | null
+        sending_turn_id?: string | null
+      }
+    ) => ipcRenderer.invoke('db:sessionPendingMessage:claimNext', sessionId, options),
+    claim: (
+      id: string,
+      options?: {
+        agent_session_id?: string | null
+        sending_run_epoch?: number | null
+        sending_turn_id?: string | null
+      }
+    ) => ipcRenderer.invoke('db:sessionPendingMessage:claim', id, options),
+    complete: (id: string) => ipcRenderer.invoke('db:sessionPendingMessage:complete', id),
+    restore: (id: string, error?: string) =>
+      ipcRenderer.invoke('db:sessionPendingMessage:restore', id, error),
+    fail: (id: string, error: string) =>
+      ipcRenderer.invoke('db:sessionPendingMessage:fail', id, error),
+    cancel: (id: string) => ipcRenderer.invoke('db:sessionPendingMessage:cancel', id)
+  },
+
   // Spaces
   space: {
     list: () => ipcRenderer.invoke('db:space:list'),

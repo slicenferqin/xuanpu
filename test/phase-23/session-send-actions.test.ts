@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // ---------------------------------------------------------------------------
 
 import {
+  createPendingDrainController,
   determineComposerActions,
   executeSendAction,
   drainNextPending,
@@ -90,9 +91,7 @@ describe('determineComposerActions', () => {
 
   describe('interrupt state', () => {
     it('returns reply_interrupt when interrupt is pending', () => {
-      const result = determineComposerActions(
-        makeInput({ hasInterrupt: true })
-      )
+      const result = determineComposerActions(makeInput({ hasInterrupt: true }))
       expect(result.primary).toBe('reply_interrupt')
       expect(result.inputEnabled).toBe(true)
       expect(result.iconHint).toBe('reply')
@@ -101,9 +100,7 @@ describe('determineComposerActions', () => {
     })
 
     it('interrupt takes priority over busy lifecycle', () => {
-      const result = determineComposerActions(
-        makeInput({ hasInterrupt: true, lifecycle: 'busy' })
-      )
+      const result = determineComposerActions(makeInput({ hasInterrupt: true, lifecycle: 'busy' }))
       expect(result.primary).toBe('reply_interrupt')
     })
   })
@@ -147,7 +144,9 @@ describe('determineComposerActions', () => {
     })
 
     it('omits steer when runtime does not support it', () => {
-      const result = determineComposerActions(makeInput({ lifecycle: 'busy', supportsSteer: false }))
+      const result = determineComposerActions(
+        makeInput({ lifecycle: 'busy', supportsSteer: false })
+      )
       expect(result.alternatives).toEqual(['queue'])
     })
 
@@ -159,6 +158,37 @@ describe('determineComposerActions', () => {
       expect(result.inputEnabled).toBe(true)
       expect(result.iconHint).toBe('queue')
       expect(result.primaryLabel).toBe('Queue')
+      expect(result.alternatives).toEqual(['steer', 'stop_and_send'])
+    })
+
+    it('returns steer as primary when a runtime prefers steering active busy turns', () => {
+      const result = determineComposerActions(
+        makeInput({
+          lifecycle: 'busy',
+          hasDraftContent: true,
+          supportsSteer: true,
+          preferSteerWhenBusy: true
+        })
+      )
+      expect(result.primary).toBe('steer')
+      expect(result.inputEnabled).toBe(true)
+      expect(result.iconHint).toBe('steer')
+      expect(result.primaryLabel).toBe('Steer')
+      expect(result.alternatives).toEqual(['queue', 'stop_and_send'])
+    })
+
+    it('keeps queue as primary for attachments because steer only supports text', () => {
+      const result = determineComposerActions(
+        makeInput({
+          lifecycle: 'busy',
+          hasDraftContent: true,
+          hasAttachments: true,
+          supportsSteer: true,
+          preferSteerWhenBusy: true
+        })
+      )
+      expect(result.primary).toBe('queue')
+      expect(result.iconHint).toBe('queue')
       expect(result.alternatives).toEqual(['steer', 'stop_and_send'])
     })
 
@@ -185,6 +215,19 @@ describe('determineComposerActions', () => {
       )
       expect(result.primary).toBe('queue')
       expect(result.alternatives).toEqual(['steer', 'stop_and_send'])
+    })
+
+    it('returns steer when materializing with draft content and steer-preferred runtime', () => {
+      const result = determineComposerActions(
+        makeInput({
+          lifecycle: 'materializing',
+          hasDraftContent: true,
+          supportsSteer: true,
+          preferSteerWhenBusy: true
+        })
+      )
+      expect(result.primary).toBe('steer')
+      expect(result.alternatives).toEqual(['queue', 'stop_and_send'])
     })
   })
 
@@ -232,6 +275,7 @@ describe('createPendingMessage', () => {
     expect(msg.content).toBe('test')
     expect(msg.attachments).toEqual(attachments)
     expect(msg.queuedAt).toBeGreaterThan(0)
+    expect(msg.status).toBe('pending')
   })
 
   it('defaults attachments to empty array', () => {
@@ -265,21 +309,29 @@ describe('executeSendAction', () => {
     const ctx = makeSendContext()
     const result = await executeSendAction('queue', 'later', [], ctx)
     expect(result).toBe(true)
-    expect(ctx.queueMessage).toHaveBeenCalledWith('sess-1', expect.objectContaining({
-      content: 'later',
-      id: expect.stringMatching(/^pending-/)
-    }))
+    expect(ctx.queueMessage).toHaveBeenCalledWith(
+      'sess-1',
+      expect.objectContaining({
+        content: 'later',
+        id: expect.stringMatching(/^pending-/)
+      })
+    )
     expect(ctx.prompt).not.toHaveBeenCalled()
   })
 
-  it('queue: uses queueSessionId for runtime store bookkeeping when provided', async () => {
-    const ctx = makeSendContext({ queueSessionId: 'db-sess-1' })
+  it('queue: uses queueSessionId and preserves runtime metadata for durable queue rows', async () => {
+    const ctx = makeSendContext({ queueSessionId: 'db-sess-1', runtimeId: 'codex' })
     const result = await executeSendAction('queue', 'later', [], ctx)
 
     expect(result).toBe(true)
-    expect(ctx.queueMessage).toHaveBeenCalledWith('db-sess-1', expect.objectContaining({
-      content: 'later'
-    }))
+    expect(ctx.queueMessage).toHaveBeenCalledWith(
+      'db-sess-1',
+      expect.objectContaining({
+        content: 'later',
+        runtimeId: 'codex',
+        agentSessionId: 'sess-1'
+      })
+    )
   })
 
   it('steer: calls steer IPC (sends while busy)', async () => {
@@ -349,11 +401,21 @@ describe('drainNextPending', () => {
     const pending = createPendingMessage('queued message')
     const dequeue = vi.fn().mockReturnValue(pending)
     const prompt = vi.fn().mockResolvedValue({ success: true })
+    const complete = vi.fn()
 
-    const result = await drainNextPending('sess-1', 'agent-sess-1', dequeue, prompt, '/path')
+    const result = await drainNextPending(
+      'sess-1',
+      'agent-sess-1',
+      dequeue,
+      prompt,
+      '/path',
+      undefined,
+      complete
+    )
     expect(result).toBe(true)
     expect(dequeue).toHaveBeenCalledWith('sess-1')
     expect(prompt).toHaveBeenCalledWith('/path', 'agent-sess-1', pending)
+    expect(complete).toHaveBeenCalledWith('sess-1', pending)
   })
 
   it('requeues the message at the front when drain fails', async () => {
@@ -367,6 +429,106 @@ describe('drainNextPending', () => {
     ).rejects.toThrow('send failed')
 
     expect(requeueFront).toHaveBeenCalledWith('sess-1', pending)
+  })
+
+  it('serializes concurrent drains for the same session', async () => {
+    const controller = createPendingDrainController()
+    const pending = createPendingMessage('queued message')
+    const dequeue = vi.fn().mockReturnValueOnce(pending).mockReturnValueOnce(null)
+    let resolvePrompt!: (value: { success: boolean }) => void
+    const prompt = vi.fn(
+      () =>
+        new Promise<{ success: boolean }>((resolve) => {
+          resolvePrompt = resolve
+        })
+    )
+
+    const firstDrain = controller.drainNextPending(
+      'sess-1',
+      'agent-sess-1',
+      dequeue,
+      prompt,
+      '/path'
+    )
+    const blockedDrain = await controller.drainNextPending(
+      'sess-1',
+      'agent-sess-1',
+      dequeue,
+      prompt,
+      '/path'
+    )
+
+    expect(blockedDrain).toBe(false)
+    expect(dequeue).toHaveBeenCalledTimes(1)
+    expect(prompt).toHaveBeenCalledTimes(1)
+
+    resolvePrompt({ success: true })
+    await expect(firstDrain).resolves.toBe(true)
+
+    const afterReleaseDrain = await controller.drainNextPending(
+      'sess-1',
+      'agent-sess-1',
+      dequeue,
+      prompt,
+      '/path'
+    )
+    expect(afterReleaseDrain).toBe(false)
+    expect(dequeue).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps a queued item visible as sending until the provider accepts it', async () => {
+    const store = useSessionRuntimeStore.getState()
+    store.queueMessage('sess-1', createPendingMessage('queued message'))
+    let resolvePrompt!: (value: { success: boolean }) => void
+    const prompt = vi.fn(
+      () =>
+        new Promise<{ success: boolean }>((resolve) => {
+          resolvePrompt = resolve
+        })
+    )
+
+    const drain = drainNextPending(
+      'sess-1',
+      'agent-sess-1',
+      (sid) => useSessionRuntimeStore.getState().claimNextPendingMessage(sid),
+      prompt,
+      '/path',
+      (sid, message) => useSessionRuntimeStore.getState().restorePendingMessage(sid, message.id),
+      (sid, message) => useSessionRuntimeStore.getState().completePendingMessage(sid, message.id)
+    )
+
+    await Promise.resolve()
+    expect(useSessionRuntimeStore.getState().getPendingMessages('sess-1')[0]).toMatchObject({
+      content: 'queued message',
+      status: 'sending'
+    })
+
+    resolvePrompt({ success: true })
+    await expect(drain).resolves.toBe(true)
+    expect(useSessionRuntimeStore.getState().getPendingCount('sess-1')).toBe(0)
+  })
+
+  it('restores a claimed queue item to pending when provider send fails', async () => {
+    const store = useSessionRuntimeStore.getState()
+    store.queueMessage('sess-1', createPendingMessage('retry message'))
+    const prompt = vi.fn().mockResolvedValue({ success: false, error: 'provider busy' })
+
+    await expect(
+      drainNextPending(
+        'sess-1',
+        'agent-sess-1',
+        (sid) => useSessionRuntimeStore.getState().claimNextPendingMessage(sid),
+        prompt,
+        '/path',
+        (sid, message) => useSessionRuntimeStore.getState().restorePendingMessage(sid, message.id),
+        (sid, message) => useSessionRuntimeStore.getState().completePendingMessage(sid, message.id)
+      )
+    ).rejects.toThrow('provider busy')
+
+    expect(useSessionRuntimeStore.getState().getPendingMessages('sess-1')[0]).toMatchObject({
+      content: 'retry message',
+      status: 'pending'
+    })
   })
 })
 
@@ -437,10 +599,80 @@ describe('useSessionRuntimeStore pending messages', () => {
     const failed = createPendingMessage('first-again')
     store.requeueMessageFront('sess-1', failed)
 
-    expect(useSessionRuntimeStore.getState().getPendingMessages('sess-1').map((m) => m.content)).toEqual([
-      'first-again',
-      'second'
-    ])
+    expect(
+      useSessionRuntimeStore
+        .getState()
+        .getPendingMessages('sess-1')
+        .map((m) => m.content)
+    ).toEqual(['first-again', 'second'])
+  })
+
+  it('requeueMessageFront re-syncs queued-state true after a failed drain', () => {
+    const syncSpy = vi.spyOn(window.systemOps, 'setSessionQueuedState')
+    syncSpy.mockClear()
+
+    const store = useSessionRuntimeStore.getState()
+    store.queueMessage('sess-1', createPendingMessage('will-fail'))
+    const failed = store.dequeueMessage('sess-1')
+
+    expect(failed).not.toBeNull()
+    expect(syncSpy).toHaveBeenLastCalledWith('sess-1', false)
+
+    syncSpy.mockClear()
+    store.requeueMessageFront('sess-1', failed!)
+
+    expect(useSessionRuntimeStore.getState().getPendingMessages('sess-1')[0]).toMatchObject({
+      id: failed!.id,
+      content: failed!.content,
+      status: 'pending'
+    })
+    expect(syncSpy).toHaveBeenCalledWith('sess-1', true)
+  })
+
+  it('claimNextPendingMessage marks the first pending item as sending without removing it', () => {
+    const syncSpy = vi.spyOn(window.systemOps, 'setSessionQueuedState')
+    const store = useSessionRuntimeStore.getState()
+    store.queueMessage('sess-1', createPendingMessage('will-send'))
+    syncSpy.mockClear()
+
+    const claimed = store.claimNextPendingMessage('sess-1')
+
+    expect(claimed?.content).toBe('will-send')
+    expect(claimed?.status).toBe('sending')
+    expect(useSessionRuntimeStore.getState().getPendingCount('sess-1')).toBe(1)
+    expect(useSessionRuntimeStore.getState().getPendingMessages('sess-1')[0].status).toBe('sending')
+    expect(useSessionRuntimeStore.getState().claimNextPendingMessage('sess-1')).toBeNull()
+    expect(syncSpy).toHaveBeenCalledWith('sess-1', true)
+  })
+
+  it('completePendingMessage removes a sending item only after provider acceptance', () => {
+    const syncSpy = vi.spyOn(window.systemOps, 'setSessionQueuedState')
+    const store = useSessionRuntimeStore.getState()
+    store.queueMessage('sess-1', createPendingMessage('will-send'))
+    const claimed = store.claimNextPendingMessage('sess-1')
+    syncSpy.mockClear()
+
+    store.completePendingMessage('sess-1', claimed!.id)
+
+    expect(useSessionRuntimeStore.getState().getPendingCount('sess-1')).toBe(0)
+    expect(useSessionRuntimeStore.getState().pendingMessages.has('sess-1')).toBe(false)
+    expect(syncSpy).toHaveBeenCalledWith('sess-1', false)
+  })
+
+  it('restorePendingMessage puts a failed sending item back into pending state', () => {
+    const syncSpy = vi.spyOn(window.systemOps, 'setSessionQueuedState')
+    const store = useSessionRuntimeStore.getState()
+    store.queueMessage('sess-1', createPendingMessage('retry-me'))
+    const claimed = store.claimNextPendingMessage('sess-1')
+    syncSpy.mockClear()
+
+    store.restorePendingMessage('sess-1', claimed!.id, 'send failed')
+    const restored = useSessionRuntimeStore.getState().getPendingMessages('sess-1')[0]
+
+    expect(restored.status).toBe('pending')
+    expect(restored.sendingAt).toBeUndefined()
+    expect(restored.lastError).toBe('send failed')
+    expect(syncSpy).toHaveBeenCalledWith('sess-1', true)
   })
 
   it('clearPendingMessages is no-op for unknown session', () => {
@@ -507,7 +739,9 @@ describe('end-to-end: state machine → execute', () => {
   })
 
   it('busy session: choose queue alternative → message is queued', async () => {
-    const actions = determineComposerActions(makeInput({ lifecycle: 'busy', hasDraftContent: true }))
+    const actions = determineComposerActions(
+      makeInput({ lifecycle: 'busy', hasDraftContent: true })
+    )
     expect(actions.primary).toBe('queue')
 
     const ctx = makeSendContext()
@@ -528,9 +762,7 @@ describe('end-to-end: state machine → execute', () => {
   })
 
   it('interrupt: determine reply → execute reply_interrupt', async () => {
-    const actions = determineComposerActions(
-      makeInput({ hasInterrupt: true })
-    )
+    const actions = determineComposerActions(makeInput({ hasInterrupt: true }))
     expect(actions.primary).toBe('reply_interrupt')
 
     const ctx = makeSendContext()

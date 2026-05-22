@@ -1505,6 +1505,7 @@ export const messages: Record<AppLocale, MessageTree> = {
           planFeedback: 'Provide feedback on the plan...',
           reply: 'Type your reply...',
           queueFollowUp: 'Type a follow-up to queue after the current run...',
+          steerCurrent: 'Type to steer the current turn. Enter steers, Tab queues...',
           stopAndSend: 'Type to stop and send...',
           message: 'Type a message...'
         },
@@ -1514,8 +1515,10 @@ export const messages: Record<AppLocale, MessageTree> = {
           send: 'Send',
           sendQueued: 'Send (queued)',
           queue: 'Queue',
+          queueEnter: 'Queue for later (Enter)',
           queueLater: 'Queue for later',
           steer: 'Steer (redirect agent)',
+          steerEnter: 'Steer current turn (Enter)',
           stop: 'Stop',
           stopAndSend: 'Stop & Send'
         },
@@ -4293,6 +4296,7 @@ export const messages: Record<AppLocale, MessageTree> = {
           planFeedback: '输入对计划的反馈...',
           reply: '输入你的回复...',
           queueFollowUp: '输入要在当前执行后排队的后续消息...',
+          steerCurrent: '输入要引导当前轮次的内容。Enter 引导，Tab 排队...',
           stopAndSend: '输入内容以停止并发送...',
           message: '输入消息...'
         },
@@ -4302,8 +4306,10 @@ export const messages: Record<AppLocale, MessageTree> = {
           send: '发送',
           sendQueued: '发送（已排队）',
           queue: '排队',
+          queueEnter: '稍后发送（Enter）',
           queueLater: '稍后发送',
           steer: '引导当前 Agent',
+          steerEnter: '引导当前轮次（Enter）',
           stop: '停止',
           stopAndSend: '停止并发送'
         },

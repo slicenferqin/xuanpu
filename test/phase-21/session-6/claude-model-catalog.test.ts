@@ -60,12 +60,22 @@ describe('ClaudeCodeImplementer model catalog', () => {
     }
   })
 
+  it('getAvailableModels() marks only Opus as fast-mode capable', async () => {
+    const providers = (await impl.getAvailableModels()) as any[]
+    const models = providers[0].models
+
+    expect(models.opus.supportsFastMode).toBe(true)
+    expect(models.sonnet.supportsFastMode).toBeUndefined()
+    expect(models.haiku.supportsFastMode).toBeUndefined()
+  })
+
   it('getModelInfo returns correct metadata for opus', async () => {
     const info = await impl.getModelInfo('any', 'opus')
     expect(info).toEqual({
       id: 'opus',
       name: 'Opus 4.7',
-      limit: { context: 200000, output: 32000 }
+      limit: { context: 200000, output: 32000 },
+      supportsFastMode: true
     })
   })
 

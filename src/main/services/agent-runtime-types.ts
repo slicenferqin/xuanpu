@@ -81,6 +81,7 @@ export interface AgentRuntimeAdapter {
     id: string
     name: string
     limit: { context: number; input?: number; output: number }
+    supportsFastMode?: boolean
   } | null>
   setSelectedModel(model: { providerID: string; modelID: string; variant?: string }): void
   /**

@@ -20,6 +20,9 @@ import type {
   SessionCreate,
   SessionUpdate,
   SessionSearchOptions,
+  SessionPendingMessageClaimOptions,
+  SessionPendingMessageCreate,
+  SessionPendingMessageStatus,
   SpaceCreate,
   SpaceUpdate
 } from '../db'
@@ -263,16 +266,13 @@ export function registerDatabaseHandlers(): void {
     }
   )
 
-  ipcMain.handle(
-    'db:worktree:detachPR',
-    (_event, { worktreeId }: { worktreeId: string }) => {
-      try {
-        return getDatabase().detachPR(worktreeId)
-      } catch (error) {
-        return { success: false, error: error instanceof Error ? error.message : String(error) }
-      }
+  ipcMain.handle('db:worktree:detachPR', (_event, { worktreeId }: { worktreeId: string }) => {
+    try {
+      return getDatabase().detachPR(worktreeId)
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
     }
-  )
+  })
 
   ipcMain.handle(
     'db:worktree:setPinned',
@@ -374,6 +374,51 @@ export function registerDatabaseHandlers(): void {
 
   ipcMain.handle('db:sessionActivity:list', (_event, sessionId: string) => {
     return getDatabase().getSessionActivities(sessionId)
+  })
+
+  ipcMain.handle('db:sessionPendingMessage:create', (_event, data: SessionPendingMessageCreate) => {
+    return getDatabase().createSessionPendingMessage(data)
+  })
+
+  ipcMain.handle('db:sessionPendingMessage:get', (_event, id: string) => {
+    return getDatabase().getSessionPendingMessage(id)
+  })
+
+  ipcMain.handle(
+    'db:sessionPendingMessage:list',
+    (_event, sessionId: string, statuses?: SessionPendingMessageStatus[]) => {
+      return getDatabase().listSessionPendingMessages(sessionId, statuses)
+    }
+  )
+
+  ipcMain.handle(
+    'db:sessionPendingMessage:claimNext',
+    (_event, sessionId: string, options?: SessionPendingMessageClaimOptions) => {
+      return getDatabase().claimNextSessionPendingMessage(sessionId, options)
+    }
+  )
+
+  ipcMain.handle(
+    'db:sessionPendingMessage:claim',
+    (_event, id: string, options?: SessionPendingMessageClaimOptions) => {
+      return getDatabase().claimSessionPendingMessage(id, options)
+    }
+  )
+
+  ipcMain.handle('db:sessionPendingMessage:complete', (_event, id: string) => {
+    return getDatabase().completeSessionPendingMessage(id)
+  })
+
+  ipcMain.handle('db:sessionPendingMessage:restore', (_event, id: string, error?: string) => {
+    return getDatabase().restoreSessionPendingMessage(id, error)
+  })
+
+  ipcMain.handle('db:sessionPendingMessage:fail', (_event, id: string, error: string) => {
+    return getDatabase().failSessionPendingMessage(id, error)
+  })
+
+  ipcMain.handle('db:sessionPendingMessage:cancel', (_event, id: string) => {
+    return getDatabase().cancelSessionPendingMessage(id)
   })
 
   // Spaces

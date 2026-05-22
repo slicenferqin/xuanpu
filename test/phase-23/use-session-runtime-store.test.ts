@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   ACTIVITY_TOUCH_THROTTLE_MS,
+  PENDING_MESSAGE_SEND_RECOVERY_MS,
   clearStreamingBuffer,
   clearStreamingBufferOverlay,
   getStreamingBufferSnapshot,
@@ -10,13 +11,19 @@ import {
   syncStreamingBufferGuardState,
   updateStreamingBuffer,
   writeEventToStreamingBuffer,
-  useSessionRuntimeStore
+  useSessionRuntimeStore,
+  type PendingMessage
 } from '../../src/renderer/src/stores/useSessionRuntimeStore'
 import type { CanonicalAgentEvent } from '../../src/shared/types/agent-protocol'
 
 // Reset store state between tests
 beforeEach(() => {
   resetStreamingBuffersForTests()
+  Object.defineProperty(window, 'db', {
+    writable: true,
+    configurable: true,
+    value: undefined
+  })
   const state = useSessionRuntimeStore.getState()
   // Clear all sessions
   for (const sessionId of state.sessions.keys()) {
@@ -29,11 +36,51 @@ beforeEach(() => {
   for (const sessionId of state.dismissedGoalSignatures.keys()) {
     state.clearSession(sessionId)
   }
+  for (const sessionId of state.pendingMessages.keys()) {
+    state.clearPendingMessages(sessionId)
+  }
 })
 
 afterEach(() => {
   vi.useRealTimers()
 })
+
+function makePendingMessage(overrides: Partial<PendingMessage> = {}): PendingMessage {
+  return {
+    id: overrides.id ?? 'pending-1',
+    content: overrides.content ?? 'queued work',
+    attachments: overrides.attachments ?? [],
+    queuedAt: overrides.queuedAt ?? 100,
+    status: overrides.status ?? 'pending',
+    runtimeId: overrides.runtimeId ?? 'codex',
+    agentSessionId: overrides.agentSessionId ?? 'agent-1',
+    sendingAt: overrides.sendingAt,
+    lastError: overrides.lastError
+  }
+}
+
+function installDurablePendingMessageMock(overrides: Record<string, unknown> = {}) {
+  const sessionPendingMessage = {
+    create: vi.fn().mockResolvedValue({}),
+    get: vi.fn().mockResolvedValue(null),
+    list: vi.fn().mockResolvedValue([]),
+    claimNext: vi.fn().mockResolvedValue(null),
+    claim: vi.fn().mockResolvedValue(null),
+    complete: vi.fn().mockResolvedValue(null),
+    restore: vi.fn().mockResolvedValue(null),
+    fail: vi.fn().mockResolvedValue(null),
+    cancel: vi.fn().mockResolvedValue(null),
+    ...overrides
+  }
+
+  Object.defineProperty(window, 'db', {
+    writable: true,
+    configurable: true,
+    value: { sessionPendingMessage }
+  })
+
+  return sessionPendingMessage
+}
 
 describe('useSessionRuntimeStore', () => {
   describe('session lifecycle', () => {
@@ -804,6 +851,192 @@ describe('useSessionRuntimeStore', () => {
       consoleSpy.mockRestore()
       unsub1()
       unsub2()
+    })
+  })
+
+  describe('durable pending queue mirror', () => {
+    it('mirrors queued messages to the durable DB namespace without blocking memory state', () => {
+      const durable = installDurablePendingMessageMock()
+      const message = makePendingMessage({
+        id: 'pending-db-1',
+        content: 'persist me',
+        attachments: [{ kind: 'data', id: 'a1', name: 'note.txt', mime: 'text/plain' }],
+        queuedAt: 123,
+        runtimeId: 'claude-code',
+        agentSessionId: 'claude-session-1'
+      })
+
+      useSessionRuntimeStore.getState().queueMessage('sess-1', message)
+
+      expect(useSessionRuntimeStore.getState().getPendingMessages('sess-1')).toHaveLength(1)
+      expect(durable.create).toHaveBeenCalledWith({
+        id: 'pending-db-1',
+        session_id: 'sess-1',
+        agent_session_id: 'claude-session-1',
+        runtime_id: 'claude-code',
+        content: 'persist me',
+        attachments_json: JSON.stringify([
+          { kind: 'data', id: 'a1', name: 'note.txt', mime: 'text/plain' }
+        ]),
+        enqueued_at: 123
+      })
+    })
+
+    it('mirrors claim, complete, restore, and cancel operations by durable row id', () => {
+      const durable = installDurablePendingMessageMock()
+      const store = useSessionRuntimeStore.getState()
+      store.queueMessage('sess-1', makePendingMessage({ id: 'pending-db-2' }))
+
+      const claimed = store.claimNextPendingMessage('sess-1')
+      store.restorePendingMessage('sess-1', claimed!.id, 'provider busy')
+      const claimedAgain = store.claimNextPendingMessage('sess-1')
+      store.completePendingMessage('sess-1', claimedAgain!.id)
+
+      store.queueMessage('sess-1', makePendingMessage({ id: 'pending-db-3' }))
+      store.clearPendingMessages('sess-1')
+
+      expect(durable.claim).toHaveBeenCalledWith('pending-db-2', {
+        agent_session_id: 'agent-1'
+      })
+      expect(durable.restore).toHaveBeenCalledWith('pending-db-2', 'provider busy')
+      expect(durable.complete).toHaveBeenCalledWith('pending-db-2')
+      expect(durable.cancel).toHaveBeenCalledWith('pending-db-3')
+    })
+
+    it('hydrates durable pending messages and restores stale sending rows', async () => {
+      const durable = installDurablePendingMessageMock({
+        list: vi.fn().mockResolvedValue([
+          {
+            id: 'pending-db-a',
+            session_id: 'sess-1',
+            agent_session_id: 'agent-a',
+            runtime_id: 'codex',
+            status: 'pending',
+            content: 'first',
+            attachments_json: null,
+            prompt_options_json: null,
+            model_json: null,
+            enqueued_at: 100,
+            updated_at: 100,
+            sending_run_epoch: null,
+            sending_turn_id: null,
+            error: null
+          },
+          {
+            id: 'pending-db-b',
+            session_id: 'sess-1',
+            agent_session_id: 'agent-b',
+            runtime_id: 'codex',
+            status: 'sending',
+            content: 'second',
+            attachments_json: JSON.stringify([{ kind: 'data', id: 'a2' }]),
+            prompt_options_json: null,
+            model_json: null,
+            enqueued_at: 101,
+            updated_at: 102,
+            sending_run_epoch: null,
+            sending_turn_id: null,
+            error: null
+          }
+        ]),
+        restore: vi.fn().mockResolvedValue({
+          id: 'pending-db-b',
+          session_id: 'sess-1',
+          agent_session_id: 'agent-b',
+          runtime_id: 'codex',
+          status: 'pending',
+          content: 'second',
+          attachments_json: JSON.stringify([{ kind: 'data', id: 'a2' }]),
+          prompt_options_json: null,
+          model_json: null,
+          enqueued_at: 101,
+          updated_at: 103,
+          sending_run_epoch: null,
+          sending_turn_id: null,
+          error: 'Recovered queued message after interrupted send'
+        })
+      })
+
+      await useSessionRuntimeStore.getState().hydratePendingMessages('sess-1')
+
+      expect(durable.list).toHaveBeenCalledWith('sess-1', ['pending', 'sending', 'failed'])
+      expect(durable.restore).toHaveBeenCalledWith(
+        'pending-db-b',
+        'Recovered queued message after interrupted send'
+      )
+      expect(
+        useSessionRuntimeStore
+          .getState()
+          .getPendingMessages('sess-1')
+          .map((message) => ({
+            id: message.id,
+            content: message.content,
+            status: message.status,
+            attachments: message.attachments,
+            lastError: message.lastError
+          }))
+      ).toEqual([
+        {
+          id: 'pending-db-a',
+          content: 'first',
+          status: 'pending',
+          attachments: [],
+          lastError: undefined
+        },
+        {
+          id: 'pending-db-b',
+          content: 'second',
+          status: 'pending',
+          attachments: [{ kind: 'data', id: 'a2' }],
+          lastError: 'Recovered queued message after interrupted send'
+        }
+      ])
+    })
+
+    it('keeps fresh sending rows in-flight during hydration to avoid duplicate sends', async () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(10_000)
+      const durable = installDurablePendingMessageMock({
+        list: vi.fn().mockResolvedValue([
+          {
+            id: 'pending-fresh-send',
+            session_id: 'sess-1',
+            agent_session_id: 'agent-fresh',
+            runtime_id: 'codex',
+            status: 'sending',
+            content: 'already accepted by provider',
+            attachments_json: null,
+            prompt_options_json: null,
+            model_json: null,
+            enqueued_at: 9_000,
+            updated_at: 10_000 - PENDING_MESSAGE_SEND_RECOVERY_MS + 1,
+            sending_run_epoch: null,
+            sending_turn_id: null,
+            error: null
+          }
+        ])
+      })
+
+      const store = useSessionRuntimeStore.getState()
+      store.queueMessage(
+        'sess-1',
+        makePendingMessage({
+          id: 'pending-fresh-send',
+          content: 'already accepted by provider',
+          queuedAt: 9_000
+        })
+      )
+      store.claimNextPendingMessage('sess-1')
+      durable.restore.mockClear()
+
+      await useSessionRuntimeStore.getState().hydratePendingMessages('sess-1')
+
+      expect(durable.restore).not.toHaveBeenCalled()
+      expect(useSessionRuntimeStore.getState().getPendingMessages('sess-1')[0]).toMatchObject({
+        id: 'pending-fresh-send',
+        status: 'sending',
+        content: 'already accepted by provider'
+      })
     })
   })
 

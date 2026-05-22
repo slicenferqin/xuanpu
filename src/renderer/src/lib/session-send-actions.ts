@@ -11,10 +11,7 @@
  *   interrupt  → Reply to interrupt
  */
 
-import type {
-  SessionLifecycle,
-  PendingMessage
-} from '@/stores/useSessionRuntimeStore'
+import type { SessionLifecycle, PendingMessage } from '@/stores/useSessionRuntimeStore'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -29,8 +26,10 @@ export interface ComposerInput {
   hasInterrupt: boolean
   hasPendingMessages: boolean
   hasDraftContent: boolean
+  hasAttachments?: boolean
   isConnected: boolean
   supportsSteer?: boolean
+  preferSteerWhenBusy?: boolean
 }
 
 /** Result of the state-machine evaluation */
@@ -44,7 +43,7 @@ export interface ComposerActionSet {
   /** Label for the primary action button */
   primaryLabel: string
   /** Icon hint for rendering */
-  iconHint: 'send' | 'stop' | 'queue' | 'reply' | 'disabled'
+  iconHint: 'send' | 'stop' | 'queue' | 'steer' | 'reply' | 'disabled'
 }
 
 // ---------------------------------------------------------------------------
@@ -60,7 +59,9 @@ export interface ComposerActionSet {
  *   3. idle / error → send
  *   4. busy / materializing →
  *      - empty input: stop+send (primary)
- *      - draft content: queue (primary), steer / stop+send (alt)
+ *      - draft content: queue (primary) by default, or steer (primary)
+ *        when the runtime prefers steering busy turns and the draft has no
+ *        attachments.
  *   5. retry → queue (primary), stop+send (alt)
  */
 export function determineComposerActions(input: ComposerInput): ComposerActionSet {
@@ -69,8 +70,10 @@ export function determineComposerActions(input: ComposerInput): ComposerActionSe
     hasInterrupt,
     hasPendingMessages,
     hasDraftContent,
+    hasAttachments = false,
     isConnected,
-    supportsSteer = false
+    supportsSteer = false,
+    preferSteerWhenBusy = false
   } = input
 
   // 1. Not connected
@@ -110,12 +113,17 @@ export function determineComposerActions(input: ComposerInput): ComposerActionSe
     case 'busy':
     case 'materializing':
       if (hasDraftContent) {
+        const preferSteer = preferSteerWhenBusy && supportsSteer && !hasAttachments
         return {
-          primary: 'queue',
-          alternatives: supportsSteer ? ['steer', 'stop_and_send'] : ['stop_and_send'],
+          primary: preferSteer ? 'steer' : 'queue',
+          alternatives: preferSteer
+            ? ['queue', 'stop_and_send']
+            : supportsSteer
+              ? ['steer', 'stop_and_send']
+              : ['stop_and_send'],
           inputEnabled: true,
-          primaryLabel: 'Queue',
-          iconHint: 'queue'
+          primaryLabel: preferSteer ? 'Steer' : 'Queue',
+          iconHint: preferSteer ? 'steer' : 'queue'
         }
       }
       return {
@@ -161,13 +169,23 @@ let _nextPendingId = 1
 
 export function createPendingMessage(
   content: string,
-  attachments: Array<{ kind: string; id: string; name: string; mime: string; [k: string]: unknown }> = []
+  attachments: Array<{
+    kind: string
+    id: string
+    name: string
+    mime: string
+    [k: string]: unknown
+  }> = [],
+  options: Pick<PendingMessage, 'runtimeId' | 'agentSessionId'> = {}
 ): PendingMessage {
   return {
     id: `pending-${_nextPendingId++}`,
     content,
     attachments,
-    queuedAt: Date.now()
+    queuedAt: Date.now(),
+    status: 'pending',
+    runtimeId: options.runtimeId,
+    agentSessionId: options.agentSessionId
   }
 }
 
@@ -203,12 +221,11 @@ export interface SendContext {
     content: string
   ) => Promise<{ success: boolean; error?: string }>
   /** IPC: abort the current agent run */
-  abort: (
-    worktreePath: string,
-    sessionId: string
-  ) => Promise<{ success: boolean; error?: string }>
+  abort: (worktreePath: string, sessionId: string) => Promise<{ success: boolean; error?: string }>
   /** Optional wait gate used after abort so the next prompt lands on a clean turn boundary. */
   waitForAbortReady?: () => Promise<void>
+  /** Runtime used to persist durable queued-message metadata. */
+  runtimeId?: PendingMessage['runtimeId']
   /** Store: enqueue a pending message */
   queueMessage: (sessionId: string, message: PendingMessage) => void
 }
@@ -226,7 +243,13 @@ export interface SendContext {
 export async function executeSendAction(
   action: ComposerAction,
   content: string,
-  attachments: Array<{ kind: string; id: string; name: string; mime: string; [k: string]: unknown }>,
+  attachments: Array<{
+    kind: string
+    id: string
+    name: string
+    mime: string
+    [k: string]: unknown
+  }>,
   ctx: SendContext
 ): Promise<boolean> {
   const ensureSuccess = async (
@@ -249,7 +272,10 @@ export async function executeSendAction(
     }
 
     case 'queue': {
-      const msg = createPendingMessage(content, attachments)
+      const msg = createPendingMessage(content, attachments, {
+        runtimeId: ctx.runtimeId,
+        agentSessionId: ctx.sessionId
+      })
       ctx.queueMessage(ctx.queueSessionId ?? ctx.sessionId, msg)
       return true
     }
@@ -271,10 +297,7 @@ export async function executeSendAction(
     }
 
     case 'stop_and_send': {
-      await ensureSuccess(
-        ctx.abort(ctx.worktreePath, ctx.sessionId),
-        'Failed to stop active turn'
-      )
+      await ensureSuccess(ctx.abort(ctx.worktreePath, ctx.sessionId), 'Failed to stop active turn')
       await ctx.waitForAbortReady?.()
       await ensureSuccess(
         ctx.prompt(ctx.worktreePath, ctx.sessionId, content),
@@ -316,7 +339,8 @@ export async function drainNextPending(
     message: PendingMessage
   ) => Promise<{ success: boolean; error?: string }>,
   worktreePath: string,
-  requeueFront?: (sessionId: string, message: PendingMessage) => void
+  requeueFront?: (sessionId: string, message: PendingMessage) => void,
+  complete?: (sessionId: string, message: PendingMessage) => void
 ): Promise<boolean> {
   const next = dequeue(storeSessionId)
   if (!next) return false
@@ -325,9 +349,62 @@ export async function drainNextPending(
     if (!result.success) {
       throw new Error(result.error || 'Failed to drain pending message')
     }
+    complete?.(storeSessionId, next)
   } catch (error) {
     requeueFront?.(storeSessionId, next)
     throw error
   }
   return true
+}
+
+export interface PendingDrainController {
+  drainNextPending(
+    storeSessionId: string,
+    agentSessionId: string,
+    dequeue: (sessionId: string) => PendingMessage | null,
+    prompt: (
+      worktreePath: string,
+      sessionId: string,
+      message: PendingMessage
+    ) => Promise<{ success: boolean; error?: string }>,
+    worktreePath: string,
+    requeueFront?: (sessionId: string, message: PendingMessage) => void,
+    complete?: (sessionId: string, message: PendingMessage) => void
+  ): Promise<boolean>
+}
+
+export function createPendingDrainController(): PendingDrainController {
+  const inFlightSessions = new Set<string>()
+
+  return {
+    async drainNextPending(
+      storeSessionId: string,
+      agentSessionId: string,
+      dequeue: (sessionId: string) => PendingMessage | null,
+      prompt: (
+        worktreePath: string,
+        sessionId: string,
+        message: PendingMessage
+      ) => Promise<{ success: boolean; error?: string }>,
+      worktreePath: string,
+      requeueFront?: (sessionId: string, message: PendingMessage) => void,
+      complete?: (sessionId: string, message: PendingMessage) => void
+    ): Promise<boolean> {
+      if (inFlightSessions.has(storeSessionId)) return false
+      inFlightSessions.add(storeSessionId)
+      try {
+        return await drainNextPending(
+          storeSessionId,
+          agentSessionId,
+          dequeue,
+          prompt,
+          worktreePath,
+          requeueFront,
+          complete
+        )
+      } finally {
+        inFlightSessions.delete(storeSessionId)
+      }
+    }
+  }
 }

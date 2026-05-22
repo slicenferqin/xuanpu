@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 22
+export const CURRENT_SCHEMA_VERSION = 23
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -95,6 +95,23 @@ CREATE TABLE IF NOT EXISTS session_activities (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS session_pending_messages (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  agent_session_id TEXT,
+  runtime_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'sending', 'sent', 'failed', 'cancelled')),
+  content TEXT NOT NULL,
+  attachments_json TEXT,
+  prompt_options_json TEXT,
+  model_json TEXT,
+  enqueued_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  sending_run_epoch INTEGER,
+  sending_turn_id TEXT,
+  error TEXT
+);
+
 CREATE TABLE IF NOT EXISTS usage_entries (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -165,6 +182,10 @@ CREATE INDEX IF NOT EXISTS idx_session_activities_session_created
   ON session_activities(session_id, created_at, id);
 CREATE INDEX IF NOT EXISTS idx_session_activities_session_turn
   ON session_activities(session_id, turn_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_session_pending_messages_session_status
+  ON session_pending_messages(session_id, status, enqueued_at);
+CREATE INDEX IF NOT EXISTS idx_session_pending_messages_updated
+  ON session_pending_messages(updated_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_entries_session_source
   ON usage_entries(session_id, source_message_id);
 CREATE INDEX IF NOT EXISTS idx_usage_entries_occurred
@@ -291,6 +312,8 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_messages_session;
       DROP INDEX IF EXISTS idx_session_activities_session_turn;
       DROP INDEX IF EXISTS idx_session_activities_session_created;
+      DROP INDEX IF EXISTS idx_session_pending_messages_updated;
+      DROP INDEX IF EXISTS idx_session_pending_messages_session_status;
       DROP INDEX IF EXISTS idx_usage_sync_state_status;
       DROP INDEX IF EXISTS idx_usage_entries_project_occurred;
       DROP INDEX IF EXISTS idx_usage_entries_agent_occurred;
@@ -305,6 +328,7 @@ export const MIGRATIONS: Migration[] = [
       DROP TABLE IF EXISTS settings;
       DROP TABLE IF EXISTS usage_sync_state;
       DROP TABLE IF EXISTS usage_entries;
+      DROP TABLE IF EXISTS session_pending_messages;
       DROP TABLE IF EXISTS session_activities;
       DROP TABLE IF EXISTS session_messages;
       DROP TABLE IF EXISTS sessions;
@@ -802,6 +826,37 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_diff_comments_worktree_updated;
       DROP INDEX IF EXISTS idx_diff_comments_worktree_file;
       DROP TABLE IF EXISTS diff_comments;
+    `
+  },
+  {
+    version: 23,
+    name: 'add_session_pending_messages',
+    up: `
+      CREATE TABLE IF NOT EXISTS session_pending_messages (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        agent_session_id TEXT,
+        runtime_id TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'sending', 'sent', 'failed', 'cancelled')),
+        content TEXT NOT NULL,
+        attachments_json TEXT,
+        prompt_options_json TEXT,
+        model_json TEXT,
+        enqueued_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        sending_run_epoch INTEGER,
+        sending_turn_id TEXT,
+        error TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_session_pending_messages_session_status
+        ON session_pending_messages(session_id, status, enqueued_at);
+      CREATE INDEX IF NOT EXISTS idx_session_pending_messages_updated
+        ON session_pending_messages(updated_at DESC);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_session_pending_messages_updated;
+      DROP INDEX IF EXISTS idx_session_pending_messages_session_status;
+      DROP TABLE IF EXISTS session_pending_messages;
     `
   }
 ]

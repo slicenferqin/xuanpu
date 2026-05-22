@@ -156,6 +156,43 @@ interface SessionActivity {
   created_at: string
 }
 
+type SessionPendingMessageStatus = 'pending' | 'sending' | 'sent' | 'failed' | 'cancelled'
+
+interface SessionPendingMessage {
+  id: string
+  session_id: string
+  agent_session_id: string | null
+  runtime_id: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+  status: SessionPendingMessageStatus
+  content: string
+  attachments_json: string | null
+  prompt_options_json: string | null
+  model_json: string | null
+  enqueued_at: number
+  updated_at: number
+  sending_run_epoch: number | null
+  sending_turn_id: string | null
+  error: string | null
+}
+
+interface SessionPendingMessageCreate {
+  id?: string
+  session_id: string
+  agent_session_id?: string | null
+  runtime_id: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+  content: string
+  attachments_json?: string | null
+  prompt_options_json?: string | null
+  model_json?: string | null
+  enqueued_at?: number
+}
+
+interface SessionPendingMessageClaimOptions {
+  agent_session_id?: string | null
+  sending_run_epoch?: number | null
+  sending_turn_id?: string | null
+}
+
 interface SessionWithWorktree extends Session {
   worktree_name?: string
   worktree_branch_name?: string
@@ -387,6 +424,26 @@ declare global {
       }
       sessionActivity: {
         list: (sessionId: string) => Promise<SessionActivity[]>
+      }
+      sessionPendingMessage: {
+        create: (data: SessionPendingMessageCreate) => Promise<SessionPendingMessage>
+        get: (id: string) => Promise<SessionPendingMessage | null>
+        list: (
+          sessionId: string,
+          statuses?: SessionPendingMessageStatus[]
+        ) => Promise<SessionPendingMessage[]>
+        claimNext: (
+          sessionId: string,
+          options?: SessionPendingMessageClaimOptions
+        ) => Promise<SessionPendingMessage | null>
+        claim: (
+          id: string,
+          options?: SessionPendingMessageClaimOptions
+        ) => Promise<SessionPendingMessage | null>
+        complete: (id: string) => Promise<SessionPendingMessage | null>
+        restore: (id: string, error?: string) => Promise<SessionPendingMessage | null>
+        fail: (id: string, error: string) => Promise<SessionPendingMessage | null>
+        cancel: (id: string) => Promise<SessionPendingMessage | null>
       }
       space: {
         list: () => Promise<Space[]>

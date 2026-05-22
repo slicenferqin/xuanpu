@@ -18,6 +18,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuShortcut,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import type { SessionLifecycle, InterruptItem } from '@/stores/useSessionRuntimeStore'
@@ -55,6 +56,8 @@ export interface ComposerBarProps {
   isConnected: boolean
   /** Runtime capability gate for steer */
   supportsSteer?: boolean
+  /** Whether busy turns should prefer steer over queue when supported */
+  preferSteerWhenBusy?: boolean
   /** Max attachments allowed */
   maxAttachments?: number
   /** Current session mode */
@@ -87,6 +90,8 @@ function SendIcon({ hint }: { hint: ComposerActionSet['iconHint'] }): React.JSX.
       return <Square className="h-3.5 w-3.5" />
     case 'queue':
       return <ListPlus className="h-4 w-4" />
+    case 'steer':
+      return <Workflow className="h-4 w-4" />
     case 'reply':
       return <CornerDownLeft className="h-4 w-4" />
     default:
@@ -122,6 +127,31 @@ function getLocalizedActionLabel(
   action: ComposerAction
 ): string {
   return t(COMPOSER_ACTION_LABEL_KEYS[action])
+}
+
+function getLocalizedPrimaryActionLabel(
+  t: (key: string, params?: Record<string, string | number | boolean>) => string,
+  action: ComposerAction | null,
+  options: {
+    iconHint: ComposerActionSet['iconHint']
+    canSend: boolean
+    hasPendingMessages: boolean
+  }
+): string {
+  if (!action) return t('sessionHq.composer.actions.disconnected')
+  if (action === 'send' && options.hasPendingMessages) {
+    return t('sessionHq.composer.actions.sendQueued')
+  }
+  if (action === 'steer') {
+    return t('sessionHq.composer.actions.steerEnter')
+  }
+  if (action === 'queue') {
+    return t('sessionHq.composer.actions.queueEnter')
+  }
+  if (action === 'stop_and_send' && options.iconHint === 'stop' && !options.canSend) {
+    return t('sessionHq.composer.actions.stop')
+  }
+  return getLocalizedActionLabel(t, action)
 }
 
 interface ComposerAttachmentsSectionProps {
@@ -284,6 +314,7 @@ const ComposerToolbar = React.memo(function ComposerToolbar({
   voiceSlot
 }: ComposerToolbarProps): React.JSX.Element {
   const { t } = useI18n()
+  const showQueueShortcutHint = iconHint === 'steer' && availableAlternatives.includes('queue')
   return (
     <div className="flex items-center gap-2 px-3 pb-3 pt-1">
       <AttachmentButton onAttach={onAttach} disabled={disabled} />
@@ -364,6 +395,9 @@ const ComposerToolbar = React.memo(function ComposerToolbar({
               >
                 <ActionMenuIcon action={action} />
                 <span>{getLocalizedActionLabel(t, action)}</span>
+                {action === 'queue' && showQueueShortcutHint ? (
+                  <DropdownMenuShortcut>Tab</DropdownMenuShortcut>
+                ) : null}
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
@@ -404,6 +438,7 @@ export function ComposerBar({
   onAction,
   isConnected,
   supportsSteer = false,
+  preferSteerWhenBusy = false,
   maxAttachments = 10,
   mode = 'build',
   onToggleMode,
@@ -497,10 +532,21 @@ export function ComposerBar({
         hasInterrupt,
         hasPendingMessages: pendingCount > 0,
         hasDraftContent: canSend,
+        hasAttachments: attachments.length > 0,
         isConnected,
-        supportsSteer
+        supportsSteer,
+        preferSteerWhenBusy
       }),
-    [canSend, hasInterrupt, isConnected, lifecycle, pendingCount, supportsSteer]
+    [
+      canSend,
+      hasInterrupt,
+      isConnected,
+      lifecycle,
+      pendingCount,
+      supportsSteer,
+      preferSteerWhenBusy,
+      attachments.length
+    ]
   )
 
   const isDisabled = !actionSet.inputEnabled
@@ -584,12 +630,26 @@ export function ComposerBar({
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (isComposingKeyboardEvent(e.nativeEvent)) return
+      if (
+        e.key === 'Tab' &&
+        !e.shiftKey &&
+        !e.altKey &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        canSend &&
+        actionSet.primary === 'steer' &&
+        availableAlternatives.includes('queue')
+      ) {
+        e.preventDefault()
+        void handleActionSelection('queue')
+        return
+      }
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
         void handleSubmit()
       }
     },
-    [handleSubmit]
+    [actionSet.primary, availableAlternatives, canSend, handleActionSelection, handleSubmit]
   )
 
   const handleAttach = useCallback(
@@ -764,12 +824,20 @@ export function ComposerBar({
     showSlashCommandsRef.current = false
   }, [])
 
+  const canSteerBusyTurn =
+    (lifecycle === 'busy' || lifecycle === 'materializing') &&
+    supportsSteer &&
+    preferSteerWhenBusy &&
+    attachments.length === 0
+
   const placeholder = pendingPlan
     ? t('sessionHq.composer.placeholders.planFeedback')
     : firstInterrupt
       ? t('sessionHq.composer.placeholders.reply')
       : actionSet.primary === 'queue'
         ? t('sessionHq.composer.placeholders.queueFollowUp')
+        : actionSet.primary === 'steer' || canSteerBusyTurn
+          ? t('sessionHq.composer.placeholders.steerCurrent')
         : actionSet.iconHint === 'stop'
           ? t('sessionHq.composer.placeholders.stopAndSend')
           : t('sessionHq.composer.placeholders.message')
@@ -896,13 +964,11 @@ export function ComposerBar({
         onSubmit={handleToolbarSubmit}
         buttonEnabled={buttonEnabled}
         iconHint={actionSet.iconHint}
-        primaryLabel={
-          actionSet.primary
-            ? actionSet.primary === 'send' && pendingCount > 0
-              ? t('sessionHq.composer.actions.sendQueued')
-              : getLocalizedActionLabel(t, actionSet.primary)
-            : t('sessionHq.composer.actions.disconnected')
-        }
+        primaryLabel={getLocalizedPrimaryActionLabel(t, actionSet.primary, {
+          iconHint: actionSet.iconHint,
+          canSend,
+          hasPendingMessages: pendingCount > 0
+        })}
         onAttach={handleAttach}
         voiceSlot={
           voiceInputEnabled ? (
