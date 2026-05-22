@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import { ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { XfpAuditEvent } from '@shared/types/xfp-audit'
@@ -77,6 +77,8 @@ interface FieldContextDebugProps {
 type Tab = 'injection' | 'episodic' | 'semantic' | 'checkpoint'
 type InspectorTab = 'xfp' | Tab
 
+const EMPTY_FALLBACK_SESSION_IDS: Array<string | null | undefined> = []
+
 /**
  * XFP Inspector + legacy Field Context debug UI.
  *
@@ -86,7 +88,7 @@ type InspectorTab = 'xfp' | Tab
  */
 export function FieldContextDebug({
   sessionId,
-  fallbackSessionIds = [],
+  fallbackSessionIds = EMPTY_FALLBACK_SESSION_IDS,
   worktreeId,
   defaultOpen = false,
   embedded = false,
@@ -101,19 +103,35 @@ export function FieldContextDebug({
   const [checkpoint, setCheckpoint] = useState<CheckpointEntry | null>(null)
   const [loading, setLoading] = useState(false)
 
+  const fallbackSessionIdsKey = fallbackSessionIds
+    .filter((s): s is string => typeof s === 'string' && s.length > 0)
+    .join('\u0000')
+  const stableFallbackSessionIds = useMemo(
+    () => (fallbackSessionIdsKey.length > 0 ? fallbackSessionIdsKey.split('\u0000') : []),
+    [fallbackSessionIdsKey]
+  )
+  const sessionIdCandidates = useMemo(() => {
+    const seen = new Set<string>()
+    return [sessionId, ...stableFallbackSessionIds].filter((s): s is string => {
+      if (typeof s !== 'string' || s.length === 0 || seen.has(s)) return false
+      seen.add(s)
+      return true
+    })
+  }, [sessionId, stableFallbackSessionIds])
+  const hasInspectableContext = sessionIdCandidates.length > 0 || Boolean(worktreeId)
+
   const refresh = useCallback(async () => {
-    if (!sessionId && fallbackSessionIds.every((s) => !s) && !worktreeId) return
+    if (!hasInspectableContext) return
     setLoading(true)
     try {
-      const candidates = [sessionId, ...fallbackSessionIds].filter(
-        (s): s is string => typeof s === 'string' && s.length > 0
-      )
       const audit =
-        worktreeId || candidates.length > 0 ? await loadXfpAudit(worktreeId, candidates) : []
+        worktreeId || sessionIdCandidates.length > 0
+          ? await loadXfpAudit(worktreeId, sessionIdCandidates)
+          : []
       setXfpAudit(audit)
 
       let injection: LastInjection | null = null
-      for (const id of candidates) {
+      for (const id of sessionIdCandidates) {
         const result = await window.fieldOps.getLastInjection(id)
         if (result) {
           injection = result
@@ -138,14 +156,14 @@ export function FieldContextDebug({
     } finally {
       setLoading(false)
     }
-  }, [sessionId, fallbackSessionIds, worktreeId])
+  }, [hasInspectableContext, sessionIdCandidates, worktreeId])
 
   // Re-fetch when the panel opens, or when sessionId/worktreeId changes while open
   useEffect(() => {
     if (open) void refresh()
   }, [open, refresh])
 
-  if (!sessionId && fallbackSessionIds.every((s) => !s) && !worktreeId) return null
+  if (!hasInspectableContext) return null
 
   const headerLabel =
     tab === 'xfp'

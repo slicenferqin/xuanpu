@@ -1,20 +1,18 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { act } from '@testing-library/react'
 
-// Mock window.terminalOps before importing the store
-const mockCreate = vi.fn()
 const mockDestroy = vi.fn()
-const mockOnExit = vi.fn()
 
 Object.defineProperty(window, 'terminalOps', {
   writable: true,
+  configurable: true,
   value: {
-    create: mockCreate,
+    create: vi.fn(),
     write: vi.fn(),
     resize: vi.fn(),
     destroy: mockDestroy,
     onData: vi.fn().mockReturnValue(() => {}),
-    onExit: mockOnExit.mockReturnValue(() => {})
+    onExit: vi.fn().mockReturnValue(() => {})
   }
 })
 
@@ -23,234 +21,125 @@ import { useTerminalStore } from '../../src/renderer/src/stores/useTerminalStore
 describe('useTerminalStore', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    // Reset store state
     act(() => {
       useTerminalStore.setState({ terminals: new Map() })
     })
   })
 
   describe('createTerminal', () => {
-    test('creates terminal and transitions to running status', async () => {
-      mockCreate.mockResolvedValue({ success: true, cols: 80, rows: 24 })
+    test('marks a terminal as creating while backend owns PTY creation', async () => {
+      const result = await useTerminalStore.getState().createTerminal('term-1', '/tmp/project')
 
-      const store = useTerminalStore.getState()
-      await act(async () => {
-        await store.createTerminal('wt-1', '/tmp/project')
+      expect(result).toEqual({ success: true })
+      expect(useTerminalStore.getState().terminals.get('term-1')).toEqual({
+        status: 'creating'
       })
-
-      const terminal = useTerminalStore.getState().terminals.get('wt-1')
-      expect(terminal).toBeDefined()
-      expect(terminal!.status).toBe('running')
-      expect(mockCreate).toHaveBeenCalledWith('wt-1', '/tmp/project', undefined)
+      expect(window.terminalOps.create).not.toHaveBeenCalled()
+      expect(window.terminalOps.onExit).not.toHaveBeenCalled()
     })
 
-    test('sets creating status during creation', async () => {
-      let resolveCreate: (value: unknown) => void
-      mockCreate.mockReturnValue(
-        new Promise((resolve) => {
-          resolveCreate = resolve
-        })
-      )
-
-      const store = useTerminalStore.getState()
-
-      // Start creation but don't await
-      let createPromise: Promise<unknown>
+    test('does not reset an already running terminal', async () => {
       act(() => {
-        createPromise = store.createTerminal('wt-2', '/tmp')
+        useTerminalStore.getState().setTerminalStatus('term-running', 'running')
       })
 
-      // During creation, status should be 'creating'
-      const creating = useTerminalStore.getState().terminals.get('wt-2')
-      expect(creating).toBeDefined()
-      expect(creating!.status).toBe('creating')
+      const result = await useTerminalStore
+        .getState()
+        .createTerminal('term-running', '/tmp/project')
 
-      // Resolve and finish
-      await act(async () => {
-        resolveCreate!({ success: true, cols: 80, rows: 24 })
-        await createPromise!
+      expect(result).toEqual({ success: true })
+      expect(useTerminalStore.getState().terminals.get('term-running')).toEqual({
+        status: 'running',
+        exitCode: undefined
       })
-
-      const running = useTerminalStore.getState().terminals.get('wt-2')
-      expect(running!.status).toBe('running')
-    })
-
-    test('removes terminal on creation failure', async () => {
-      mockCreate.mockResolvedValue({ success: false, error: 'spawn failed' })
-
-      const store = useTerminalStore.getState()
-      let result: { success: boolean; error?: string }
-      await act(async () => {
-        result = await store.createTerminal('wt-fail', '/tmp')
-      })
-
-      expect(result!.success).toBe(false)
-      expect(result!.error).toBe('spawn failed')
-      expect(useTerminalStore.getState().terminals.has('wt-fail')).toBe(false)
-    })
-
-    test('removes terminal on exception', async () => {
-      mockCreate.mockRejectedValue(new Error('network error'))
-
-      const store = useTerminalStore.getState()
-      let result: { success: boolean; error?: string }
-      await act(async () => {
-        result = await store.createTerminal('wt-err', '/tmp')
-      })
-
-      expect(result!.success).toBe(false)
-      expect(result!.error).toBe('network error')
-      expect(useTerminalStore.getState().terminals.has('wt-err')).toBe(false)
-    })
-
-    test('does not recreate already running terminal', async () => {
-      mockCreate.mockResolvedValue({ success: true, cols: 80, rows: 24 })
-
-      const store = useTerminalStore.getState()
-      await act(async () => {
-        await store.createTerminal('wt-dup', '/tmp')
-      })
-
-      // Try to create again
-      await act(async () => {
-        await store.createTerminal('wt-dup', '/tmp')
-      })
-
-      // Should only have called create once
-      expect(mockCreate).toHaveBeenCalledTimes(1)
-    })
-
-    test('registers onExit listener after creation', async () => {
-      mockCreate.mockResolvedValue({ success: true, cols: 80, rows: 24 })
-
-      const store = useTerminalStore.getState()
-      await act(async () => {
-        await store.createTerminal('wt-exit', '/tmp')
-      })
-
-      expect(mockOnExit).toHaveBeenCalledWith('wt-exit', expect.any(Function))
-    })
-
-    test('onExit callback updates terminal status to exited', async () => {
-      mockCreate.mockResolvedValue({ success: true, cols: 80, rows: 24 })
-
-      let exitCallback: (code: number) => void
-      mockOnExit.mockImplementation((_id: string, cb: (code: number) => void) => {
-        exitCallback = cb
-        return () => {}
-      })
-
-      const store = useTerminalStore.getState()
-      await act(async () => {
-        await store.createTerminal('wt-exit-cb', '/tmp')
-      })
-
-      // Simulate exit
-      act(() => {
-        exitCallback!(0)
-      })
-
-      const terminal = useTerminalStore.getState().terminals.get('wt-exit-cb')
-      expect(terminal).toBeDefined()
-      expect(terminal!.status).toBe('exited')
-      expect(terminal!.exitCode).toBe(0)
-    })
-
-    test('onExit callback preserves non-zero exit codes', async () => {
-      mockCreate.mockResolvedValue({ success: true, cols: 80, rows: 24 })
-
-      let exitCallback: (code: number) => void
-      mockOnExit.mockImplementation((_id: string, cb: (code: number) => void) => {
-        exitCallback = cb
-        return () => {}
-      })
-
-      const store = useTerminalStore.getState()
-      await act(async () => {
-        await store.createTerminal('wt-exit-code', '/tmp')
-      })
-
-      act(() => {
-        exitCallback!(127)
-      })
-
-      const terminal = useTerminalStore.getState().terminals.get('wt-exit-code')
-      expect(terminal!.exitCode).toBe(127)
     })
   })
 
   describe('destroyTerminal', () => {
-    test('destroys terminal and removes from state', async () => {
-      mockCreate.mockResolvedValue({ success: true, cols: 80, rows: 24 })
-      mockDestroy.mockResolvedValue(undefined)
+    test('destroys terminal and removes it from state', async () => {
+      await useTerminalStore.getState().createTerminal('term-destroy', '/tmp')
+      expect(useTerminalStore.getState().terminals.has('term-destroy')).toBe(true)
 
-      const store = useTerminalStore.getState()
-      await act(async () => {
-        await store.createTerminal('wt-destroy', '/tmp')
-      })
-      expect(useTerminalStore.getState().terminals.has('wt-destroy')).toBe(true)
+      await useTerminalStore.getState().destroyTerminal('term-destroy')
 
-      await act(async () => {
-        await store.destroyTerminal('wt-destroy')
-      })
-
-      expect(mockDestroy).toHaveBeenCalledWith('wt-destroy')
-      expect(useTerminalStore.getState().terminals.has('wt-destroy')).toBe(false)
+      expect(mockDestroy).toHaveBeenCalledWith('term-destroy')
+      expect(useTerminalStore.getState().terminals.has('term-destroy')).toBe(false)
     })
 
-    test('removes from state even if destroy IPC throws', async () => {
-      mockCreate.mockResolvedValue({ success: true, cols: 80, rows: 24 })
-      mockDestroy.mockRejectedValue(new Error('already dead'))
+    test('removes terminal state even if destroy IPC throws', async () => {
+      mockDestroy.mockRejectedValueOnce(new Error('already dead'))
+      await useTerminalStore.getState().createTerminal('term-destroy-err', '/tmp')
 
-      const store = useTerminalStore.getState()
-      await act(async () => {
-        await store.createTerminal('wt-destroy-err', '/tmp')
+      await useTerminalStore.getState().destroyTerminal('term-destroy-err')
+
+      expect(useTerminalStore.getState().terminals.has('term-destroy-err')).toBe(false)
+    })
+  })
+
+  describe('restartTerminal', () => {
+    test('destroys the previous terminal and returns it to creating state', async () => {
+      act(() => {
+        useTerminalStore.getState().setTerminalStatus('term-restart', 'running')
       })
 
-      await act(async () => {
-        await store.destroyTerminal('wt-destroy-err')
-      })
+      const result = await useTerminalStore.getState().restartTerminal('term-restart', '/tmp')
 
-      expect(useTerminalStore.getState().terminals.has('wt-destroy-err')).toBe(false)
+      expect(result).toEqual({ success: true })
+      expect(mockDestroy).toHaveBeenCalledWith('term-restart')
+      expect(useTerminalStore.getState().terminals.get('term-restart')).toEqual({
+        status: 'creating'
+      })
     })
   })
 
   describe('setTerminalStatus', () => {
     test('sets terminal status', () => {
       act(() => {
-        useTerminalStore.getState().setTerminalStatus('wt-status', 'running')
+        useTerminalStore.getState().setTerminalStatus('term-status', 'running')
       })
 
-      const terminal = useTerminalStore.getState().terminals.get('wt-status')
-      expect(terminal).toEqual({ status: 'running' })
+      expect(useTerminalStore.getState().terminals.get('term-status')).toEqual({
+        status: 'running',
+        exitCode: undefined
+      })
     })
 
     test('sets terminal status with exit code', () => {
       act(() => {
-        useTerminalStore.getState().setTerminalStatus('wt-exit-status', 'exited', 1)
+        useTerminalStore.getState().setTerminalStatus('term-exit-status', 'exited', 1)
       })
 
-      const terminal = useTerminalStore.getState().terminals.get('wt-exit-status')
-      expect(terminal).toEqual({ status: 'exited', exitCode: 1 })
+      expect(useTerminalStore.getState().terminals.get('term-exit-status')).toEqual({
+        status: 'exited',
+        exitCode: 1
+      })
     })
   })
 
   describe('getTerminal', () => {
     test('returns terminal info for existing terminal', async () => {
-      mockCreate.mockResolvedValue({ success: true, cols: 80, rows: 24 })
+      await useTerminalStore.getState().createTerminal('term-get', '/tmp')
 
-      await act(async () => {
-        await useTerminalStore.getState().createTerminal('wt-get', '/tmp')
+      expect(useTerminalStore.getState().getTerminal('term-get')).toEqual({
+        status: 'creating'
       })
-
-      const terminal = useTerminalStore.getState().getTerminal('wt-get')
-      expect(terminal).toBeDefined()
-      expect(terminal!.status).toBe('running')
     })
 
     test('returns undefined for non-existent terminal', () => {
-      const terminal = useTerminalStore.getState().getTerminal('nonexistent')
-      expect(terminal).toBeUndefined()
+      expect(useTerminalStore.getState().getTerminal('nonexistent')).toBeUndefined()
+    })
+  })
+
+  describe('isTerminalAlive', () => {
+    test('returns true only for running terminals', async () => {
+      await useTerminalStore.getState().createTerminal('term-alive', '/tmp')
+      expect(useTerminalStore.getState().isTerminalAlive('term-alive')).toBe(false)
+
+      act(() => {
+        useTerminalStore.getState().setTerminalStatus('term-alive', 'running')
+      })
+
+      expect(useTerminalStore.getState().isTerminalAlive('term-alive')).toBe(true)
     })
   })
 })

@@ -52,7 +52,7 @@ describe('GhosttyBackend visibility', () => {
     backend.mount(
       container,
       {
-        worktreeId: 'wt-1',
+        terminalId: 'wt-1',
         cwd: '/tmp/wt-1'
       },
       {

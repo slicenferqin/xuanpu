@@ -42,6 +42,8 @@ const UI_FONT_WEIGHT_VALUES: Record<UiFontWeight, string> = {
  * scale = 1 removes all overrides (restores Tailwind defaults).
  */
 export function applyFontScale(scale: number): void {
+  if (typeof document === 'undefined') return
+
   const root = document.documentElement
   if (scale === 1) {
     for (const key of ALL_FONT_VARS) {
@@ -55,6 +57,8 @@ export function applyFontScale(scale: number): void {
 }
 
 export function applyFontFamily(family: UiFontFamily, customFamily = ''): void {
+  if (typeof document === 'undefined') return
+
   const root = document.documentElement
 
   if (family === 'custom') {
@@ -76,6 +80,8 @@ export function applyFontFamily(family: UiFontFamily, customFamily = ''): void {
 }
 
 export function applyFontWeight(weight: UiFontWeight): void {
+  if (typeof document === 'undefined') return
+
   const root = document.documentElement
   const value = UI_FONT_WEIGHT_VALUES[weight]
   if (!value || weight === 'regular') {

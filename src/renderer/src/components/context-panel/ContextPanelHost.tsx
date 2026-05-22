@@ -48,9 +48,22 @@ const CONTEXT_TABS: Array<{
   { id: 'files', icon: Files, labelKey: 'contextPanel.tabs.files' },
   { id: 'tasks', icon: ListTodo, labelKey: 'contextPanel.tabs.tasks' },
   { id: 'goal', icon: Target, labelKey: 'contextPanel.tabs.goal' },
-  { id: 'diagnostics', icon: Activity, labelKey: 'contextPanel.tabs.diagnostics' },
   { id: 'terminal', icon: SquareTerminal, labelKey: 'bottomPanel.tabs.terminal' }
 ]
+
+const DEV_CONTEXT_TABS: Array<{
+  id: RightContextTab
+  icon: React.ComponentType<{ className?: string }>
+  labelKey: string
+}> = [
+  ...CONTEXT_TABS.slice(0, -1),
+  { id: 'diagnostics', icon: Activity, labelKey: 'contextPanel.tabs.diagnostics' },
+  CONTEXT_TABS[CONTEXT_TABS.length - 1]
+]
+
+const SHOW_CONTEXT_DIAGNOSTICS =
+  typeof process !== 'undefined' &&
+  (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test')
 
 const EMPTY_TASKS: SessionTask[] = []
 
@@ -588,6 +601,7 @@ export function ContextPanelHost({
   const activeTab = useLayoutStore((s) => s.rightContextTab)
   const setRightContextTab = useLayoutStore((s) => s.setRightContextTab)
   const setRightReviewTab = useLayoutStore((s) => s.setRightReviewTab)
+  const setBottomPanelTab = useLayoutStore((s) => s.setBottomPanelTab)
   const vimModeEnabled = useSettingsStore((s) => s.vimModeEnabled)
   const activeSessionId = useSessionStore((s) => s.inlineConnectionSessionId ?? s.activeSessionId)
   const fallbackOverviewScopeId = useSessionStore((s) =>
@@ -609,7 +623,10 @@ export function ContextPanelHost({
   const cachedOverviewSessionIdsKey = cachedOverviewSessionIds.join('|')
   const [overviewSessionIds, setOverviewSessionIds] = useState<string[]>(cachedOverviewSessionIds)
   const tabs = useMemo(
-    () => (terminalPanel ? CONTEXT_TABS : CONTEXT_TABS.filter((tab) => tab.id !== 'terminal')),
+    () => {
+      const baseTabs = SHOW_CONTEXT_DIAGNOSTICS ? DEV_CONTEXT_TABS : CONTEXT_TABS
+      return terminalPanel ? baseTabs : baseTabs.filter((tab) => tab.id !== 'terminal')
+    },
     [terminalPanel]
   )
   const overviewScopeLabel = isConnectionMode
@@ -656,6 +673,9 @@ export function ContextPanelHost({
     if (activeTab === 'terminal' && !terminalPanel) {
       setRightContextTab('overview')
     }
+    if (activeTab === 'diagnostics' && !SHOW_CONTEXT_DIAGNOSTICS) {
+      setRightContextTab('overview')
+    }
   }, [activeTab, setRightContextTab, terminalPanel])
 
   useEffect(() => {
@@ -667,6 +687,7 @@ export function ContextPanelHost({
         return
       }
       if (tab === 'terminal' && terminalPanel) {
+        setBottomPanelTab('terminal')
         setRightContextTab('terminal')
         return
       }
@@ -677,7 +698,7 @@ export function ContextPanelHost({
     }
     window.addEventListener('hive:right-sidebar-tab', handler)
     return () => window.removeEventListener('hive:right-sidebar-tab', handler)
-  }, [setRightContextTab, setRightReviewTab, terminalPanel, vimModeEnabled])
+  }, [setBottomPanelTab, setRightContextTab, setRightReviewTab, terminalPanel, vimModeEnabled])
 
   const mainContent = useMemo(() => {
     switch (activeTab) {
@@ -713,6 +734,7 @@ export function ContextPanelHost({
       case 'goal':
         return <GoalPanel activeSessionId={activeSessionId} />
       case 'diagnostics':
+        if (!SHOW_CONTEXT_DIAGNOSTICS) return null
         return (
           <DiagnosticsPanel
             activeSessionId={activeSessionId}
@@ -782,7 +804,12 @@ export function ContextPanelHost({
                     ? 'bg-tech-blue-soft text-tech-blue shadow-sm ring-1 ring-tech-blue/20 dark:bg-tech-blue-soft/70 dark:ring-tech-blue/15'
                     : 'hover:bg-agent-hover/70 hover:text-sidebar-accent-foreground dark:hover:bg-agent-hover/45'
                 )}
-                onClick={() => setRightContextTab(tab.id)}
+                onClick={() => {
+                  if (tab.id === 'terminal') {
+                    setBottomPanelTab('terminal')
+                  }
+                  setRightContextTab(tab.id)
+                }}
                 data-testid={`context-panel-tab-${tab.id}`}
                 data-active={activeTab === tab.id}
                 aria-label={label}

@@ -75,6 +75,7 @@ function todoTimeline(): TimelineMessage[] {
 describe('ContextPanelHost', () => {
   beforeEach(() => {
     useLayoutStore.setState({
+      bottomPanelTab: 'terminal',
       rightContextTab: 'overview',
       rightReviewTab: 'changes'
     })
@@ -235,6 +236,11 @@ describe('ContextPanelHost', () => {
       worktreeId: 'wt-1',
       limit: 30
     })
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(window.fieldOps.getXfpAuditEvents).toHaveBeenCalledTimes(1)
   })
 
   it('shows the terminal entry only when a right-docked terminal panel is provided', async () => {
@@ -244,6 +250,17 @@ describe('ContextPanelHost', () => {
     await user.click(screen.getByTestId('context-panel-tab-terminal'))
 
     expect(screen.getByTestId('context-panel-terminal')).toBeInTheDocument()
+  })
+
+  it('selects the terminal bottom tab when the right terminal rail item is clicked', async () => {
+    const user = userEvent.setup()
+    useLayoutStore.setState({ bottomPanelTab: 'run' })
+    renderHost({ terminalPanel: <div data-testid="context-panel-terminal">Terminal panel</div> })
+
+    await user.click(screen.getByTestId('context-panel-tab-terminal'))
+
+    expect(useLayoutStore.getState().rightContextTab).toBe('terminal')
+    expect(useLayoutStore.getState().bottomPanelTab).toBe('terminal')
   })
 
   it('keeps the terminal panel mounted while switching away and back', async () => {
@@ -280,6 +297,20 @@ describe('ContextPanelHost', () => {
     expect(screen.getByTestId('branch-diff-view')).toBeInTheDocument()
     expect(useLayoutStore.getState().rightContextTab).toBe('review')
     expect(useLayoutStore.getState().rightReviewTab).toBe('diffs')
+  })
+
+  it('selects the terminal bottom tab for vim terminal sidebar events', () => {
+    useLayoutStore.setState({ bottomPanelTab: 'run' })
+    renderHost({ terminalPanel: <div data-testid="context-panel-terminal">Terminal panel</div> })
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent('hive:right-sidebar-tab', { detail: { tab: 'terminal' } })
+      )
+    })
+
+    expect(useLayoutStore.getState().rightContextTab).toBe('terminal')
+    expect(useLayoutStore.getState().bottomPanelTab).toBe('terminal')
   })
 
   it('keeps AI review and PR actions inside the review context panel', async () => {

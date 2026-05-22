@@ -10,19 +10,19 @@ vi.mock('@/components/terminal/TerminalView', async () => {
   const React = await import('react')
 
   function TerminalView({
-    worktreeId,
+    terminalId,
     cwd
   }: {
-    worktreeId: string
+    terminalId: string
     cwd: string
   }): React.JSX.Element {
     React.useEffect(() => {
-      terminalViewMounts.set(worktreeId, (terminalViewMounts.get(worktreeId) || 0) + 1)
-    }, [worktreeId])
+      terminalViewMounts.set(terminalId, (terminalViewMounts.get(terminalId) || 0) + 1)
+    }, [terminalId])
 
     return (
-      <div data-testid={`terminal-view-${worktreeId}`} data-cwd={cwd}>
-        terminal-view:{worktreeId}
+      <div data-testid={`terminal-view-${terminalId}`} data-cwd={cwd}>
+        terminal-view:{terminalId}
       </div>
     )
   }
