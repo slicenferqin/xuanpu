@@ -2,8 +2,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { BrowserWindow } from 'electron'
 
-const { mockQuery } = vi.hoisted(() => ({
-  mockQuery: vi.fn()
+const {
+  mockQuery,
+  mockGenerateSessionTitle,
+  mockCreateXfpClaudeMcpServerConfig,
+  mockXfpMcpServer,
+  mockBuildXfpFallbackContext,
+  mockCreateXuanpuToolsMcpServerConfig,
+  mockTokenSaverMcpServer,
+  mockIsTokenSaverEnabled
+} = vi.hoisted(() => ({
+  mockQuery: vi.fn(),
+  mockGenerateSessionTitle: vi.fn(),
+  mockCreateXfpClaudeMcpServerConfig: vi.fn(),
+  mockXfpMcpServer: { type: 'sdk', name: 'xuanpu-field', instance: {} },
+  mockBuildXfpFallbackContext: vi.fn(),
+  mockCreateXuanpuToolsMcpServerConfig: vi.fn(),
+  mockTokenSaverMcpServer: { type: 'sdk', name: 'xuanpu', instance: {} },
+  mockIsTokenSaverEnabled: vi.fn()
 }))
 vi.mock('electron', () => ({
   app: {
@@ -12,6 +28,38 @@ vi.mock('electron', () => ({
 }))
 vi.mock('../../../src/main/services/claude-sdk-loader', () => ({
   loadClaudeSDK: vi.fn().mockResolvedValue({ query: mockQuery })
+}))
+
+vi.mock('../../../src/main/services/claude-session-title', () => ({
+  generateSessionTitle: mockGenerateSessionTitle
+}))
+
+vi.mock('../../../src/main/xfp/claude-mcp-server', () => ({
+  XFP_CLAUDE_MCP_SERVER_NAME: 'xuanpu-field',
+  XFP_CLAUDE_ALLOWED_TOOLS: [
+    'mcp__xuanpu-field__xfp_get_current_focus',
+    'mcp__xuanpu-field__xfp_get_last_terminal_activity',
+    'mcp__xuanpu-field__xfp_get_recent_activity',
+    'mcp__xuanpu-field__xfp_get_worktree_summary',
+    'mcp__xuanpu-field__xfp_get_pinned_facts'
+  ],
+  createXfpClaudeMcpServerConfig: mockCreateXfpClaudeMcpServerConfig
+}))
+
+vi.mock('../../../src/main/xfp/fallback-context', () => ({
+  buildXfpFallbackContext: mockBuildXfpFallbackContext
+}))
+
+vi.mock('../../../src/main/xfp/provider', () => ({
+  xfpProvider: { id: 'mock-xfp-provider' }
+}))
+
+vi.mock('../../../src/main/services/token-saver/xuanpu-tools-mcp', () => ({
+  createXuanpuToolsMcpServerConfig: mockCreateXuanpuToolsMcpServerConfig
+}))
+
+vi.mock('../../../src/main/field/privacy', () => ({
+  isTokenSaverEnabled: mockIsTokenSaverEnabled
 }))
 
 vi.mock('../../../src/main/services/claude-transcript-reader', async () => {
@@ -41,6 +89,7 @@ import {
 } from '../../../src/main/services/claude-code-implementer'
 import { readClaudeTranscript } from '../../../src/main/services/claude-transcript-reader'
 import { readClaudeGoalStatus } from '../../../src/main/services/claude-transcript-reader'
+import { __resetXfpAuditForTest, listXfpAuditEvents } from '../../../src/main/xfp/audit'
 
 const readClaudeTranscriptMock = vi.mocked(readClaudeTranscript)
 const readClaudeGoalStatusMock = vi.mocked(readClaudeGoalStatus)
@@ -83,8 +132,14 @@ describe('ClaudeCodeImplementer – prompt streaming (Session 4)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    __resetXfpAuditForTest()
     readClaudeTranscriptMock.mockResolvedValue([])
     readClaudeGoalStatusMock.mockResolvedValue(null)
+    mockGenerateSessionTitle.mockResolvedValue(null)
+    mockCreateXfpClaudeMcpServerConfig.mockResolvedValue(mockXfpMcpServer)
+    mockBuildXfpFallbackContext.mockResolvedValue(null)
+    mockCreateXuanpuToolsMcpServerConfig.mockResolvedValue(mockTokenSaverMcpServer)
+    mockIsTokenSaverEnabled.mockReturnValue(false)
     impl = new ClaudeCodeImplementer()
     sessions = (impl as any).sessions
     mockWindow = createMockWindow()
@@ -494,6 +549,290 @@ describe('ClaudeCodeImplementer – prompt streaming (Session 4)', () => {
       expect(mockQuery).toHaveBeenCalledTimes(1)
       const callArgs = mockQuery.mock.calls[0][0]
       expect(callArgs.options.resume).toBe('real-sdk-id-1')
+    })
+
+    it('attaches XFP field MCP tools to Claude session options', async () => {
+      const mockDb = {
+        getWorktreeByPath: vi.fn().mockReturnValue({
+          id: 'wt-xfp',
+          project_id: 'proj-xfp'
+        }),
+        getProject: vi.fn().mockReturnValue({ path: '/proj' }),
+        updateSession: vi.fn(),
+        getSession: vi.fn(),
+        replaceSessionMessages: vi.fn()
+      }
+      impl.setDatabaseService(mockDb as any)
+      const { sessionId } = await impl.connect('/proj', 'hive-xfp')
+
+      mockQuery.mockReturnValue(
+        createMockQueryIterator([
+          {
+            type: 'assistant',
+            session_id: 'sdk-xfp-1',
+            content: [{ type: 'text', text: 'Ready' }]
+          }
+        ])
+      )
+
+      await impl.prompt('/proj', sessionId, '这里为什么挂？')
+
+      expect(mockCreateXfpClaudeMcpServerConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          worktreeId: 'wt-xfp',
+          sessionId: 'hive-xfp'
+        })
+      )
+      const callArgs = mockQuery.mock.calls[0][0]
+      expect(callArgs.options.mcpServers['xuanpu-field']).toBe(mockXfpMcpServer)
+      expect(callArgs.options.allowedTools).toEqual(
+        expect.arrayContaining([
+          'mcp__xuanpu-field__xfp_get_current_focus',
+          'mcp__xuanpu-field__xfp_get_last_terminal_activity',
+          'mcp__xuanpu-field__xfp_get_recent_activity',
+          'mcp__xuanpu-field__xfp_get_worktree_summary',
+          'mcp__xuanpu-field__xfp_get_pinned_facts'
+        ])
+      )
+    })
+
+    it('keeps XFP MCP separate from Token Saver MCP when both are enabled', async () => {
+      mockIsTokenSaverEnabled.mockReturnValue(true)
+      const mockDb = {
+        getWorktreeByPath: vi.fn().mockReturnValue({
+          id: 'wt-xfp-token',
+          project_id: 'proj-xfp-token'
+        }),
+        getProject: vi.fn().mockReturnValue({ path: '/proj' }),
+        updateSession: vi.fn(),
+        getSession: vi.fn(),
+        replaceSessionMessages: vi.fn()
+      }
+      impl.setDatabaseService(mockDb as any)
+      const { sessionId } = await impl.connect('/proj', 'hive-xfp-token')
+
+      mockQuery.mockReturnValue(
+        createMockQueryIterator([
+          {
+            type: 'assistant',
+            session_id: 'sdk-xfp-token-1',
+            content: [{ type: 'text', text: 'Ready' }]
+          }
+        ])
+      )
+
+      await impl.prompt('/proj', sessionId, '跑一下测试')
+
+      const callArgs = mockQuery.mock.calls[0][0]
+      expect(callArgs.options.mcpServers['xuanpu-field']).toBe(mockXfpMcpServer)
+      expect(callArgs.options.mcpServers.xuanpu).toBe(mockTokenSaverMcpServer)
+      expect(callArgs.options.allowedTools).toEqual(
+        expect.arrayContaining([
+          'mcp__xuanpu-field__xfp_get_current_focus',
+          'mcp__xuanpu-field__xfp_get_last_terminal_activity',
+          'mcp__xuanpu__bash'
+        ])
+      )
+      expect(callArgs.options.disallowedTools).toEqual(expect.arrayContaining(['Bash']))
+    })
+
+    it('uses bounded XFP fallback when Claude field MCP attach fails', async () => {
+      mockCreateXfpClaudeMcpServerConfig.mockRejectedValueOnce(new Error('mcp unavailable'))
+      mockBuildXfpFallbackContext.mockResolvedValueOnce({
+        markdown: '[Xuanpu Field Fallback]\n## Current Focus\n- File: /proj/src/main.ts',
+        approxTokens: 24,
+        reason: 'field-reference',
+        included: ['current_focus']
+      })
+      const mockDb = {
+        getWorktreeByPath: vi.fn().mockReturnValue({
+          id: 'wt-fallback',
+          project_id: 'proj-fallback'
+        }),
+        getProject: vi.fn().mockReturnValue({ path: '/proj' }),
+        updateSession: vi.fn(),
+        getSession: vi.fn(),
+        replaceSessionMessages: vi.fn()
+      }
+      impl.setDatabaseService(mockDb as any)
+      const { sessionId } = await impl.connect('/proj', 'hive-xfp-fallback')
+
+      mockQuery.mockReturnValue(
+        createMockQueryIterator([
+          {
+            type: 'assistant',
+            session_id: 'sdk-xfp-fallback-1',
+            content: [{ type: 'text', text: 'Ready' }]
+          }
+        ])
+      )
+
+      await impl.prompt('/proj', sessionId, '这里为什么挂？')
+
+      expect(mockBuildXfpFallbackContext).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scope: { worktreeId: 'wt-fallback', sessionId: 'hive-xfp-fallback' },
+          promptText: '这里为什么挂？'
+        })
+      )
+      expect(mockQuery.mock.calls[0][0].prompt).toBe(
+        '[Xuanpu Field Fallback]\n## Current Focus\n- File: /proj/src/main.ts\n\n[User Message]\n这里为什么挂？'
+      )
+
+      const state = sessions.get((impl as any).getSessionKey('/proj', 'sdk-xfp-fallback-1'))!
+      const userMessage = state.messages.find((m) => (m as any).role === 'user') as any
+      expect(userMessage.content).toBe('这里为什么挂？')
+      expect(userMessage.parts[0].text).toBe('这里为什么挂？')
+      expect(listXfpAuditEvents()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            worktreeId: 'wt-fallback',
+            sessionId: 'hive-xfp-fallback',
+            runtimeId: 'claude-code',
+            kind: 'fallback',
+            toolName: 'xfp_triggered_fallback',
+            input: { reason: 'field-reference', included: ['current_focus'] }
+          }),
+          expect.objectContaining({
+            worktreeId: 'wt-fallback',
+            sessionId: 'hive-xfp-fallback',
+            runtimeId: 'claude-code',
+            kind: 'prompt',
+            toolName: 'field_delivery',
+            input: expect.objectContaining({
+              mode: 'xfp-fallback',
+              hasXfpFallbackPrefix: true,
+              hasFieldContextEnvelope: false
+            })
+          })
+        ])
+      )
+    })
+
+    it('sends injected runtime prompt but uses originalMessage for title and synthetic user message', async () => {
+      const { sessionId } = await impl.connect('/proj', 'hive-field')
+      const injected = '[Field Context]\nCurrent file: src/a.ts\n\n[User Message]\n真实消息'
+
+      mockQuery.mockReturnValue(
+        createMockQueryIterator([
+          {
+            type: 'assistant',
+            session_id: 'sdk-field-1',
+            content: [{ type: 'text', text: 'Done' }]
+          }
+        ])
+      )
+
+      await impl.prompt('/proj', sessionId, injected, undefined, {
+        originalMessage: '真实消息'
+      } as any)
+
+      expect(mockQuery.mock.calls[0][0].prompt).toBe(injected)
+      expect(mockGenerateSessionTitle).toHaveBeenCalledWith('真实消息', null)
+
+      const state = sessions.get((impl as any).getSessionKey('/proj', 'sdk-field-1'))!
+      const userMessage = state.messages.find((m) => (m as any).role === 'user') as any
+      expect(userMessage.content).toBe('真实消息')
+      expect(userMessage.parts[0].text).toBe('真实消息')
+    })
+
+    it('falls back to stripping Field Context from synthetic and persisted user content', async () => {
+      const mockDb = {
+        updateSession: vi.fn(),
+        getSession: vi.fn(),
+        replaceSessionMessages: vi.fn()
+      }
+      impl.setDatabaseService(mockDb as any)
+
+      const { sessionId } = await impl.connect('/proj', 'hive-field-fallback')
+      const injected = '[Field Context]\nCurrent file: src/a.ts\n\n[User Message]\nShip the fix'
+
+      mockQuery.mockReturnValue(
+        createMockQueryIterator([
+          {
+            type: 'assistant',
+            session_id: 'sdk-field-fallback-1',
+            content: [{ type: 'text', text: 'Done' }]
+          },
+          {
+            type: 'user',
+            session_id: 'sdk-field-fallback-1',
+            uuid: 'user-field-echo-1',
+            message: {
+              role: 'user',
+              content: [{ type: 'text', text: injected }]
+            }
+          }
+        ])
+      )
+
+      await impl.prompt('/proj', sessionId, injected)
+
+      const lastPersistCall = mockDb.replaceSessionMessages.mock.calls.at(-1)
+      expect(lastPersistCall).toBeDefined()
+
+      const rows = lastPersistCall?.[1] as Array<{
+        role: string
+        content: string
+        opencode_message_json: string
+        opencode_parts_json: string
+      }>
+      const userRow = rows.find((row) => row.role === 'user')!
+      expect(userRow.content).toBe('Ship the fix')
+      expect(userRow.content).not.toContain('[Field Context]')
+      expect(userRow.opencode_message_json).not.toContain('[Field Context]')
+      expect(userRow.opencode_parts_json).not.toContain('[Field Context]')
+    })
+
+    it('cleans only text parts for attachment prompts while preserving file parts', async () => {
+      const { sessionId } = await impl.connect('/proj', 'hive-field-file')
+      const injected = '[Field Context]\nCurrent file: src/a.ts\n\n[User Message]\n看这张图'
+      const filePart = {
+        type: 'file' as const,
+        mime: 'image/png',
+        url: 'data:image/png;base64,aGVsbG8=',
+        filename: 'shot.png'
+      }
+
+      mockQuery.mockReturnValue(
+        createMockQueryIterator([
+          {
+            type: 'assistant',
+            session_id: 'sdk-field-file-1',
+            content: [{ type: 'text', text: 'Done' }]
+          }
+        ])
+      )
+
+      await impl.prompt(
+        '/proj',
+        sessionId,
+        [{ type: 'text', text: injected }, filePart],
+        undefined,
+        {
+          originalMessage: [{ type: 'text', text: '看这张图' }, filePart]
+        } as any
+      )
+
+      const promptIterable = mockQuery.mock.calls[0][0].prompt
+      const yielded = await promptIterable[Symbol.asyncIterator]().next()
+      expect(yielded.value.message.content[0]).toMatchObject({
+        type: 'text',
+        text: injected
+      })
+      expect(yielded.value.message.content[1]).toMatchObject({
+        type: 'image'
+      })
+
+      const state = sessions.get((impl as any).getSessionKey('/proj', 'sdk-field-file-1'))!
+      const userMessage = state.messages.find((m) => (m as any).role === 'user') as any
+      expect(userMessage.content).toBe('看这张图\n[attachment: shot.png]')
+      expect(userMessage.parts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ type: 'text', text: '看这张图' }),
+          expect.objectContaining({ type: 'file', filename: 'shot.png' })
+        ])
+      )
     })
   })
 

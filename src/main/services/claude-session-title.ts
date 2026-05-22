@@ -1,6 +1,7 @@
 import { homedir } from 'node:os'
 import { loadClaudeSDK } from './claude-sdk-loader'
 import { createLogger } from './logger'
+import { stripFieldContextEnvelope } from '../../shared/lib/field-context-envelope'
 
 const log = createLogger({ component: 'ClaudeSessionTitle' })
 
@@ -93,8 +94,11 @@ export async function generateSessionTitle(
   message: string,
   claudeBinaryPath?: string | null
 ): Promise<string | null> {
+  const cleanMessage = stripFieldContextEnvelope(message)
   const truncatedMessage =
-    message.length > MAX_MESSAGE_LENGTH ? message.slice(0, MAX_MESSAGE_LENGTH) + '...' : message
+    cleanMessage.length > MAX_MESSAGE_LENGTH
+      ? cleanMessage.slice(0, MAX_MESSAGE_LENGTH) + '...'
+      : cleanMessage
 
   const userPrompt = `Generate a title for this conversation:\n${truncatedMessage}`
 

@@ -30,8 +30,17 @@ vi.mock('../../../src/main/services/logger', () => ({
 }))
 
 const mockGenerateCodexSessionTitle = vi.fn()
+const mockBuildXfpFallbackContext = vi.fn()
 vi.mock('../../../src/main/services/codex-session-title', () => ({
   generateCodexSessionTitle: (...args: any[]) => mockGenerateCodexSessionTitle(...args)
+}))
+
+vi.mock('../../../src/main/xfp/fallback-context', () => ({
+  buildXfpFallbackContext: (...args: any[]) => mockBuildXfpFallbackContext(...args)
+}))
+
+vi.mock('../../../src/main/xfp/provider', () => ({
+  xfpProvider: { id: 'mock-xfp-provider' }
 }))
 
 vi.mock('../../../src/main/services/git-service', () => ({
@@ -72,6 +81,7 @@ import {
   normalizeCodexMessageTimestamps,
   type CodexSessionState
 } from '../../../src/main/services/codex-implementer'
+import { __resetXfpAuditForTest, listXfpAuditEvents } from '../../../src/main/xfp/audit'
 
 describe('CodexImplementer.prompt()', () => {
   let impl: CodexImplementer
@@ -80,8 +90,10 @@ describe('CodexImplementer.prompt()', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    __resetXfpAuditForTest()
     eventListeners = []
     mockGenerateCodexSessionTitle.mockResolvedValue(null)
+    mockBuildXfpFallbackContext.mockResolvedValue(null)
     impl = new CodexImplementer()
     mockManager = impl.getManager()
     mockWindow = {
@@ -182,6 +194,172 @@ describe('CodexImplementer.prompt()', () => {
       model: expect.any(String),
       interactionMode: 'default'
     })
+  })
+
+  it('uses originalMessage for title and synthetic user message while sending runtime text', async () => {
+    const session = seedSession()
+    const runtimeMessage = '[Field Context]\nRepo context\n[User Message]\nFix the timeline'
+    const mockDb = {
+      updateSession: vi.fn(),
+      getSession: vi.fn().mockReturnValue(null),
+      replaceSessionMessages: vi.fn()
+    }
+    impl.setDatabaseService(mockDb as any)
+
+    simulateManagerEvents([
+      {
+        id: 'e1',
+        kind: 'notification',
+        provider: 'codex',
+        threadId: 'thread-1',
+        createdAt: new Date().toISOString(),
+        method: 'turn/completed',
+        payload: { turn: { status: 'completed' } }
+      }
+    ])
+
+    await impl.prompt('/test/project', 'thread-1', runtimeMessage, undefined, {
+      originalMessage: 'Fix the timeline'
+    } as any)
+
+    expect(mockManager.sendTurn).toHaveBeenCalledWith('thread-1', {
+      text: runtimeMessage,
+      model: expect.any(String),
+      interactionMode: 'default'
+    })
+    expect(mockDb.updateSession).toHaveBeenCalledWith('hive-session-1', {
+      name: 'Fix the timeline'
+    })
+    expect(mockGenerateCodexSessionTitle).toHaveBeenCalledWith('Fix the timeline', '/test/project')
+    expect((session.messages[0] as any).parts[0].text).toBe('Fix the timeline')
+
+    const firstPersist = mockDb.replaceSessionMessages.mock.calls[0][1]
+    expect(firstPersist[0].content).toBe('Fix the timeline')
+    expect(JSON.parse(firstPersist[0].opencode_message_json).parts[0].text).toBe('Fix the timeline')
+  })
+
+  it('uses bounded XFP fallback for field-sensitive Codex prompts without polluting history', async () => {
+    const session = seedSession()
+    const mockDb = {
+      updateSession: vi.fn(),
+      getSession: vi.fn().mockReturnValue(null),
+      getWorktreeByPath: vi.fn().mockReturnValue({ id: 'wt-codex' }),
+      replaceSessionMessages: vi.fn()
+    }
+    impl.setDatabaseService(mockDb as any)
+    mockBuildXfpFallbackContext.mockResolvedValueOnce({
+      markdown: '[Xuanpu Field Fallback]\n## Current Focus\n- File: /test/project/src/main.ts',
+      approxTokens: 24,
+      reason: 'field-reference',
+      included: ['current_focus']
+    })
+
+    simulateManagerEvents([
+      {
+        id: 'e1',
+        kind: 'notification',
+        provider: 'codex',
+        threadId: 'thread-1',
+        createdAt: new Date().toISOString(),
+        method: 'turn/completed',
+        payload: { turn: { status: 'completed' } }
+      }
+    ])
+
+    await impl.prompt('/test/project', 'thread-1', '这里为什么挂？')
+
+    expect(mockBuildXfpFallbackContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: { worktreeId: 'wt-codex', sessionId: 'hive-session-1' },
+        promptText: '这里为什么挂？'
+      })
+    )
+    expect(mockManager.sendTurn).toHaveBeenCalledWith('thread-1', {
+      text: '[Xuanpu Field Fallback]\n## Current Focus\n- File: /test/project/src/main.ts\n\n[User Message]\n这里为什么挂？',
+      model: expect.any(String),
+      interactionMode: 'default'
+    })
+    expect((session.messages[0] as any).parts[0].text).toBe('这里为什么挂？')
+
+    const firstPersist = mockDb.replaceSessionMessages.mock.calls[0][1]
+    expect(firstPersist[0].content).toBe('这里为什么挂？')
+    expect(firstPersist[0].opencode_message_json).not.toContain('[Xuanpu Field Fallback]')
+    expect(listXfpAuditEvents()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          worktreeId: 'wt-codex',
+          sessionId: 'hive-session-1',
+          runtimeId: 'codex',
+          kind: 'fallback',
+          toolName: 'xfp_triggered_fallback',
+          input: { reason: 'field-reference', included: ['current_focus'] }
+        }),
+        expect.objectContaining({
+          worktreeId: 'wt-codex',
+          sessionId: 'hive-session-1',
+          runtimeId: 'codex',
+          kind: 'prompt',
+          toolName: 'field_delivery',
+          input: expect.objectContaining({
+            mode: 'xfp-fallback',
+            hasXfpFallbackPrefix: true,
+            hasFieldContextEnvelope: false
+          })
+        })
+      ])
+    )
+  })
+
+  it('strips field context from fallback display parts and preserves attachments', async () => {
+    const session = seedSession()
+    const mockDb = {
+      updateSession: vi.fn(),
+      getSession: vi.fn().mockReturnValue(null),
+      replaceSessionMessages: vi.fn()
+    }
+    impl.setDatabaseService(mockDb as any)
+
+    simulateManagerEvents([
+      {
+        id: 'e1',
+        kind: 'notification',
+        provider: 'codex',
+        threadId: 'thread-1',
+        createdAt: new Date().toISOString(),
+        method: 'turn/completed',
+        payload: { turn: { status: 'completed' } }
+      }
+    ])
+
+    await impl.prompt('/test/project', 'thread-1', [
+      {
+        type: 'text',
+        text: '[Field Context]\nRepo context\n[User Message]\nReview attached file'
+      },
+      {
+        type: 'file',
+        mime: 'text/plain',
+        url: 'file:///tmp/a.txt',
+        filename: 'a.txt'
+      }
+    ])
+
+    expect(mockManager.sendTurn).toHaveBeenCalledWith('thread-1', {
+      text: '[Field Context]\nRepo context\n[User Message]\nReview attached file',
+      model: expect.any(String),
+      interactionMode: 'default'
+    })
+    expect((session.messages[0] as any).parts).toMatchObject([
+      { type: 'text', text: 'Review attached file' },
+      { type: 'file', mime: 'text/plain', url: 'file:///tmp/a.txt', filename: 'a.txt' }
+    ])
+
+    const firstPersist = mockDb.replaceSessionMessages.mock.calls[0][1]
+    const persistedParts = JSON.parse(firstPersist[0].opencode_parts_json)
+    expect(persistedParts).toMatchObject([
+      { type: 'text', text: 'Review attached file' },
+      { type: 'file', mime: 'text/plain', url: 'file:///tmp/a.txt', filename: 'a.txt' }
+    ])
   })
 
   // ── Status transitions ──────────────────────────────────────

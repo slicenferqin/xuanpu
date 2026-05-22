@@ -2069,6 +2069,14 @@ const fieldOps = {
       timestamp: number
       approxTokens: number
     } | null>,
+  /** XFP Inspector: fetch recent XFP tool/fallback audit events. */
+  getXfpAuditEvents: (input?: import('../shared/types/xfp-audit').XfpAuditListInput) =>
+    ipcRenderer.invoke('field:getXfpAuditEvents', input ?? {}) as Promise<
+      import('../shared/types/xfp-audit').XfpAuditEvent[]
+    >,
+  /** XFP Inspector: clear recent XFP tool/fallback audit events. */
+  clearXfpAuditEvents: (input?: import('../shared/types/xfp-audit').XfpAuditListInput) =>
+    ipcRenderer.invoke('field:clearXfpAuditEvents', input ?? {}) as Promise<{ deleted: number }>,
   /** Phase 22B.1 debug: fetch the episodic memory summary for a worktree. */
   getEpisodicMemory: (worktreeId: string) =>
     ipcRenderer.invoke('field:getEpisodicMemory', worktreeId) as Promise<{

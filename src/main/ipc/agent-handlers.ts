@@ -4,7 +4,11 @@ import { createLogger } from '../services/logger'
 import { telemetryService } from '../services/telemetry-service'
 import type { DatabaseService } from '../db/database'
 import type { AgentRuntimeManager } from '../services/agent-runtime-manager'
-import type { AgentRuntimeAdapter, PromptOptions } from '../services/agent-runtime-types'
+import type {
+  AgentPromptMessage,
+  AgentRuntimeAdapter,
+  PromptOptions
+} from '../services/agent-runtime-types'
 import { ClaudeCodeImplementer } from '../services/claude-code-implementer'
 import { emitFieldEvent } from '../field/emit'
 import { isFieldCollectionEnabled } from '../field/privacy'
@@ -12,6 +16,7 @@ import { buildFieldContextSnapshot } from '../field/context-builder'
 import { formatFieldContext } from '../field/context-formatter'
 import { cacheLastInjection } from '../field/last-injection-cache'
 import { recordCheckpointOnAbort } from '../field/checkpoint-hooks'
+import { recordXfpPromptObservation } from '../xfp/audit'
 import {
   createAgentHandler,
   AgentErrorCode,
@@ -55,9 +60,8 @@ const log = createLogger({ component: 'AgentHandlers' })
 // prompt. The worktree.context note is now one subsection of the Field Context.
 // See docs/prd/phase-22a-working-memory.md §4.
 
-type MessagePart =
-  | { type: string; text?: string; mime?: string; url?: string; filename?: string }
-type MessageOrParts = string | Array<MessagePart>
+type MessagePart = { type: string; text?: string; mime?: string; url?: string; filename?: string }
+type MessageOrParts = AgentPromptMessage
 
 /** Extract the first text part's content (for slash detection + session.message). */
 function getFirstText(m: unknown): string | undefined {
@@ -120,6 +124,15 @@ function buildGoalObjective(promptText: string, successCriteria?: string): strin
   }
 
   return `${objective}\n\nSuccess criteria:\n${criteria}`
+}
+
+function loggablePromptOptions(
+  options: PromptOptions | undefined
+): Record<string, unknown> | undefined {
+  if (!options) return undefined
+  const rest: Record<string, unknown> = { ...options }
+  delete rest.originalMessage
+  return Object.keys(rest).length > 0 ? rest : {}
 }
 
 // Dedupe concurrent agent:connect calls per hive session. React StrictMode
@@ -287,9 +300,11 @@ export function registerAgentHandlers(
           options = parsePromptOptions(args[4] as Record<string, unknown> | undefined)
         }
 
-        // Phase 22A: inject Field Context (working memory snapshot) as a prefix
-        // to the user message. This replaces the Phase 21 first-prompt-only
-        // [Worktree Context] injection. See docs/prd/phase-22a-working-memory.md.
+        // Phase 22A/4: inject Field Context (working memory snapshot) as a prefix
+        // only for runtimes that still need push-based field context. Claude Code
+        // now gets Xuanpu field state through the XFP MCP server instead.
+        // This replaces the Phase 21 first-prompt-only [Worktree Context]
+        // injection. See docs/prd/phase-22a-working-memory.md.
         //
         // Key invariants:
         //   1. `originalMessage` is what gets captured as session.message and
@@ -314,9 +329,19 @@ export function registerAgentHandlers(
         const firstTextRaw = getFirstText(messageOrParts)?.trimStart()
         const isSlashCommand = firstTextRaw?.startsWith('/') ?? false
 
-        if (!isSlashCommand) {
+        const runtimeId = resolveRuntimeId(c, runtimeSessionId)
+        log.info('IPC: agent:prompt runtime resolution', { runtimeSessionId, runtimeId })
+        if (runtimeId === 'terminal') return {}
+
+        const usesXfpPullField = runtimeId === 'claude-code' || runtimeId === 'codex'
+        const promptWorktree = c.dbService.getWorktreeByPath(worktreePath)
+        const promptHiveSessionId =
+          c.dbService.getSessionByOpenCodeSessionId(runtimeSessionId)?.id ?? null
+        let legacyInjectionChars = 0
+
+        if (!isSlashCommand && !usesXfpPullField) {
           try {
-            const worktreeFromDb = c.dbService.getWorktreeByPath(worktreePath)
+            const worktreeFromDb = promptWorktree
             if (worktreeFromDb) {
               let prefix: string | null = null
               let injectionTokens = 0
@@ -332,17 +357,15 @@ export function registerAgentHandlers(
                   // Cache under both the runtime session id (what the SDK
                   // knows) and the Hive session id (what the renderer UI
                   // knows), so debug lookups from either side resolve.
-                  const hiveSession = c.dbService.getSessionByOpenCodeSessionId(runtimeSessionId)
-                  const hiveSessionId = hiveSession?.id ?? null
                   cacheLastInjection(
-                    [runtimeSessionId, hiveSessionId],
+                    [runtimeSessionId, promptHiveSessionId],
                     formatted.markdown,
                     formatted.approxTokens
                   )
                   log.info('Field injection', {
                     worktreePath,
                     runtimeSessionId,
-                    hiveSessionId,
+                    hiveSessionId: promptHiveSessionId,
                     tokens: formatted.approxTokens,
                     chars: formatted.markdown.length,
                     truncated: formatted.wasTruncated
@@ -356,6 +379,7 @@ export function registerAgentHandlers(
               }
 
               if (prefix) {
+                legacyInjectionChars = prefix.length
                 messageOrParts = prependToMessage(messageOrParts, prefix)
               }
               void injectionTokens // suppress unused warning when prefix is null
@@ -367,6 +391,33 @@ export function registerAgentHandlers(
               error: err instanceof Error ? err.message : String(err)
             })
           }
+        } else if (!isSlashCommand && usesXfpPullField) {
+          log.info('Field injection skipped; runtime uses XFP pull/fallback field access', {
+            worktreePath,
+            runtimeSessionId,
+            runtimeId
+          })
+        }
+
+        if (runtimeId === 'opencode') {
+          const runtimeText = getFirstText(messageOrParts) ?? ''
+          const originalText = getFirstText(originalMessage) ?? ''
+          const attachmentCount = Array.isArray(messageOrParts)
+            ? messageOrParts.filter((part) => part.type === 'file').length
+            : 0
+          recordXfpPromptObservation({
+            worktreeId: promptWorktree?.id ?? null,
+            sessionId: promptHiveSessionId,
+            runtimeId: 'opencode',
+            fieldDeliveryMode: legacyInjectionChars > 0 ? 'legacy-injection' : 'none',
+            promptChars: runtimeText.length,
+            displayChars: originalText.length,
+            legacyInjectionChars: legacyInjectionChars > 0 ? legacyInjectionChars : undefined,
+            hasFieldContextEnvelope: runtimeText.trimStart().startsWith('[Field Context'),
+            hasXfpFallbackPrefix: runtimeText.trimStart().startsWith('[Xuanpu Field Fallback]'),
+            hasFileAttachments: attachmentCount > 0,
+            attachmentCount
+          })
         }
 
         log.info('IPC: agent:prompt', {
@@ -374,14 +425,15 @@ export function registerAgentHandlers(
           runtimeSessionId,
           partsCount: Array.isArray(messageOrParts) ? messageOrParts.length : 1,
           model,
-          options
+          options: loggablePromptOptions(options)
         })
 
-        const runtimeId = resolveRuntimeId(c, runtimeSessionId)
-        log.info('IPC: agent:prompt runtime resolution', { runtimeSessionId, runtimeId })
-        if (runtimeId === 'terminal') return {}
         const impl = c.runtimeManager.getImplementer(runtimeId)
-        await impl.prompt(worktreePath, runtimeSessionId, messageOrParts, model, options)
+        const promptOptions: PromptOptions = {
+          ...(options ?? {}),
+          originalMessage
+        }
+        await impl.prompt(worktreePath, runtimeSessionId, messageOrParts, model, promptOptions)
         telemetryService.track('prompt_sent', { runtime_id: runtimeId })
 
         // Phase 21 + 22A: emit session.message with ORIGINAL text (no Field Context

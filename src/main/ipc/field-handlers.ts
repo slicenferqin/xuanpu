@@ -18,6 +18,7 @@ import { getDatabase } from '../db'
 import { createLogger } from '../services/logger'
 import { emitFieldEvent } from '../field/emit'
 import { getLastInjection } from '../field/last-injection-cache'
+import { clearXfpAuditEvents, listXfpAuditEvents } from '../xfp/audit'
 import { getSemanticMemory } from '../field/semantic-memory-loader'
 import {
   getPinnedFacts,
@@ -52,6 +53,26 @@ function isShortString(value: unknown, maxLen: number): value is string {
 
 function isNonNegInt(value: unknown, max: number): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= max
+}
+
+function readAuditFilter(input: unknown): {
+  worktreeId?: string | null
+  sessionId?: string | null
+  limit?: number
+} {
+  if (!isPlainObject(input)) return {}
+
+  const filter: { worktreeId?: string | null; sessionId?: string | null; limit?: number } = {}
+  if (input.worktreeId === null || isShortString(input.worktreeId, MAX_ID_LEN)) {
+    filter.worktreeId = input.worktreeId
+  }
+  if (input.sessionId === null || isShortString(input.sessionId, MAX_ID_LEN)) {
+    filter.sessionId = input.sessionId
+  }
+  if (typeof input.limit === 'number') {
+    filter.limit = input.limit
+  }
+  return filter
 }
 
 function resolveProjectId(worktreeId: string): string | null {
@@ -170,6 +191,17 @@ export function registerFieldHandlers(): void {
   })
 
   // -------------------------------------------------------------------------
+  // Debug: retrieve recent XFP tool/fallback audit events.
+  // -------------------------------------------------------------------------
+  ipcMain.handle('field:getXfpAuditEvents', (_event, input: unknown) => {
+    return listXfpAuditEvents(readAuditFilter(input))
+  })
+
+  ipcMain.handle('field:clearXfpAuditEvents', (_event, input: unknown) => {
+    return clearXfpAuditEvents(readAuditFilter(input))
+  })
+
+  // -------------------------------------------------------------------------
   // Debug: retrieve the episodic memory summary for a worktree.
   // Phase 22B.1.
   // -------------------------------------------------------------------------
@@ -275,4 +307,3 @@ export function registerFieldHandlers(): void {
     return { deleted }
   })
 }
-

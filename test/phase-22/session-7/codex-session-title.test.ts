@@ -76,9 +76,8 @@ describe('generateCodexSessionTitle', () => {
   })
 
   it('uses gpt-5.4 with low effort and opencode-style prompt shape', async () => {
-    const { generateCodexSessionTitle } = await import(
-      '../../../src/main/services/codex-session-title'
-    )
+    const { generateCodexSessionTitle } =
+      await import('../../../src/main/services/codex-session-title')
 
     const title = await generateCodexSessionTitle('Fix auth refresh token bug', '/test')
 
@@ -95,12 +94,35 @@ describe('generateCodexSessionTitle', () => {
     expect(mockStopSession).toHaveBeenCalledWith('thread-title-1')
   })
 
+  it('strips Field Context envelopes before title generation', async () => {
+    const { generateCodexSessionTitle } =
+      await import('../../../src/main/services/codex-session-title')
+
+    await generateCodexSessionTitle(
+      `[Field Context - as of 10:41:56]
+## Worktree
+xuanpu--akita
+
+[User Message]
+推进 XFP 落地`,
+      '/test'
+    )
+
+    expect(mockSendTurn).toHaveBeenCalledWith('thread-title-1', {
+      model: 'gpt-5.4',
+      reasoningEffort: 'low',
+      developerInstructions: expect.stringContaining('You are a title generator'),
+      input: [
+        { type: 'text', text: 'Generate a title for this conversation:\n' },
+        { type: 'text', text: '推进 XFP 落地' }
+      ]
+    })
+  })
+
   it('post-processes think tags and truncates long titles', async () => {
     const { __testing__ } = await import('../../../src/main/services/codex-session-title')
 
-    const longTitle =
-      '<think>internal</think>\n' +
-      'A'.repeat(105)
+    const longTitle = '<think>internal</think>\n' + 'A'.repeat(105)
 
     expect(__testing__.postProcessTitle(longTitle)).toBe(`${'A'.repeat(97)}...`)
   })

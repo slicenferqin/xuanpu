@@ -159,6 +159,37 @@ describe('ContextPanelHost', () => {
         readPrompt: vi.fn().mockResolvedValue({ success: false })
       }
     })
+    Object.defineProperty(window, 'fieldOps', {
+      configurable: true,
+      writable: true,
+      value: {
+        getXfpAuditEvents: vi.fn().mockResolvedValue([
+          {
+            id: 'audit-1',
+            worktreeId: 'wt-1',
+            sessionId: 'sess-diagnostics',
+            runtimeId: 'codex',
+            kind: 'prompt',
+            toolName: 'field_delivery',
+            input: {
+              mode: 'none',
+              promptChars: 42,
+              hasFieldContextEnvelope: false,
+              hasXfpFallbackPrefix: false
+            },
+            outputSummary: 'field delivery: none • 42 runtime chars',
+            outputChars: 39,
+            truncated: false,
+            privacy: 'allowed',
+            createdAt: 100
+          }
+        ]),
+        getLastInjection: vi.fn().mockResolvedValue(null),
+        getEpisodicMemory: vi.fn().mockResolvedValue(null),
+        getSemanticMemory: vi.fn().mockResolvedValue(null),
+        getCheckpoint: vi.fn().mockResolvedValue(null)
+      }
+    })
   })
 
   it('switches between overview, review, and files without owning terminal state', async () => {
@@ -186,6 +217,24 @@ describe('ContextPanelHost', () => {
       'aria-label',
       'Overview'
     )
+  })
+
+  it('renders XFP diagnostics from the right context panel', async () => {
+    const user = userEvent.setup()
+    useSessionStore.setState({ activeSessionId: 'sess-diagnostics' })
+    renderHost()
+
+    await user.click(screen.getByTestId('context-panel-tab-diagnostics'))
+
+    expect(screen.getByTestId('context-panel-diagnostics')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText('field_delivery')).toBeInTheDocument()
+      expect(screen.getByText('field delivery: none • 42 runtime chars')).toBeInTheDocument()
+    })
+    expect(window.fieldOps.getXfpAuditEvents).toHaveBeenCalledWith({
+      worktreeId: 'wt-1',
+      limit: 30
+    })
   })
 
   it('shows the terminal entry only when a right-docked terminal panel is provided', async () => {

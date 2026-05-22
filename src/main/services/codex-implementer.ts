@@ -29,7 +29,11 @@ import { generateCodexSessionTitle } from './codex-session-title'
 import type { DatabaseService } from '../db/database'
 import { autoRenameWorktreeBranch } from './git-service'
 import { beginSessionRun, emitAgentEvent } from '@shared/lib/normalize-agent-event'
+import { stripFieldContextEnvelope } from '@shared/lib/field-context-envelope'
 import { notificationService } from './notification-service'
+import { buildXfpFallbackContext } from '../xfp/fallback-context'
+import { xfpProvider } from '../xfp/provider'
+import { recordXfpAuditEvent, recordXfpPromptObservation } from '../xfp/audit'
 
 const log = createLogger({ component: 'CodexImplementer' })
 
@@ -93,6 +97,18 @@ type CodexLiveDraftPart =
   | { type: 'text'; text: string; timestamp: string }
   | { type: 'reasoning'; text: string; timestamp: string }
   | CodexLiveToolPart
+
+type CodexPromptPart =
+  | { type: 'text'; text: string }
+  | { type: 'file'; mime: string; url: string; filename?: string }
+
+type CodexPromptMessage = string | CodexPromptPart[]
+
+interface CodexPreparedPrompt {
+  runtimeText: string
+  displayText: string
+  displayParts: CodexPromptPart[]
+}
 
 interface CodexLiveAssistantDraft {
   id: string
@@ -173,6 +189,83 @@ function appendCodexGoalFallbackPrompt(promptText: string, goalObjective: string
   }
 
   return `${prompt}\n\n[Xuanpu Goal]\nTreat this goal and any success criteria as the completion contract for this turn:\n${objective}`
+}
+
+function extractCodexTextFromMessage(message: CodexPromptMessage): string {
+  if (typeof message === 'string') return message
+
+  return message
+    .filter((part) => part.type === 'text')
+    .map((part) => part.text)
+    .join('\n')
+}
+
+function stripCodexPromptPart(part: CodexPromptPart): CodexPromptPart {
+  if (part.type !== 'text') return part
+  return { ...part, text: stripFieldContextEnvelope(part.text) }
+}
+
+function normalizeCodexDisplayMessage(message: CodexPromptMessage): {
+  text: string
+  parts: CodexPromptPart[]
+} {
+  if (typeof message === 'string') {
+    const text = stripFieldContextEnvelope(message)
+    return { text, parts: [{ type: 'text', text }] }
+  }
+
+  const parts = message.map((part) => stripCodexPromptPart(part))
+  return { text: extractCodexTextFromMessage(parts), parts }
+}
+
+function prepareCodexPrompt(
+  message: CodexPromptMessage,
+  promptOptions?: PromptOptions
+): CodexPreparedPrompt {
+  const runtimeText = extractCodexTextFromMessage(message)
+  const optionsWithOriginal = promptOptions as
+    | (PromptOptions & { originalMessage?: unknown })
+    | undefined
+  const originalMessage = optionsWithOriginal?.originalMessage
+
+  if (typeof originalMessage === 'string' || Array.isArray(originalMessage)) {
+    const normalized = normalizeCodexDisplayMessage(originalMessage as CodexPromptMessage)
+    return {
+      runtimeText,
+      displayText: normalized.text,
+      displayParts: normalized.parts
+    }
+  }
+
+  const normalized = normalizeCodexDisplayMessage(message)
+  return {
+    runtimeText,
+    displayText: normalized.text,
+    displayParts: normalized.parts
+  }
+}
+
+function withCodexPartTimestamp(part: CodexPromptPart, timestamp: string): Record<string, unknown> {
+  return { ...part, timestamp }
+}
+
+function sanitizeCodexUserMessageForPersistence(message: unknown): unknown {
+  const record = asObject(message)
+  if (!record || record.role !== 'user') return message
+
+  const parts = Array.isArray(record.parts)
+    ? record.parts.map((part) => {
+        const partRecord = asObject(part)
+        if (partRecord?.type !== 'text' || typeof partRecord.text !== 'string') return part
+        return { ...partRecord, text: stripFieldContextEnvelope(partRecord.text) }
+      })
+    : record.parts
+
+  const sanitized: Record<string, unknown> = { ...record, parts }
+  if (typeof record.content === 'string') {
+    sanitized.content = stripFieldContextEnvelope(record.content)
+  }
+  return sanitized
 }
 
 // ── Immediate title helpers ────────────────────────────────────────────────
@@ -767,12 +860,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
   async prompt(
     worktreePath: string,
     agentSessionId: string,
-    message:
-      | string
-      | Array<
-          | { type: 'text'; text: string }
-          | { type: 'file'; mime: string; url: string; filename?: string }
-        >,
+    message: CodexPromptMessage,
     modelOverride?: { providerID: string; modelID: string; variant?: string },
     options?: PromptOptions
   ): Promise<void> {
@@ -782,18 +870,9 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       throw new Error(`Prompt failed: session not found for ${worktreePath} / ${agentSessionId}`)
     }
 
-    // Extract text from message
-    let text: string
-    if (typeof message === 'string') {
-      text = message
-    } else {
-      text = message
-        .filter((part) => part.type === 'text')
-        .map((part) => (part as { type: 'text'; text: string }).text)
-        .join('\n')
-    }
+    const { runtimeText, displayText, displayParts } = prepareCodexPrompt(message, options)
 
-    if (!text.trim()) {
+    if (!runtimeText.trim()) {
       log.warn('Prompt: empty text, ignoring', { worktreePath, agentSessionId })
       return
     }
@@ -806,7 +885,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     const isFirstMessage = session.messages.length === 0 && !session.titleGenerated
     if (isFirstMessage) {
       session.titleGenerated = true
-      const immediateTitle = truncateForImmediateTitle(text)
+      const immediateTitle = truncateForImmediateTitle(displayText)
       if (immediateTitle && this.dbService) {
         this.dbService.updateSession(session.hiveSessionId, { name: immediateTitle })
         emitAgentEvent(this.mainWindow, {
@@ -823,14 +902,14 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
 
     if (!session.titleGenerationStarted) {
       session.titleGenerationStarted = true
-      this.handleTitleGeneration(session, text).catch(() => {})
+      this.handleTitleGeneration(session, displayText).catch(() => {})
     }
 
     // Inject synthetic user message so getMessages() returns it
     const syntheticTimestamp = new Date().toISOString()
     session.messages.push({
       role: 'user',
-      parts: [{ type: 'text', text, timestamp: syntheticTimestamp }],
+      parts: displayParts.map((part) => withCodexPartTimestamp(part, syntheticTimestamp)),
       timestamp: syntheticTimestamp
     })
     this.persistCanonicalMessages(session)
@@ -844,7 +923,8 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       worktreePath,
       agentSessionId,
       hiveSessionId: session.hiveSessionId,
-      textLength: text.length
+      textLength: runtimeText.length,
+      displayTextLength: displayText.length
     })
 
     // Set up event listener for streaming
@@ -977,11 +1057,53 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         }
       }
 
-      let turnText = text
+      let turnText = runtimeText
+      let fallbackChars = 0
+
+      const worktree =
+        (
+          this.dbService as { getWorktreeByPath?: (path: string) => { id?: string } | null } | null
+        )?.getWorktreeByPath?.(session.worktreePath) ?? null
+      if (worktree?.id) {
+        const fallback = await buildXfpFallbackContext({
+          provider: xfpProvider,
+          scope: { worktreeId: worktree.id, sessionId: session.hiveSessionId },
+          promptText: displayText || runtimeText
+        })
+        if (fallback) {
+          fallbackChars = fallback.markdown.length
+          turnText = `${fallback.markdown}\n\n[User Message]\n${turnText}`
+          recordXfpAuditEvent({
+            worktreeId: worktree.id,
+            sessionId: session.hiveSessionId,
+            runtimeId: 'codex',
+            kind: 'fallback',
+            toolName: 'xfp_triggered_fallback',
+            input: {
+              reason: fallback.reason,
+              included: fallback.included
+            },
+            outputSummary: `Fallback prefix: ${fallback.included.join(', ')} (~${fallback.approxTokens} tokens)`,
+            outputChars: fallback.markdown.length,
+            truncated: false,
+            privacy: 'allowed'
+          })
+          log.info('Codex XFP: using bounded triggered fallback field prefix', {
+            worktreePath,
+            agentSessionId,
+            hiveSessionId: session.hiveSessionId,
+            worktreeId: worktree.id,
+            reason: fallback.reason,
+            included: fallback.included,
+            approxTokens: fallback.approxTokens
+          })
+        }
+      }
 
       if (options?.goalMode) {
         const objective =
-          options.goalObjective?.trim() || buildCodexGoalObjective(text, options.successCriteria)
+          options.goalObjective?.trim() ||
+          buildCodexGoalObjective(displayText || runtimeText, options.successCriteria)
         if (!objective) {
           throw new Error('Codex goal mode requires a non-empty objective')
         }
@@ -998,7 +1120,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
           }
 
           const errorMessage = goalError instanceof Error ? goalError.message : String(goalError)
-          turnText = appendCodexGoalFallbackPrompt(text, objective)
+          turnText = appendCodexGoalFallbackPrompt(turnText, objective)
           log.warn('Codex native goal unavailable; falling back to prompt goal instructions', {
             worktreePath,
             agentSessionId,
@@ -1006,6 +1128,23 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
           })
         }
       }
+
+      recordXfpPromptObservation({
+        worktreeId: worktree?.id ?? null,
+        sessionId: session.hiveSessionId,
+        runtimeId: 'codex',
+        fieldDeliveryMode: fallbackChars > 0 ? 'xfp-fallback' : 'none',
+        promptChars: turnText.length,
+        displayChars: (displayText || runtimeText).length,
+        fallbackChars: fallbackChars > 0 ? fallbackChars : undefined,
+        hasFieldContextEnvelope: turnText.trimStart().startsWith('[Field Context'),
+        hasXfpFallbackPrefix: turnText.trimStart().startsWith('[Xuanpu Field Fallback]'),
+        hasFileAttachments: Array.isArray(message),
+        attachmentCount: Array.isArray(message)
+          ? message.filter((part) => part.type === 'file').length
+          : 0,
+        mcpAttached: false
+      })
 
       const turnStart = await this.manager.sendTurn(session.threadId, {
         text: turnText,
@@ -1075,7 +1214,11 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
           return
         }
         const parsed = this.parseThreadSnapshot(threadSnapshot, session.itemTimestampsByTurn)
-        const snapshotMatchesPrompt = this.parsedMessagesContainUserText(parsed, [text, turnText])
+        const snapshotMatchesPrompt = this.parsedMessagesContainUserText(parsed, [
+          displayText,
+          runtimeText,
+          turnText
+        ])
         if (parsed.length > 0 && snapshotMatchesPrompt) {
           session.messages = parsed
         } else if (parsed.length > 0) {
@@ -1411,8 +1554,11 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
             }
           })
           if (parsed.length > 0) {
-            session.messages = parsed
-            return [...parsed]
+            const sanitized = parsed.map((message) =>
+              sanitizeCodexUserMessageForPersistence(message)
+            )
+            session.messages = sanitized
+            return [...sanitized]
           }
         }
       } catch (error) {
@@ -2104,7 +2250,8 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
 
     try {
       const rows = session.messages.flatMap((message) => {
-        const record = asObject(message)
+        const sanitizedMessage = sanitizeCodexUserMessageForPersistence(message)
+        const record = asObject(sanitizedMessage)
         if (!record) return []
 
         const role = asString(record.role)
@@ -2124,7 +2271,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
             role,
             content: textContent,
             opencode_message_id: asString(record.id) ?? null,
-            opencode_message_json: JSON.stringify(message),
+            opencode_message_json: JSON.stringify(sanitizedMessage),
             opencode_parts_json: JSON.stringify(parts),
             created_at: timestamp
           }
@@ -2955,7 +3102,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
                 if (entryObj?.type === 'text' && typeof entryObj.text === 'string') {
                   textParts.push({
                     type: 'text',
-                    text: entryObj.text,
+                    text: stripFieldContextEnvelope(entryObj.text),
                     timestamp: itemTimestamp
                   })
                 }
@@ -3042,7 +3189,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
           if (itemObj?.type === 'text' && typeof itemObj.text === 'string') {
             textParts.push({
               type: 'text',
-              text: itemObj.text,
+              text: stripFieldContextEnvelope(itemObj.text),
               timestamp: asString(turnObj.createdAt) ?? new Date().toISOString()
             })
           }

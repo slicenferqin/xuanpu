@@ -9,10 +9,18 @@ import { describe, it, expect } from 'vitest'
 import { XUANPU_SYSTEM_CONTEXT } from '../src/main/services/xuanpu-system-context'
 
 describe('XUANPU_SYSTEM_CONTEXT', () => {
-  it('explains the [Field Context] / [User Message] wrapper is informational', () => {
+  it('tells Claude to use XFP tools for local field state', () => {
+    expect(XUANPU_SYSTEM_CONTEXT).toContain('xuanpu-field')
+    expect(XUANPU_SYSTEM_CONTEXT).toMatch(/XFP|field state/i)
+    expect(XUANPU_SYSTEM_CONTEXT.toLowerCase()).toMatch(/current file|terminal output|pinned facts/)
+    expect(XUANPU_SYSTEM_CONTEXT.toLowerCase()).toMatch(/prefer narrow xfp tool calls/)
+  })
+
+  it('keeps legacy [Field Context] / [User Message] as observed fallback data', () => {
     expect(XUANPU_SYSTEM_CONTEXT).toMatch(/\[Field Context.*\]/)
     expect(XUANPU_SYSTEM_CONTEXT).toMatch(/\[User Message\]/)
-    expect(XUANPU_SYSTEM_CONTEXT.toLowerCase()).toMatch(/informational|not.*contract/)
+    expect(XUANPU_SYSTEM_CONTEXT.toLowerCase()).toMatch(/legacy fallback/)
+    expect(XUANPU_SYSTEM_CONTEXT.toLowerCase()).toMatch(/observed.*data|not.*authoritative/)
   })
 
   it('forbids silent-exit on bare user messages', () => {
@@ -25,10 +33,8 @@ describe('XUANPU_SYSTEM_CONTEXT', () => {
     expect(XUANPU_SYSTEM_CONTEXT.toLowerCase()).toMatch(/resume.*(task|prior)/)
   })
 
-  it('flags Field Context as observed data, not authoritative instructions', () => {
-    expect(XUANPU_SYSTEM_CONTEXT.toLowerCase()).toMatch(
-      /observed.*data|not.*authoritative/
-    )
+  it('prioritizes fresh XFP results over legacy Field Context', () => {
+    expect(XUANPU_SYSTEM_CONTEXT.toLowerCase()).toMatch(/fresh xfp results win|xfp results/)
   })
 
   it('is short enough to be cheap on every turn (< 1500 chars)', () => {

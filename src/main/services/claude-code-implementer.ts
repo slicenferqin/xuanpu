@@ -29,11 +29,20 @@ import type { SDKControlGetContextUsageResponse } from '@anthropic-ai/claude-age
 import { CommandFilterService, type CommandFilterSettings } from './command-filter-service'
 import { createLspMcpServerConfig, LspService } from './lsp'
 import { createXuanpuToolsMcpServerConfig } from './token-saver/xuanpu-tools-mcp'
+import {
+  XFP_CLAUDE_ALLOWED_TOOLS,
+  XFP_CLAUDE_MCP_SERVER_NAME,
+  createXfpClaudeMcpServerConfig
+} from '../xfp/claude-mcp-server'
+import { buildXfpFallbackContext } from '../xfp/fallback-context'
+import { xfpProvider } from '../xfp/provider'
+import { recordXfpAuditEvent, recordXfpPromptObservation } from '../xfp/audit'
 import { isTokenSaverEnabled } from '../field/privacy'
 import { XUANPU_SYSTEM_CONTEXT } from './xuanpu-system-context'
 import { APP_SETTINGS_DB_KEY } from '@shared/types/settings'
 import { getActiveAppHomeDir } from '@shared/app-identity'
 import { beginSessionRun, emitAgentEvent } from '@shared/lib/normalize-agent-event'
+import { stripFieldContextEnvelope } from '@shared/lib/field-context-envelope'
 import type { AgentSessionGoalState } from '@shared/types/agent-protocol'
 import { resolveRuntimeModelId } from '@shared/usage/models'
 import { calculateUsageCost, resolvePricingModelKey } from '@shared/usage/pricing'
@@ -247,6 +256,110 @@ type InFlightDraftBlock =
   | { type: 'text'; text: string; timestamp: string }
   | { type: 'reasoning'; text: string; timestamp: string }
   | { type: 'tool_use'; tool: InFlightToolDraft }
+
+type ClaudePromptMessage =
+  | string
+  | Array<
+      | { type: 'text'; text: string }
+      | { type: 'file'; mime: string; url: string; filename?: string }
+    >
+
+type ClaudePromptOptionsWithOriginalMessage = PromptOptions & {
+  originalMessage?: unknown
+}
+
+function isClaudePromptMessage(value: unknown): value is ClaudePromptMessage {
+  if (typeof value === 'string') return true
+  if (!Array.isArray(value)) return false
+
+  return value.every((part) => {
+    const record = asObject(part)
+    if (!record) return false
+    if (record.type === 'text') return typeof record.text === 'string'
+    return (
+      record.type === 'file' &&
+      typeof record.mime === 'string' &&
+      typeof record.url === 'string' &&
+      (record.filename == null || typeof record.filename === 'string')
+    )
+  })
+}
+
+function stripFieldContextFromPromptMessage(message: ClaudePromptMessage): ClaudePromptMessage {
+  if (typeof message === 'string') return stripFieldContextEnvelope(message)
+
+  return message.map((part) => {
+    if (part.type !== 'text') return { ...part }
+    return {
+      ...part,
+      text: stripFieldContextEnvelope(part.text)
+    }
+  })
+}
+
+function prependToClaudePromptMessage(
+  message: ClaudePromptMessage,
+  prefix: string
+): ClaudePromptMessage {
+  if (typeof message === 'string') return prefix + message
+
+  const idx = message.findIndex((part) => part.type === 'text')
+  if (idx < 0) return [{ type: 'text', text: prefix }, ...message]
+
+  const copy = [...message]
+  const part = copy[idx]
+  if (part.type === 'text') {
+    copy[idx] = { ...part, text: prefix + part.text }
+  }
+  return copy
+}
+
+function getDisplayMessage(
+  runtimeMessage: ClaudePromptMessage,
+  promptOptions?: PromptOptions
+): ClaudePromptMessage {
+  const originalMessage = (promptOptions as ClaudePromptOptionsWithOriginalMessage | undefined)
+    ?.originalMessage
+  const source = isClaudePromptMessage(originalMessage) ? originalMessage : runtimeMessage
+  return stripFieldContextFromPromptMessage(source)
+}
+
+function promptMessageToDisplayText(
+  message: ClaudePromptMessage,
+  includeAttachments: boolean
+): string {
+  if (typeof message === 'string') return message
+
+  return message
+    .map((part) => {
+      if (part.type === 'text') return part.text
+      return includeAttachments ? `[attachment: ${part.filename ?? 'file'}]` : ''
+    })
+    .filter((text) => text.length > 0)
+    .join('\n')
+}
+
+function stripFieldContextFromUserMessageRecord<T extends Record<string, unknown>>(record: T): T {
+  if (asString(record.role) !== 'user') return record
+
+  const next: Record<string, unknown> = { ...record }
+  if (typeof next.content === 'string') {
+    next.content = stripFieldContextEnvelope(next.content)
+  }
+
+  if (Array.isArray(next.parts)) {
+    next.parts = next.parts.map((part) => {
+      const partRecord = asObject(part)
+      if (!partRecord || partRecord.type !== 'text') return part
+      return {
+        ...partRecord,
+        text: stripFieldContextEnvelope(asString(partRecord.text) ?? '')
+      }
+    })
+  }
+
+  return next as T
+}
 
 export interface ClaudeSessionState {
   claudeSessionId: string
@@ -588,12 +701,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
   async prompt(
     worktreePath: string,
     agentSessionId: string,
-    message:
-      | string
-      | Array<
-          | { type: 'text'; text: string }
-          | { type: 'file'; mime: string; url: string; filename?: string }
-        >,
+    message: ClaudePromptMessage,
     modelOverride?: { providerID: string; modelID: string; variant?: string },
     promptOptions?: PromptOptions
   ): Promise<void> {
@@ -628,32 +736,12 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       // Build prompt: use structured content blocks when file attachments are present,
       // otherwise use a plain string (preserving the existing fast path).
       const hasFiles = this.hasFileAttachments(message)
-
-      let prompt: string
-      let contentBlocks: Array<Record<string, unknown>> | null = null
-
-      if (typeof message === 'string') {
-        prompt = message
-      } else if (!hasFiles) {
-        // No file attachments — flatten to string (existing behavior)
-        prompt = message
-          .filter((part) => part.type === 'text')
-          .map((part) => (part as { type: 'text'; text: string }).text)
-          .join('\n')
-      } else {
-        // Has file attachments — build structured content blocks for the SDK
-        contentBlocks = this.buildAnthropicContentBlocks(message)
-        // Also build a text-only prompt string for logging and the synthetic user message
-        prompt = message
-          .map((part) =>
-            part.type === 'text' ? part.text : `[attachment: ${part.filename ?? 'file'}]`
-          )
-          .join('\n')
-      }
+      const displayMessage = getDisplayMessage(message, promptOptions)
+      const displayPrompt = promptMessageToDisplayText(displayMessage, hasFiles)
 
       log.info('Prompt: constructed', {
-        promptLength: prompt.length,
-        promptPreview: prompt.slice(0, 100)
+        displayPromptLength: displayPrompt.length,
+        displayPromptPreview: displayPrompt.slice(0, 100)
       })
 
       // After undo, the fork creates a new session branch.  Clear the
@@ -680,11 +768,11 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       const syntheticTimestamp = new Date().toISOString()
       const syntheticParts: Array<Record<string, unknown>> = []
 
-      if (typeof message === 'string' || !hasFiles) {
-        syntheticParts.push({ type: 'text', text: prompt, timestamp: syntheticTimestamp })
+      if (typeof displayMessage === 'string' || !Array.isArray(displayMessage) || !hasFiles) {
+        syntheticParts.push({ type: 'text', text: displayPrompt, timestamp: syntheticTimestamp })
       } else {
         // Include both text and file parts so the renderer can display attachments
-        for (const part of message) {
+        for (const part of displayMessage) {
           if (part.type === 'text') {
             syntheticParts.push({ type: 'text', text: part.text, timestamp: syntheticTimestamp })
           } else {
@@ -703,7 +791,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         id: `user-${randomUUID()}`,
         role: 'user',
         timestamp: syntheticTimestamp,
-        content: prompt,
+        content: displayPrompt,
         parts: syntheticParts,
         // Marker for the SDK-echo dedup loop below. Without this the dedup
         // falls back to content-string equality which fails whenever
@@ -813,6 +901,43 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         })
       }
 
+      // XFP (Xuanpu Field Provider): exposes scoped local workbench field
+      // queries as read-only MCP tools. This is the pull-based replacement for
+      // default dynamic Field Context injection.
+      let xfpAttached = false
+      let xfpWorktreeId: string | null = null
+      try {
+        const worktree = this.dbService?.getWorktreeByPath(session.worktreePath)
+        if (worktree?.id) {
+          xfpWorktreeId = worktree.id
+          const xfpServer = await createXfpClaudeMcpServerConfig({
+            worktreeId: worktree.id,
+            sessionId: session.hiveSessionId,
+            logger: { warn: (msg, meta) => log.warn(msg, meta) }
+          })
+          options.mcpServers = {
+            ...options.mcpServers,
+            [XFP_CLAUDE_MCP_SERVER_NAME]: xfpServer
+          }
+          options.allowedTools = [...(options.allowedTools ?? []), ...XFP_CLAUDE_ALLOWED_TOOLS]
+          xfpAttached = true
+          log.info('XFP: attached xuanpu-field MCP', {
+            hiveSessionId: session.hiveSessionId,
+            worktreeId: worktree.id
+          })
+        } else {
+          log.warn('XFP: failed to resolve worktree; continuing without field MCP', {
+            hiveSessionId: session.hiveSessionId,
+            worktreePath: session.worktreePath
+          })
+        }
+      } catch (err) {
+        log.warn('XFP: failed to attach field MCP, continuing without it', {
+          hiveSessionId: session.hiveSessionId,
+          error: err instanceof Error ? err.message : String(err)
+        })
+      }
+
       // Token Saver (v1.5.0): in-process MCP `bash` tool that compresses
       // verbose output before it reaches the API and archives the original
       // locally. When enabled we suppress the built-in Bash so the agent only
@@ -870,7 +995,9 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       }
 
       const requestedGoalObjective =
-        promptOptions?.goalMode === true ? promptOptions.goalObjective?.trim() || prompt.trim() : ''
+        promptOptions?.goalMode === true
+          ? promptOptions.goalObjective?.trim() || displayPrompt.trim()
+          : ''
       const wasMaterializedBeforeGoal = session.materialized
       if (requestedGoalObjective) {
         const nativeGoalObserved = await this.setClaudeGoalBeforePrompt(
@@ -895,7 +1022,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
 
       const materializedByGoalCommand =
         requestedGoalObjective.length > 0 && !wasMaterializedBeforeGoal && session.materialized
-      if (materializedByGoalCommand && prompt.trimStart().startsWith('/using-superpowers')) {
+      if (materializedByGoalCommand && displayPrompt.trimStart().startsWith('/using-superpowers')) {
         session.titleDeferred = true
         log.info('Prompt: deferring title generation after goal command', {
           hiveSessionId: session.hiveSessionId
@@ -903,16 +1030,84 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       } else if (
         (materializedByGoalCommand || session.titleDeferred) &&
         session.materialized &&
-        !prompt.trimStart().startsWith('/using-superpowers')
+        !displayPrompt.trimStart().startsWith('/using-superpowers')
       ) {
         session.titleDeferred = false
-        this.handleTitleGeneration(session, prompt).catch(() => {})
+        this.handleTitleGeneration(session, displayPrompt).catch(() => {})
         log.info('Prompt: firing title generation', {
           hiveSessionId: session.hiveSessionId,
-          promptPreview: prompt.slice(0, 80),
+          promptPreview: displayPrompt.slice(0, 80),
           reason: materializedByGoalCommand ? 'goal-command-materialized' : 'deferred'
         })
       }
+
+      let runtimeMessage = message
+      let fallbackChars = 0
+      if (!xfpAttached && xfpWorktreeId) {
+        const fallback = await buildXfpFallbackContext({
+          provider: xfpProvider,
+          scope: { worktreeId: xfpWorktreeId, sessionId: session.hiveSessionId },
+          promptText: displayPrompt
+        })
+        if (fallback) {
+          fallbackChars = fallback.markdown.length
+          runtimeMessage = prependToClaudePromptMessage(
+            runtimeMessage,
+            `${fallback.markdown}\n\n[User Message]\n`
+          )
+          recordXfpAuditEvent({
+            worktreeId: xfpWorktreeId,
+            sessionId: session.hiveSessionId,
+            runtimeId: 'claude-code',
+            kind: 'fallback',
+            toolName: 'xfp_triggered_fallback',
+            input: {
+              reason: fallback.reason,
+              included: fallback.included
+            },
+            outputSummary: `Fallback prefix: ${fallback.included.join(', ')} (~${fallback.approxTokens} tokens)`,
+            outputChars: fallback.markdown.length,
+            truncated: false,
+            privacy: 'allowed'
+          })
+          log.warn('XFP: using bounded fallback field prefix', {
+            hiveSessionId: session.hiveSessionId,
+            worktreeId: xfpWorktreeId,
+            reason: fallback.reason,
+            included: fallback.included,
+            approxTokens: fallback.approxTokens
+          })
+        }
+      }
+
+      const runtimeHasFiles = this.hasFileAttachments(runtimeMessage)
+      const contentBlocks = runtimeHasFiles
+        ? this.buildAnthropicContentBlocks(runtimeMessage)
+        : null
+      const prompt = promptMessageToDisplayText(runtimeMessage, runtimeHasFiles)
+      recordXfpPromptObservation({
+        worktreeId: xfpWorktreeId,
+        sessionId: session.hiveSessionId,
+        runtimeId: 'claude-code',
+        fieldDeliveryMode: xfpAttached ? 'xfp-mcp' : fallbackChars > 0 ? 'xfp-fallback' : 'none',
+        promptChars: prompt.length,
+        displayChars: displayPrompt.length,
+        fallbackChars: fallbackChars > 0 ? fallbackChars : undefined,
+        hasFieldContextEnvelope: prompt.trimStart().startsWith('[Field Context'),
+        hasXfpFallbackPrefix: prompt.trimStart().startsWith('[Xuanpu Field Fallback]'),
+        hasFileAttachments: runtimeHasFiles,
+        attachmentCount: Array.isArray(runtimeMessage)
+          ? runtimeMessage.filter((part) => part.type === 'file').length
+          : 0,
+        mcpAttached: xfpAttached
+      })
+
+      log.info('Prompt: runtime prompt ready', {
+        promptLength: prompt.length,
+        promptPreview: prompt.slice(0, 100),
+        hasFileAttachments: runtimeHasFiles,
+        fallbackFieldPrefix: !xfpAttached && prompt.startsWith('[Xuanpu Field Fallback]')
+      })
 
       log.info('Prompt: calling sdk.query()', {
         model: options.model,
@@ -1075,13 +1270,13 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
           wasForkRequest
         )
         if (materialization?.wasPending) {
-          if (prompt.trimStart().startsWith('/using-superpowers')) {
+          if (displayPrompt.trimStart().startsWith('/using-superpowers')) {
             session.titleDeferred = true
             log.info('Prompt: deferring title generation (superpowers hook)', {
               hiveSessionId: session.hiveSessionId
             })
           } else {
-            this.handleTitleGeneration(session, prompt).catch(() => {
+            this.handleTitleGeneration(session, displayPrompt).catch(() => {
               // Swallowed — handleTitleGeneration already logs internally
             })
           }
@@ -1275,7 +1470,10 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
             )
             if (translated) {
               const isUserMessage = msgType === 'user'
-              const translatedContent = (translated as Record<string, unknown>).content
+              const translatedRecord = isUserMessage
+                ? stripFieldContextFromUserMessageRecord(translated as Record<string, unknown>)
+                : (translated as Record<string, unknown>)
+              const translatedContent = translatedRecord.content
               let optimisticIndex = -1
 
               if (isUserMessage) {
@@ -1318,10 +1516,10 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
                 // the user bubble below the assistant reply once the timeline
                 // is reloaded from the DB (rows are sorted by created_at ASC).
                 session.messages[optimisticIndex] = previousTimestamp
-                  ? { ...translated, timestamp: previousTimestamp }
-                  : translated
+                  ? { ...translatedRecord, timestamp: previousTimestamp }
+                  : translatedRecord
               } else {
-                session.messages.push(translated)
+                session.messages.push(translatedRecord)
               }
             }
           }
@@ -1877,7 +2075,8 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
 
     try {
       const rows = session.messages.flatMap((message) => {
-        const record = asObject(message)
+        const rawRecord = asObject(message)
+        const record = rawRecord ? stripFieldContextFromUserMessageRecord(rawRecord) : null
         if (!record) return []
 
         const role = asString(record.role)
@@ -1897,7 +2096,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
             role,
             content: textContent || asString(record.content) || '',
             opencode_message_id: asString(record.id) ?? null,
-            opencode_message_json: JSON.stringify(message),
+            opencode_message_json: JSON.stringify(record),
             opencode_parts_json: JSON.stringify(parts),
             created_at: timestamp
           }
