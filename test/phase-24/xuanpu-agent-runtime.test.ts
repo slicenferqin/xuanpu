@@ -20,11 +20,16 @@ interface FakeAgentEvent {
 }
 
 type FakeAgentListener = (event: FakeAgentEvent) => void
+type FakePromptMessage = {
+  role: 'user' | 'assistant'
+  content: FakeTextPart[]
+  timestamp: number
+}
 
 const fakeRuntime = vi.hoisted(() => {
   const setToolsCalls: unknown[][] = []
   const systemPrompts: string[][] = []
-  const prompts: string[] = []
+  const prompts: Array<string | FakePromptMessage[]> = []
   const aborts: string[] = []
 
   class FakeAgent {
@@ -51,7 +56,7 @@ const fakeRuntime = vi.hoisted(() => {
       return () => this.listeners.delete(listener)
     }
 
-    async prompt(input: string): Promise<void> {
+    async prompt(input: string | FakePromptMessage[]): Promise<void> {
       prompts.push(input)
       const text =
         typeof this.model?.responseText === 'string' ? this.model.responseText : 'mock ok'
@@ -176,6 +181,43 @@ describe('XuanpuPiAgentSession', () => {
 
     session.dispose()
     expect(fakeRuntime.aborts).toEqual(['abort'])
+  })
+
+  it('forwards Xuanpu-managed message arrays to the pi Agent without flattening them', async () => {
+    process.env.XUANPU_AGENT_MOCK_RESPONSE = 'array ok'
+
+    const { XuanpuPiAgentSession } = await import('../../src/main/services/xuanpu-agent/runtime')
+    const session = new XuanpuPiAgentSession('test-session')
+    const promptMessages: FakePromptMessage[] = [
+      {
+        role: 'user',
+        content: [{ type: 'text', text: '<xuanpu-context-anchor>anchor</xuanpu-context-anchor>' }],
+        timestamp: 123
+      },
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'prior assistant turn' }],
+        timestamp: 124
+      },
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'current request' }],
+        timestamp: 125
+      }
+    ]
+
+    const result = await session.prompt(promptMessages, {
+      providerID: 'anthropic',
+      modelID: 'claude-haiku-4-5'
+    })
+
+    expect(result.text).toBe('array ok')
+    expect(fakeRuntime.prompts).toHaveLength(1)
+    expect(fakeRuntime.prompts[0]).toBe(promptMessages)
+    expect((fakeRuntime.prompts[0] as FakePromptMessage[]).at(-1)?.content[0]?.text).toBe(
+      'current request'
+    )
+    expect(fakeRuntime.setToolsCalls).toEqual([[], []])
   })
 
   it('fails before creating a pi Agent when real provider credentials are missing', async () => {

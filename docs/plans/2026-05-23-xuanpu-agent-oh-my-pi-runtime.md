@@ -713,7 +713,7 @@ pnpm run probe:xuanpu-agent-spike
 Results:
 
 - Core probe reports the expected direct Node import limitation in non-strict success mode.
-- 18 focused test files pass, covering 55 tests across model readiness, runtime status, no-tools
+- 19 focused test files pass, covering 57 tests across model readiness, runtime status, no-tools
   runtime, IPC smoke, UI gate, managed context packages, Context Budget Debugger, episode
   repository/freezer/retrieval, and tool-surface gates.
 - Real-provider probe defaults to `status: "skipped"` without touching network credentials.
@@ -849,6 +849,9 @@ Current scope for this push:
   the current `xuanpu-agent` provider/model and hides itself when that provider is ready.
 - Added a SessionShell dogfood regression that verifies the status capsule, prompt call, and Context
   Budget Debugger all use the same session-selected provider/model/runtime id.
+- Added a runtime boundary regression proving Xuanpu-managed message arrays are forwarded to the
+  oh-my-pi Agent unchanged, with the current user message still last. This locks the intended
+  `messages[]` ownership boundary and prevents accidental fallback to a flattened prompt string.
 - Extended the opt-in real-provider probe so a credentialed run verifies the same packaged context
   package path as the built mock probe: persisted provider answer, selected provider/model,
   transcript policy, and package section ids.
@@ -908,8 +911,9 @@ Session HQ can inspect the latest package metadata without loading full rendered
 
 ### Task 3: Minimal Context Transform
 
-Status: minimal backend bridge implemented and covered by unit tests; pending real-provider/UI
-dogfood from the hidden runtime.
+Status: minimal backend bridge implemented and covered by unit tests plus a runtime-boundary
+regression that proves the transformed message array reaches oh-my-pi without flattening; pending
+real-provider/UI dogfood from the hidden runtime.
 
 - Implement a conservative `transformContext` bridge with anchor, current Field Context, latest
   user/assistant exchanges, and current user message last.
