@@ -517,6 +517,35 @@ Results:
   Vitest.
 - Runtime test still proves deterministic no-tools provider flow.
 
+Task 4 base layer is now partially landed:
+
+- Added schema v24 with `field_episode_blocks`, plus idempotent database repair.
+- Added `src/main/field/episode-block-repository.ts`.
+- Episode blocks are append-only at the repository layer: there are create/get/list helpers, but no
+  update/delete helper. Existing blocks are not overwritten.
+- `createFieldEpisodeBlock()` requires non-empty `rawRefs`; this keeps every frozen block auditable
+  back to raw session messages/events/manual refs.
+- Added `createRuleBasedEpisodeFromTurns()` as the first deterministic episode creator. It freezes
+  raw visible turns and extracts files, commands, failures, constraints, key facts, token estimate,
+  confidence, and source message bounds without LLM compaction.
+- `xuanpu-agent` context packaging now queries recent episode blocks and records a
+  `frozen_episodes` section in `field_context_packages`.
+- The context transform now places selected frozen episodes after Field Context and before recent raw
+  visible turns, preserving the current user message as the final message.
+
+Focused verification:
+
+```bash
+pnpm vitest run test/phase-24/field-episode-block-repository.test.ts test/phase-24/xuanpu-agent-context-transform.test.ts test/phase-24/field-context-package-repository.test.ts test/phase-24/xuanpu-agent-runtime.test.ts
+```
+
+Results:
+
+- Episode repository test proves v24 migration SQL, append insert/read/list behavior, mandatory raw
+  refs, and rule-based extraction for files/commands/failures/constraints.
+- Context transform test proves frozen episodes are included in the hidden message boundary and that
+  current user text remains last.
+
 ## Next Task Plan
 
 ### Task 1: Minimal No-Tools Provider Call
@@ -563,6 +592,10 @@ dogfood from the hidden runtime.
 Exit criteria: Xuanpu owns final `messages[]` for `xuanpu-agent` while preserving transcript clarity.
 
 ### Task 4: Append-Only Episodes
+
+Status: schema/repository/rule-based creation and packer inclusion implemented. Still needs an
+automatic policy for deciding when old raw turns should be frozen and a UI/debugger surface for
+inspection.
 
 - Add `field_episode_blocks` after the no-tools loop is usable.
 - Implement rule-based episode creation first.

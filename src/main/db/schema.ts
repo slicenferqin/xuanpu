@@ -233,6 +233,34 @@ CREATE TABLE IF NOT EXISTS field_episodic_memory (
 );
 CREATE INDEX IF NOT EXISTS idx_field_episodic_memory_compacted ON field_episodic_memory(compacted_at DESC);
 
+-- xuanpu-agent: immutable managed-context episode blocks.
+CREATE TABLE IF NOT EXISTS field_episode_blocks (
+  id TEXT PRIMARY KEY,
+  worktree_id TEXT NOT NULL,
+  session_id TEXT,
+  created_at INTEGER NOT NULL,
+  source_event_seq_start INTEGER,
+  source_event_seq_end INTEGER,
+  source_message_id_start TEXT,
+  source_message_id_end TEXT,
+  kind TEXT NOT NULL,
+  title TEXT,
+  summary_markdown TEXT NOT NULL,
+  key_facts_json TEXT NOT NULL,
+  constraints_json TEXT NOT NULL,
+  files_json TEXT NOT NULL,
+  commands_json TEXT NOT NULL,
+  failures_json TEXT NOT NULL,
+  raw_refs_json TEXT NOT NULL,
+  token_estimate INTEGER NOT NULL,
+  confidence TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_field_episode_blocks_worktree_created
+  ON field_episode_blocks(worktree_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_field_episode_blocks_session_created
+  ON field_episode_blocks(session_id, created_at DESC)
+  WHERE session_id IS NOT NULL;
+
 -- Phase 24C: Session Checkpoint (per-worktree resume hints)
 -- See docs/prd/phase-24c-session-checkpoint.md
 CREATE TABLE IF NOT EXISTS field_session_checkpoints (
@@ -910,6 +938,44 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_field_context_packages_worktree_created;
       DROP INDEX IF EXISTS idx_field_context_packages_session_created;
       DROP TABLE IF EXISTS field_context_packages;
+    `
+  },
+  {
+    version: 24,
+    name: 'add_field_episode_blocks',
+    up: `
+      -- xuanpu-agent: immutable managed-context episode blocks.
+      CREATE TABLE IF NOT EXISTS field_episode_blocks (
+        id TEXT PRIMARY KEY,
+        worktree_id TEXT NOT NULL,
+        session_id TEXT,
+        created_at INTEGER NOT NULL,
+        source_event_seq_start INTEGER,
+        source_event_seq_end INTEGER,
+        source_message_id_start TEXT,
+        source_message_id_end TEXT,
+        kind TEXT NOT NULL,
+        title TEXT,
+        summary_markdown TEXT NOT NULL,
+        key_facts_json TEXT NOT NULL,
+        constraints_json TEXT NOT NULL,
+        files_json TEXT NOT NULL,
+        commands_json TEXT NOT NULL,
+        failures_json TEXT NOT NULL,
+        raw_refs_json TEXT NOT NULL,
+        token_estimate INTEGER NOT NULL,
+        confidence TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_field_episode_blocks_worktree_created
+        ON field_episode_blocks(worktree_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_episode_blocks_session_created
+        ON field_episode_blocks(session_id, created_at DESC)
+        WHERE session_id IS NOT NULL;
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_field_episode_blocks_session_created;
+      DROP INDEX IF EXISTS idx_field_episode_blocks_worktree_created;
+      DROP TABLE IF EXISTS field_episode_blocks;
     `
   }
 ]

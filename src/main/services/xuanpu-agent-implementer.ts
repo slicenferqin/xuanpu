@@ -13,6 +13,10 @@ import { createLogger } from './logger'
 import { buildFieldContextSnapshot } from '../field/context-builder'
 import { formatFieldContext } from '../field/context-formatter'
 import {
+  listFieldEpisodeBlocks,
+  type FieldEpisodeBlockRecord
+} from '../field/episode-block-repository'
+import {
   createFieldContextPackage,
   type FieldContextPackageRecord,
   type FieldContextPackageSection
@@ -39,6 +43,7 @@ interface XuanpuAgentSessionState {
 interface XuanpuAgentContextPackageResult {
   record: FieldContextPackageRecord
   fieldContextMarkdown: string | null
+  frozenEpisodes: FieldEpisodeBlockRecord[]
 }
 
 function extractPromptText(
@@ -170,6 +175,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       const promptContext = buildXuanpuAgentPromptMessages({
         currentUserText: text,
         fieldContextMarkdown: contextPackage?.fieldContextMarkdown ?? null,
+        frozenEpisodes: contextPackage?.frozenEpisodes ?? [],
         priorMessages
       })
       const result = await piSession.prompt(promptContext.messages, modelRef, {
@@ -313,6 +319,12 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     let fieldContextTokens = 0
     let fieldContextAvailable = false
     let fieldContextTruncated = false
+    const frozenEpisodes = this.getFrozenEpisodesForContext(worktree.id)
+    const frozenEpisodeTokens = frozenEpisodes.reduce(
+      (total, episode) => total + episode.tokenEstimate,
+      0
+    )
+    approxTokens += frozenEpisodeTokens
 
     const snapshot = await buildFieldContextSnapshot({ worktreeId: worktree.id })
     if (snapshot) {
@@ -349,6 +361,20 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     }
 
     sections.push({
+      id: 'frozen-episodes-recent',
+      kind: 'frozen_episodes',
+      title: 'Recent Frozen Episodes',
+      included: frozenEpisodes.length > 0,
+      approxTokens: frozenEpisodeTokens,
+      source: 'field_episode_blocks',
+      reason: frozenEpisodes.length > 0 ? undefined : 'No frozen episodes available',
+      metadata: {
+        count: frozenEpisodes.length,
+        ids: frozenEpisodes.map((episode) => episode.id)
+      }
+    })
+
+    sections.push({
       id: 'working-set-current-user',
       kind: 'working_set',
       title: 'Current User Message',
@@ -360,6 +386,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     const promptContext = buildXuanpuAgentPromptMessages({
       currentUserText: userText,
       fieldContextMarkdown,
+      frozenEpisodes,
       priorMessages
     })
 
@@ -379,6 +406,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         fieldContextAvailable,
         fieldContextTokens,
         fieldContextTruncated,
+        frozenEpisodeCount: frozenEpisodes.length,
+        frozenEpisodeTokens,
         renderedMarkdownPolicy: storeRenderedMarkdown
           ? 'stored-by-explicit-env'
           : 'omitted-by-default',
@@ -389,7 +418,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       }
     })
 
-    return { record, fieldContextMarkdown }
+    return { record, fieldContextMarkdown, frozenEpisodes }
   }
 
   private requireSession(agentSessionId: string, worktreePath: string): XuanpuAgentSessionState {
@@ -425,6 +454,18 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         content: message.content,
         createdAt: message.created_at
       }))
+  }
+
+  private getFrozenEpisodesForContext(worktreeId: string): FieldEpisodeBlockRecord[] {
+    try {
+      return listFieldEpisodeBlocks({ worktreeId, limit: 3 })
+    } catch (error) {
+      log.warn('Failed to load xuanpu-agent frozen episodes', {
+        worktreeId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return []
+    }
   }
 
   private persistMessage(

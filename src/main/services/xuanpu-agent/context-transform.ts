@@ -4,6 +4,14 @@ export interface XuanpuAgentContextTurn {
   createdAt?: string | number | null
 }
 
+export interface XuanpuAgentFrozenEpisode {
+  id: string
+  title?: string | null
+  summaryMarkdown: string
+  tokenEstimate?: number
+  createdAt?: string | number | null
+}
+
 export interface XuanpuPiPromptTextPart {
   type: 'text'
   text: string
@@ -18,7 +26,10 @@ export interface XuanpuPiPromptMessage {
 export interface XuanpuAgentContextTransformInput {
   currentUserText: string
   fieldContextMarkdown?: string | null
+  frozenEpisodes?: XuanpuAgentFrozenEpisode[]
   priorMessages?: XuanpuAgentContextTurn[]
+  maxFrozenEpisodes?: number
+  maxFrozenEpisodeChars?: number
   maxPriorMessages?: number
   maxPriorChars?: number
   now?: number
@@ -31,6 +42,8 @@ export interface XuanpuAgentContextTransformResult {
 
 const DEFAULT_MAX_PRIOR_MESSAGES = 6
 const DEFAULT_MAX_PRIOR_CHARS = 12_000
+const DEFAULT_MAX_FROZEN_EPISODES = 3
+const DEFAULT_MAX_FROZEN_EPISODE_CHARS = 6_000
 
 export function buildXuanpuAgentPromptMessages(
   input: XuanpuAgentContextTransformInput
@@ -38,7 +51,13 @@ export function buildXuanpuAgentPromptMessages(
   const now = input.now ?? Date.now()
   const maxPriorMessages = input.maxPriorMessages ?? DEFAULT_MAX_PRIOR_MESSAGES
   const maxPriorChars = input.maxPriorChars ?? DEFAULT_MAX_PRIOR_CHARS
+  const maxFrozenEpisodes = input.maxFrozenEpisodes ?? DEFAULT_MAX_FROZEN_EPISODES
+  const maxFrozenEpisodeChars = input.maxFrozenEpisodeChars ?? DEFAULT_MAX_FROZEN_EPISODE_CHARS
   const fieldContextMarkdown = input.fieldContextMarkdown?.trim() || null
+  const frozenEpisodes = selectFrozenEpisodes(input.frozenEpisodes ?? [], {
+    maxFrozenEpisodes,
+    maxFrozenEpisodeChars
+  })
   const priorMessages = selectPriorMessages(input.priorMessages ?? [], {
     maxPriorMessages,
     maxPriorChars
@@ -71,6 +90,19 @@ export function buildXuanpuAgentPromptMessages(
     )
   }
 
+  if (frozenEpisodes.included.length > 0) {
+    messages.push(
+      createUserMessage(
+        [
+          '<xuanpu-frozen-episodes>',
+          ...frozenEpisodes.included.map(formatFrozenEpisode),
+          '</xuanpu-frozen-episodes>'
+        ].join('\n\n'),
+        now
+      )
+    )
+  }
+
   messages.push(...priorMessages.included.map((message) => createConversationMessage(message, now)))
   messages.push(createUserMessage(input.currentUserText, now))
 
@@ -83,12 +115,42 @@ export function buildXuanpuAgentPromptMessages(
       semanticCompression: 'disabled',
       currentUserMessagePosition: 'last',
       fieldContextInjected: Boolean(fieldContextMarkdown),
+      includedFrozenEpisodeCount: frozenEpisodes.included.length,
+      droppedFrozenEpisodeCount: frozenEpisodes.dropped,
+      maxFrozenEpisodes,
+      maxFrozenEpisodeChars,
       includedPriorMessageCount: priorMessages.included.length,
       droppedPriorMessageCount: priorMessages.dropped,
       maxPriorMessages,
       maxPriorChars,
       promptMessageCount: messages.length
     }
+  }
+}
+
+function selectFrozenEpisodes(
+  episodes: XuanpuAgentFrozenEpisode[],
+  options: { maxFrozenEpisodes: number; maxFrozenEpisodeChars: number }
+): { included: XuanpuAgentFrozenEpisode[]; dropped: number } {
+  const candidates = episodes
+    .filter((episode) => episode.summaryMarkdown.trim().length > 0)
+    .slice(0, options.maxFrozenEpisodes)
+
+  const included: XuanpuAgentFrozenEpisode[] = []
+  let charCount = 0
+
+  for (const episode of candidates) {
+    const nextSize = episode.summaryMarkdown.length
+    if (included.length > 0 && charCount + nextSize > options.maxFrozenEpisodeChars) break
+    if (included.length === 0 || charCount + nextSize <= options.maxFrozenEpisodeChars) {
+      included.push(episode)
+      charCount += nextSize
+    }
+  }
+
+  return {
+    included,
+    dropped: episodes.length - included.length
   }
 }
 
@@ -142,6 +204,17 @@ function createUserMessage(text: string, timestamp: number): XuanpuPiPromptMessa
     content: [{ type: 'text', text }],
     timestamp
   }
+}
+
+function formatFrozenEpisode(episode: XuanpuAgentFrozenEpisode): string {
+  return [
+    `<episode id="${episode.id}">`,
+    episode.title ? `### ${episode.title}` : null,
+    episode.summaryMarkdown.trim(),
+    '</episode>'
+  ]
+    .filter(Boolean)
+    .join('\n')
 }
 
 function parseTimestamp(value: string | number | null | undefined): number | null {

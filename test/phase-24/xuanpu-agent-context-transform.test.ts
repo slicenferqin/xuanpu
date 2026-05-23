@@ -15,6 +15,14 @@ describe('xuanpu-agent context transform', () => {
       now: 123,
       currentUserText: 'current request',
       fieldContextMarkdown: '## Current Field\n\nstatus',
+      frozenEpisodes: [
+        {
+          id: 'episode-1',
+          title: 'Frozen Setup',
+          summaryMarkdown: 'The repo uses pnpm and xuanpu-agent stays hidden.',
+          tokenEstimate: 20
+        }
+      ],
       priorMessages: [
         { role: 'user', content: 'previous question', createdAt: '2026-05-24T00:00:00.000Z' },
         { role: 'assistant', content: 'previous answer', createdAt: '2026-05-24T00:00:01.000Z' }
@@ -25,19 +33,24 @@ describe('xuanpu-agent context transform', () => {
       'user',
       'user',
       'user',
+      'user',
       'assistant',
       'user'
     ])
     expect(textAt(result.messages, 0)).toContain('<xuanpu-context-anchor>')
     expect(textAt(result.messages, 1)).toContain('## Current Field')
-    expect(textAt(result.messages, 2)).toBe('previous question')
-    expect(textAt(result.messages, 3)).toBe('previous answer')
-    expect(textAt(result.messages, 4)).toBe('current request')
+    expect(textAt(result.messages, 2)).toContain('<xuanpu-frozen-episodes>')
+    expect(textAt(result.messages, 2)).toContain('episode-1')
+    expect(textAt(result.messages, 3)).toBe('previous question')
+    expect(textAt(result.messages, 4)).toBe('previous answer')
+    expect(textAt(result.messages, 5)).toBe('current request')
     expect(result.decisions).toMatchObject({
       contextTransform: 'minimal-anchor-field-recent-current',
       contextBoundary: 'pi-agent-message-array',
       currentUserMessagePosition: 'last',
       fieldContextInjected: true,
+      includedFrozenEpisodeCount: 1,
+      droppedFrozenEpisodeCount: 0,
       includedPriorMessageCount: 2,
       droppedPriorMessageCount: 0,
       semanticCompression: 'disabled'
