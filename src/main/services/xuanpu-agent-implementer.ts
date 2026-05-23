@@ -2,6 +2,7 @@ import type { BrowserWindow } from 'electron'
 import { randomUUID } from 'node:crypto'
 
 import type { DatabaseService } from '../db/database'
+import type { SessionMessage } from '../db/types'
 import type {
   AgentRuntimeAdapter,
   AgentSdkCapabilities,
@@ -16,6 +17,10 @@ import {
   type FieldContextPackageRecord,
   type FieldContextPackageSection
 } from '../field/context-package-repository'
+import {
+  buildXuanpuAgentPromptMessages,
+  type XuanpuAgentContextTurn
+} from './xuanpu-agent/context-transform'
 import { resolveXuanpuAgentModelRef, type XuanpuAgentModelRef } from './xuanpu-agent/model-config'
 import { XuanpuPiAgentSession } from './xuanpu-agent/runtime'
 import { beginSessionRun, emitAgentEvent } from '@shared/lib/normalize-agent-event'
@@ -29,6 +34,11 @@ interface XuanpuAgentSessionState {
   status: 'ready' | 'running' | 'closed' | 'error'
   abortController: AbortController | null
   piSession: XuanpuPiAgentSession | null
+}
+
+interface XuanpuAgentContextPackageResult {
+  record: FieldContextPackageRecord
+  fieldContextMarkdown: string | null
 }
 
 function extractPromptText(
@@ -47,6 +57,10 @@ function extractPromptText(
       return `[Attached file: ${part.filename ?? part.url}]`
     })
     .join('\n')
+}
+
+function shouldStoreRenderedContextMarkdown(): boolean {
+  return process.env.XUANPU_AGENT_STORE_CONTEXT_MARKDOWN === '1'
 }
 
 export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
@@ -130,6 +144,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     const text = extractPromptText(message).trim()
     if (!text) return
 
+    const priorMessages = this.getPriorConversationTurns(session.hiveSessionId)
     beginSessionRun(session.hiveSessionId)
     this.persistMessage(session.hiveSessionId, 'user', text)
     session.status = 'running'
@@ -137,19 +152,27 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     this.emitStatus(session.hiveSessionId, 'busy')
 
     const modelRef = resolveXuanpuAgentModelRef(modelOverride, this.selectedModelRef)
-    const contextPackage = await this.createContextPackage(session, text, modelRef).catch(
-      (error) => {
-        log.warn('Failed to record xuanpu-agent context package', {
-          hiveSessionId: session.hiveSessionId,
-          error: error instanceof Error ? error.message : String(error)
-        })
-        return null
-      }
-    )
+    const contextPackage = await this.createContextPackage(
+      session,
+      text,
+      modelRef,
+      priorMessages
+    ).catch((error) => {
+      log.warn('Failed to record xuanpu-agent context package', {
+        hiveSessionId: session.hiveSessionId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return null
+    })
 
     try {
       const piSession = this.getOrCreatePiSession(session)
-      const result = await piSession.prompt(text, modelRef, {
+      const promptContext = buildXuanpuAgentPromptMessages({
+        currentUserText: text,
+        fieldContextMarkdown: contextPackage?.fieldContextMarkdown ?? null,
+        priorMessages
+      })
+      const result = await piSession.prompt(promptContext.messages, modelRef, {
         onTextDelta: (delta) => this.emitTextDelta(session.hiveSessionId, delta)
       })
 
@@ -165,7 +188,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         messageId: result.messageId,
         modelRef: result.modelRef,
         usage: result.usage,
-        contextPackageId: contextPackage?.id ?? null
+        contextPackageId: contextPackage?.record.id ?? null
       })
 
       session.status = 'ready'
@@ -175,7 +198,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       const errorMessage = [
         'xuanpu-agent no-tools provider call failed.',
         error instanceof Error ? error.message : String(error),
-        contextPackage?.id ? `Context package: ${contextPackage.id}` : null
+        contextPackage?.record.id ? `Context package: ${contextPackage.record.id}` : null
       ]
         .filter(Boolean)
         .join('\n')
@@ -274,14 +297,17 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
   private async createContextPackage(
     session: XuanpuAgentSessionState,
     userText: string,
-    modelRef: XuanpuAgentModelRef
-  ): Promise<FieldContextPackageRecord | null> {
+    modelRef: XuanpuAgentModelRef,
+    priorMessages: XuanpuAgentContextTurn[]
+  ): Promise<XuanpuAgentContextPackageResult | null> {
     if (!this.dbService) return null
 
     const worktree = this.dbService.getWorktreeByPath(session.worktreePath)
     if (!worktree) return null
 
     const sections: FieldContextPackageSection[] = []
+    const storeRenderedMarkdown = shouldStoreRenderedContextMarkdown()
+    let fieldContextMarkdown: string | null = null
     let renderedMarkdown: string | null = null
     let approxTokens = estimateTokens(userText)
     let fieldContextTokens = 0
@@ -291,7 +317,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     const snapshot = await buildFieldContextSnapshot({ worktreeId: worktree.id })
     if (snapshot) {
       const formatted = formatFieldContext(snapshot, { tokenBudget: 1500 })
-      renderedMarkdown = formatted.markdown
+      fieldContextMarkdown = formatted.markdown
+      renderedMarkdown = storeRenderedMarkdown ? formatted.markdown : null
       fieldContextTokens = formatted.approxTokens
       fieldContextAvailable = true
       fieldContextTruncated = formatted.wasTruncated
@@ -330,7 +357,13 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       source: 'prompt'
     })
 
-    return createFieldContextPackage({
+    const promptContext = buildXuanpuAgentPromptMessages({
+      currentUserText: userText,
+      fieldContextMarkdown,
+      priorMessages
+    })
+
+    const record = createFieldContextPackage({
       sessionId: session.hiveSessionId,
       worktreeId: worktree.id,
       runtimeId: this.id,
@@ -346,10 +379,17 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         fieldContextAvailable,
         fieldContextTokens,
         fieldContextTruncated,
+        renderedMarkdownPolicy: storeRenderedMarkdown
+          ? 'stored-by-explicit-env'
+          : 'omitted-by-default',
+        renderedMarkdownEnv: 'XUANPU_AGENT_STORE_CONTEXT_MARKDOWN',
+        ...promptContext.decisions,
         userMessageChars: userText.length,
         visibleTranscriptPolicy: 'persist-user-authored-message-only'
       }
     })
+
+    return { record, fieldContextMarkdown }
   }
 
   private requireSession(agentSessionId: string, worktreePath: string): XuanpuAgentSessionState {
@@ -372,6 +412,19 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       session.piSession = new XuanpuPiAgentSession(session.sessionId)
     }
     return session.piSession
+  }
+
+  private getPriorConversationTurns(hiveSessionId: string): XuanpuAgentContextTurn[] {
+    if (!this.dbService) return []
+
+    return this.dbService
+      .getSessionMessages(hiveSessionId)
+      .filter(isConversationMessage)
+      .map((message) => ({
+        role: message.role,
+        content: message.content,
+        createdAt: message.created_at
+      }))
   }
 
   private persistMessage(
@@ -477,4 +530,12 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 3)
+}
+
+function isConversationMessage(
+  message: SessionMessage
+): message is SessionMessage & { role: 'user' | 'assistant' } {
+  return (
+    (message.role === 'user' || message.role === 'assistant') && message.content.trim().length > 0
+  )
 }

@@ -1,5 +1,6 @@
 import { loadPiAgentCoreModule } from './pi-agent-core-loader'
 import { resolvePiModel, type XuanpuAgentModelRef } from './model-config'
+import type { XuanpuPiPromptMessage } from './context-transform'
 
 interface PiTextContent {
   type: 'text'
@@ -38,7 +39,7 @@ interface PiAgentLike {
   setSystemPrompt(prompt: string[]): void
   setTools(tools: unknown[]): void
   subscribe(listener: (event: PiAgentEvent) => void): () => void
-  prompt(input: string): Promise<void>
+  prompt(input: string | XuanpuPiPromptMessage[]): Promise<void>
   abort(): void
 }
 
@@ -64,7 +65,7 @@ export class XuanpuPiAgentSession {
   constructor(private readonly sessionId: string) {}
 
   async prompt(
-    text: string,
+    input: string | XuanpuPiPromptMessage[],
     modelRef: XuanpuAgentModelRef,
     handlers: XuanpuAgentPromptEventHandlers = {}
   ): Promise<XuanpuAgentPromptResult> {
@@ -102,7 +103,7 @@ export class XuanpuPiAgentSession {
       }
     })
 
-    await agent.prompt(text)
+    await agent.prompt(input)
 
     const message = finalMessage ?? findLastAssistantMessage(agent.state.messages)
     const errorMessage = message?.errorMessage ?? agent.state.error

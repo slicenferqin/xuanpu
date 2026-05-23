@@ -475,6 +475,48 @@ Results:
 - Direct import of the built `pi-agent-core-loader-*` chunk succeeds and returns the exported
   `pi-agent-core` keys.
 
+## Implementation Progress: 2026-05-24
+
+Task 2 and the minimal Task 3 bridge are now partially landed:
+
+- Added `getFieldContextPackage()` and `listFieldContextPackages()` in
+  `src/main/field/context-package-repository.ts`.
+- Query helpers parse `sections_json` and `decisions_json`, filter by session/worktree/runtime, and
+  support deterministic ordering plus a bounded limit.
+- Read helpers hide full `rendered_markdown` by default. Callers must opt in with
+  `includeRenderedMarkdown: true`, and the record exposes `renderedMarkdownStored` so a debugger can
+  show whether full markdown exists without loading it.
+- `xuanpu-agent` no longer stores full rendered Field Context markdown by default. Set
+  `XUANPU_AGENT_STORE_CONTEXT_MARKDOWN=1` to store it during debugging.
+- Context package decisions now record the rendered-markdown policy and the context transform
+  decisions.
+- Added `src/main/services/xuanpu-agent/context-transform.ts`, which builds the first Xuanpu-owned
+  `messages[]` boundary for oh-my-pi Agent:
+  - Xuanpu context anchor
+  - current Field Context markdown when available
+  - recent complete visible user/assistant turns
+  - current user message last
+- The transform deliberately drops old turns instead of summarizing or truncating retained messages;
+  semantic compression remains disabled.
+- `XuanpuAgentImplementer` now sends the transformed message array to `XuanpuPiAgentSession` while
+  still persisting only the user-authored visible message and assistant response in
+  `session_messages`.
+
+Focused verification:
+
+```bash
+pnpm vitest run test/phase-24/xuanpu-agent-context-transform.test.ts test/phase-24/field-context-package-repository.test.ts test/phase-24/xuanpu-agent-runtime.test.ts
+```
+
+Results:
+
+- Context transform test proves ordering, current-user-last, field context injection, drop decisions,
+  and no semantic compression.
+- Context package repository test proves v23 migration SQL coverage, create/read/list behavior, and
+  privacy-by-default rendered markdown reads without relying on native `better-sqlite3` in Node
+  Vitest.
+- Runtime test still proves deterministic no-tools provider flow.
+
 ## Next Task Plan
 
 ### Task 1: Minimal No-Tools Provider Call
@@ -494,6 +536,9 @@ Exit criteria: a hidden `xuanpu-agent` session can answer a simple prompt from S
 
 ### Task 2: Context Package Trace Hardening
 
+Status: implemented for repository create/read/list, query filtering, migration SQL coverage, and
+rendered markdown privacy defaults. Still needs a renderer/debugger surface later.
+
 - Add read/query helpers for `field_context_packages`.
 - Store enough section metadata for a future Context Budget Debugger.
 - Decide whether full rendered context markdown is always stored or guarded behind a debug/privacy
@@ -503,6 +548,9 @@ Exit criteria: a hidden `xuanpu-agent` session can answer a simple prompt from S
 Exit criteria: every `xuanpu-agent` turn has an auditable record of what the runtime packaged.
 
 ### Task 3: Minimal Context Transform
+
+Status: minimal backend bridge implemented and covered by unit tests; pending real-provider/UI
+dogfood from the hidden runtime.
 
 - Implement a conservative `transformContext` bridge with anchor, current Field Context, latest
   user/assistant exchanges, and current user message last.
