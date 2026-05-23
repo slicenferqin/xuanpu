@@ -677,15 +677,32 @@ Latest provider/model readiness progress:
   check because the built main graph still expects Electron process assumptions. Provider readiness
   should be validated through focused tests/probes or the hidden desktop UI path after
   `XUANPU_AGENT_RUNTIME=1 pnpm build`.
+- Added `test/phase-24/xuanpu-agent-model-config.test.ts` to lock the default model, explicit model
+  override precedence, existing runtime provider aliases, and unsupported-model diagnostics without
+  requiring a real API key.
+- Added `probe:xuanpu-agent-model-readiness` as the fast regression check for model config plus
+  renderer-facing model-list compatibility.
 - No real API key has been used in this branch yet. The remaining Task 1 blocker is still a
   real-provider dogfood run through the hidden `xuanpu-agent` UI entry point.
+
+Additional verification:
+
+```bash
+pnpm run probe:xuanpu-agent-model-readiness
+```
+
+Results:
+
+- `xuanpu-agent-model-config.test.ts` and `xuanpu-agent-model-list.test.ts` pass.
+- The probe covers 6 tests across default model resolution, aliases, unsupported-model errors, and
+  ModelSelector-compatible provider list shape.
 
 ## Next Task Plan
 
 ### Task 1: Minimal No-Tools Provider Call
 
-Status: implemented for the managed wrapper, mock probe, model resolution, hidden Session HQ IPC
-path, and environment-gated UI entry points; pending one real-provider dogfood run.
+Status: implemented for the managed wrapper, mock probe, model resolution readiness probe, hidden
+Session HQ IPC path, and environment-gated UI entry points; pending one real-provider dogfood run.
 
 - Use `XUANPU_AGENT_RUNTIME=1` to register the runtime and real provider env vars such as
   `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` according to the selected bundled pi-ai provider.

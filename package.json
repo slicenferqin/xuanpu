@@ -56,6 +56,7 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "probe:codex-app-server": "pnpm exec tsc -p tsconfig.scripts.json --outDir dist/scripts-probe && node dist/scripts-probe/scripts/codex-app-server-probe.js",
     "probe:xuanpu-agent-core": "pnpm exec tsc -p tsconfig.scripts.json --outDir dist/scripts-probe && node dist/scripts-probe/scripts/xuanpu-agent-core-probe.js",
+    "probe:xuanpu-agent-model-readiness": "pnpm vitest run test/phase-24/xuanpu-agent-model-config.test.ts test/phase-24/xuanpu-agent-model-list.test.ts",
     "probe:xuanpu-agent-no-tools": "pnpm vitest run test/phase-24/xuanpu-agent-runtime.test.ts",
     "probe:xuanpu-agent-ipc-smoke": "pnpm vitest run test/phase-24/xuanpu-agent-ipc-smoke.test.ts",
     "test": "vitest run",
