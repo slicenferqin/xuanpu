@@ -664,12 +664,28 @@ Results:
 - Attempts to install a non-empty tool list now fail at the Xuanpu policy boundary.
 - Native process control exposed by the compatibility alias is non-operational in this runtime.
 
+Latest provider/model readiness progress:
+
+- Confirmed the default model configured in `src/main/services/xuanpu-agent/model-config.ts` is
+  present in bundled `@oh-my-pi/pi-ai@15.2.4`: `anthropic/claude-haiku-4-5`.
+- Confirmed `pi-ai` resolves provider credentials from environment variables for the spike. The
+  first dogfood target can use `ANTHROPIC_API_KEY`; OpenAI-compatible testing can use
+  `OPENAI_API_KEY`.
+- Confirmed provider aliases are intentionally narrow for now: `claude-code -> anthropic`,
+  `codex -> openai`, and `gemini -> google`.
+- Directly importing the built app chunks from plain Node is not a reliable provider-readiness
+  check because the built main graph still expects Electron process assumptions. Provider readiness
+  should be validated through focused tests/probes or the hidden desktop UI path after
+  `XUANPU_AGENT_RUNTIME=1 pnpm build`.
+- No real API key has been used in this branch yet. The remaining Task 1 blocker is still a
+  real-provider dogfood run through the hidden `xuanpu-agent` UI entry point.
+
 ## Next Task Plan
 
 ### Task 1: Minimal No-Tools Provider Call
 
-Status: implemented for the managed wrapper, mock probe, hidden Session HQ IPC path, and
-environment-gated UI entry points; pending one real-provider dogfood run.
+Status: implemented for the managed wrapper, mock probe, model resolution, hidden Session HQ IPC
+path, and environment-gated UI entry points; pending one real-provider dogfood run.
 
 - Use `XUANPU_AGENT_RUNTIME=1` to register the runtime and real provider env vars such as
   `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` according to the selected bundled pi-ai provider.
