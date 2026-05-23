@@ -1,4 +1,4 @@
-export type SharedAgentRuntimeId = 'opencode' | 'claude-code' | 'codex' | 'terminal'
+export type SharedAgentRuntimeId = 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
 export type SharedAgentRuntimeAvailability = Record<SharedAgentRuntimeId, boolean>
 
 export interface AgentStatusPayload {

@@ -12,7 +12,7 @@ export interface Worktree {
   last_model_provider_id: string | null
   last_model_id: string | null
   last_model_variant: string | null
-  last_agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | null
+  last_agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent' | null
   created_at: string
   last_accessed_at: string
 }

@@ -375,3 +375,98 @@ Mitigation:
 4. Add `xuanpu-agent` to runtime unions behind a hidden feature flag.
 5. Add `ContextPackage` types and trace repository before real compression.
 
+## Implementation Progress: 2026-05-23
+
+Current branch: `feat/xuanpu-agent-oh-my-pi`.
+
+Landed in the first implementation pass:
+
+- Added `@oh-my-pi/pi-agent-core@15.2.4` to the root dependency graph.
+- Added `probe:xuanpu-agent-core` to document and reproduce the Phase 0 package-load check.
+- Extended the core runtime id surfaces with `xuanpu-agent`:
+  - main runtime types and capabilities
+  - IPC runtime schema
+  - shared protocol/session/worktree types
+  - preload API types
+  - renderer session/worktree/settings type surfaces
+- Added `XuanpuAgentImplementer` as an experimental fourth runtime skeleton.
+- Registered `xuanpu-agent` only when `XUANPU_AGENT_RUNTIME=1` is set.
+- Kept normal Claude Code, Codex, OpenCode, and Terminal flows unchanged by default.
+
+The skeleton intentionally does not call a provider yet. Its `prompt` path performs a guarded
+`@oh-my-pi/pi-agent-core` load probe and persists a clear success/failure assistant message. This
+keeps the runtime testable without pretending tool execution, provider routing, or context packing
+is already complete.
+
+### Verification Notes
+
+`pnpm install --prefer-offline --frozen-lockfile` repeatedly timed out while linking the workspace
+`node_modules`. The pnpm store contains the downloaded packages, including `@oh-my-pi/pi-agent-core`,
+but the root `.bin` links were not produced in this worktree, so `pnpm exec tsc ...` could not run
+normally.
+
+The important Phase 0 finding remains:
+
+```text
+@oh-my-pi/pi-agent-core@15.2.4 exports TypeScript source.
+Electron main currently uses externalizeDepsPlugin().
+Xuanpu must bundle/transpile the oh-my-pi packages for main, or route loading through a compiled
+wrapper, before provider execution can be enabled.
+```
+
+## Next Task Plan
+
+### Task 1: Finish Package Load Validation
+
+- Repair local pnpm linking in this worktree or verify on a clean checkout.
+- Run `pnpm run probe:xuanpu-agent-core`.
+- Decide whether Electron main should bundle `@oh-my-pi/*` packages by configuring
+  `externalizeDepsPlugin`, or whether Xuanpu should introduce a small compiled wrapper package.
+- Run `pnpm build` with `XUANPU_AGENT_RUNTIME=1` after the packaging rule is chosen.
+
+Exit criteria: the app can start with `XUANPU_AGENT_RUNTIME=1` and the xuanpu-agent load probe fails
+or succeeds as a handled runtime message, never as a main-process crash.
+
+### Task 2: Wire Minimal Managed Runtime
+
+- Replace the load-probe-only prompt path with a no-tools oh-my-pi agent call.
+- Support one configured provider first, preferably reusing Xuanpu's existing model/provider
+  settings instead of adding a new settings surface.
+- Stream assistant text into the existing `agent:stream` protocol.
+- Persist user and assistant messages in the existing `session_messages` table.
+- Keep permissions, shell tools, file tools, slash commands, plan mode, undo, and fork disabled.
+
+Exit criteria: a hidden `xuanpu-agent` session can answer a simple prompt from Session HQ.
+
+### Task 3: Add Context Package Trace Before Compression
+
+- Add `field_context_packages` migration and repository.
+- Record each rendered package with runtime id, model id, approximate tokens, section metadata, and
+  inclusion/exclusion decisions.
+- Use the existing Field Context builder as the first `xuanpu.field` section.
+- Keep summaries and retrieval out of scope until traces are inspectable.
+
+Exit criteria: every xuanpu-agent turn has an auditable "what did the agent see" record.
+
+### Task 4: Minimal Context Transform
+
+- Implement a conservative `transformContext` bridge:
+  - anchor from pinned facts / worktree note / memory
+  - current Field Context
+  - latest 6 user/assistant exchanges
+  - current user message last
+- Do not compress code, diffs, or tool output yet.
+- Store context package decisions for dropped old turns.
+
+Exit criteria: Xuanpu owns the final `messages[]` for xuanpu-agent while preserving the visible
+transcript as user-authored messages.
+
+### Task 5: Append-Only Episodes
+
+- Add `field_episode_blocks`.
+- Implement rule-based episode creation first.
+- Add LLM prose compaction only after deterministic metadata extraction works.
+- Never overwrite existing episode blocks.
+
+Exit criteria: old raw turns can be frozen into immutable episode blocks and selectively included by
+the packer.

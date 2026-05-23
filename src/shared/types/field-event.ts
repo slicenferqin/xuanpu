@@ -110,7 +110,7 @@ export interface FileSelectionPayload {
   length: number
 }
 
-export type SessionMessageAgentSdk = 'opencode' | 'claude-code' | 'codex'
+export type SessionMessageAgentSdk = 'opencode' | 'claude-code' | 'codex' | 'xuanpu-agent'
 
 export interface SessionMessagePayload {
   agentSdk: SessionMessageAgentSdk

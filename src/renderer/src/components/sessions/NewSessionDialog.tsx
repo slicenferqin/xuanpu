@@ -24,13 +24,14 @@ import { useWorktreeStore } from '@/stores/useWorktreeStore'
 import { useI18n } from '@/i18n/useI18n'
 import { toast } from '@/lib/toast'
 
-type AgentSdk = 'opencode' | 'claude-code' | 'codex' | 'terminal'
+type AgentSdk = 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
 
 const PROVIDER_LABELS: Record<AgentSdk, string> = {
   'claude-code': 'Claude Code',
   opencode: 'OpenCode',
   codex: 'Codex',
-  terminal: 'Terminal'
+  terminal: 'Terminal',
+  'xuanpu-agent': 'Xuanpu Agent'
 }
 
 interface NewSessionDialogProps {

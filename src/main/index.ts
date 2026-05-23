@@ -50,8 +50,10 @@ import { notificationService } from './services/notification-service'
 import { updaterService } from './services/updater'
 import { ClaudeCodeImplementer } from './services/claude-code-implementer'
 import { CodexImplementer } from './services/codex-implementer'
+import { XuanpuAgentImplementer } from './services/xuanpu-agent-implementer'
 import { openCodeService } from './services/opencode-service'
 import { AgentRuntimeManager } from './services/agent-runtime-manager'
+import type { AgentRuntimeAdapter } from './services/agent-runtime-types'
 import { createHubController } from './services/hub/hub-controller'
 import { resolveClaudeBinaryPath } from './services/claude-binary-resolver'
 import { powerSaveBlockerService } from './services/power-save-blocker'
@@ -810,8 +812,16 @@ app.whenReady().then(async () => {
     const codexImpl = new CodexImplementer()
     codexImpl.setDatabaseService(getDatabase())
 
+    const runtimeImplementers: AgentRuntimeAdapter[] = [openCodeService, claudeImpl, codexImpl]
+    if (process.env.XUANPU_AGENT_RUNTIME === '1') {
+      const xuanpuAgentImpl = new XuanpuAgentImplementer()
+      xuanpuAgentImpl.setDatabaseService(getDatabase())
+      runtimeImplementers.push(xuanpuAgentImpl)
+      log.info('Experimental xuanpu-agent runtime enabled')
+    }
+
     // Create the canonical runtime manager
-    const runtimeManager = new AgentRuntimeManager([openCodeService, claudeImpl, codexImpl])
+    const runtimeManager = new AgentRuntimeManager(runtimeImplementers)
 
     // Hub mode (#34): wrap mainWindow so agent IPC events fan out to mobile
     // clients. The wrapped window is what runtime implementers call

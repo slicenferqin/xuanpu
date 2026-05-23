@@ -20,7 +20,7 @@ import { toast } from '@/lib/toast'
 import type { SessionLifecycle } from '@/stores/useSessionRuntimeStore'
 import type { UsageAnalyticsSessionSummary } from '@shared/types/usage-analytics'
 
-type AgentSdk = 'opencode' | 'claude-code' | 'codex' | 'terminal'
+type AgentSdk = 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
 
 const PROVIDER_LABELS: Record<string, string> = {
   'claude-code': 'Claude',

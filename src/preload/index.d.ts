@@ -60,7 +60,7 @@ interface Worktree {
   last_model_provider_id: string | null
   last_model_id: string | null
   last_model_variant: string | null
-  last_agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | null
+  last_agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent' | null
   attachments: string // JSON array of Attachment objects
   pinned: number // 0 = not pinned, 1 = pinned
   context: string | null
@@ -92,7 +92,7 @@ interface Session {
   name: string | null
   status: 'active' | 'completed' | 'error' | 'archived'
   opencode_session_id: string | null
-  agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+  agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
   mode: 'build' | 'plan'
   model_provider_id: string | null
   model_id: string | null
@@ -324,7 +324,7 @@ declare global {
             status?: 'active' | 'archived'
             last_message_at?: number | null
             last_accessed_at?: string
-            last_agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | null
+            last_agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent' | null
           }
         ) => Promise<Worktree | null>
         delete: (id: string) => Promise<boolean>
@@ -387,7 +387,7 @@ declare global {
           connection_id?: string | null
           name?: string | null
           opencode_session_id?: string | null
-          agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+          agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
           model_provider_id?: string | null
           model_id?: string | null
           model_variant?: string | null
@@ -402,7 +402,7 @@ declare global {
             name?: string | null
             status?: 'active' | 'completed' | 'error' | 'archived'
             opencode_session_id?: string | null
-            agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+            agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
             mode?: 'build' | 'plan'
             model_provider_id?: string | null
             model_id?: string | null
@@ -697,7 +697,7 @@ declare global {
       ) => Promise<import('../shared/types/agent-ipc').AgentIpcResult<{ messages: unknown[] }>>
       // List available models from all configured providers
       listModels: (opts?: {
-        runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+        runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
       }) => Promise<
         import('../shared/types/agent-ipc').AgentIpcResult<{ providers: Record<string, unknown> }>
       >
@@ -706,13 +706,13 @@ declare global {
         providerID: string
         modelID: string
         variant?: string
-        runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+        runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
       }) => Promise<import('../shared/types/agent-ipc').AgentIpcResult>
       // Get model info (name, context limit)
       modelInfo: (
         worktreePath: string,
         modelId: string,
-        runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+        runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
       ) => Promise<
         import('../shared/types/agent-ipc').AgentIpcResult<{
           model?: { id: string; name: string; limit: { context: number } }

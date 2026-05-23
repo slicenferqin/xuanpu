@@ -134,7 +134,7 @@ export interface AppSettings {
   showUsageIndicator: boolean
 
   // Agent SDK
-  defaultAgentSdk: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+  defaultAgentSdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
 
   // Setup
   initialSetupComplete: boolean

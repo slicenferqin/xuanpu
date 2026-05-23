@@ -42,7 +42,7 @@ interface ModelSelectorProps {
   value?: { providerID: string; modelID: string; variant?: string } | null
   onChange?: (model: { providerID: string; modelID: string; variant?: string }) => void
   // Override the SDK used for model listing (e.g. force 'opencode' in settings when defaultAgentSdk is 'terminal')
-  agentSdkOverride?: 'opencode' | 'claude-code' | 'codex'
+  agentSdkOverride?: 'opencode' | 'claude-code' | 'codex' | 'xuanpu-agent'
   showProviderPrefix?: boolean
   // Compact capsule style for SessionHeader
   compact?: boolean

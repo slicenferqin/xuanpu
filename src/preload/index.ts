@@ -85,7 +85,7 @@ const db = {
         name?: string
         status?: 'active' | 'archived'
         last_accessed_at?: string
-        last_agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | null
+        last_agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent' | null
       }
     ) => ipcRenderer.invoke('db:worktree:update', id, data),
     delete: (id: string) => ipcRenderer.invoke('db:worktree:delete', id),
@@ -141,7 +141,7 @@ const db = {
       connection_id?: string | null
       name?: string | null
       opencode_session_id?: string | null
-      agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+      agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
       model_provider_id?: string | null
       model_id?: string | null
       model_variant?: string | null
@@ -158,7 +158,7 @@ const db = {
         name?: string | null
         status?: 'active' | 'completed' | 'error' | 'archived'
         opencode_session_id?: string | null
-        agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+        agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
         mode?: 'build' | 'plan'
         model_provider_id?: string | null
         model_id?: string | null
@@ -1313,7 +1313,7 @@ const agentOps = {
 
   // List available models from all configured providers
   listModels: (opts?: {
-    runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+    runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
   }): Promise<{
     success: boolean
     providers: Record<string, unknown>
@@ -1326,7 +1326,7 @@ const agentOps = {
       providerID: string
       modelID: string
       variant?: string
-      runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+      runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
     } | null
   ): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('agent:setModel', model),
 
@@ -1334,7 +1334,7 @@ const agentOps = {
   modelInfo: (
     worktreePath: string,
     modelId: string,
-    runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+    runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
   ): Promise<{
     success: boolean
     model?: { id: string; name: string; limit: { context: number } }

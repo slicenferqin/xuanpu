@@ -1157,12 +1157,12 @@ export class DatabaseService {
 
   getAgentSdkForSession(
     agentSessionId: string
-  ): 'opencode' | 'claude-code' | 'codex' | 'terminal' | null {
+  ): 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent' | null {
     const db = this.getDb()
     const row = db
       .prepare('SELECT agent_sdk FROM sessions WHERE opencode_session_id = ? LIMIT 1')
       .get(agentSessionId) as
-      | { agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' }
+      | { agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent' }
       | undefined
     return row?.agent_sdk ?? null
   }
@@ -1172,7 +1172,7 @@ export class DatabaseService {
    *  cases where the DB hasn't been updated after session materialization. */
   getRuntimeIdForSession(
     agentSessionId: string
-  ): 'opencode' | 'claude-code' | 'codex' | 'terminal' | null {
+  ): 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent' | null {
     // Primary lookup: by opencode_session_id (SDK session ID)
     const byOpcId = this.getAgentSdkForSession(agentSessionId)
     if (byOpcId) return byOpcId
@@ -1182,7 +1182,7 @@ export class DatabaseService {
     const row = db
       .prepare('SELECT agent_sdk FROM sessions WHERE id = ? LIMIT 1')
       .get(agentSessionId) as
-      | { agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' }
+      | { agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent' }
       | undefined
     return row?.agent_sdk ?? null
   }

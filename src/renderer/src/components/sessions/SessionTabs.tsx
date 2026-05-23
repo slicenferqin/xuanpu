@@ -94,7 +94,7 @@ interface SessionTabProps {
   sessionId: string
   name: string
   isActive: boolean
-  agentSdk: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+  agentSdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
   runtimeSessionId: string | null
   color: string | null
   onClick: () => void
@@ -889,7 +889,7 @@ export function SessionTabs({
 
   // Handle creating a new session with a specific agent SDK (from context menu)
   const handleCreateSessionWithSdk = async (
-    sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+    sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
   ) => {
     if (isConnectionMode && selectedConnectionId) {
       const result = await createConnectionSession(selectedConnectionId, sdk)

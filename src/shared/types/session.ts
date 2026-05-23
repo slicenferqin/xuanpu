@@ -6,7 +6,7 @@ export interface Session {
   name: string | null
   status: 'active' | 'completed' | 'error' | 'archived'
   opencode_session_id: string | null
-  agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+  agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
   mode: 'build' | 'plan'
   model_provider_id: string | null
   model_id: string | null

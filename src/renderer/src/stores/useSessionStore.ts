@@ -43,7 +43,7 @@ interface Session {
   name: string | null
   status: 'active' | 'completed' | 'error' | 'archived'
   opencode_session_id: string | null
-  agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+  agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
   mode: SessionMode
   model_provider_id: string | null
   model_id: string | null
@@ -57,7 +57,7 @@ interface Session {
 // Options for creating a session from the new session dialog (or quick paths)
 export interface CreateSessionOptions {
   name?: string
-  agentSdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+  agentSdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
   model?: SelectedModel | null
   initialMode?: SessionMode
 }
@@ -106,14 +106,14 @@ interface SessionState {
   createSession: (
     worktreeId: string,
     projectId: string,
-    agentSdkOverride?: 'opencode' | 'claude-code' | 'codex' | 'terminal',
+    agentSdkOverride?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent',
     initialMode?: SessionMode,
     options?: { name?: string; model?: SelectedModel | null }
   ) => Promise<{ success: boolean; session?: Session; error?: string }>
   updateSessionAgent: (
     sessionId: string,
     update: {
-      agentSdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+      agentSdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
       model?: SelectedModel | null
     }
   ) => Promise<{ success: boolean; error?: string }>
@@ -173,7 +173,7 @@ interface SessionState {
   loadConnectionSessions: (connectionId: string) => Promise<void>
   createConnectionSession: (
     connectionId: string,
-    agentSdkOverride?: 'opencode' | 'claude-code' | 'codex' | 'terminal',
+    agentSdkOverride?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent',
     initialMode?: SessionMode,
     options?: { name?: string; model?: SelectedModel | null }
   ) => Promise<{ success: boolean; session?: Session; error?: string }>
@@ -322,7 +322,7 @@ export const useSessionStore = create<SessionState>()(
       createSession: async (
         worktreeId: string,
         projectId: string,
-        agentSdkOverride?: 'opencode' | 'claude-code' | 'codex' | 'terminal',
+        agentSdkOverride?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent',
         initialMode?: SessionMode,
         options?: { name?: string; model?: SelectedModel | null }
       ) => {
@@ -848,7 +848,7 @@ export const useSessionStore = create<SessionState>()(
       updateSessionAgent: async (
         sessionId: string,
         update: {
-          agentSdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+          agentSdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
           model?: SelectedModel | null
         }
       ) => {
@@ -1144,7 +1144,8 @@ export const useSessionStore = create<SessionState>()(
         }
 
         // Find the session's SDK to route correctly (search both scopes)
-        let agentSdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' = 'opencode'
+        let agentSdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent' =
+          'opencode'
         for (const sessions of get().sessionsByWorktree.values()) {
           const found = sessions.find((s) => s.id === sessionId)
           if (found?.agent_sdk) {
@@ -1596,7 +1597,7 @@ export const useSessionStore = create<SessionState>()(
       // Create a session scoped to a connection
       createConnectionSession: async (
         connectionId: string,
-        agentSdkOverride?: 'opencode' | 'claude-code' | 'codex' | 'terminal',
+        agentSdkOverride?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent',
         initialMode?: SessionMode,
         options?: { name?: string; model?: SelectedModel | null }
       ) => {
@@ -1611,7 +1612,12 @@ export const useSessionStore = create<SessionState>()(
 
           // Determine default model and agent SDK from global settings
           let defaultModel: { providerID: string; modelID: string; variant?: string } | null = null
-          let defaultAgentSdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' = 'opencode'
+          let defaultAgentSdk:
+            | 'opencode'
+            | 'claude-code'
+            | 'codex'
+            | 'terminal'
+            | 'xuanpu-agent' = 'opencode'
           try {
             const { useSettingsStore } = await import('./useSettingsStore')
             defaultAgentSdk =

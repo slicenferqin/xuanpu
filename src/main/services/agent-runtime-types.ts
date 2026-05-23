@@ -1,6 +1,6 @@
 import type { BrowserWindow } from 'electron'
 
-export type AgentRuntimeId = 'opencode' | 'claude-code' | 'codex' | 'terminal'
+export type AgentRuntimeId = 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
 
 export interface AgentRuntimeCapabilities {
   supportsUndo: boolean
@@ -199,6 +199,18 @@ export const TERMINAL_CAPABILITIES: AgentRuntimeCapabilities = {
   supportsModelSelection: false,
   supportsReconnect: false,
   supportsPartialStreaming: false
+}
+
+export const XUANPU_AGENT_CAPABILITIES: AgentRuntimeCapabilities = {
+  supportsUndo: false,
+  supportsRedo: false,
+  supportsSteer: false,
+  supportsCommands: false,
+  supportsPermissionRequests: false,
+  supportsQuestionPrompts: false,
+  supportsModelSelection: true,
+  supportsReconnect: false,
+  supportsPartialStreaming: true
 }
 
 // Backward compatibility: AgentSdk* types are aliases of AgentRuntime* types

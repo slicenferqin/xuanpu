@@ -132,7 +132,7 @@ interface WorktreeState {
   updateWorktreeModel: (worktreeId: string, model: SelectedModel) => void
   updateWorktreeLastAgentSdk: (
     worktreeId: string,
-    agentSdk: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+    agentSdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
   ) => void
   reorderWorktrees: (projectId: string, fromIndex: number, toIndex: number) => void
   appendSessionTitle: (worktreeId: string, title: string) => void
@@ -634,7 +634,7 @@ export const useWorktreeStore = create<WorktreeState>((set, get) => ({
   // Update a worktree's last-used agent SDK in the store
   updateWorktreeLastAgentSdk: (
     worktreeId: string,
-    agentSdk: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+    agentSdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
   ) => {
     set((state) => {
       const newMap = new Map(state.worktreesByProject)

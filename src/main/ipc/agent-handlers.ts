@@ -452,7 +452,7 @@ export function registerAgentHandlers(
             sessionId: null,
             relatedEventId: null,
             payload: {
-              agentSdk: runtimeId as 'opencode' | 'claude-code' | 'codex',
+              agentSdk: runtimeId as 'opencode' | 'claude-code' | 'codex' | 'xuanpu-agent',
               agentSessionId: runtimeSessionId,
               text: text.slice(0, 1024),
               attachmentCount,
