@@ -597,6 +597,8 @@ Latest hidden-runtime IPC progress:
   `[User Message]` Field Context prefix is injected for `xuanpu-agent`.
 - The pi Agent prompt boundary is asserted to be a Xuanpu-owned message array with the current user
   message last, and the runtime still calls `setTools([])` so shell/file tools remain disabled.
+- The same smoke now passes an explicit Session HQ-style model override and proves it is recorded in
+  the managed context package and emitted on the `session.message` field event.
 - Tightened `agent:prompt` and `agent:steer` message normalization in
   `src/main/ipc/agent-handlers.ts` so only the runtime adapter's supported `text` and `file` parts
   cross the IPC/runtime boundary.

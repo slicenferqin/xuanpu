@@ -282,7 +282,14 @@ describe('xuanpu-agent IPC smoke', () => {
     expect(dbService.runtimeSessionId).toMatch(/^xuanpu-agent-/)
 
     const prompt = handlers.get('agent:prompt')!
-    const promptResult = await prompt({}, '/repo', dbService.runtimeSessionId, 'hello from hq')
+    const modelOverride = { providerID: 'openai', modelID: 'gpt-4.1' }
+    const promptResult = await prompt(
+      {},
+      '/repo',
+      dbService.runtimeSessionId,
+      'hello from hq',
+      modelOverride
+    )
     expect(promptResult).toEqual({ success: true })
 
     const persisted = dbService.getSessionMessages('hive-session-1')
@@ -294,6 +301,8 @@ describe('xuanpu-agent IPC smoke', () => {
       expect.objectContaining({
         sessionId: 'hive-session-1',
         runtimeId: 'xuanpu-agent',
+        modelProviderId: 'openai',
+        modelId: 'gpt-4.1',
         decisions: expect.objectContaining({
           providerExecution: 'enabled',
           visibleTranscriptPolicy: 'persist-user-authored-message-only'
@@ -305,7 +314,8 @@ describe('xuanpu-agent IPC smoke', () => {
         type: 'session.message',
         payload: expect.objectContaining({
           agentSdk: 'xuanpu-agent',
-          text: 'hello from hq'
+          text: 'hello from hq',
+          modelOverride
         })
       })
     )
