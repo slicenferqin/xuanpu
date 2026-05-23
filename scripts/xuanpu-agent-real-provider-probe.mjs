@@ -1,10 +1,16 @@
 #!/usr/bin/env node
 
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import {
   fail,
+  getBuiltProbeSqliteState,
   loadBuiltXuanpuAgentImplementer,
   noop,
-  printJson
+  printJson,
+  resetBuiltProbeSqliteState
 } from './xuanpu-agent-built-probe-utils.mjs'
 
 const DEFAULT_MODELS = {
@@ -63,39 +69,81 @@ async function runProbe() {
     return
   }
 
+  const previousHome = process.env.HOME
+  const previousFakeSqlite = process.env.XUANPU_AGENT_BUILT_PROBE_FAKE_SQLITE
+  const probeHome = mkdtempSync(join(tmpdir(), 'xuanpu-agent-real-provider-'))
+  const restoreProbeEnv = () => {
+    if (previousHome === undefined) {
+      delete process.env.HOME
+    } else {
+      process.env.HOME = previousHome
+    }
+    if (previousFakeSqlite === undefined) {
+      delete process.env.XUANPU_AGENT_BUILT_PROBE_FAKE_SQLITE
+    } else {
+      process.env.XUANPU_AGENT_BUILT_PROBE_FAKE_SQLITE = previousFakeSqlite
+    }
+  }
+
+  process.env.HOME = probeHome
+  process.env.XUANPU_AGENT_BUILT_PROBE_FAKE_SQLITE = '1'
+  resetBuiltProbeSqliteState()
+
   let XuanpuAgentImplementer
+  let implementerChunk
   try {
     const builtProbe = loadBuiltXuanpuAgentImplementer()
     XuanpuAgentImplementer = builtProbe.XuanpuAgentImplementer
+    implementerChunk = builtProbe.implementerChunk
   } catch (error) {
+    restoreProbeEnv()
     fail(error instanceof Error ? error.message : String(error))
     return
   }
 
   const capturedMessages = []
+  const getWorktreeByPathCalls = []
   const implementer = new XuanpuAgentImplementer()
+  const worktreePath = process.cwd()
+  const hiveSessionId = `xuanpu-agent-real-provider-probe-${Date.now()}`
+  const probeWorktree = {
+    id: 'xuanpu-agent-real-provider-worktree',
+    project_id: 'xuanpu-agent-real-provider-project',
+    path: worktreePath
+  }
   implementer.setDatabaseService({
-    createSessionMessage: (message) => capturedMessages.push(message),
-    getSessionMessages: () => [],
-    getWorktreeByPath: () => null,
+    createSessionMessage: (message) => {
+      const record = {
+        id: `probe-message-${capturedMessages.length + 1}`,
+        ...message
+      }
+      capturedMessages.push(record)
+      return record
+    },
+    getSessionMessages: () => capturedMessages,
+    getWorktreeByPath: (path) => {
+      getWorktreeByPathCalls.push(path)
+      return path === worktreePath ? probeWorktree : null
+    },
     updateSession: noop
   })
 
-  const worktreePath = process.cwd()
-  const hiveSessionId = `xuanpu-agent-real-provider-probe-${Date.now()}`
   const timeoutMs = Number(process.env.XUANPU_AGENT_REAL_PROVIDER_TIMEOUT_MS || 60000)
-  const { sessionId } = await implementer.connect(worktreePath, hiveSessionId)
-
+  let sessionId = null
   let didTimeOut = false
-  const timeout = setTimeout(() => {
-    didTimeOut = true
-    void implementer.abort(worktreePath, sessionId).finally(() => {
-      fail('Real provider probe timed out.', { providerID, modelID, timeoutMs })
-      process.exit(1)
-    })
-  }, timeoutMs)
+  let timeout = null
 
   try {
+    const connected = await implementer.connect(worktreePath, hiveSessionId)
+    sessionId = connected.sessionId
+    timeout = setTimeout(() => {
+      didTimeOut = true
+      void implementer.abort(worktreePath, sessionId).finally(() => {
+        fail('Real provider probe timed out.', { providerID, modelID, timeoutMs })
+        process.exit(1)
+      })
+    }, timeoutMs)
+
     implementer.setSelectedModel({ providerID, modelID })
     await implementer.prompt(worktreePath, sessionId, prompt, { providerID, modelID })
     if (didTimeOut) return
@@ -104,15 +152,57 @@ async function runProbe() {
       .filter((message) => message.role === 'assistant')
       .at(-1)
     const responseText = assistantMessage?.content ?? ''
+    const contextPackage = getBuiltProbeSqliteState().contextPackages.find(
+      (record) => record.session_id === hiveSessionId
+    )
+
+    if (!contextPackage) {
+      fail('Real provider probe did not persist a context package.', {
+        providerID,
+        modelID,
+        hiveSessionId,
+        worktreePath,
+        getWorktreeByPathCalls
+      })
+      return
+    }
+
+    const contextDecisions = JSON.parse(contextPackage.decisions_json)
+    const contextSections = JSON.parse(contextPackage.sections_json)
+    if (
+      contextPackage.runtime_id !== 'xuanpu-agent' ||
+      contextPackage.model_provider_id !== providerID ||
+      contextPackage.model_id !== modelID ||
+      contextDecisions.visibleTranscriptPolicy !== 'persist-user-authored-message-only'
+    ) {
+      fail('Real provider context package did not match the selected model or policy.', {
+        providerID,
+        modelID,
+        contextPackage,
+        contextDecisions
+      })
+      return
+    }
 
     printJson({
       ok: true,
       status: 'completed',
       providerID,
       modelID,
+      implementerChunk,
       responseChars: responseText.length,
       responsePreview: responseText.slice(0, 200),
-      persistedMessageCount: capturedMessages.length
+      persistedMessageCount: capturedMessages.length,
+      contextPackage: {
+        sessionId: contextPackage.session_id,
+        worktreeId: contextPackage.worktree_id,
+        runtimeId: contextPackage.runtime_id,
+        modelProviderId: contextPackage.model_provider_id,
+        modelId: contextPackage.model_id,
+        renderedMarkdownStored: Boolean(contextPackage.rendered_markdown),
+        visibleTranscriptPolicy: contextDecisions.visibleTranscriptPolicy,
+        sectionIds: contextSections.map((section) => section.id)
+      }
     })
   } catch (error) {
     if (!didTimeOut) {
@@ -123,8 +213,11 @@ async function runProbe() {
       })
     }
   } finally {
-    clearTimeout(timeout)
-    await implementer.disconnect(worktreePath, sessionId).catch(() => {})
+    if (timeout) clearTimeout(timeout)
+    if (sessionId) {
+      await implementer.disconnect(worktreePath, sessionId).catch(() => {})
+    }
+    restoreProbeEnv()
   }
 }
 

@@ -750,6 +750,9 @@ Latest provider/model readiness progress:
   `XUANPU_AGENT_REAL_PROVIDER_PROBE=1` is set, `XUANPU_AGENT_MOCK_RESPONSE` is unset, a required
   provider credential env var is present, and a built `out/main/xuanpu-agent-implementer-*` chunk
   exists.
+- The real-provider probe now shares the built-probe SQLite shim used by the mock probe. When a
+  real key is available, the same run verifies provider response persistence plus the packaged
+  managed context package, selected provider/model, and transcript policy.
 - Added a runtime credential preflight in `src/main/services/xuanpu-agent/model-config.ts`.
   Real-provider execution now fails before creating or prompting a pi Agent when required env vars
   are missing. Deterministic mock execution remains exempt.
@@ -796,6 +799,8 @@ Results:
 - The real-provider probe defaults to a safe skip without touching network credentials.
 - With the real-provider flag enabled but Anthropic credentials removed, the probe fails before any
   provider call and reports the required env vars.
+- With credentials, the real-provider probe is now expected to also report a packaged
+  `contextPackage` block with selected model metadata and `persist-user-authored-message-only`.
 - `xuanpu-agent-runtime.test.ts` proves the runtime also fails before creating a pi Agent when
   real-provider credentials are missing.
 - `xuanpu-agent-runtime-status.test.ts` proves disabled, missing-credentials, mock-ready, and ready
@@ -821,7 +826,7 @@ XUANPU_AGENT_PROVIDER_ID=openai XUANPU_AGENT_MODEL_ID=gpt-4.1 OPENAI_API_KEY=...
 
 ## 2026-05-24 Checkpoint
 
-Current committed scope for the next push:
+Current scope for this push:
 
 - Added a main-process runtime status resolver for the hidden `xuanpu-agent` runtime. It reports
   whether the runtime is disabled, mock-ready, credential-ready, or blocked by missing provider
@@ -834,13 +839,17 @@ Current committed scope for the next push:
   path intentionally reports only env key names and boolean presence, not secret values.
 - Added a SessionHeader UI test that verifies the status capsule calls the runtime-status IPC with
   the current `xuanpu-agent` provider/model and hides itself when that provider is ready.
+- Extended the opt-in real-provider probe so a credentialed run verifies the same packaged context
+  package path as the built mock probe: persisted provider answer, selected provider/model,
+  transcript policy, and package section ids.
 - Kept the current runtime strict no-tools: shell/file/MCP tools, permission prompts, native process
   control, and oh-my-pi tool surfaces remain blocked behind explicit readiness gates.
 
 Follow-up sequence:
 
 - Run one real-provider dogfood pass through the built hidden runtime after credentials are
-  available.
+  available. This should now produce both provider-response evidence and context-package evidence
+  in a single probe output.
 - Then run the full Session HQ UI dogfood with `XUANPU_AGENT_RUNTIME=1`, validating that the status
   capsule matches the actual provider path before the first prompt and after a successful answer.
 - After real-provider and UI dogfood pass, decide whether to keep `xuanpu-agent` inside this repo for
