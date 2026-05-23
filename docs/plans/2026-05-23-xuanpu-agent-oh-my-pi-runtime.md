@@ -682,6 +682,11 @@ Latest provider/model readiness progress:
   requiring a real API key.
 - Added `probe:xuanpu-agent-model-readiness` as the fast regression check for model config plus
   renderer-facing model-list compatibility.
+- Added `probe:xuanpu-agent-real-provider` as an opt-in real provider probe. By default it exits
+  with `status: "skipped"` and does not access the network. It only calls a provider when
+  `XUANPU_AGENT_REAL_PROVIDER_PROBE=1` is set, `XUANPU_AGENT_MOCK_RESPONSE` is unset, a required
+  provider credential env var is present, and a built `out/main/xuanpu-agent-implementer-*` chunk
+  exists.
 - No real API key has been used in this branch yet. The remaining Task 1 blocker is still a
   real-provider dogfood run through the hidden `xuanpu-agent` UI entry point.
 
@@ -689,6 +694,9 @@ Additional verification:
 
 ```bash
 pnpm run probe:xuanpu-agent-model-readiness
+pnpm run probe:xuanpu-agent-real-provider
+env -u ANTHROPIC_API_KEY -u ANTHROPIC_OAUTH_TOKEN -u ANTHROPIC_FOUNDRY_API_KEY \
+  XUANPU_AGENT_REAL_PROVIDER_PROBE=1 node scripts/xuanpu-agent-real-provider-probe.mjs || test $? -eq 1
 ```
 
 Results:
@@ -696,13 +704,31 @@ Results:
 - `xuanpu-agent-model-config.test.ts` and `xuanpu-agent-model-list.test.ts` pass.
 - The probe covers 6 tests across default model resolution, aliases, unsupported-model errors, and
   ModelSelector-compatible provider list shape.
+- The real-provider probe defaults to a safe skip without touching network credentials.
+- With the real-provider flag enabled but Anthropic credentials removed, the probe fails before any
+  provider call and reports the required env vars.
+
+Real-provider dogfood command shape:
+
+```bash
+XUANPU_AGENT_RUNTIME=1 pnpm build
+XUANPU_AGENT_REAL_PROVIDER_PROBE=1 ANTHROPIC_API_KEY=... \
+  pnpm run probe:xuanpu-agent-real-provider
+```
+
+Optional overrides:
+
+```bash
+XUANPU_AGENT_PROVIDER_ID=openai XUANPU_AGENT_MODEL_ID=gpt-4.1 OPENAI_API_KEY=...
+```
 
 ## Next Task Plan
 
 ### Task 1: Minimal No-Tools Provider Call
 
 Status: implemented for the managed wrapper, mock probe, model resolution readiness probe, hidden
-Session HQ IPC path, and environment-gated UI entry points; pending one real-provider dogfood run.
+Session HQ IPC path, environment-gated UI entry points, and an opt-in real-provider probe; pending
+one actual real-provider dogfood run with credentials.
 
 - Use `XUANPU_AGENT_RUNTIME=1` to register the runtime and real provider env vars such as
   `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` according to the selected bundled pi-ai provider.
@@ -711,8 +737,8 @@ Session HQ IPC path, and environment-gated UI entry points; pending one real-pro
 - Validate the text-only path from the desktop UI with one provider first. The UI path is now
   selectable only when `XUANPU_AGENT_RUNTIME=1` is set.
 - Keep shell/file tools, permission prompts, slash commands, plan mode, undo, and fork disabled.
-- Keep the IPC smoke as the fast regression check; add a real-provider/Electron UI dogfood check
-  once credentials and provider target are selected.
+- Keep the IPC smoke as the fast regression check; use `probe:xuanpu-agent-real-provider` for a
+  provider call through the built runtime before the full Electron UI dogfood pass.
 
 Exit criteria: a hidden `xuanpu-agent` session can answer a simple prompt from Session HQ.
 
