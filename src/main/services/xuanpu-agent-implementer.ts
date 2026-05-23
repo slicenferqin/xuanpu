@@ -16,6 +16,8 @@ import {
   type FieldContextPackageRecord,
   type FieldContextPackageSection
 } from '../field/context-package-repository'
+import { resolveXuanpuAgentModelRef, type XuanpuAgentModelRef } from './xuanpu-agent/model-config'
+import { XuanpuPiAgentSession } from './xuanpu-agent/runtime'
 import { beginSessionRun, emitAgentEvent } from '@shared/lib/normalize-agent-event'
 
 const log = createLogger({ component: 'XuanpuAgentImplementer' })
@@ -26,14 +28,7 @@ interface XuanpuAgentSessionState {
   worktreePath: string
   status: 'ready' | 'running' | 'closed' | 'error'
   abortController: AbortController | null
-}
-
-type PiAgentCoreProbe = {
-  ok: true
-  exportedKeys: string[]
-} | {
-  ok: false
-  error: string
+  piSession: XuanpuPiAgentSession | null
 }
 
 function extractPromptText(
@@ -52,18 +47,6 @@ function extractPromptText(
       return `[Attached file: ${part.filename ?? part.url}]`
     })
     .join('\n')
-}
-
-async function probePiAgentCore(): Promise<PiAgentCoreProbe> {
-  try {
-    const { loadPiAgentCore } = await import('./xuanpu-agent/pi-agent-core-loader')
-    return { ok: true, exportedKeys: (await loadPiAgentCore()).exportedKeys }
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : String(error)
-    }
-  }
 }
 
 export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
@@ -90,7 +73,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       hiveSessionId,
       worktreePath,
       status: 'ready',
-      abortController: null
+      abortController: null,
+      piSession: null
     })
 
     log.info('Connected xuanpu-agent session', { worktreePath, hiveSessionId, sessionId })
@@ -108,7 +92,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       hiveSessionId,
       worktreePath,
       status: 'ready',
-      abortController: null
+      abortController: null,
+      piSession: null
     })
     return { success: true, sessionStatus: 'idle' }
   }
@@ -116,6 +101,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
   async disconnect(_worktreePath: string, agentSessionId: string): Promise<void> {
     const session = this.sessions.get(agentSessionId)
     session?.abortController?.abort()
+    session?.piSession?.dispose()
     if (session) session.status = 'closed'
     this.sessions.delete(agentSessionId)
   }
@@ -123,6 +109,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
   async cleanup(): Promise<void> {
     for (const session of this.sessions.values()) {
       session.abortController?.abort()
+      session.piSession?.dispose()
     }
     this.sessions.clear()
   }
@@ -149,7 +136,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     session.abortController = new AbortController()
     this.emitStatus(session.hiveSessionId, 'busy')
 
-    const contextPackage = await this.createContextPackage(session, text, modelOverride).catch(
+    const modelRef = resolveXuanpuAgentModelRef(modelOverride, this.selectedModelRef)
+    const contextPackage = await this.createContextPackage(session, text, modelRef).catch(
       (error) => {
         log.warn('Failed to record xuanpu-agent context package', {
           hiveSessionId: session.hiveSessionId,
@@ -159,46 +147,52 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       }
     )
 
-    const probe = await probePiAgentCore()
-    if (!probe.ok) {
+    try {
+      const piSession = this.getOrCreatePiSession(session)
+      const result = await piSession.prompt(text, modelRef, {
+        onTextDelta: (delta) => this.emitTextDelta(session.hiveSessionId, delta)
+      })
+
+      const assistantText = result.text.trim()
+      const content = assistantText || '(empty response)'
+      this.persistMessage(session.hiveSessionId, 'assistant', content, {
+        messageId: result.messageId,
+        modelRef: result.modelRef,
+        usage: result.usage,
+        rawMessage: result.rawMessage
+      })
+      this.emitMessageUpdated(session.hiveSessionId, content, {
+        messageId: result.messageId,
+        modelRef: result.modelRef,
+        usage: result.usage,
+        contextPackageId: contextPackage?.id ?? null
+      })
+
+      session.status = 'ready'
+      session.abortController = null
+      this.emitStatus(session.hiveSessionId, 'idle')
+    } catch (error) {
       const errorMessage = [
-        'xuanpu-agent Phase 0 probe failed to load @oh-my-pi/pi-agent-core.',
-        'Xuanpu attempted to load the Electron/Vite bundled oh-my-pi adapter chunk.',
-        `Import error: ${probe.error}`
-      ].join('\n')
+        'xuanpu-agent no-tools provider call failed.',
+        error instanceof Error ? error.message : String(error),
+        contextPackage?.id ? `Context package: ${contextPackage.id}` : null
+      ]
+        .filter(Boolean)
+        .join('\n')
       this.persistMessage(session.hiveSessionId, 'assistant', errorMessage)
       session.status = 'error'
+      session.abortController = null
       this.emitError(session.hiveSessionId, errorMessage)
       this.emitStatus(session.hiveSessionId, 'idle')
       throw new Error(errorMessage)
     }
-
-    const assistantText = [
-      'xuanpu-agent Phase 0 loaded @oh-my-pi/pi-agent-core successfully.',
-      `Exports: ${probe.exportedKeys.join(', ') || '(none)'}`,
-      `Context package: ${contextPackage?.id ?? 'not recorded'}`,
-      'Provider execution is intentionally disabled until the managed context bridge is wired.'
-    ].join('\n')
-
-    this.persistMessage(session.hiveSessionId, 'assistant', assistantText)
-    emitAgentEvent(this.mainWindow, {
-      type: 'message.updated',
-      sessionId: session.hiveSessionId,
-      data: {
-        id: `xuanpu-agent-${Date.now()}`,
-        role: 'assistant',
-        content: assistantText,
-        parts: [{ type: 'text', text: assistantText, timestamp: new Date().toISOString() }]
-      }
-    })
-    session.status = 'ready'
-    this.emitStatus(session.hiveSessionId, 'idle')
   }
 
   async abort(_worktreePath: string, agentSessionId: string): Promise<boolean> {
     const session = this.sessions.get(agentSessionId)
     if (!session?.abortController) return false
     session.abortController.abort()
+    session.piSession?.abort()
     session.abortController = null
     session.status = 'ready'
     this.emitStatus(session.hiveSessionId, 'idle')
@@ -270,11 +264,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     throw new Error('COMMANDS_NOT_SUPPORTED')
   }
 
-  async renameSession(
-    _worktreePath: string,
-    _agentSessionId: string,
-    name: string
-  ): Promise<void> {
+  async renameSession(_worktreePath: string, _agentSessionId: string, name: string): Promise<void> {
     if (!this.dbService) return
     const session = this.sessions.get(_agentSessionId)
     if (!session) return
@@ -284,7 +274,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
   private async createContextPackage(
     session: XuanpuAgentSessionState,
     userText: string,
-    modelOverride?: { providerID: string; modelID: string; variant?: string }
+    modelRef: XuanpuAgentModelRef
   ): Promise<FieldContextPackageRecord | null> {
     if (!this.dbService) return null
 
@@ -340,8 +330,6 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       source: 'prompt'
     })
 
-    const modelRef = modelOverride ?? this.selectedModelRef
-
     return createFieldContextPackage({
       sessionId: session.hiveSessionId,
       worktreeId: worktree.id,
@@ -353,8 +341,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       sections,
       renderedMarkdown,
       decisions: {
-        phase: 'phase-0-package-load-probe',
-        providerExecution: 'disabled',
+        phase: 'phase-1-no-tools-provider',
+        providerExecution: 'enabled',
         fieldContextAvailable,
         fieldContextTokens,
         fieldContextTruncated,
@@ -379,21 +367,93 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     return session
   }
 
+  private getOrCreatePiSession(session: XuanpuAgentSessionState): XuanpuPiAgentSession {
+    if (!session.piSession) {
+      session.piSession = new XuanpuPiAgentSession(session.sessionId)
+    }
+    return session.piSession
+  }
+
   private persistMessage(
     hiveSessionId: string,
     role: 'user' | 'assistant' | 'system',
-    content: string
+    content: string,
+    options?: {
+      messageId?: string
+      modelRef?: XuanpuAgentModelRef
+      usage?: Record<string, unknown>
+      rawMessage?: unknown
+    }
   ): void {
+    const messageId = options?.messageId ?? `xuanpu-agent-${randomUUID()}`
+    const timestamp = new Date().toISOString()
+    const parts = [{ type: 'text', text: content, timestamp }]
+    const payload = {
+      id: messageId,
+      role,
+      content,
+      parts,
+      providerID: options?.modelRef?.providerID,
+      modelID: options?.modelRef?.modelID,
+      usage: options?.usage,
+      raw: options?.rawMessage
+    }
+
     this.dbService?.createSessionMessage({
       session_id: hiveSessionId,
       role,
       content,
-      opencode_message_id: `xuanpu-agent-${randomUUID()}`,
-      opencode_message_json: JSON.stringify({
-        id: `xuanpu-agent-${randomUUID()}`,
-        role,
-        parts: [{ type: 'text', text: content, timestamp: new Date().toISOString() }]
-      })
+      opencode_message_id: messageId,
+      opencode_message_json: JSON.stringify(payload),
+      opencode_parts_json: JSON.stringify(parts),
+      created_at: timestamp
+    })
+  }
+
+  private emitTextDelta(hiveSessionId: string, delta: string): void {
+    if (!delta) return
+
+    emitAgentEvent(this.mainWindow, {
+      type: 'message.part.updated',
+      sessionId: hiveSessionId,
+      data: {
+        part: { type: 'text', text: delta },
+        delta
+      }
+    })
+  }
+
+  private emitMessageUpdated(
+    hiveSessionId: string,
+    content: string,
+    options: {
+      messageId: string
+      modelRef: XuanpuAgentModelRef
+      usage?: Record<string, unknown>
+      contextPackageId?: string | null
+    }
+  ): void {
+    const timestamp = new Date().toISOString()
+    emitAgentEvent(this.mainWindow, {
+      type: 'message.updated',
+      sessionId: hiveSessionId,
+      data: {
+        id: options.messageId,
+        role: 'assistant',
+        content,
+        providerID: options.modelRef.providerID,
+        modelID: options.modelRef.modelID,
+        usage: options.usage,
+        contextPackageId: options.contextPackageId,
+        info: {
+          id: options.messageId,
+          role: 'assistant',
+          providerID: options.modelRef.providerID,
+          modelID: options.modelRef.modelID,
+          time: { completed: Date.now() }
+        },
+        parts: [{ type: 'text', text: content, timestamp }]
+      }
     })
   }
 

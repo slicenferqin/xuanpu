@@ -359,8 +359,8 @@ Mitigation:
 
 ## Open Questions
 
-- Should `xuanpu-agent` use `@oh-my-pi/pi-ai` providers directly, or route provider calls through a
-  Xuanpu abstraction first?
+- Should direct `@oh-my-pi/pi-ai` provider use remain only a spike path, or should Xuanpu add a
+  runtime-owned provider abstraction before production exposure?
 - Which provider is the initial dogfood target: Anthropic key, OpenAI key, or Ollama endpoint?
 - Should Context Package traces store rendered markdown for every turn, or only section metadata by
   default with full rendered body behind a debug/privacy flag?
@@ -369,11 +369,12 @@ Mitigation:
 
 ## Immediate Next Steps
 
-1. Add a Phase 0 probe script for `@oh-my-pi/pi-agent-core`.
-2. Verify Electron main packaging and native dependency behavior.
-3. Draft `XuanpuAgentImplementer` with no-tools prompt streaming.
-4. Add `xuanpu-agent` to runtime unions behind a hidden feature flag.
-5. Add `ContextPackage` types and trace repository before real compression.
+1. Dogfood the hidden no-tools `xuanpu-agent` path with a real provider API key.
+2. Keep provider credentials environment-driven for the spike; decide later whether Xuanpu needs a
+   runtime-native credential settings surface.
+3. Add read/query helpers and focused tests for `field_context_packages`.
+4. Add the first managed `transformContext` implementation before semantic compression.
+5. Decide the native/tool strategy before exposing shell or file tools.
 
 ## Implementation Progress: 2026-05-23
 
@@ -390,10 +391,36 @@ Landed so far:
 - Skipped existing Field Context prefix injection for `xuanpu-agent`, because this runtime must own
   final context assembly instead of receiving a rendered prefix.
 - Added `field_context_packages` schema version 23 plus a repository for audit traces.
-- Made the current `xuanpu-agent` prompt path persist the visible user message, record a context
-  package trace, load-probe `@oh-my-pi/pi-agent-core`, and return a clear Phase 0 assistant message.
-- Kept provider execution, tools, permissions, plan mode, undo, fork, and production UI exposure
-  disabled.
+- Made the current `xuanpu-agent` prompt path persist the visible user message and record a context
+  package trace before provider execution.
+- Kept tools, permissions, plan mode, undo, fork, and production UI exposure disabled.
+
+Latest no-tools provider progress:
+
+- Added a direct `@oh-my-pi/pi-ai@15.2.4` dependency because Xuanpu now imports provider/model
+  resolution directly instead of only pulling it transitively through `pi-agent-core`.
+- Added `src/main/services/xuanpu-agent/model-config.ts` for model resolution. The spike defaults
+  to `anthropic/claude-haiku-4-5`, maps existing runtime/provider ids such as `claude-code` to
+  `anthropic`, and supports deterministic mock execution through `XUANPU_AGENT_MOCK_RESPONSE`.
+- Added `src/main/services/xuanpu-agent/runtime.ts` with `XuanpuPiAgentSession`. It creates/reuses
+  the oh-my-pi `Agent`, calls `setModel`, installs a conservative system prompt, forces
+  `setTools([])`, subscribes to assistant message updates, streams text deltas, and returns final
+  text/usage/raw message metadata.
+- Updated `XuanpuAgentImplementer` so the prompt path now calls the no-tools pi Agent instead of
+  returning the Phase 0 load-probe assistant message.
+- Assistant responses are persisted to `session_messages` with provider/model/usage/raw metadata and
+  emitted through the existing normalized `message.part.updated` / `message.updated` bridge.
+- Context package decisions now record `phase: "phase-1-no-tools-provider"` and
+  `providerExecution: "enabled"` for this runtime.
+
+Current constraints:
+
+- Real provider execution depends on oh-my-pi/pi-ai's environment/API-key handling. Xuanpu has not
+  added a dedicated credential UI for this runtime yet.
+- The `@oh-my-pi/pi-natives` compatibility alias is still intentionally limited. Shell/file/native
+  tool parity is not available through `xuanpu-agent`.
+- The runtime stores the raw pi assistant message in the existing message JSON payload for audit
+  value during the spike. Size and privacy policy should be revisited before broad exposure.
 
 ### Packaging Findings
 
@@ -430,14 +457,21 @@ artifacts and reinstalling offline with the frozen lockfile. Current verificatio
 
 ```bash
 pnpm run probe:xuanpu-agent-core
+pnpm run probe:xuanpu-agent-no-tools
 XUANPU_AGENT_RUNTIME=1 pnpm build
+pnpm exec tsc -p tsconfig.node.json --noEmit --pretty false 2>&1 | rg "xuanpu-agent|xuanpu_agent|XuanpuAgent|model-config|pi-agent-core-loader" || true
 node -e "const f=require('node:fs');const p=f.readdirSync('./out/main').find(x=>x.startsWith('pi-agent-core-loader-')&&x.endsWith('.js'));import('./out/main/'+p).then(async m=>console.log(await m.loadPiAgentCore()))"
 ```
 
 Results:
 
 - `probe:xuanpu-agent-core` exits `0` and documents the direct Node import failure as expected.
+- `probe:xuanpu-agent-no-tools` exercises the wrapped runtime with a deterministic mock provider. It
+  verifies `setTools([])`, text deltas, final response shape, and abort-on-dispose behavior without
+  requiring Electron or a real API key.
 - `XUANPU_AGENT_RUNTIME=1 pnpm build` passes.
+- The scoped `tsconfig.node.json` grep reports no `xuanpu-agent` TypeScript errors. Full node
+  `tsc --noEmit` still reports unrelated pre-existing runtime manager / GraphQL type errors.
 - Direct import of the built `pi-agent-core-loader-*` chunk succeeds and returns the exported
   `pi-agent-core` keys.
 
@@ -445,12 +479,16 @@ Results:
 
 ### Task 1: Minimal No-Tools Provider Call
 
-- Replace the Phase 0 load-probe-only response with a no-tools `Agent` prompt.
-- Reuse existing model/provider selection if feasible; avoid adding a separate settings surface.
-- Start with one dogfood provider and a single text-only request path.
-- Stream assistant text into the existing `agent:stream` / normalized event bridge.
-- Persist user and assistant messages in `session_messages`.
+Status: implemented for the managed wrapper and mock probe; pending real provider dogfood from the
+hidden Session HQ path.
+
+- Use `XUANPU_AGENT_RUNTIME=1` to register the runtime and real provider env vars such as
+  `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` according to the selected bundled pi-ai provider.
+- Keep reusing existing model selection where possible; avoid a separate settings surface until the
+  real-provider spike shows it is needed.
+- Validate the text-only path from the desktop UI with one provider first.
 - Keep shell/file tools, permission prompts, slash commands, plan mode, undo, and fork disabled.
+- Add one integration-level smoke once the Electron UI path is dogfooded.
 
 Exit criteria: a hidden `xuanpu-agent` session can answer a simple prompt from Session HQ.
 
@@ -468,6 +506,8 @@ Exit criteria: every `xuanpu-agent` turn has an auditable record of what the run
 
 - Implement a conservative `transformContext` bridge with anchor, current Field Context, latest
   user/assistant exchanges, and current user message last.
+- Pass the transformed context to oh-my-pi Agent through a Xuanpu-owned context boundary instead of
+  relying on visible prompt prefixing.
 - Keep visible transcript messages user-authored; do not persist injected context as chat text.
 - Store inclusion and exclusion decisions for dropped old turns.
 - Avoid semantic compression of code, diffs, and tool output in this phase.
