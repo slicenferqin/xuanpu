@@ -4,8 +4,8 @@
  * Left:  provider+lifecycle │ model selector
  */
 
-import { useMemo, useState } from 'react'
-import { Lock, TerminalSquare, Check } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Lock, TerminalSquare, Check, TriangleAlert } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getEnabledSessionAgentSdks, type SessionAgentSdk } from '@/lib/agent-sdk-availability'
 import { ModelSelector } from '../sessions/ModelSelector'
@@ -160,6 +160,99 @@ function ProviderCapsule({
   )
 }
 
+function XuanpuAgentReadinessCapsule({
+  sdk,
+  providerId,
+  modelId
+}: {
+  sdk: string
+  providerId: string
+  modelId: string
+}): React.JSX.Element | null {
+  const [status, setStatus] = useState<XuanpuAgentRuntimeStatus | null>(null)
+
+  useEffect(() => {
+    if (sdk !== 'xuanpu-agent') {
+      setStatus(null)
+      return
+    }
+
+    let cancelled = false
+    const modelOverride =
+      providerId && modelId
+        ? {
+            providerID: providerId,
+            modelID: modelId
+          }
+        : null
+    const statusPromise = window.systemOps?.getXuanpuAgentRuntimeStatus?.(modelOverride)
+    if (!statusPromise) {
+      setStatus(null)
+      return
+    }
+
+    statusPromise
+      .then((result) => {
+        if (!cancelled) setStatus(result)
+      })
+      .catch(() => {
+        if (!cancelled) setStatus(null)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [sdk, providerId, modelId])
+
+  if (sdk !== 'xuanpu-agent' || !status || status.status === 'ready') return null
+
+  const missingCredentials = status.status === 'missing-credentials'
+  const label = status.status === 'mock-ready' ? 'Mock' : missingCredentials ? 'Env' : 'Off'
+  const Icon = missingCredentials ? TriangleAlert : status.status === 'mock-ready' ? Check : Lock
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium',
+            missingCredentials
+              ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+              : status.status === 'mock-ready'
+                ? 'border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300'
+                : 'border-border/50 bg-muted/40 text-muted-foreground'
+          )}
+          data-testid="xuanpu-agent-runtime-status"
+        >
+          <Icon className="h-3 w-3" />
+          {label}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" sideOffset={6} className="max-w-[280px]">
+        <div className="space-y-1 text-[11px]">
+          <div className="font-medium">
+            {status.status === 'mock-ready'
+              ? 'Mock provider active'
+              : missingCredentials
+                ? 'Provider credentials missing'
+                : 'Runtime disabled'}
+          </div>
+          <div className="opacity-80">
+            {status.providerID}/{status.modelID}
+          </div>
+          {missingCredentials && status.credential.envKeys.length > 0 && (
+            <div className="opacity-80">Set one of: {status.credential.envKeys.join(', ')}</div>
+          )}
+          {status.toolSurface.unmetGateIds.length > 0 && (
+            <div className="opacity-70">
+              Tools blocked: {status.toolSurface.unmetGateIds.join(', ')}
+            </div>
+          )}
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  )
+}
 export interface SessionHeaderProps {
   sessionId: string
   session: {
@@ -193,6 +286,11 @@ export function SessionHeader({
         locked={locked}
       />
       {!isTerminal && <ModelSelector sessionId={sessionId} compact showProviderPrefix={false} />}
+      <XuanpuAgentReadinessCapsule
+        sdk={session.agent_sdk}
+        providerId={session.model_provider_id ?? ''}
+        modelId={session.model_id ?? ''}
+      />
       {!isTerminal && (
         <ContextIndicator
           sessionId={sessionId}

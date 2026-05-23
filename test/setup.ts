@@ -166,6 +166,27 @@ if (typeof window !== 'undefined') {
           codex: false,
           xuanpuAgent: false
         }),
+        getXuanpuAgentRuntimeStatus: vi.fn().mockResolvedValue({
+          enabled: false,
+          status: 'disabled',
+          runtimeGateEnv: 'XUANPU_AGENT_RUNTIME',
+          mockMode: false,
+          providerReady: false,
+          providerID: 'anthropic',
+          modelID: 'claude-haiku-4-5',
+          credential: {
+            providerID: 'anthropic',
+            required: true,
+            present: false,
+            envKeys: ['ANTHROPIC_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_FOUNDRY_API_KEY']
+          },
+          toolSurface: {
+            status: 'blocked',
+            toolsEnabled: false,
+            nativeProcessControlEnabled: false,
+            unmetGateIds: ['permission-policy']
+          }
+        }),
         setSessionQueuedState: vi.fn().mockResolvedValue({ success: true }),
         checkFullDiskAccess: vi.fn().mockResolvedValue({ supported: true, granted: false }),
         openFullDiskAccessSettings: vi.fn().mockResolvedValue({ success: true }),

@@ -36,7 +36,7 @@ import {
 import { buildMenu, updateMenuState } from './menu'
 import type { MenuState } from './menu'
 import { createLogger, getLogDir } from './services/logger'
-import { detectAgentSdks } from './services/system-info'
+import { detectAgentSdks, getXuanpuAgentRuntimeStatus } from './services/system-info'
 import {
   openCommandInSystemTerminal,
   runOnboardingDoctor
@@ -475,6 +475,16 @@ function registerSystemHandlers(): void {
   ipcMain.handle('system:detectAgentRuntimes', async () => {
     return detectAgentSdks()
   })
+
+  ipcMain.handle(
+    'system:getXuanpuAgentRuntimeStatus',
+    (
+      _event,
+      modelOverride?: { providerID: string; modelID: string; variant?: string } | null
+    ) => {
+      return getXuanpuAgentRuntimeStatus(modelOverride)
+    }
+  )
 
   ipcMain.handle('system:runOnboardingDoctor', () => {
     return runOnboardingDoctor()

@@ -699,9 +699,9 @@ pnpm run probe:xuanpu-agent-spike
 Results:
 
 - Core probe reports the expected direct Node import limitation in non-strict success mode.
-- 16 focused test files pass, covering 46 tests across model readiness, no-tools runtime, IPC smoke,
-  UI gate, managed context packages, Context Budget Debugger, episode repository/freezer/retrieval,
-  and tool-surface gates.
+- 17 focused test files pass, covering 52 tests across model readiness, runtime status, no-tools
+  runtime, IPC smoke, UI gate, managed context packages, Context Budget Debugger, episode
+  repository/freezer/retrieval, and tool-surface gates.
 - Real-provider probe defaults to `status: "skipped"` without touching network credentials.
 
 Heavier built-artifact verification:
@@ -745,6 +745,9 @@ Latest provider/model readiness progress:
 - Added a runtime credential preflight in `src/main/services/xuanpu-agent/model-config.ts`.
   Real-provider execution now fails before creating or prompting a pi Agent when required env vars
   are missing. Deterministic mock execution remains exempt.
+- Added `system:getXuanpuAgentRuntimeStatus` and `window.systemOps.getXuanpuAgentRuntimeStatus()`.
+  Session HQ now shows a small `Mock` or `Env` status capsule for `xuanpu-agent` sessions so the
+  hidden runtime can expose mock mode and missing provider env vars before the first send.
 - No real API key has been used in this branch yet. The remaining Task 1 blocker is still a
   real-provider dogfood run through the hidden `xuanpu-agent` UI entry point.
 
@@ -785,6 +788,9 @@ Results:
   provider call and reports the required env vars.
 - `xuanpu-agent-runtime.test.ts` proves the runtime also fails before creating a pi Agent when
   real-provider credentials are missing.
+- `xuanpu-agent-runtime-status.test.ts` proves disabled, missing-credentials, mock-ready, and ready
+  states, including explicit provider/model overrides, without revealing secrets or calling
+  providers.
 - `context-budget-debugger.test.tsx` proves the production panel reads managed packages with
   `includeRenderedMarkdown: false`, uses runtime-session then Hive-session fallback, and renders
   included/excluded package sections plus frozen episode metadata.
@@ -803,6 +809,33 @@ Optional overrides:
 XUANPU_AGENT_PROVIDER_ID=openai XUANPU_AGENT_MODEL_ID=gpt-4.1 OPENAI_API_KEY=...
 ```
 
+## 2026-05-24 Checkpoint
+
+Current committed scope for the next push:
+
+- Added a main-process runtime status resolver for the hidden `xuanpu-agent` runtime. It reports
+  whether the runtime is disabled, mock-ready, credential-ready, or blocked by missing provider
+  env vars for the default model or an explicit provider/model override.
+- Exposed that status through `system:getXuanpuAgentRuntimeStatus` and
+  `window.systemOps.getXuanpuAgentRuntimeStatus()` with shared preload types.
+- Added a Session HQ status capsule for `xuanpu-agent` sessions. The capsule can show `Mock`, `Env`,
+  or `Off` and its tooltip lists provider/model, missing env keys, and the still-blocked tool gates.
+- Added focused tests for disabled, missing-credential, mock-ready, and ready states. The status
+  path intentionally reports only env key names and boolean presence, not secret values.
+- Kept the current runtime strict no-tools: shell/file/MCP tools, permission prompts, native process
+  control, and oh-my-pi tool surfaces remain blocked behind explicit readiness gates.
+
+Follow-up sequence:
+
+- Run one real-provider dogfood pass through the built hidden runtime after credentials are
+  available.
+- Then run the full Session HQ UI dogfood with `XUANPU_AGENT_RUNTIME=1`, validating that the status
+  capsule matches the actual provider path before the first prompt and after a successful answer.
+- After real-provider and UI dogfood pass, decide whether to keep `xuanpu-agent` inside this repo for
+  the next iteration or extract it into an independently maintained agent package/repo.
+- Only revisit shell/file/MCP tools after Xuanpu has an explicit permission and packaging policy for
+  the oh-my-pi tool surface.
+
 ## Next Task Plan
 
 ### Task 1: Minimal No-Tools Provider Call
@@ -810,7 +843,8 @@ XUANPU_AGENT_PROVIDER_ID=openai XUANPU_AGENT_MODEL_ID=gpt-4.1 OPENAI_API_KEY=...
 Status: implemented for the managed wrapper, mock probe, model resolution readiness probe, hidden
 Session HQ IPC path, environment-gated UI entry points, credential preflight, and an opt-in
 real-provider probe. Built-artifact mock dogfood is now automated; pending one actual real-provider
-dogfood run with credentials.
+dogfood run with credentials. Session HQ can now show mock/missing-credential runtime status before
+the first prompt.
 
 - Use `XUANPU_AGENT_RUNTIME=1` to register the runtime and real provider env vars such as
   `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` according to the selected bundled pi-ai provider.

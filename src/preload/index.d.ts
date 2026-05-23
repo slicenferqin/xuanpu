@@ -239,6 +239,28 @@ interface OnboardingDoctorResult {
   recommendedAgent: 'claude-code' | 'codex' | 'opencode' | 'terminal'
 }
 
+interface XuanpuAgentRuntimeStatus {
+  enabled: boolean
+  status: 'disabled' | 'missing-credentials' | 'mock-ready' | 'ready'
+  runtimeGateEnv: 'XUANPU_AGENT_RUNTIME'
+  mockMode: boolean
+  providerReady: boolean
+  providerID: string
+  modelID: string
+  credential: {
+    providerID: string
+    required: boolean
+    present: boolean
+    envKeys: string[]
+  }
+  toolSurface: {
+    status: 'blocked' | 'ready'
+    toolsEnabled: boolean
+    nativeProcessControlEnabled: boolean
+    unmetGateIds: string[]
+  }
+}
+
 declare global {
   interface GhosttyTerminalConfig {
     fontFamily?: string
@@ -597,6 +619,13 @@ declare global {
         codex: boolean
         xuanpuAgent: boolean
       }>
+      getXuanpuAgentRuntimeStatus: (
+        modelOverride?: {
+          providerID: string
+          modelID: string
+          variant?: string
+        } | null
+      ) => Promise<XuanpuAgentRuntimeStatus>
       setKeepAwakeEnabled: (enabled: boolean) => Promise<{ success: boolean }>
       setSessionQueuedState: (sessionId: string, queued: boolean) => Promise<{ success: boolean }>
       runOnboardingDoctor: () => Promise<OnboardingDoctorResult>

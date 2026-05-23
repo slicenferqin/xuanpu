@@ -156,7 +156,8 @@ export function loadBuiltXuanpuAgentImplementer() {
 
   installElectronMainMocks()
   const builtModule = require(implementerChunk)
-  const XuanpuAgentImplementer = builtModule.xuanpuAgentImplementer?.XuanpuAgentImplementer
+  const XuanpuAgentImplementer =
+    builtModule.xuanpuAgentImplementer?.XuanpuAgentImplementer ?? builtModule.XuanpuAgentImplementer
   if (!XuanpuAgentImplementer) {
     throw new Error('Built xuanpu-agent implementer export was not found.')
   }

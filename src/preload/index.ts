@@ -515,6 +515,15 @@ const systemOps = {
     xuanpuAgent: boolean
   }> => ipcRenderer.invoke('system:detectAgentRuntimes'),
 
+  getXuanpuAgentRuntimeStatus: (
+    modelOverride?: {
+      providerID: string
+      modelID: string
+      variant?: string
+    } | null
+  ): Promise<XuanpuAgentRuntimeStatus> =>
+    ipcRenderer.invoke('system:getXuanpuAgentRuntimeStatus', modelOverride ?? null),
+
   setKeepAwakeEnabled: (enabled: boolean): Promise<{ success: boolean }> =>
     ipcRenderer.invoke('system:setKeepAwakeEnabled', enabled),
 
