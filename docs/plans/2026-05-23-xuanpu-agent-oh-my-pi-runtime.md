@@ -638,6 +638,32 @@ Results:
 - The model-list test proves both real-provider default and deterministic mock-provider shapes are
   compatible with the existing renderer model selector.
 
+Latest native/tool policy progress:
+
+- Added `src/main/services/xuanpu-agent/tool-policy.ts` as the single backend policy for the
+  current `xuanpu-agent` tool surface.
+- The policy is explicit: no shell tools, file tools, MCP tools, permission prompts, undo/redo, or
+  native process control are available until Xuanpu owns the permission and checkpoint model.
+- `XuanpuPiAgentSession` now gets its system prompt and oh-my-pi tool list from that policy, and
+  asserts the tool list is empty before calling `Agent.setTools()`.
+- The `@oh-my-pi/pi-natives` compatibility alias remains the packaging strategy for the spike, but
+  process control is inert: `killTree()` returns `0`, `terminate()` returns `false`, and
+  `fromPath()` returns no processes.
+- Added `test/phase-24/xuanpu-agent-tool-policy.test.ts` to lock the policy, runtime capability
+  flags, prompt wording, empty tool list, and inert native process behavior.
+
+Additional verification:
+
+```bash
+pnpm vitest run test/phase-24/xuanpu-agent-tool-policy.test.ts test/phase-24/xuanpu-agent-runtime.test.ts test/phase-24/xuanpu-agent-ipc-smoke.test.ts
+```
+
+Results:
+
+- The no-tools runtime still calls oh-my-pi with `setTools([])`.
+- Attempts to install a non-empty tool list now fail at the Xuanpu policy boundary.
+- Native process control exposed by the compatibility alias is non-operational in this runtime.
+
 ## Next Task Plan
 
 ### Task 1: Minimal No-Tools Provider Call
@@ -717,6 +743,10 @@ Exit criteria: old episodes are not sent every turn, but are included when the c
 clearly needs them.
 
 ### Task 5: Native/Tool Surface Decision
+
+Status: v1 policy implemented for the no-tools spike. Native process control and oh-my-pi
+shell/file tools are intentionally inert; enabling them remains a future task after permission and
+checkpoint policy are designed.
 
 - Decide whether to keep the `pi-natives` compatibility alias long term, externalize the real native
   package with explicit packaging rules, or isolate native use in a separate wrapper package.

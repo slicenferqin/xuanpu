@@ -1,3 +1,5 @@
+import { isXuanpuAgentNativeProcessControlEnabled } from './tool-policy'
+
 export enum ProcessStatus {
   Running = 'running',
   Exited = 'exited'
@@ -23,6 +25,11 @@ export class Process {
   }
 
   killTree(signal?: number | NodeJS.Signals): number {
+    if (!isXuanpuAgentNativeProcessControlEnabled()) {
+      void signal
+      return 0
+    }
+
     try {
       process.kill(this.pid, signal ?? 'SIGKILL')
       return 1
@@ -32,6 +39,7 @@ export class Process {
   }
 
   async terminate(options?: { signal?: AbortSignal; gracefulMs?: number }): Promise<boolean> {
+    if (!isXuanpuAgentNativeProcessControlEnabled()) return false
     if (options?.signal?.aborted) return false
 
     try {

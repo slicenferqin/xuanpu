@@ -1,6 +1,11 @@
 import { loadPiAgentCoreModule } from './pi-agent-core-loader'
 import { resolvePiModel, type XuanpuAgentModelRef } from './model-config'
 import type { XuanpuPiPromptMessage } from './context-transform'
+import {
+  assertXuanpuAgentAllowedTools,
+  getXuanpuAgentAllowedTools,
+  getXuanpuAgentSystemPromptLines
+} from './tool-policy'
 
 interface PiTextContent {
   type: 'text'
@@ -152,16 +157,17 @@ export class XuanpuPiAgentSession {
         sessionId: this.sessionId,
         ...(typeof streamFn === 'function' ? { streamFn } : {})
       })
-      this.agent.setSystemPrompt([
-        'You are xuanpu-agent, an experimental no-tools runtime inside Xuanpu.',
-        'Answer directly. Do not claim access to shell, file editing, or project tools.'
-      ])
-      this.agent.setTools([])
+      const tools = getXuanpuAgentAllowedTools()
+      assertXuanpuAgentAllowedTools(tools)
+      this.agent.setSystemPrompt(getXuanpuAgentSystemPromptLines())
+      this.agent.setTools(tools)
       this.lastModelKey = modelKey
     }
 
     this.agent.setModel(model)
-    this.agent.setTools([])
+    const tools = getXuanpuAgentAllowedTools()
+    assertXuanpuAgentAllowedTools(tools)
+    this.agent.setTools(tools)
     return this.agent
   }
 }
