@@ -713,9 +713,10 @@ pnpm run probe:xuanpu-agent-spike
 Results:
 
 - Core probe reports the expected direct Node import limitation in non-strict success mode.
-- 19 focused test files pass, covering 59 tests across model readiness, runtime status, no-tools
-  runtime, IPC smoke, UI gate, managed context packages, Context Budget Debugger, episode
-  repository/freezer/retrieval, and tool-surface gates.
+- 19 focused test files pass, covering 59 default tests across model readiness, runtime status,
+  no-tools runtime, IPC smoke, UI gate, managed context packages, Context Budget Debugger, episode
+  repository/freezer/retrieval, and tool-surface gates. One extra Session HQ real-provider dogfood
+  test is opt-in and skipped by default unless explicitly enabled.
 - Real-provider probe defaults to `status: "skipped"` without touching network credentials.
 
 Heavier built-artifact verification:
@@ -872,13 +873,29 @@ Current scope for this push:
 - Ran a real-provider dogfood probe through the built hidden runtime with `openai/gpt-5.4` via the
   Codex `sxs` base URL. It returned a provider response, persisted only the visible user/assistant
   messages, and recorded a managed context package with the selected provider/model and section ids.
+- Added an opt-in SessionShell real-provider dogfood harness and script:
+  `probe:xuanpu-agent-session-shell-real-provider`. By default it is skipped, so the normal spike
+  probe still does not touch network credentials. When `XUANPU_AGENT_SESSION_SHELL_REAL_PROVIDER=1`,
+  `OPENAI_API_KEY`, and an OpenAI-compatible base URL env var are present, it renders Session HQ,
+  verifies the status capsule sees `openai/gpt-5.4` as ready, sends through Composer, calls the real
+  `XuanpuPiAgentSession`, and checks Context Budget Debugger reads the runtime session id.
 - Kept the current runtime strict no-tools: shell/file/MCP tools, permission prompts, native process
   control, and oh-my-pi tool surfaces remain blocked behind explicit readiness gates.
 
 Follow-up sequence:
 
-- Run the full Session HQ UI dogfood with `XUANPU_AGENT_RUNTIME=1`, validating that the status
-  capsule matches the actual provider path before the first prompt and after a successful answer.
+- Complete the opt-in Session HQ real-provider dogfood run:
+
+```bash
+OPENAI_API_KEY=... \
+XUANPU_AGENT_OPENAI_BASE_URL=https://api.asxs.top/v1 \
+XUANPU_AGENT_SESSION_SHELL_REAL_PROVIDER=1 \
+pnpm run probe:xuanpu-agent-session-shell-real-provider
+```
+
+- Then run the desktop-level Session HQ dogfood with `XUANPU_AGENT_RUNTIME=1`, validating that the
+  status capsule matches the actual provider path before the first prompt and after a successful
+  answer.
 - After real-provider and UI dogfood pass, decide whether to keep `xuanpu-agent` inside this repo for
   the next iteration or extract it into an independently maintained agent package/repo.
 - Only revisit shell/file/MCP tools after Xuanpu has an explicit permission and packaging policy for
@@ -890,9 +907,10 @@ Follow-up sequence:
 
 Status: implemented for the managed wrapper, mock probe, model resolution readiness probe, hidden
 Session HQ IPC path, environment-gated UI entry points, credential preflight, OpenAI-compatible base
-URL overrides, and an opt-in real-provider probe. Built-artifact mock dogfood is automated, and one
-real-provider probe has passed through the built hidden runtime with the local Codex `sxs` base URL.
-Pending full Session HQ UI dogfood.
+URL overrides, an opt-in real-provider probe, and an opt-in SessionShell real-provider dogfood
+harness. Built-artifact mock dogfood is automated, and one real-provider probe has passed through
+the built hidden runtime with the local Codex `sxs` base URL. Pending a completed Session HQ
+real-provider dogfood run and then a desktop-level UI dogfood pass.
 
 - Use `XUANPU_AGENT_RUNTIME=1` to register the runtime and real provider env vars such as
   `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` according to the selected bundled pi-ai provider.
