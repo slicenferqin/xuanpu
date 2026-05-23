@@ -63,11 +63,48 @@ const log = createLogger({ component: 'AgentHandlers' })
 type MessagePart = { type: string; text?: string; mime?: string; url?: string; filename?: string }
 type MessageOrParts = AgentPromptMessage
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function normalizeMessagePart(raw: unknown): MessagePart | null {
+  if (!isRecord(raw)) return null
+
+  if (raw.type === 'text' && typeof raw.text === 'string') {
+    return { type: 'text', text: raw.text }
+  }
+
+  if (raw.type === 'file' && typeof raw.mime === 'string' && typeof raw.url === 'string') {
+    const part: MessagePart = { type: 'file', mime: raw.mime, url: raw.url }
+    if (typeof raw.filename === 'string') {
+      part.filename = raw.filename
+    }
+    return part
+  }
+
+  return null
+}
+
+function normalizeMessageOrParts(rawParts: unknown, fallbackMessage?: unknown): MessageOrParts {
+  if (typeof rawParts === 'string') return rawParts
+
+  if (Array.isArray(rawParts)) {
+    const parts = rawParts
+      .map(normalizeMessagePart)
+      .filter((part): part is MessagePart => part !== null)
+    if (parts.length > 0) return parts
+  }
+
+  return [{ type: 'text', text: typeof fallbackMessage === 'string' ? fallbackMessage : '' }]
+}
+
 /** Extract the first text part's content (for slash detection + session.message). */
 function getFirstText(m: unknown): string | undefined {
   if (typeof m === 'string') return m
   if (!Array.isArray(m)) return undefined
-  const text = m.find((p) => (p as MessagePart).type === 'text') as MessagePart | undefined
+  const text = m.find((p): p is Extract<MessagePart, { type: 'text' }> => {
+    return isRecord(p) && p.type === 'text' && typeof p.text === 'string'
+  })
   return text?.text
 }
 
@@ -75,11 +112,11 @@ function getFirstText(m: unknown): string | undefined {
 function prependToMessage<T extends MessageOrParts>(m: T, prefix: string): T {
   if (typeof m === 'string') return (prefix + m) as T
   if (!Array.isArray(m)) return m
-  const idx = m.findIndex((p) => (p as MessagePart).type === 'text')
+  const idx = m.findIndex((p) => p.type === 'text')
   if (idx < 0) {
     return [{ type: 'text', text: prefix }, ...m] as unknown as T
   }
-  const part = m[idx] as MessagePart
+  const part = m[idx]
   if (part.type !== 'text') return m
   const copy = [...m] as MessagePart[]
   copy[idx] = { ...part, text: prefix + (part.text ?? '') }
@@ -253,9 +290,7 @@ export function registerAgentHandlers(
       handler: async (args, c) => {
         let worktreePath: string
         let runtimeSessionId: string
-        let messageOrParts:
-          | string
-          | Array<{ type: string; text?: string; mime?: string; url?: string; filename?: string }>
+        let messageOrParts: MessageOrParts
         let model: { providerID: string; modelID: string; variant?: string } | undefined
         let options: PromptOptions | undefined
 
@@ -264,9 +299,7 @@ export function registerAgentHandlers(
           const obj = args[0] as Record<string, unknown>
           worktreePath = obj.worktreePath as string
           runtimeSessionId = obj.sessionId as string
-          messageOrParts = (obj.parts as typeof messageOrParts) || [
-            { type: 'text', text: obj.message as string }
-          ]
+          messageOrParts = normalizeMessageOrParts(obj.parts, obj.message)
           const rawModel = obj.model as Record<string, unknown> | undefined
           if (
             rawModel &&
@@ -284,7 +317,7 @@ export function registerAgentHandlers(
           // Legacy positional args: (worktreePath, sessionId, message)
           worktreePath = args[0] as string
           runtimeSessionId = args[1] as string
-          messageOrParts = args[2] as string
+          messageOrParts = normalizeMessageOrParts(args[2])
           const rawModel = args[3] as Record<string, unknown> | undefined
           if (
             rawModel &&
@@ -479,9 +512,7 @@ export function registerAgentHandlers(
       handler: async (args, c) => {
         let worktreePath: string
         let runtimeSessionId: string
-        let messageOrParts:
-          | string
-          | Array<{ type: string; text?: string; mime?: string; url?: string; filename?: string }>
+        let messageOrParts: MessageOrParts
         let model: { providerID: string; modelID: string; variant?: string } | undefined
         let options: PromptOptions | undefined
 
@@ -489,9 +520,7 @@ export function registerAgentHandlers(
           const obj = args[0] as Record<string, unknown>
           worktreePath = obj.worktreePath as string
           runtimeSessionId = obj.sessionId as string
-          messageOrParts = (obj.parts as typeof messageOrParts) || [
-            { type: 'text', text: obj.message as string }
-          ]
+          messageOrParts = normalizeMessageOrParts(obj.parts, obj.message)
           const rawModel = obj.model as Record<string, unknown> | undefined
           if (
             rawModel &&
@@ -511,7 +540,7 @@ export function registerAgentHandlers(
         } else {
           worktreePath = args[0] as string
           runtimeSessionId = args[1] as string
-          messageOrParts = args[2] as string
+          messageOrParts = normalizeMessageOrParts(args[2])
           const rawModel = args[3] as Record<string, unknown> | undefined
           if (
             rawModel &&

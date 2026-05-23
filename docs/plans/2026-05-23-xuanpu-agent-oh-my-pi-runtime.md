@@ -580,12 +580,42 @@ Results:
 - Context transform test proves retrieved episodes are included in the hidden message boundary and
   that current user text remains last.
 
+Latest hidden-runtime IPC progress:
+
+- Added `test/phase-24/xuanpu-agent-ipc-smoke.test.ts` and the
+  `probe:xuanpu-agent-ipc-smoke` script.
+- The smoke registers the real `agent:*` IPC handlers with `AgentRuntimeManager` and
+  `XuanpuAgentImplementer`, then connects and prompts a hidden `xuanpu-agent` session through the
+  same path used by Session HQ.
+- The test uses the deterministic mock provider, persists the runtime session id, verifies visible
+  `session_messages` contain only the user-authored text plus assistant response, records a
+  `field_context_packages` trace, emits the original `session.message`, and confirms no
+  `[User Message]` Field Context prefix is injected for `xuanpu-agent`.
+- The pi Agent prompt boundary is asserted to be a Xuanpu-owned message array with the current user
+  message last, and the runtime still calls `setTools([])` so shell/file tools remain disabled.
+- Tightened `agent:prompt` and `agent:steer` message normalization in
+  `src/main/ipc/agent-handlers.ts` so only the runtime adapter's supported `text` and `file` parts
+  cross the IPC/runtime boundary.
+
+Additional verification:
+
+```bash
+pnpm run probe:xuanpu-agent-ipc-smoke
+pnpm exec tsc -p tsconfig.node.json --noEmit --pretty false 2>&1 | rg "xuanpu-agent-ipc-smoke|xuanpu-agent|agent-handlers" || true
+```
+
+Results:
+
+- The IPC smoke passes.
+- The scoped node TypeScript grep reports no `xuanpu-agent`, `agent-handlers`, or smoke-test type
+  errors after narrowing IPC message parts.
+
 ## Next Task Plan
 
 ### Task 1: Minimal No-Tools Provider Call
 
-Status: implemented for the managed wrapper and mock probe; pending real provider dogfood from the
-hidden Session HQ path.
+Status: implemented for the managed wrapper, mock probe, and hidden Session HQ IPC path; pending
+real provider/UI dogfood.
 
 - Use `XUANPU_AGENT_RUNTIME=1` to register the runtime and real provider env vars such as
   `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` according to the selected bundled pi-ai provider.
@@ -593,7 +623,8 @@ hidden Session HQ path.
   real-provider spike shows it is needed.
 - Validate the text-only path from the desktop UI with one provider first.
 - Keep shell/file tools, permission prompts, slash commands, plan mode, undo, and fork disabled.
-- Add one integration-level smoke once the Electron UI path is dogfooded.
+- Keep the IPC smoke as the fast regression check; add a real-provider/Electron UI dogfood check
+  once credentials and provider target are selected.
 
 Exit criteria: a hidden `xuanpu-agent` session can answer a simple prompt from Session HQ.
 
