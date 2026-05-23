@@ -9,6 +9,7 @@ import {
   XUANPU_AGENT_TOOL_POLICY
 } from '../../src/main/services/xuanpu-agent/tool-policy'
 import { Process } from '../../src/main/services/xuanpu-agent/pi-natives-compat'
+import { Database } from '../../src/main/services/xuanpu-agent/bun-sqlite-compat'
 
 describe('xuanpu-agent native and tool policy', () => {
   it('keeps agent runtime capabilities aligned with the no-tools policy', () => {
@@ -72,5 +73,21 @@ describe('xuanpu-agent native and tool policy', () => {
     expect(currentProcess?.killTree('SIGTERM')).toBe(0)
     await expect(currentProcess?.terminate({ gracefulMs: 1 })).resolves.toBe(false)
     expect(Process.fromPath('/bin/sh')).toEqual([])
+  })
+
+  it('keeps bun:sqlite compatibility inert for pi-ai cache imports', () => {
+    const db = new Database(':memory:', { create: true })
+    const statement = db.prepare<{ name: string }>('SELECT name FROM sqlite_master')
+
+    expect(statement.all()).toEqual([])
+    expect(statement.get()).toBeNull()
+    expect(statement.run()).toEqual({ changes: 0, lastInsertRowid: 0 })
+    expect(db.query('SELECT 1').all()).toEqual([])
+    expect(db.run('CREATE TABLE auth_credentials (id INTEGER)')).toEqual({
+      changes: 0,
+      lastInsertRowid: 0
+    })
+
+    db.close()
   })
 })

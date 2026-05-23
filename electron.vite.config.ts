@@ -37,6 +37,7 @@ export default defineConfig({
         '@main': resolve('src/main'),
         '@shared': resolve('src/shared'),
         '@oh-my-pi/pi-natives': resolve('src/main/services/xuanpu-agent/pi-natives-compat.ts'),
+        'bun:sqlite': resolve('src/main/services/xuanpu-agent/bun-sqlite-compat.ts'),
         bun: resolve('src/main/services/xuanpu-agent/bun-compat.ts')
       }
     }

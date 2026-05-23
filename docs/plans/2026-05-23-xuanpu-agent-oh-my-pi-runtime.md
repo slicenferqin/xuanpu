@@ -681,7 +681,14 @@ Latest verification matrix progress:
   runs the core packaging probe, all xuanpu-agent model/runtime/context/episode/tool/UI focused
   tests, and the safe default real-provider probe.
 - Added `probe:xuanpu-agent-spike:build` for the heavier pre-merge path: aggregate probe plus
-  `XUANPU_AGENT_RUNTIME=1 pnpm build`.
+  `XUANPU_AGENT_RUNTIME=1 pnpm build` plus a built-artifact mock dogfood probe.
+- Added `probe:xuanpu-agent-built-mock`, which loads the built
+  `out/main/xuanpu-agent-implementer-*` chunk, installs Electron main-process mocks, runs
+  `connect -> prompt -> persist` with `XUANPU_AGENT_MOCK_RESPONSE`, and verifies the visible
+  transcript contains only the user prompt and assistant response.
+- Added a no-op `bun:sqlite` compatibility alias for the main-process build. This keeps pi-ai
+  cache/auth-storage imports loadable in Electron/Node without granting xuanpu-agent a real
+  runtime-owned SQLite credential store.
 
 Additional aggregate verification:
 
@@ -696,6 +703,21 @@ Results:
   UI gate, managed context packages, Context Budget Debugger, episode repository/freezer/retrieval,
   and tool-surface gates.
 - Real-provider probe defaults to `status: "skipped"` without touching network credentials.
+
+Heavier built-artifact verification:
+
+```bash
+pnpm run probe:xuanpu-agent-spike:build
+```
+
+Results:
+
+- Builds with `XUANPU_AGENT_RUNTIME=1`.
+- The built mock dogfood probe loads the emitted `xuanpu-agent-implementer` chunk and confirms the
+  hidden runtime can answer one text prompt without provider credentials.
+- The emitted `out/main` bundle no longer contains a bare `bun:sqlite` import.
+- This still does not prove real-provider or full Electron UI dogfood; it proves the packaged
+  no-tools runtime path is executable and transcript-safe.
 
 Latest provider/model readiness progress:
 
@@ -787,7 +809,8 @@ XUANPU_AGENT_PROVIDER_ID=openai XUANPU_AGENT_MODEL_ID=gpt-4.1 OPENAI_API_KEY=...
 
 Status: implemented for the managed wrapper, mock probe, model resolution readiness probe, hidden
 Session HQ IPC path, environment-gated UI entry points, credential preflight, and an opt-in
-real-provider probe; pending one actual real-provider dogfood run with credentials.
+real-provider probe. Built-artifact mock dogfood is now automated; pending one actual real-provider
+dogfood run with credentials.
 
 - Use `XUANPU_AGENT_RUNTIME=1` to register the runtime and real provider env vars such as
   `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` according to the selected bundled pi-ai provider.
@@ -798,6 +821,8 @@ real-provider probe; pending one actual real-provider dogfood run with credentia
 - Keep shell/file tools, permission prompts, slash commands, plan mode, undo, and fork disabled.
 - Keep the IPC smoke as the fast regression check; use `probe:xuanpu-agent-real-provider` for a
   provider call through the built runtime before the full Electron UI dogfood pass.
+- Use `probe:xuanpu-agent-built-mock` after `XUANPU_AGENT_RUNTIME=1 pnpm build` as the credential-free
+  packaging/runtime sanity check.
 
 Exit criteria: a hidden `xuanpu-agent` session can answer a simple prompt from Session HQ.
 

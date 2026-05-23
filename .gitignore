@@ -65,6 +65,10 @@ scripts/*
 !scripts/codex-app-server-probe.ts
 !scripts/dump-codex-rpc.ts
 !scripts/download-cloudflared.sh
+!scripts/xuanpu-agent-built-mock-probe.mjs
+!scripts/xuanpu-agent-built-probe-utils.mjs
+!scripts/xuanpu-agent-core-probe.ts
+!scripts/xuanpu-agent-real-provider-probe.mjs
 
 # AI coding tool configs
 .claude/

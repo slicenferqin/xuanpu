@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
-import { readdirSync } from 'node:fs'
-import { createRequire } from 'node:module'
-import { resolve } from 'node:path'
-
-const require = createRequire(import.meta.url)
+import {
+  fail,
+  loadBuiltXuanpuAgentImplementer,
+  noop,
+  printJson
+} from './xuanpu-agent-built-probe-utils.mjs'
 
 const DEFAULT_MODELS = {
   anthropic: 'claude-haiku-4-5',
@@ -18,145 +19,9 @@ const PROVIDER_ENV_KEYS = {
   google: ['GEMINI_API_KEY']
 }
 
-function printJson(payload) {
-  console.log(JSON.stringify(payload, null, 2))
-}
-
-function fail(message, extra = {}) {
-  console.error(
-    JSON.stringify(
-      {
-        ok: false,
-        error: message,
-        ...extra
-      },
-      null,
-      2
-    )
-  )
-  process.exitCode = 1
-}
-
 function hasCredential(providerID) {
   const envKeys = PROVIDER_ENV_KEYS[providerID] ?? []
   return envKeys.some((key) => typeof process.env[key] === 'string' && process.env[key].trim())
-}
-
-function findBuiltImplementerChunk() {
-  const outMain = resolve(process.cwd(), 'out/main')
-  let files
-  try {
-    files = readdirSync(outMain)
-  } catch {
-    return null
-  }
-
-  const chunk = files.find(
-    (file) => file.startsWith('xuanpu-agent-implementer-') && file.endsWith('.js')
-  )
-  return chunk ? resolve(outMain, chunk) : null
-}
-
-function installElectronMainMocks() {
-  const Module = require('node:module')
-  const originalLoad = Module._load
-  const noop = () => {}
-  const neverReady = new Promise(() => {})
-
-  const electronMock = {
-    app: {
-      commandLine: { appendSwitch: noop },
-      getName: () => 'Xuanpu Probe',
-      getPath: (name) => (name === 'home' ? process.env.HOME || '/tmp' : '/tmp'),
-      getVersion: () => '0.0.0-probe',
-      on: noop,
-      quit: noop,
-      setName: noop,
-      whenReady: () => neverReady
-    },
-    BrowserWindow: class {
-      static getAllWindows() {
-        return []
-      }
-
-      constructor() {
-        this.webContents = {
-          on: noop,
-          send: noop,
-          session: { webRequest: { onHeadersReceived: noop } },
-          setWindowOpenHandler: noop
-        }
-      }
-
-      isDestroyed() {
-        return false
-      }
-
-      loadFile() {}
-
-      loadURL() {}
-
-      on() {}
-
-      once() {}
-
-      show() {}
-    },
-    clipboard: {
-      readText: () => '',
-      writeText: noop
-    },
-    dialog: {
-      showMessageBox: async () => ({ response: 0 }),
-      showOpenDialog: async () => ({ canceled: true, filePaths: [] })
-    },
-    ipcMain: {
-      handle: noop,
-      on: noop,
-      removeHandler: noop
-    },
-    Menu: {
-      buildFromTemplate: () => ({}),
-      setApplicationMenu: noop
-    },
-    nativeImage: {
-      createFromDataURL: () => ({}),
-      createFromPath: () => ({ isEmpty: () => true })
-    },
-    protocol: {
-      handle: noop,
-      registerSchemesAsPrivileged: noop
-    },
-    session: {
-      defaultSession: { webRequest: { onHeadersReceived: noop } }
-    },
-    shell: {
-      openExternal: noop,
-      openPath: async () => ''
-    }
-  }
-
-  Module._load = function loadWithProbeMocks(request, parent, isMain) {
-    if (request === 'electron') return electronMock
-    if (request === '@electron-toolkit/utils') {
-      return {
-        electronApp: { setAppUserModelId: noop },
-        is: { dev: false },
-        optimizer: { watchWindowShortcuts: noop }
-      }
-    }
-    if (request === 'electron-updater') {
-      return {
-        autoUpdater: {
-          checkForUpdatesAndNotify: noop,
-          on: noop,
-          quitAndInstall: noop
-        }
-      }
-    }
-
-    return originalLoad.apply(this, arguments)
-  }
 }
 
 async function runProbe() {
@@ -174,7 +39,8 @@ async function runProbe() {
     return
   }
 
-  const providerID = process.env.XUANPU_AGENT_PROVIDER_ID || process.env.XUANPU_AGENT_PROVIDER || 'anthropic'
+  const providerID =
+    process.env.XUANPU_AGENT_PROVIDER_ID || process.env.XUANPU_AGENT_PROVIDER || 'anthropic'
   const modelID =
     process.env.XUANPU_AGENT_MODEL_ID ||
     process.env.XUANPU_AGENT_MODEL ||
@@ -197,17 +63,12 @@ async function runProbe() {
     return
   }
 
-  const implementerChunk = findBuiltImplementerChunk()
-  if (!implementerChunk) {
-    fail('Built xuanpu-agent implementer chunk was not found. Run XUANPU_AGENT_RUNTIME=1 pnpm build first.')
-    return
-  }
-
-  installElectronMainMocks()
-  const builtModule = require(implementerChunk)
-  const XuanpuAgentImplementer = builtModule.xuanpuAgentImplementer?.XuanpuAgentImplementer
-  if (!XuanpuAgentImplementer) {
-    fail('Built xuanpu-agent implementer export was not found.', { implementerChunk })
+  let XuanpuAgentImplementer
+  try {
+    const builtProbe = loadBuiltXuanpuAgentImplementer()
+    XuanpuAgentImplementer = builtProbe.XuanpuAgentImplementer
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error))
     return
   }
 
@@ -266,7 +127,5 @@ async function runProbe() {
     await implementer.disconnect(worktreePath, sessionId).catch(() => {})
   }
 }
-
-function noop() {}
 
 void runProbe()
