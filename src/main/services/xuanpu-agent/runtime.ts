@@ -1,5 +1,9 @@
 import { loadPiAgentCoreModule } from './pi-agent-core-loader'
-import { resolvePiModel, type XuanpuAgentModelRef } from './model-config'
+import {
+  assertXuanpuAgentProviderCredential,
+  resolvePiModel,
+  type XuanpuAgentModelRef
+} from './model-config'
 import type { XuanpuPiPromptMessage } from './context-transform'
 import {
   assertXuanpuAgentAllowedTools,
@@ -76,6 +80,7 @@ export class XuanpuPiAgentSession {
   ): Promise<XuanpuAgentPromptResult> {
     const messageId = `xuanpu-agent-${Date.now()}`
     const resolved = await resolvePiModel(modelRef)
+    assertXuanpuAgentProviderCredential(resolved.modelRef)
     const agent = await this.getOrCreateAgent(resolved.modelRef, resolved.model, resolved.streamFn)
 
     let streamedText = ''

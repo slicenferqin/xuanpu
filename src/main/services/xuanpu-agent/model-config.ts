@@ -12,6 +12,12 @@ export interface ResolvedPiModel {
   streamFn?: unknown
 }
 
+export interface XuanpuAgentProviderCredentialRequirement {
+  providerID: string
+  envKeys: string[]
+  present: boolean
+}
+
 const DEFAULT_MODEL_REF: XuanpuAgentModelRef = {
   providerID: 'anthropic',
   modelID: 'claude-haiku-4-5'
@@ -23,11 +29,46 @@ const PROVIDER_ALIASES: Record<string, string> = {
   gemini: 'google'
 }
 
+const PROVIDER_CREDENTIAL_ENV_KEYS: Record<string, string[]> = {
+  anthropic: ['ANTHROPIC_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_FOUNDRY_API_KEY'],
+  openai: ['OPENAI_API_KEY'],
+  google: ['GEMINI_API_KEY']
+}
+
 export function resolveXuanpuAgentModelRef(
   modelOverride?: XuanpuAgentModelRef,
   selectedModel?: XuanpuAgentModelRef | null
 ): XuanpuAgentModelRef {
   return modelOverride ?? selectedModel ?? DEFAULT_MODEL_REF
+}
+
+export function getXuanpuAgentProviderCredentialRequirement(
+  providerID: string
+): XuanpuAgentProviderCredentialRequirement | null {
+  const canonicalProviderID = PROVIDER_ALIASES[providerID] ?? providerID
+  const envKeys = PROVIDER_CREDENTIAL_ENV_KEYS[canonicalProviderID]
+  if (!envKeys) return null
+
+  return {
+    providerID: canonicalProviderID,
+    envKeys,
+    present: envKeys.some((key) => Boolean(process.env[key]?.trim()))
+  }
+}
+
+export function assertXuanpuAgentProviderCredential(modelRef: XuanpuAgentModelRef): void {
+  if (process.env.XUANPU_AGENT_MOCK_RESPONSE !== undefined) return
+
+  const requirement = getXuanpuAgentProviderCredentialRequirement(modelRef.providerID)
+  if (!requirement || requirement.present) return
+
+  throw new Error(
+    [
+      `Missing credentials for xuanpu-agent provider: ${requirement.providerID}.`,
+      `Set one of: ${requirement.envKeys.join(', ')}.`,
+      'The experimental xuanpu-agent runtime reads provider credentials from environment variables during this spike.'
+    ].join('\n')
+  )
 }
 
 export async function resolvePiModel(modelRef: XuanpuAgentModelRef): Promise<ResolvedPiModel> {

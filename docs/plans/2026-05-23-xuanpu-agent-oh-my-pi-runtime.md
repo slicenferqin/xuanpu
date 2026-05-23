@@ -687,6 +687,9 @@ Latest provider/model readiness progress:
   `XUANPU_AGENT_REAL_PROVIDER_PROBE=1` is set, `XUANPU_AGENT_MOCK_RESPONSE` is unset, a required
   provider credential env var is present, and a built `out/main/xuanpu-agent-implementer-*` chunk
   exists.
+- Added a runtime credential preflight in `src/main/services/xuanpu-agent/model-config.ts`.
+  Real-provider execution now fails before creating or prompting a pi Agent when required env vars
+  are missing. Deterministic mock execution remains exempt.
 - No real API key has been used in this branch yet. The remaining Task 1 blocker is still a
   real-provider dogfood run through the hidden `xuanpu-agent` UI entry point.
 
@@ -702,11 +705,13 @@ env -u ANTHROPIC_API_KEY -u ANTHROPIC_OAUTH_TOKEN -u ANTHROPIC_FOUNDRY_API_KEY \
 Results:
 
 - `xuanpu-agent-model-config.test.ts` and `xuanpu-agent-model-list.test.ts` pass.
-- The probe covers 6 tests across default model resolution, aliases, unsupported-model errors, and
-  ModelSelector-compatible provider list shape.
+- The model readiness probe covers default model resolution, aliases, unsupported-model errors,
+  credential requirements, mock credential bypass, and ModelSelector-compatible provider list shape.
 - The real-provider probe defaults to a safe skip without touching network credentials.
 - With the real-provider flag enabled but Anthropic credentials removed, the probe fails before any
   provider call and reports the required env vars.
+- `xuanpu-agent-runtime.test.ts` proves the runtime also fails before creating a pi Agent when
+  real-provider credentials are missing.
 
 Real-provider dogfood command shape:
 
@@ -727,8 +732,8 @@ XUANPU_AGENT_PROVIDER_ID=openai XUANPU_AGENT_MODEL_ID=gpt-4.1 OPENAI_API_KEY=...
 ### Task 1: Minimal No-Tools Provider Call
 
 Status: implemented for the managed wrapper, mock probe, model resolution readiness probe, hidden
-Session HQ IPC path, environment-gated UI entry points, and an opt-in real-provider probe; pending
-one actual real-provider dogfood run with credentials.
+Session HQ IPC path, environment-gated UI entry points, credential preflight, and an opt-in
+real-provider probe; pending one actual real-provider dogfood run with credentials.
 
 - Use `XUANPU_AGENT_RUNTIME=1` to register the runtime and real provider env vars such as
   `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` according to the selected bundled pi-ai provider.

@@ -40,12 +40,24 @@ vi.mock('../../src/main/services/xuanpu-agent/pi-agent-core-loader', () => ({
 }))
 
 import {
+  assertXuanpuAgentProviderCredential,
+  getXuanpuAgentProviderCredentialRequirement,
   resolvePiModel,
   resolveXuanpuAgentModelRef
 } from '../../src/main/services/xuanpu-agent/model-config'
 
 describe('xuanpu-agent model config', () => {
   const previousMockResponse = process.env.XUANPU_AGENT_MOCK_RESPONSE
+  const credentialEnvKeys = [
+    'ANTHROPIC_OAUTH_TOKEN',
+    'ANTHROPIC_API_KEY',
+    'ANTHROPIC_FOUNDRY_API_KEY',
+    'OPENAI_API_KEY',
+    'GEMINI_API_KEY'
+  ]
+  const previousCredentialEnv = Object.fromEntries(
+    credentialEnvKeys.map((key) => [key, process.env[key]])
+  )
 
   afterEach(() => {
     piAiMock.reset()
@@ -53,6 +65,14 @@ describe('xuanpu-agent model config', () => {
       delete process.env.XUANPU_AGENT_MOCK_RESPONSE
     } else {
       process.env.XUANPU_AGENT_MOCK_RESPONSE = previousMockResponse
+    }
+    for (const key of credentialEnvKeys) {
+      const value = previousCredentialEnv[key]
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
     }
   })
 
@@ -117,5 +137,53 @@ describe('xuanpu-agent model config', () => {
         'Known providers: anthropic, google, openai'
       ].join('\n')
     )
+  })
+
+  it('reports credential requirements using canonical pi-ai provider ids', () => {
+    for (const key of credentialEnvKeys) delete process.env[key]
+
+    expect(getXuanpuAgentProviderCredentialRequirement('claude-code')).toEqual({
+      providerID: 'anthropic',
+      envKeys: ['ANTHROPIC_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_FOUNDRY_API_KEY'],
+      present: false
+    })
+
+    process.env.ANTHROPIC_API_KEY = 'test-key'
+    expect(getXuanpuAgentProviderCredentialRequirement('anthropic')).toEqual({
+      providerID: 'anthropic',
+      envKeys: ['ANTHROPIC_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_FOUNDRY_API_KEY'],
+      present: true
+    })
+
+    expect(getXuanpuAgentProviderCredentialRequirement('xuanpu-agent')).toBeNull()
+  })
+
+  it('fails fast for real provider execution without credentials', () => {
+    for (const key of credentialEnvKeys) delete process.env[key]
+
+    expect(() =>
+      assertXuanpuAgentProviderCredential({
+        providerID: 'anthropic',
+        modelID: 'claude-haiku-4-5'
+      })
+    ).toThrow(
+      [
+        'Missing credentials for xuanpu-agent provider: anthropic.',
+        'Set one of: ANTHROPIC_OAUTH_TOKEN, ANTHROPIC_API_KEY, ANTHROPIC_FOUNDRY_API_KEY.',
+        'The experimental xuanpu-agent runtime reads provider credentials from environment variables during this spike.'
+      ].join('\n')
+    )
+  })
+
+  it('skips credential preflight for deterministic mock provider execution', () => {
+    for (const key of credentialEnvKeys) delete process.env[key]
+    process.env.XUANPU_AGENT_MOCK_RESPONSE = 'mock'
+
+    expect(() =>
+      assertXuanpuAgentProviderCredential({
+        providerID: 'anthropic',
+        modelID: 'claude-haiku-4-5'
+      })
+    ).not.toThrow()
   })
 })

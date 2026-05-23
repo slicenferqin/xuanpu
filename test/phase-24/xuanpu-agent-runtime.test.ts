@@ -110,12 +110,27 @@ vi.mock('../../src/main/services/xuanpu-agent/pi-agent-core-loader', () => ({
         },
         stream: vi.fn()
       })
-    )
+    ),
+    getBundledModel: vi.fn((provider: string, modelID: string) => ({
+      id: modelID,
+      provider
+    })),
+    getBundledProviders: vi.fn(() => ['anthropic', 'openai'])
   }))
 }))
 
 describe('XuanpuPiAgentSession', () => {
   const previousMockResponse = process.env.XUANPU_AGENT_MOCK_RESPONSE
+  const credentialEnvKeys = [
+    'ANTHROPIC_OAUTH_TOKEN',
+    'ANTHROPIC_API_KEY',
+    'ANTHROPIC_FOUNDRY_API_KEY',
+    'OPENAI_API_KEY',
+    'GEMINI_API_KEY'
+  ]
+  const previousCredentialEnv = Object.fromEntries(
+    credentialEnvKeys.map((key) => [key, process.env[key]])
+  )
 
   afterEach(() => {
     fakeRuntime.reset()
@@ -123,6 +138,14 @@ describe('XuanpuPiAgentSession', () => {
       delete process.env.XUANPU_AGENT_MOCK_RESPONSE
     } else {
       process.env.XUANPU_AGENT_MOCK_RESPONSE = previousMockResponse
+    }
+    for (const key of credentialEnvKeys) {
+      const value = previousCredentialEnv[key]
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
     }
     vi.resetModules()
   })
@@ -153,5 +176,25 @@ describe('XuanpuPiAgentSession', () => {
 
     session.dispose()
     expect(fakeRuntime.aborts).toEqual(['abort'])
+  })
+
+  it('fails before creating a pi Agent when real provider credentials are missing', async () => {
+    for (const key of credentialEnvKeys) delete process.env[key]
+
+    const { XuanpuPiAgentSession } = await import('../../src/main/services/xuanpu-agent/runtime')
+    const session = new XuanpuPiAgentSession('test-session')
+
+    await expect(
+      session.prompt('hello', { providerID: 'anthropic', modelID: 'claude-haiku-4-5' })
+    ).rejects.toThrow(
+      [
+        'Missing credentials for xuanpu-agent provider: anthropic.',
+        'Set one of: ANTHROPIC_OAUTH_TOKEN, ANTHROPIC_API_KEY, ANTHROPIC_FOUNDRY_API_KEY.',
+        'The experimental xuanpu-agent runtime reads provider credentials from environment variables during this spike.'
+      ].join('\n')
+    )
+
+    expect(fakeRuntime.prompts).toEqual([])
+    expect(fakeRuntime.setToolsCalls).toEqual([])
   })
 })
