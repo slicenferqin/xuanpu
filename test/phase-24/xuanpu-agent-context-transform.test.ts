@@ -15,7 +15,7 @@ describe('xuanpu-agent context transform', () => {
       now: 123,
       currentUserText: 'current request',
       fieldContextMarkdown: '## Current Field\n\nstatus',
-      frozenEpisodes: [
+      retrievedEpisodes: [
         {
           id: 'episode-1',
           title: 'Frozen Setup',
@@ -39,7 +39,7 @@ describe('xuanpu-agent context transform', () => {
     ])
     expect(textAt(result.messages, 0)).toContain('<xuanpu-context-anchor>')
     expect(textAt(result.messages, 1)).toContain('## Current Field')
-    expect(textAt(result.messages, 2)).toContain('<xuanpu-frozen-episodes>')
+    expect(textAt(result.messages, 2)).toContain('<xuanpu-retrieved-episodes>')
     expect(textAt(result.messages, 2)).toContain('episode-1')
     expect(textAt(result.messages, 3)).toBe('previous question')
     expect(textAt(result.messages, 4)).toBe('previous answer')
@@ -49,6 +49,9 @@ describe('xuanpu-agent context transform', () => {
       contextBoundary: 'pi-agent-message-array',
       currentUserMessagePosition: 'last',
       fieldContextInjected: true,
+      episodeContextKind: 'retrieved_episodes',
+      includedRetrievedEpisodeCount: 1,
+      droppedRetrievedEpisodeCount: 0,
       includedFrozenEpisodeCount: 1,
       droppedFrozenEpisodeCount: 0,
       includedPriorMessageCount: 2,

@@ -27,6 +27,7 @@ export interface XuanpuAgentContextTransformInput {
   currentUserText: string
   fieldContextMarkdown?: string | null
   frozenEpisodes?: XuanpuAgentFrozenEpisode[]
+  retrievedEpisodes?: XuanpuAgentFrozenEpisode[]
   priorMessages?: XuanpuAgentContextTurn[]
   maxFrozenEpisodes?: number
   maxFrozenEpisodeChars?: number
@@ -54,7 +55,9 @@ export function buildXuanpuAgentPromptMessages(
   const maxFrozenEpisodes = input.maxFrozenEpisodes ?? DEFAULT_MAX_FROZEN_EPISODES
   const maxFrozenEpisodeChars = input.maxFrozenEpisodeChars ?? DEFAULT_MAX_FROZEN_EPISODE_CHARS
   const fieldContextMarkdown = input.fieldContextMarkdown?.trim() || null
-  const frozenEpisodes = selectFrozenEpisodes(input.frozenEpisodes ?? [], {
+  const episodeSource = input.retrievedEpisodes ?? input.frozenEpisodes ?? []
+  const episodeContextKind = input.retrievedEpisodes ? 'retrieved_episodes' : 'frozen_episodes'
+  const contextEpisodes = selectContextEpisodes(episodeSource, {
     maxFrozenEpisodes,
     maxFrozenEpisodeChars
   })
@@ -90,14 +93,16 @@ export function buildXuanpuAgentPromptMessages(
     )
   }
 
-  if (frozenEpisodes.included.length > 0) {
+  if (contextEpisodes.included.length > 0) {
+    const tag =
+      episodeContextKind === 'retrieved_episodes'
+        ? 'xuanpu-retrieved-episodes'
+        : 'xuanpu-frozen-episodes'
     messages.push(
       createUserMessage(
-        [
-          '<xuanpu-frozen-episodes>',
-          ...frozenEpisodes.included.map(formatFrozenEpisode),
-          '</xuanpu-frozen-episodes>'
-        ].join('\n\n'),
+        [`<${tag}>`, ...contextEpisodes.included.map(formatFrozenEpisode), `</${tag}>`].join(
+          '\n\n'
+        ),
         now
       )
     )
@@ -115,8 +120,13 @@ export function buildXuanpuAgentPromptMessages(
       semanticCompression: 'disabled',
       currentUserMessagePosition: 'last',
       fieldContextInjected: Boolean(fieldContextMarkdown),
-      includedFrozenEpisodeCount: frozenEpisodes.included.length,
-      droppedFrozenEpisodeCount: frozenEpisodes.dropped,
+      episodeContextKind,
+      includedRetrievedEpisodeCount:
+        episodeContextKind === 'retrieved_episodes' ? contextEpisodes.included.length : 0,
+      droppedRetrievedEpisodeCount:
+        episodeContextKind === 'retrieved_episodes' ? contextEpisodes.dropped : 0,
+      includedFrozenEpisodeCount: contextEpisodes.included.length,
+      droppedFrozenEpisodeCount: contextEpisodes.dropped,
       maxFrozenEpisodes,
       maxFrozenEpisodeChars,
       includedPriorMessageCount: priorMessages.included.length,
@@ -128,7 +138,7 @@ export function buildXuanpuAgentPromptMessages(
   }
 }
 
-function selectFrozenEpisodes(
+function selectContextEpisodes(
   episodes: XuanpuAgentFrozenEpisode[],
   options: { maxFrozenEpisodes: number; maxFrozenEpisodeChars: number }
 ): { included: XuanpuAgentFrozenEpisode[]; dropped: number } {

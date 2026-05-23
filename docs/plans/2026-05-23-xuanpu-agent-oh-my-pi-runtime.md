@@ -508,11 +508,14 @@ Task 2 and the minimal Task 3 bridge are now partially landed:
 - `XuanpuAgentImplementer` now sends the transformed message array to `XuanpuPiAgentSession` while
   still persisting only the user-authored visible message and assistant response in
   `session_messages`.
+- The transform now distinguishes retrieved episode context from stored frozen episode blocks. When
+  episodes are selected by the gated retrieval policy, they are emitted as
+  `<xuanpu-retrieved-episodes>` before the recent raw working set.
 
 Focused verification:
 
 ```bash
-pnpm vitest run test/phase-24/field-managed-debug-handlers.test.ts test/phase-24/field-context-debug-managed.test.tsx test/phase-24/xuanpu-agent-context-transform.test.ts test/phase-24/field-context-package-repository.test.ts test/phase-24/xuanpu-agent-runtime.test.ts
+pnpm vitest run test/phase-24/field-managed-debug-handlers.test.ts test/phase-24/field-context-debug-managed.test.tsx test/phase-24/xuanpu-agent-episode-retrieval.test.ts test/phase-24/xuanpu-agent-gated-retrieval-package.test.ts test/phase-24/xuanpu-agent-context-transform.test.ts test/phase-24/field-context-package-repository.test.ts test/phase-24/xuanpu-agent-runtime.test.ts
 ```
 
 Results:
@@ -525,6 +528,10 @@ Results:
 - Managed debug handler/component tests prove scoped package and episode IPC reads, query
   validation, fallback Hive session lookup, and visible included/excluded package sections plus
   frozen episode metadata in the dev debugger.
+- Gated retrieval tests prove unrelated prompts do not retrieve stored episodes, file-path matches
+  select only relevant episodes, historical/short referential prompts retrieve recent episodes, token
+  and count limits are enforced, and `XuanpuAgentImplementer` records available-vs-retrieved
+  sections plus retrieval decisions in `field_context_packages`.
 - Runtime test still proves deterministic no-tools provider flow.
 
 Task 4 base layer is now partially landed:
@@ -538,9 +545,9 @@ Task 4 base layer is now partially landed:
 - Added `createRuleBasedEpisodeFromTurns()` as the first deterministic episode creator. It freezes
   raw visible turns and extracts files, commands, failures, constraints, key facts, token estimate,
   confidence, and source message bounds without LLM compaction.
-- `xuanpu-agent` context packaging now queries recent episode blocks and records a
-  `frozen_episodes` section in `field_context_packages`.
-- The context transform now places selected frozen episodes after Field Context and before recent raw
+- `xuanpu-agent` context packaging now queries episode block candidates and records both
+  `frozen_episodes` availability and `retrieved_episodes` inclusion in `field_context_packages`.
+- The context transform now places retrieved episodes after Field Context and before recent raw
   visible turns, preserving the current user message as the final message.
 - Added a first automatic freeze policy for `xuanpu-agent`: after a successful turn, Xuanpu keeps the
   latest 6 visible user/assistant messages raw and freezes older unreferenced visible messages once
@@ -549,11 +556,18 @@ Task 4 base layer is now partially landed:
   overwrite or duplicate frozen raw refs.
 - Episode blocks are now inspectable from the dev-only Field Context debugger through the same
   read-only `field:listEpisodeBlocks` IPC/preload path used by the managed context tab.
+- Added the first deterministic gated retrieval policy for stored episode blocks. It retrieves
+  episodes only when the current prompt has an explicit historical reference, short referential
+  wording, matching file path, matching command, error signal, or constraint signal. File matches
+  outrank commands, failures, constraints, historical references, and recency.
+- `field_context_packages.sections_json` now records `frozen_episodes` as available-but-not-sent and
+  `retrieved_episodes` as the actually included prompt context, so the debugger can show why an old
+  episode was or was not sent.
 
 Focused verification:
 
 ```bash
-pnpm vitest run test/phase-24/field-episode-block-repository.test.ts test/phase-24/xuanpu-agent-episode-freezer.test.ts test/phase-24/xuanpu-agent-auto-freeze.test.ts test/phase-24/xuanpu-agent-context-transform.test.ts test/phase-24/field-context-package-repository.test.ts test/phase-24/xuanpu-agent-runtime.test.ts
+pnpm vitest run test/phase-24/field-episode-block-repository.test.ts test/phase-24/xuanpu-agent-episode-freezer.test.ts test/phase-24/xuanpu-agent-auto-freeze.test.ts test/phase-24/xuanpu-agent-episode-retrieval.test.ts test/phase-24/xuanpu-agent-gated-retrieval-package.test.ts test/phase-24/xuanpu-agent-context-transform.test.ts test/phase-24/field-context-package-repository.test.ts test/phase-24/xuanpu-agent-runtime.test.ts
 ```
 
 Results:
@@ -562,8 +576,9 @@ Results:
   refs, and rule-based extraction for files/commands/failures/constraints.
 - Episode freezer tests prove the keep-recent policy, no duplicate freezing for already referenced
   raw messages, and successful invocation from `XuanpuAgentImplementer`.
-- Context transform test proves frozen episodes are included in the hidden message boundary and that
-  current user text remains last.
+- Episode retrieval tests prove the gated policy and package trace decisions.
+- Context transform test proves retrieved episodes are included in the hidden message boundary and
+  that current user text remains last.
 
 ## Next Task Plan
 
@@ -624,6 +639,22 @@ compactor after deterministic extraction stabilizes.
 
 Exit criteria: old raw turns can be frozen into immutable blocks and selectively included by the
 packer.
+
+### Task 4.5: Gated Episode Retrieval
+
+Status: first deterministic backend policy implemented and covered by focused tests; pending
+real-provider/UI dogfood.
+
+- Trigger retrieval only on explicit historical references, short referential prompts, file path
+  matches, command matches, error signals, or constraint signals.
+- Prefer deterministic ranking: file path > command > error/failure > constraint > historical
+  reference > recency.
+- Record candidate count, trigger set, included ids, scores, and token/count limits in the context
+  package decisions.
+- Keep vector similarity and LLM-based recall out of v1.
+
+Exit criteria: old episodes are not sent every turn, but are included when the current request
+clearly needs them.
 
 ### Task 5: Native/Tool Surface Decision
 
