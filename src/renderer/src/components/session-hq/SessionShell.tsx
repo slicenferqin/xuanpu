@@ -28,6 +28,7 @@ import { InterruptDock } from './InterruptDock'
 import { ComposerBar } from './ComposerBar'
 import { FieldContextDebug } from '@/components/sessions/FieldContextDebug'
 import { MemoryPanel } from '@/components/sessions/MemoryPanel'
+import { ContextBudgetDebugger } from '@/components/sessions/ContextBudgetDebugger'
 import { ForkFromMessageConfirmDialog } from './ForkFromMessageConfirmDialog'
 import { PlanReadyImplementFab } from '../sessions/PlanReadyImplementFab'
 import { ScrollToBottomFab } from '../sessions/ScrollToBottomFab'
@@ -1918,17 +1919,24 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           controlSlot={<MemoryPanel worktreeId={worktreeId} variant="composer" />}
         />
 
-        {process.env.NODE_ENV === 'development' && (
-          <div className="absolute bottom-0 left-0 right-0 z-30">
-            {/* Phase 22A debug: collapsible view of the last Field Context injection.
-                Production users inspect memory through the Composer console. */}
+        <div className="absolute bottom-0 left-0 right-0 z-30">
+          {agentSdk === 'xuanpu-agent' && (
+            <ContextBudgetDebugger
+              sessionId={sessionId}
+              runtimeSessionId={droidSessionId}
+              worktreeId={worktreeId}
+            />
+          )}
+          {/* Phase 22A debug: collapsible view of the last Field Context injection.
+              Production users inspect memory through the Composer console. */}
+          {process.env.NODE_ENV === 'development' && (
             <FieldContextDebug
               sessionId={droidSessionId}
               fallbackSessionIds={[sessionId]}
               worktreeId={worktreeId}
             />
+          )}
           </div>
-        )}
 
         <ForkFromMessageConfirmDialog
           open={pendingForkMessageId !== null}

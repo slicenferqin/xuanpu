@@ -693,6 +693,21 @@ Latest provider/model readiness progress:
 - No real API key has been used in this branch yet. The remaining Task 1 blocker is still a
   real-provider dogfood run through the hidden `xuanpu-agent` UI entry point.
 
+Latest Context Budget Debugger progress:
+
+- Added `src/renderer/src/components/sessions/ContextBudgetDebugger.tsx` as a production-visible
+  managed context inspector for `xuanpu-agent` sessions in Session HQ.
+- The panel reads `field_context_packages` through the existing debug IPC path with
+  `includeRenderedMarkdown: false`, so the first production view shows section metadata and
+  decisions without loading full rendered context by default.
+- It shows latest package budget profile, approximate tokens, included/excluded section counts,
+  retrieved episode count, frozen episode candidate count, per-section source/reason metadata, model
+  id, rendered-markdown policy, and decisions JSON.
+- `SessionShell` only mounts this first-class panel for `agentSdk === "xuanpu-agent"`, leaving
+  Claude Code, Codex, and OpenCode UI unchanged.
+- Added `test/phase-24/context-budget-debugger.test.tsx` to lock fallback session lookup and the
+  privacy-preserving package read behavior.
+
 Additional verification:
 
 ```bash
@@ -712,6 +727,9 @@ Results:
   provider call and reports the required env vars.
 - `xuanpu-agent-runtime.test.ts` proves the runtime also fails before creating a pi Agent when
   real-provider credentials are missing.
+- `context-budget-debugger.test.tsx` proves the production panel reads managed packages with
+  `includeRenderedMarkdown: false`, uses runtime-session then Hive-session fallback, and renders
+  included/excluded package sections.
 
 Real-provider dogfood command shape:
 
@@ -750,8 +768,8 @@ Exit criteria: a hidden `xuanpu-agent` session can answer a simple prompt from S
 ### Task 2: Context Package Trace Hardening
 
 Status: implemented for repository create/read/list, query filtering, migration SQL coverage,
-rendered markdown privacy defaults, and a dev-only renderer/debugger surface. Still needs a
-first-class production Context Budget Debugger later.
+rendered markdown privacy defaults, a dev-only deep debugger surface, and a first production-visible
+Context Budget Debugger for `xuanpu-agent` Session HQ.
 
 - Add read/query helpers for `field_context_packages`.
 - Store enough section metadata for a future Context Budget Debugger.
@@ -759,7 +777,8 @@ first-class production Context Budget Debugger later.
   setting.
 - Add a focused test around trace insertion and schema migration.
 
-Exit criteria: every `xuanpu-agent` turn has an auditable record of what the runtime packaged.
+Exit criteria: every `xuanpu-agent` turn has an auditable record of what the runtime packaged, and
+Session HQ can inspect the latest package metadata without loading full rendered context by default.
 
 ### Task 3: Minimal Context Transform
 
