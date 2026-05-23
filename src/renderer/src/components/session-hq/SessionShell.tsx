@@ -628,7 +628,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     },
     [agentSdk, mode, promptOptions, supportsSessionGoalMode]
   )
-  const currentProviderId = resolvedModel?.providerID ?? ''
+  const currentProviderId = requestModel?.providerID ?? ''
   const skipForkFromMessageConfirm = useSettingsStore((s) => s.skipForkFromMessageConfirm)
 
   // --- Live streaming mirror (module-level runtime truth) ---
@@ -1936,7 +1936,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
               worktreeId={worktreeId}
             />
           )}
-          </div>
+        </div>
 
         <ForkFromMessageConfirmDialog
           open={pendingForkMessageId !== null}

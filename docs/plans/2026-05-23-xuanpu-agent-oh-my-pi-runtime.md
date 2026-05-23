@@ -628,11 +628,17 @@ Latest hidden UI dogfood progress:
   the previous nested provider object.
 - In real-provider mode the default visible model is `anthropic/claude-haiku-4-5`; when
   `XUANPU_AGENT_MOCK_RESPONSE` is set, the UI lists the deterministic `xuanpu-agent-mock` model.
+- `SessionShell` now passes the same effective provider/model to `SessionHeader` that it uses for
+  the actual `agentOps.prompt()` call. This keeps the readiness capsule aligned with the selected
+  `xuanpu-agent` session model even when no global settings default is present.
+- Added a Session HQ mock dogfood test that connects a hidden `xuanpu-agent` session, sends a prompt
+  through `ComposerBar`, verifies the selected model passed to the backend, and opens Context Budget
+  Debugger against the runtime session id.
 
 Additional verification:
 
 ```bash
-pnpm vitest run test/phase-24/xuanpu-agent-ui-gate.test.tsx test/phase-24/xuanpu-agent-model-list.test.ts test/phase-22/session-2/system-info-codex-detection.test.ts test/phase-24/xuanpu-agent-ipc-smoke.test.ts
+pnpm vitest run test/phase-24/xuanpu-agent-ui-gate.test.tsx test/phase-24/xuanpu-agent-model-list.test.ts test/phase-22/session-2/system-info-codex-detection.test.ts test/phase-24/xuanpu-agent-ipc-smoke.test.ts test/phase-24/xuanpu-agent-session-shell-dogfood.test.tsx
 ```
 
 Results:
@@ -643,6 +649,8 @@ Results:
   dogfood mode.
 - The model-list test proves both real-provider default and deterministic mock-provider shapes are
   compatible with the existing renderer model selector.
+- The Session HQ mock dogfood test proves the no-tools UI path can connect, prompt, and inspect
+  managed context package metadata without provider credentials.
 
 Latest native/tool policy progress:
 
@@ -839,6 +847,8 @@ Current scope for this push:
   path intentionally reports only env key names and boolean presence, not secret values.
 - Added a SessionHeader UI test that verifies the status capsule calls the runtime-status IPC with
   the current `xuanpu-agent` provider/model and hides itself when that provider is ready.
+- Added a SessionShell dogfood regression that verifies the status capsule, prompt call, and Context
+  Budget Debugger all use the same session-selected provider/model/runtime id.
 - Extended the opt-in real-provider probe so a credentialed run verifies the same packaged context
   package path as the built mock probe: persisted provider answer, selected provider/model,
   transcript policy, and package section ids.
