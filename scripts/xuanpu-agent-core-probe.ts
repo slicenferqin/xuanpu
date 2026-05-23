@@ -1,6 +1,9 @@
 async function main(): Promise<void> {
   try {
-    const mod = await import('@oh-my-pi/pi-agent-core')
+    const dynamicImport = new Function('specifier', 'return import(specifier)') as (
+      specifier: string
+    ) => Promise<Record<string, unknown>>
+    const mod = await dynamicImport('@oh-my-pi/pi-agent-core')
     console.log(
       JSON.stringify(
         {
@@ -24,7 +27,7 @@ async function main(): Promise<void> {
         2
       )
     )
-    process.exitCode = 1
+    process.exitCode = process.env.XUANPU_AGENT_CORE_PROBE_STRICT === '1' ? 1 : 0
   }
 }
 

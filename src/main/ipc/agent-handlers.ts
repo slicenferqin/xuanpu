@@ -328,12 +328,12 @@ export function registerAgentHandlers(
 
         const firstTextRaw = getFirstText(messageOrParts)?.trimStart()
         const isSlashCommand = firstTextRaw?.startsWith('/') ?? false
-
         const runtimeId = resolveRuntimeId(c, runtimeSessionId)
         log.info('IPC: agent:prompt runtime resolution', { runtimeSessionId, runtimeId })
         if (runtimeId === 'terminal') return {}
 
-        const usesXfpPullField = runtimeId === 'claude-code' || runtimeId === 'codex'
+        const usesXfpPullField =
+          runtimeId === 'claude-code' || runtimeId === 'codex' || runtimeId === 'xuanpu-agent'
         const promptWorktree = c.dbService.getWorktreeByPath(worktreePath)
         const promptHiveSessionId =
           c.dbService.getSessionByOpenCodeSessionId(runtimeSessionId)?.id ?? null

@@ -50,7 +50,6 @@ import { notificationService } from './services/notification-service'
 import { updaterService } from './services/updater'
 import { ClaudeCodeImplementer } from './services/claude-code-implementer'
 import { CodexImplementer } from './services/codex-implementer'
-import { XuanpuAgentImplementer } from './services/xuanpu-agent-implementer'
 import { openCodeService } from './services/opencode-service'
 import { AgentRuntimeManager } from './services/agent-runtime-manager'
 import type { AgentRuntimeAdapter } from './services/agent-runtime-types'
@@ -814,10 +813,18 @@ app.whenReady().then(async () => {
 
     const runtimeImplementers: AgentRuntimeAdapter[] = [openCodeService, claudeImpl, codexImpl]
     if (process.env.XUANPU_AGENT_RUNTIME === '1') {
-      const xuanpuAgentImpl = new XuanpuAgentImplementer()
-      xuanpuAgentImpl.setDatabaseService(getDatabase())
-      runtimeImplementers.push(xuanpuAgentImpl)
-      log.info('Experimental xuanpu-agent runtime enabled')
+      try {
+        const { XuanpuAgentImplementer } = await import('./services/xuanpu-agent-implementer')
+        const xuanpuAgentImpl = new XuanpuAgentImplementer()
+        xuanpuAgentImpl.setDatabaseService(getDatabase())
+        runtimeImplementers.push(xuanpuAgentImpl)
+        log.info('Experimental xuanpu-agent runtime enabled')
+      } catch (error) {
+        log.error(
+          'Failed to enable experimental xuanpu-agent runtime',
+          error instanceof Error ? error : new Error(String(error))
+        )
+      }
     }
 
     // Create the canonical runtime manager

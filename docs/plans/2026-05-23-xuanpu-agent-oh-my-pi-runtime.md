@@ -1,7 +1,7 @@
 # Xuanpu Agent Runtime Based on oh-my-pi
 
 Date: 2026-05-23
-Status: Proposal
+Status: Implementation spike in progress
 Branch: `feat/xuanpu-agent-oh-my-pi`
 
 ## Decision
@@ -379,94 +379,116 @@ Mitigation:
 
 Current branch: `feat/xuanpu-agent-oh-my-pi`.
 
-Landed in the first implementation pass:
+Landed so far:
 
-- Added `@oh-my-pi/pi-agent-core@15.2.4` to the root dependency graph.
-- Added `probe:xuanpu-agent-core` to document and reproduce the Phase 0 package-load check.
-- Extended the core runtime id surfaces with `xuanpu-agent`:
-  - main runtime types and capabilities
-  - IPC runtime schema
-  - shared protocol/session/worktree types
-  - preload API types
-  - renderer session/worktree/settings type surfaces
+- Added `@oh-my-pi/pi-agent-core@15.2.4` and the `probe:xuanpu-agent-core` script.
+- Extended the runtime id surfaces with `xuanpu-agent` across main, IPC, shared protocol, preload,
+  renderer session/worktree/settings types, and database runtime persistence.
 - Added `XuanpuAgentImplementer` as an experimental fourth runtime skeleton.
 - Registered `xuanpu-agent` only when `XUANPU_AGENT_RUNTIME=1` is set.
-- Kept normal Claude Code, Codex, OpenCode, and Terminal flows unchanged by default.
+- Kept Claude Code, Codex, OpenCode, and Terminal unchanged by default.
+- Skipped existing Field Context prefix injection for `xuanpu-agent`, because this runtime must own
+  final context assembly instead of receiving a rendered prefix.
+- Added `field_context_packages` schema version 23 plus a repository for audit traces.
+- Made the current `xuanpu-agent` prompt path persist the visible user message, record a context
+  package trace, load-probe `@oh-my-pi/pi-agent-core`, and return a clear Phase 0 assistant message.
+- Kept provider execution, tools, permissions, plan mode, undo, fork, and production UI exposure
+  disabled.
 
-The skeleton intentionally does not call a provider yet. Its `prompt` path performs a guarded
-`@oh-my-pi/pi-agent-core` load probe and persists a clear success/failure assistant message. This
-keeps the runtime testable without pretending tool execution, provider routing, or context packing
-is already complete.
+### Packaging Findings
+
+The direct Node probe still intentionally returns a handled failure:
+
+```text
+ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING
+```
+
+This is expected because `@oh-my-pi/pi-agent-core@15.2.4` exports TypeScript source from
+`node_modules`. Xuanpu cannot externalize that package in Electron main; it must bundle and
+transpile the oh-my-pi TypeScript packages.
+
+The Electron/Vite path now does that:
+
+- `@oh-my-pi/pi-agent-core`, `@oh-my-pi/pi-ai`, and `@oh-my-pi/pi-utils` are excluded from
+  `externalizeDepsPlugin` for main.
+- `.md` and `.html` imports used by oh-my-pi are handled as raw text.
+- The loader installs a minimal Bun compatibility global before dynamically importing the bundled
+  `pi-agent-core` chunk.
+- `@oh-my-pi/pi-natives` is aliased to a Xuanpu compatibility module for this runtime spike. It
+  provides the small surface currently needed for package load and no-tools execution
+  (`countTokens`, `Process`, `ProcessStatus`) without loading `.node` binaries through a bundled
+  native loader.
+
+This native alias is deliberate for the spike. It means shell/native oh-my-pi behavior is not
+available through `xuanpu-agent` yet. That is acceptable because the next milestone is no-tools
+provider execution, not local command/file tool parity.
 
 ### Verification Notes
 
-`pnpm install --prefer-offline --frozen-lockfile` repeatedly timed out while linking the workspace
-`node_modules`. The pnpm store contains the downloaded packages, including `@oh-my-pi/pi-agent-core`,
-but the root `.bin` links were not produced in this worktree, so `pnpm exec tsc ...` could not run
-normally.
+Local pnpm linking was repaired after earlier timed-out installs by hydrating the missing store
+artifacts and reinstalling offline with the frozen lockfile. Current verification:
 
-The important Phase 0 finding remains:
-
-```text
-@oh-my-pi/pi-agent-core@15.2.4 exports TypeScript source.
-Electron main currently uses externalizeDepsPlugin().
-Xuanpu must bundle/transpile the oh-my-pi packages for main, or route loading through a compiled
-wrapper, before provider execution can be enabled.
+```bash
+pnpm run probe:xuanpu-agent-core
+XUANPU_AGENT_RUNTIME=1 pnpm build
+node -e "const f=require('node:fs');const p=f.readdirSync('./out/main').find(x=>x.startsWith('pi-agent-core-loader-')&&x.endsWith('.js'));import('./out/main/'+p).then(async m=>console.log(await m.loadPiAgentCore()))"
 ```
+
+Results:
+
+- `probe:xuanpu-agent-core` exits `0` and documents the direct Node import failure as expected.
+- `XUANPU_AGENT_RUNTIME=1 pnpm build` passes.
+- Direct import of the built `pi-agent-core-loader-*` chunk succeeds and returns the exported
+  `pi-agent-core` keys.
 
 ## Next Task Plan
 
-### Task 1: Finish Package Load Validation
+### Task 1: Minimal No-Tools Provider Call
 
-- Repair local pnpm linking in this worktree or verify on a clean checkout.
-- Run `pnpm run probe:xuanpu-agent-core`.
-- Decide whether Electron main should bundle `@oh-my-pi/*` packages by configuring
-  `externalizeDepsPlugin`, or whether Xuanpu should introduce a small compiled wrapper package.
-- Run `pnpm build` with `XUANPU_AGENT_RUNTIME=1` after the packaging rule is chosen.
-
-Exit criteria: the app can start with `XUANPU_AGENT_RUNTIME=1` and the xuanpu-agent load probe fails
-or succeeds as a handled runtime message, never as a main-process crash.
-
-### Task 2: Wire Minimal Managed Runtime
-
-- Replace the load-probe-only prompt path with a no-tools oh-my-pi agent call.
-- Support one configured provider first, preferably reusing Xuanpu's existing model/provider
-  settings instead of adding a new settings surface.
-- Stream assistant text into the existing `agent:stream` protocol.
-- Persist user and assistant messages in the existing `session_messages` table.
-- Keep permissions, shell tools, file tools, slash commands, plan mode, undo, and fork disabled.
+- Replace the Phase 0 load-probe-only response with a no-tools `Agent` prompt.
+- Reuse existing model/provider selection if feasible; avoid adding a separate settings surface.
+- Start with one dogfood provider and a single text-only request path.
+- Stream assistant text into the existing `agent:stream` / normalized event bridge.
+- Persist user and assistant messages in `session_messages`.
+- Keep shell/file tools, permission prompts, slash commands, plan mode, undo, and fork disabled.
 
 Exit criteria: a hidden `xuanpu-agent` session can answer a simple prompt from Session HQ.
 
-### Task 3: Add Context Package Trace Before Compression
+### Task 2: Context Package Trace Hardening
 
-- Add `field_context_packages` migration and repository.
-- Record each rendered package with runtime id, model id, approximate tokens, section metadata, and
-  inclusion/exclusion decisions.
-- Use the existing Field Context builder as the first `xuanpu.field` section.
-- Keep summaries and retrieval out of scope until traces are inspectable.
+- Add read/query helpers for `field_context_packages`.
+- Store enough section metadata for a future Context Budget Debugger.
+- Decide whether full rendered context markdown is always stored or guarded behind a debug/privacy
+  setting.
+- Add a focused test around trace insertion and schema migration.
 
-Exit criteria: every xuanpu-agent turn has an auditable "what did the agent see" record.
+Exit criteria: every `xuanpu-agent` turn has an auditable record of what the runtime packaged.
 
-### Task 4: Minimal Context Transform
+### Task 3: Minimal Context Transform
 
-- Implement a conservative `transformContext` bridge:
-  - anchor from pinned facts / worktree note / memory
-  - current Field Context
-  - latest 6 user/assistant exchanges
-  - current user message last
-- Do not compress code, diffs, or tool output yet.
-- Store context package decisions for dropped old turns.
+- Implement a conservative `transformContext` bridge with anchor, current Field Context, latest
+  user/assistant exchanges, and current user message last.
+- Keep visible transcript messages user-authored; do not persist injected context as chat text.
+- Store inclusion and exclusion decisions for dropped old turns.
+- Avoid semantic compression of code, diffs, and tool output in this phase.
 
-Exit criteria: Xuanpu owns the final `messages[]` for xuanpu-agent while preserving the visible
-transcript as user-authored messages.
+Exit criteria: Xuanpu owns final `messages[]` for `xuanpu-agent` while preserving transcript clarity.
 
-### Task 5: Append-Only Episodes
+### Task 4: Append-Only Episodes
 
-- Add `field_episode_blocks`.
+- Add `field_episode_blocks` after the no-tools loop is usable.
 - Implement rule-based episode creation first.
 - Add LLM prose compaction only after deterministic metadata extraction works.
-- Never overwrite existing episode blocks.
+- Keep raw refs mandatory and never overwrite existing episode blocks.
 
-Exit criteria: old raw turns can be frozen into immutable episode blocks and selectively included by
-the packer.
+Exit criteria: old raw turns can be frozen into immutable blocks and selectively included by the
+packer.
+
+### Task 5: Native/Tool Surface Decision
+
+- Decide whether to keep the `pi-natives` compatibility alias long term, externalize the real native
+  package with explicit packaging rules, or isolate native use in a separate wrapper package.
+- Map Xuanpu's permission model before enabling any oh-my-pi shell/file tools.
+- Treat Claude Code/Codex/OpenCode parity as out of scope until the managed no-tools loop is stable.
+
+Exit criteria: native/tool execution has an explicit packaging and safety policy before it is exposed.

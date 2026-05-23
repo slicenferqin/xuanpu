@@ -167,8 +167,33 @@ export class DatabaseService {
     this.ensureFieldEventsTable()
     this.ensureEpisodicMemoryTable()
     this.ensureHubTables()
+    this.ensureFieldContextPackagesTable()
     this.ensureDiffCommentsTable()
     this.ensureSessionPendingMessagesTable()
+  }
+
+  private ensureFieldContextPackagesTable(): void {
+    const db = this.getDb()
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS field_context_packages (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        worktree_id TEXT NOT NULL,
+        runtime_id TEXT NOT NULL,
+        model_provider_id TEXT,
+        model_id TEXT,
+        created_at INTEGER NOT NULL,
+        budget_profile TEXT NOT NULL,
+        approx_tokens INTEGER NOT NULL,
+        sections_json TEXT NOT NULL,
+        rendered_markdown TEXT,
+        decisions_json TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_field_context_packages_session_created
+        ON field_context_packages(session_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_context_packages_worktree_created
+        ON field_context_packages(worktree_id, created_at DESC);
+    `)
   }
 
   /**
@@ -785,6 +810,7 @@ export class DatabaseService {
       last_model_provider_id: null,
       last_model_id: null,
       last_model_variant: null,
+      last_agent_sdk: null,
       attachments: '[]',
       pinned: 0,
       context: null,
@@ -1112,6 +1138,7 @@ export class DatabaseService {
       model_provider_id: data.model_provider_id ?? null,
       model_id: data.model_id ?? null,
       model_variant: data.model_variant ?? null,
+      first_message_at: null,
       created_at: now,
       updated_at: now,
       completed_at: null

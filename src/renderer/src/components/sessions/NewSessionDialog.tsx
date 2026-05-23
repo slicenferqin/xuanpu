@@ -267,7 +267,7 @@ export function NewSessionDialog({
               <ModelSelector
                 value={model}
                 onChange={(m) => setModel(m)}
-                agentSdkOverride={agentSdk === 'terminal' ? 'opencode' : agentSdk}
+                agentSdkOverride={agentSdk}
                 showProviderPrefix={false}
                 compact
               />

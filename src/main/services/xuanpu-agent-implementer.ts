@@ -9,6 +9,13 @@ import type {
 } from './agent-runtime-types'
 import { XUANPU_AGENT_CAPABILITIES } from './agent-runtime-types'
 import { createLogger } from './logger'
+import { buildFieldContextSnapshot } from '../field/context-builder'
+import { formatFieldContext } from '../field/context-formatter'
+import {
+  createFieldContextPackage,
+  type FieldContextPackageRecord,
+  type FieldContextPackageSection
+} from '../field/context-package-repository'
 import { beginSessionRun, emitAgentEvent } from '@shared/lib/normalize-agent-event'
 
 const log = createLogger({ component: 'XuanpuAgentImplementer' })
@@ -49,13 +56,8 @@ function extractPromptText(
 
 async function probePiAgentCore(): Promise<PiAgentCoreProbe> {
   try {
-    // Keep this out of static analysis for now. pi-agent-core@15.2.4 exports
-    // TypeScript source, and Electron main currently externalizes dependencies.
-    const dynamicImport = new Function('specifier', 'return import(specifier)') as (
-      specifier: string
-    ) => Promise<Record<string, unknown>>
-    const mod = await dynamicImport('@oh-my-pi/pi-agent-core')
-    return { ok: true, exportedKeys: Object.keys(mod).sort() }
+    const { loadPiAgentCore } = await import('./xuanpu-agent/pi-agent-core-loader')
+    return { ok: true, exportedKeys: (await loadPiAgentCore()).exportedKeys }
   } catch (error) {
     return {
       ok: false,
@@ -71,7 +73,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
   private mainWindow: BrowserWindow | null = null
   private dbService: DatabaseService | null = null
   private sessions = new Map<string, XuanpuAgentSessionState>()
-  private selectedModel: { providerID: string; modelID: string; variant?: string } | null = null
+  private selectedModelRef: { providerID: string; modelID: string; variant?: string } | null = null
 
   setMainWindow(window: BrowserWindow): void {
     this.mainWindow = window
@@ -134,7 +136,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
           | { type: 'text'; text: string }
           | { type: 'file'; mime: string; url: string; filename?: string }
         >,
-    _modelOverride?: { providerID: string; modelID: string; variant?: string },
+    modelOverride?: { providerID: string; modelID: string; variant?: string },
     _options?: PromptOptions
   ): Promise<void> {
     const session = this.requireSession(agentSessionId, worktreePath)
@@ -147,11 +149,21 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     session.abortController = new AbortController()
     this.emitStatus(session.hiveSessionId, 'busy')
 
+    const contextPackage = await this.createContextPackage(session, text, modelOverride).catch(
+      (error) => {
+        log.warn('Failed to record xuanpu-agent context package', {
+          hiveSessionId: session.hiveSessionId,
+          error: error instanceof Error ? error.message : String(error)
+        })
+        return null
+      }
+    )
+
     const probe = await probePiAgentCore()
     if (!probe.ok) {
       const errorMessage = [
         'xuanpu-agent Phase 0 probe failed to load @oh-my-pi/pi-agent-core.',
-        'The package currently exports TypeScript source and Xuanpu still externalizes main-process dependencies.',
+        'Xuanpu attempted to load the Electron/Vite bundled oh-my-pi adapter chunk.',
         `Import error: ${probe.error}`
       ].join('\n')
       this.persistMessage(session.hiveSessionId, 'assistant', errorMessage)
@@ -164,6 +176,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     const assistantText = [
       'xuanpu-agent Phase 0 loaded @oh-my-pi/pi-agent-core successfully.',
       `Exports: ${probe.exportedKeys.join(', ') || '(none)'}`,
+      `Context package: ${contextPackage?.id ?? 'not recorded'}`,
       'Provider execution is intentionally disabled until the managed context bridge is wired.'
     ].join('\n')
 
@@ -204,7 +217,16 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         'xuanpu-agent': {
           id: 'xuanpu-agent',
           name: 'Xuanpu Agent',
-          models: []
+          models: this.selectedModelRef
+            ? [
+                {
+                  id: this.selectedModelRef.modelID,
+                  name: this.selectedModelRef.modelID,
+                  providerID: this.selectedModelRef.providerID,
+                  variant: this.selectedModelRef.variant
+                }
+              ]
+            : []
         }
       }
     }
@@ -215,7 +237,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
   }
 
   setSelectedModel(model: { providerID: string; modelID: string; variant?: string }): void {
-    this.selectedModel = model
+    this.selectedModelRef = model
   }
 
   async getSessionInfo(): Promise<{ revertMessageID: string | null; revertDiff: string | null }> {
@@ -259,6 +281,89 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     this.dbService.updateSession(session.hiveSessionId, { name })
   }
 
+  private async createContextPackage(
+    session: XuanpuAgentSessionState,
+    userText: string,
+    modelOverride?: { providerID: string; modelID: string; variant?: string }
+  ): Promise<FieldContextPackageRecord | null> {
+    if (!this.dbService) return null
+
+    const worktree = this.dbService.getWorktreeByPath(session.worktreePath)
+    if (!worktree) return null
+
+    const sections: FieldContextPackageSection[] = []
+    let renderedMarkdown: string | null = null
+    let approxTokens = estimateTokens(userText)
+    let fieldContextTokens = 0
+    let fieldContextAvailable = false
+    let fieldContextTruncated = false
+
+    const snapshot = await buildFieldContextSnapshot({ worktreeId: worktree.id })
+    if (snapshot) {
+      const formatted = formatFieldContext(snapshot, { tokenBudget: 1500 })
+      renderedMarkdown = formatted.markdown
+      fieldContextTokens = formatted.approxTokens
+      fieldContextAvailable = true
+      fieldContextTruncated = formatted.wasTruncated
+      approxTokens += formatted.approxTokens
+      sections.push({
+        id: 'current-field',
+        kind: 'current_field',
+        title: 'Current Field',
+        included: true,
+        approxTokens: formatted.approxTokens,
+        source: 'field-context',
+        metadata: {
+          wasTruncated: formatted.wasTruncated,
+          windowMs: snapshot.windowMs,
+          asOf: snapshot.asOf
+        }
+      })
+    } else {
+      sections.push({
+        id: 'current-field',
+        kind: 'current_field',
+        title: 'Current Field',
+        included: false,
+        approxTokens: 0,
+        source: 'field-context',
+        reason: 'Field collection disabled or no snapshot available'
+      })
+    }
+
+    sections.push({
+      id: 'working-set-current-user',
+      kind: 'working_set',
+      title: 'Current User Message',
+      included: true,
+      approxTokens: estimateTokens(userText),
+      source: 'prompt'
+    })
+
+    const modelRef = modelOverride ?? this.selectedModelRef
+
+    return createFieldContextPackage({
+      sessionId: session.hiveSessionId,
+      worktreeId: worktree.id,
+      runtimeId: this.id,
+      modelProviderId: modelRef?.providerID ?? null,
+      modelId: modelRef?.modelID ?? null,
+      budgetProfile: 'balanced',
+      approxTokens,
+      sections,
+      renderedMarkdown,
+      decisions: {
+        phase: 'phase-0-package-load-probe',
+        providerExecution: 'disabled',
+        fieldContextAvailable,
+        fieldContextTokens,
+        fieldContextTruncated,
+        userMessageChars: userText.length,
+        visibleTranscriptPolicy: 'persist-user-authored-message-only'
+      }
+    })
+  }
+
   private requireSession(agentSessionId: string, worktreePath: string): XuanpuAgentSessionState {
     const session = this.sessions.get(agentSessionId)
     if (!session) {
@@ -297,8 +402,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     emitAgentEvent(this.mainWindow, {
       type: 'session.status',
       sessionId: hiveSessionId,
-      data: { status: statusPayload },
-      statusPayload
+      data: { status: statusPayload }
     })
   }
 
@@ -309,4 +413,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       data: { error: message }
     })
   }
+}
+
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 3)
 }

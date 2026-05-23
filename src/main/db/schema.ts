@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 23
+export const CURRENT_SCHEMA_VERSION = 24
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -268,6 +268,26 @@ CREATE TABLE IF NOT EXISTS field_pinned_facts (
   created_at INTEGER NOT NULL
 );
 
+-- xuanpu-agent: auditable managed context packages.
+CREATE TABLE IF NOT EXISTS field_context_packages (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  worktree_id TEXT NOT NULL,
+  runtime_id TEXT NOT NULL,
+  model_provider_id TEXT,
+  model_id TEXT,
+  created_at INTEGER NOT NULL,
+  budget_profile TEXT NOT NULL,
+  approx_tokens INTEGER NOT NULL,
+  sections_json TEXT NOT NULL,
+  rendered_markdown TEXT,
+  decisions_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_field_context_packages_session_created
+  ON field_context_packages(session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_field_context_packages_worktree_created
+  ON field_context_packages(worktree_id, created_at DESC);
+
 -- v1.4.7: Local diff comments anchored to worktree/file/line.
 CREATE TABLE IF NOT EXISTS diff_comments (
   id TEXT PRIMARY KEY,
@@ -303,6 +323,8 @@ export const MIGRATIONS: Migration[] = [
     down: `
       DROP INDEX IF EXISTS idx_project_spaces_project;
       DROP INDEX IF EXISTS idx_project_spaces_space;
+      DROP INDEX IF EXISTS idx_field_context_packages_worktree_created;
+      DROP INDEX IF EXISTS idx_field_context_packages_session_created;
       DROP INDEX IF EXISTS idx_diff_comments_worktree_updated;
       DROP INDEX IF EXISTS idx_diff_comments_worktree_file;
       DROP INDEX IF EXISTS idx_projects_accessed;
@@ -324,6 +346,7 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_worktrees_project;
       DROP TABLE IF EXISTS project_spaces;
       DROP TABLE IF EXISTS spaces;
+      DROP TABLE IF EXISTS field_context_packages;
       DROP TABLE IF EXISTS diff_comments;
       DROP TABLE IF EXISTS settings;
       DROP TABLE IF EXISTS usage_sync_state;
@@ -857,6 +880,36 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_session_pending_messages_updated;
       DROP INDEX IF EXISTS idx_session_pending_messages_session_status;
       DROP TABLE IF EXISTS session_pending_messages;
+    `
+  },
+  {
+    version: 24,
+    name: 'add_field_context_packages',
+    up: `
+      -- xuanpu-agent: auditable managed context packages.
+      CREATE TABLE IF NOT EXISTS field_context_packages (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        worktree_id TEXT NOT NULL,
+        runtime_id TEXT NOT NULL,
+        model_provider_id TEXT,
+        model_id TEXT,
+        created_at INTEGER NOT NULL,
+        budget_profile TEXT NOT NULL,
+        approx_tokens INTEGER NOT NULL,
+        sections_json TEXT NOT NULL,
+        rendered_markdown TEXT,
+        decisions_json TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_field_context_packages_session_created
+        ON field_context_packages(session_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_context_packages_worktree_created
+        ON field_context_packages(worktree_id, created_at DESC);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_field_context_packages_worktree_created;
+      DROP INDEX IF EXISTS idx_field_context_packages_session_created;
+      DROP TABLE IF EXISTS field_context_packages;
     `
   }
 ]
