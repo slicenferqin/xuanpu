@@ -651,6 +651,10 @@ Latest native/tool policy progress:
   `fromPath()` returns no processes.
 - Added `test/phase-24/xuanpu-agent-tool-policy.test.ts` to lock the policy, runtime capability
   flags, prompt wording, empty tool list, and inert native process behavior.
+- Extended the no-tools policy with explicit tool-surface readiness gates. Shell/file/MCP tools
+  remain blocked until Xuanpu has a permission policy, checkpoint policy, audit trail, native
+  packaging decision, UI capability gate, and MCP boundary. Any non-empty oh-my-pi tool list now
+  fails with the unmet gate ids.
 
 Additional verification:
 
@@ -663,6 +667,9 @@ Results:
 - The no-tools runtime still calls oh-my-pi with `setTools([])`.
 - Attempts to install a non-empty tool list now fail at the Xuanpu policy boundary.
 - Native process control exposed by the compatibility alias is non-operational in this runtime.
+- The tool-surface readiness test locks the unresolved gates:
+  `permission-policy`, `checkpoint-policy`, `tool-audit`, `native-packaging`, `ui-capability-gate`,
+  and `mcp-boundary`.
 
 Latest provider/model readiness progress:
 
@@ -830,9 +837,9 @@ clearly needs them.
 
 ### Task 5: Native/Tool Surface Decision
 
-Status: v1 policy implemented for the no-tools spike. Native process control and oh-my-pi
-shell/file tools are intentionally inert; enabling them remains a future task after permission and
-checkpoint policy are designed.
+Status: v1 policy implemented and test-locked for the no-tools spike. Native process control and
+oh-my-pi shell/file/MCP tools are intentionally inert; enabling them requires clearing explicit
+tool-surface readiness gates first.
 
 - Decide whether to keep the `pi-natives` compatibility alias long term, externalize the real native
   package with explicit packaging rules, or isolate native use in a separate wrapper package.
@@ -840,3 +847,5 @@ checkpoint policy are designed.
 - Treat Claude Code/Codex/OpenCode parity as out of scope until the managed no-tools loop is stable.
 
 Exit criteria: native/tool execution has an explicit packaging and safety policy before it is exposed.
+Current v1 exit state is a blocked policy, inert native compatibility alias, and tests that fail any
+attempt to expose a non-empty oh-my-pi tool list before the required gates are satisfied.
