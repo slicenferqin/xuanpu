@@ -699,7 +699,7 @@ pnpm run probe:xuanpu-agent-spike
 Results:
 
 - Core probe reports the expected direct Node import limitation in non-strict success mode.
-- 17 focused test files pass, covering 52 tests across model readiness, runtime status, no-tools
+- 18 focused test files pass, covering 55 tests across model readiness, runtime status, no-tools
   runtime, IPC smoke, UI gate, managed context packages, Context Budget Debugger, episode
   repository/freezer/retrieval, and tool-surface gates.
 - Real-provider probe defaults to `status: "skipped"` without touching network credentials.
@@ -748,6 +748,8 @@ Latest provider/model readiness progress:
 - Added `system:getXuanpuAgentRuntimeStatus` and `window.systemOps.getXuanpuAgentRuntimeStatus()`.
   Session HQ now shows a small `Mock` or `Env` status capsule for `xuanpu-agent` sessions so the
   hidden runtime can expose mock mode and missing provider env vars before the first send.
+- Added `xuanpu-agent-session-header-status.test.tsx` to lock the Session HQ status capsule behavior
+  and ensure it checks credentials against the selected provider/model, not only the default model.
 - No real API key has been used in this branch yet. The remaining Task 1 blocker is still a
   real-provider dogfood run through the hidden `xuanpu-agent` UI entry point.
 
@@ -822,6 +824,8 @@ Current committed scope for the next push:
   or `Off` and its tooltip lists provider/model, missing env keys, and the still-blocked tool gates.
 - Added focused tests for disabled, missing-credential, mock-ready, and ready states. The status
   path intentionally reports only env key names and boolean presence, not secret values.
+- Added a SessionHeader UI test that verifies the status capsule calls the runtime-status IPC with
+  the current `xuanpu-agent` provider/model and hides itself when that provider is ready.
 - Kept the current runtime strict no-tools: shell/file/MCP tools, permission prompts, native process
   control, and oh-my-pi tool surfaces remain blocked behind explicit readiness gates.
 
