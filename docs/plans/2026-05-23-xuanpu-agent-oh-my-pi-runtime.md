@@ -532,17 +532,24 @@ Task 4 base layer is now partially landed:
   `frozen_episodes` section in `field_context_packages`.
 - The context transform now places selected frozen episodes after Field Context and before recent raw
   visible turns, preserving the current user message as the final message.
+- Added a first automatic freeze policy for `xuanpu-agent`: after a successful turn, Xuanpu keeps the
+  latest 6 visible user/assistant messages raw and freezes older unreferenced visible messages once
+  at least 4 are eligible.
+- The freezer skips messages already referenced by existing episode blocks, so later turns do not
+  overwrite or duplicate frozen raw refs.
 
 Focused verification:
 
 ```bash
-pnpm vitest run test/phase-24/field-episode-block-repository.test.ts test/phase-24/xuanpu-agent-context-transform.test.ts test/phase-24/field-context-package-repository.test.ts test/phase-24/xuanpu-agent-runtime.test.ts
+pnpm vitest run test/phase-24/field-episode-block-repository.test.ts test/phase-24/xuanpu-agent-episode-freezer.test.ts test/phase-24/xuanpu-agent-auto-freeze.test.ts test/phase-24/xuanpu-agent-context-transform.test.ts test/phase-24/field-context-package-repository.test.ts test/phase-24/xuanpu-agent-runtime.test.ts
 ```
 
 Results:
 
 - Episode repository test proves v24 migration SQL, append insert/read/list behavior, mandatory raw
   refs, and rule-based extraction for files/commands/failures/constraints.
+- Episode freezer tests prove the keep-recent policy, no duplicate freezing for already referenced
+  raw messages, and successful invocation from `XuanpuAgentImplementer`.
 - Context transform test proves frozen episodes are included in the hidden message boundary and that
   current user text remains last.
 
@@ -593,9 +600,9 @@ Exit criteria: Xuanpu owns final `messages[]` for `xuanpu-agent` while preservin
 
 ### Task 4: Append-Only Episodes
 
-Status: schema/repository/rule-based creation and packer inclusion implemented. Still needs an
-automatic policy for deciding when old raw turns should be frozen and a UI/debugger surface for
-inspection.
+Status: schema/repository/rule-based creation, automatic old-turn freezing, and packer inclusion
+implemented. Still needs a UI/debugger surface for inspection and a future LLM prose compactor after
+deterministic extraction stabilizes.
 
 - Add `field_episode_blocks` after the no-tools loop is usable.
 - Implement rule-based episode creation first.

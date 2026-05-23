@@ -13,6 +13,7 @@ import { createLogger } from './logger'
 import { buildFieldContextSnapshot } from '../field/context-builder'
 import { formatFieldContext } from '../field/context-formatter'
 import {
+  createRuleBasedEpisodeFromTurns,
   listFieldEpisodeBlocks,
   type FieldEpisodeBlockRecord
 } from '../field/episode-block-repository'
@@ -25,6 +26,7 @@ import {
   buildXuanpuAgentPromptMessages,
   type XuanpuAgentContextTurn
 } from './xuanpu-agent/context-transform'
+import { selectMessagesForEpisodeFreeze } from './xuanpu-agent/episode-freezer'
 import { resolveXuanpuAgentModelRef, type XuanpuAgentModelRef } from './xuanpu-agent/model-config'
 import { XuanpuPiAgentSession } from './xuanpu-agent/runtime'
 import { beginSessionRun, emitAgentEvent } from '@shared/lib/normalize-agent-event'
@@ -196,6 +198,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         usage: result.usage,
         contextPackageId: contextPackage?.record.id ?? null
       })
+      this.freezeOldConversationTurns(session)
 
       session.status = 'ready'
       session.abortController = null
@@ -465,6 +468,56 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         error: error instanceof Error ? error.message : String(error)
       })
       return []
+    }
+  }
+
+  private freezeOldConversationTurns(session: XuanpuAgentSessionState): void {
+    if (!this.dbService) return
+
+    try {
+      const worktree = this.dbService.getWorktreeByPath(session.worktreePath)
+      if (!worktree) return
+
+      const existingEpisodes = listFieldEpisodeBlocks({
+        worktreeId: worktree.id,
+        sessionId: session.hiveSessionId,
+        limit: 200
+      })
+      const selected = selectMessagesForEpisodeFreeze(
+        this.dbService.getSessionMessages(session.hiveSessionId).map((message) => ({
+          id: message.opencode_message_id ?? message.id,
+          role: message.role,
+          content: message.content,
+          createdAt: message.created_at
+        })),
+        existingEpisodes
+      )
+
+      if (selected.length === 0) return
+
+      const episode = createRuleBasedEpisodeFromTurns({
+        worktreeId: worktree.id,
+        sessionId: session.hiveSessionId,
+        title: 'Frozen Conversation Turns',
+        turns: selected.map((message) => ({
+          messageId: message.id ?? '',
+          role: message.role,
+          content: message.content,
+          createdAt: message.createdAt
+        }))
+      })
+
+      log.info('Frozen xuanpu-agent conversation episode', {
+        hiveSessionId: session.hiveSessionId,
+        worktreeId: worktree.id,
+        episodeId: episode.id,
+        messageCount: selected.length
+      })
+    } catch (error) {
+      log.warn('Failed to freeze xuanpu-agent conversation episode', {
+        hiveSessionId: session.hiveSessionId,
+        error: error instanceof Error ? error.message : String(error)
+      })
     }
   }
 
