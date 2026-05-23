@@ -174,6 +174,13 @@ export interface AppSettings {
   sessionUiV2Enabled: boolean
 }
 
+export interface AgentSdkAvailability {
+  opencode: boolean
+  claude: boolean
+  codex: boolean
+  xuanpuAgent: boolean
+}
+
 const DEFAULT_COMMAND_FILTER_ALLOWLIST = [
   'edit: **',
   'write: **',
@@ -325,7 +332,7 @@ interface SettingsState extends AppSettings {
   isLoading: boolean
 
   // Cached SDK availability (non-persisted, re-detected each launch)
-  availableAgentSdks: { opencode: boolean; claude: boolean; codex: boolean } | null
+  availableAgentSdks: AgentSdkAvailability | null
 
   // Actions
   openSettings: (section?: string) => void

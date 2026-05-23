@@ -239,24 +239,27 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
   }
 
   async getAvailableModels(): Promise<unknown> {
-    return {
-      providers: {
-        'xuanpu-agent': {
-          id: 'xuanpu-agent',
-          name: 'Xuanpu Agent',
-          models: this.selectedModelRef
-            ? [
-                {
-                  id: this.selectedModelRef.modelID,
-                  name: this.selectedModelRef.modelID,
-                  providerID: this.selectedModelRef.providerID,
-                  variant: this.selectedModelRef.variant
-                }
-              ]
-            : []
+    const modelRef =
+      process.env.XUANPU_AGENT_MOCK_RESPONSE !== undefined
+        ? { providerID: 'xuanpu-agent', modelID: 'xuanpu-agent-mock' }
+        : resolveXuanpuAgentModelRef(undefined, this.selectedModelRef)
+    const providerName =
+      modelRef.providerID === 'xuanpu-agent'
+        ? 'Xuanpu Agent'
+        : modelRef.providerID.charAt(0).toUpperCase() + modelRef.providerID.slice(1)
+
+    return [
+      {
+        id: modelRef.providerID,
+        name: providerName,
+        models: {
+          [modelRef.modelID]: {
+            id: modelRef.modelID,
+            name: modelRef.modelID
+          }
         }
       }
-    }
+    ]
   }
 
   async getModelInfo(): Promise<null> {

@@ -8,6 +8,7 @@ export interface AgentSdkDetection {
   opencode: boolean
   claude: boolean
   codex: boolean
+  xuanpuAgent: boolean
 }
 
 export interface AppPaths {
@@ -21,7 +22,8 @@ export async function detectAgentSdks(): Promise<AgentSdkDetection> {
   return {
     opencode,
     claude: !!resolveClaudeBinaryPath(),
-    codex: !!codex.spec && codex.supportsAppServer
+    codex: !!codex.spec && codex.supportsAppServer,
+    xuanpuAgent: process.env.XUANPU_AGENT_RUNTIME === '1'
   }
 }
 

@@ -1776,6 +1776,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         newOpenCode: 'New OpenCode Session',
         newClaudeCode: 'New Claude Code Session',
         newCodex: 'New Codex Session',
+        newXuanpuAgent: 'New Xuanpu Agent Session',
         newTerminal: 'New Terminal'
       },
       empty: {
@@ -4656,6 +4657,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         newOpenCode: '新建 OpenCode 会话',
         newClaudeCode: '新建 Claude Code 会话',
         newCodex: '新建 Codex 会话',
+        newXuanpuAgent: '新建 Xuanpu Agent 会话',
         newTerminal: '新建终端'
       },
       empty: {

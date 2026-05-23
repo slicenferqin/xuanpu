@@ -508,8 +508,12 @@ const systemOps = {
   isLogMode: (): Promise<boolean> => ipcRenderer.invoke('system:isLogMode'),
 
   // Detect which agent runtimes are installed on the system
-  detectAgentRuntimes: (): Promise<{ opencode: boolean; claude: boolean; codex: boolean }> =>
-    ipcRenderer.invoke('system:detectAgentRuntimes'),
+  detectAgentRuntimes: (): Promise<{
+    opencode: boolean
+    claude: boolean
+    codex: boolean
+    xuanpuAgent: boolean
+  }> => ipcRenderer.invoke('system:detectAgentRuntimes'),
 
   setKeepAwakeEnabled: (enabled: boolean): Promise<{ success: boolean }> =>
     ipcRenderer.invoke('system:setKeepAwakeEnabled', enabled),

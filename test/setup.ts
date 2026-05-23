@@ -154,11 +154,17 @@ if (typeof window !== 'undefined') {
         getAppVersion: vi.fn().mockResolvedValue('1.0.0'),
         getAppPaths: vi.fn().mockResolvedValue({ userData: '/tmp', home: '/tmp', logs: '/tmp' }),
         isLogMode: vi.fn().mockResolvedValue(false),
-        detectAgentSdks: vi.fn().mockResolvedValue({ opencode: true, claude: true, codex: false }),
+        detectAgentSdks: vi.fn().mockResolvedValue({
+          opencode: true,
+          claude: true,
+          codex: false,
+          xuanpuAgent: false
+        }),
         detectAgentRuntimes: vi.fn().mockResolvedValue({
           opencode: true,
           claude: true,
-          codex: false
+          codex: false,
+          xuanpuAgent: false
         }),
         setSessionQueuedState: vi.fn().mockResolvedValue({ success: true }),
         checkFullDiskAccess: vi.fn().mockResolvedValue({ supported: true, granted: false }),

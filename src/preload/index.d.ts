@@ -324,7 +324,13 @@ declare global {
             status?: 'active' | 'archived'
             last_message_at?: number | null
             last_accessed_at?: string
-            last_agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent' | null
+            last_agent_sdk?:
+              | 'opencode'
+              | 'claude-code'
+              | 'codex'
+              | 'terminal'
+              | 'xuanpu-agent'
+              | null
           }
         ) => Promise<Worktree | null>
         delete: (id: string) => Promise<boolean>
@@ -585,7 +591,12 @@ declare global {
         logs: string
       }>
       isLogMode: () => Promise<boolean>
-      detectAgentRuntimes: () => Promise<{ opencode: boolean; claude: boolean; codex: boolean }>
+      detectAgentRuntimes: () => Promise<{
+        opencode: boolean
+        claude: boolean
+        codex: boolean
+        xuanpuAgent: boolean
+      }>
       setKeepAwakeEnabled: (enabled: boolean) => Promise<{ success: boolean }>
       setSessionQueuedState: (sessionId: string, queued: boolean) => Promise<{ success: boolean }>
       runOnboardingDoctor: () => Promise<OnboardingDoctorResult>

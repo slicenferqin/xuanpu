@@ -1146,9 +1146,15 @@ export function SessionTabs({
               {t('sessionTabs.actions.newCodex')}
             </ContextMenuItem>
           )}
+          {availableAgentSdks?.xuanpuAgent && (
+            <ContextMenuItem onSelect={() => handleCreateSessionWithSdk('xuanpu-agent')}>
+              {t('sessionTabs.actions.newXuanpuAgent')}
+            </ContextMenuItem>
+          )}
           {(availableAgentSdks?.opencode ||
             availableAgentSdks?.claude ||
-            availableAgentSdks?.codex) && <ContextMenuSeparator />}
+            availableAgentSdks?.codex ||
+            availableAgentSdks?.xuanpuAgent) && <ContextMenuSeparator />}
           <ContextMenuItem onSelect={() => handleCreateSessionWithSdk('terminal')}>
             <TerminalSquare className="h-4 w-4 mr-2 text-tech-blue" />
             {t('sessionTabs.actions.newTerminal')}

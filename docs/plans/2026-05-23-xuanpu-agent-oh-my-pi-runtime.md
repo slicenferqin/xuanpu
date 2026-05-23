@@ -610,18 +610,47 @@ Results:
 - The scoped node TypeScript grep reports no `xuanpu-agent`, `agent-handlers`, or smoke-test type
   errors after narrowing IPC message parts.
 
+Latest hidden UI dogfood progress:
+
+- Extended `system:detectAgentRuntimes` so `xuanpu-agent` is reported only when
+  `XUANPU_AGENT_RUNTIME=1` is present. This keeps the runtime hidden in normal builds while giving
+  dogfood builds a real UI entry point.
+- Added the gated `xuanpu-agent` option to New Session, the Session Tabs right-click provider menu,
+  and the unlocked Session HQ provider capsule.
+- Updated `XuanpuAgentImplementer.getAvailableModels()` to return the same provider-array shape as
+  the other runtimes, so `ModelSelector` can populate a default dogfood model instead of failing on
+  the previous nested provider object.
+- In real-provider mode the default visible model is `anthropic/claude-haiku-4-5`; when
+  `XUANPU_AGENT_MOCK_RESPONSE` is set, the UI lists the deterministic `xuanpu-agent-mock` model.
+
+Additional verification:
+
+```bash
+pnpm vitest run test/phase-24/xuanpu-agent-ui-gate.test.tsx test/phase-24/xuanpu-agent-model-list.test.ts test/phase-22/session-2/system-info-codex-detection.test.ts test/phase-24/xuanpu-agent-ipc-smoke.test.ts
+```
+
+Results:
+
+- Runtime detection now proves the experimental UI gate stays off by default and turns on only with
+  `XUANPU_AGENT_RUNTIME=1`.
+- The new-session helper proves `xuanpu-agent` is absent from normal provider choices and present in
+  dogfood mode.
+- The model-list test proves both real-provider default and deterministic mock-provider shapes are
+  compatible with the existing renderer model selector.
+
 ## Next Task Plan
 
 ### Task 1: Minimal No-Tools Provider Call
 
-Status: implemented for the managed wrapper, mock probe, and hidden Session HQ IPC path; pending
-real provider/UI dogfood.
+Status: implemented for the managed wrapper, mock probe, hidden Session HQ IPC path, and
+environment-gated UI entry points; pending one real-provider dogfood run.
 
 - Use `XUANPU_AGENT_RUNTIME=1` to register the runtime and real provider env vars such as
   `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` according to the selected bundled pi-ai provider.
 - Keep reusing existing model selection where possible; avoid a separate settings surface until the
   real-provider spike shows it is needed.
-- Validate the text-only path from the desktop UI with one provider first.
+- Validate the text-only path from the desktop UI with one provider first. The UI path is now
+  selectable only when `XUANPU_AGENT_RUNTIME=1` is set.
 - Keep shell/file tools, permission prompts, slash commands, plan mode, undo, and fork disabled.
 - Keep the IPC smoke as the fast regression check; add a real-provider/Electron UI dogfood check
   once credentials and provider target are selected.
