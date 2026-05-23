@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
@@ -15,7 +15,7 @@ import {
 
 const DEFAULT_MODELS = {
   anthropic: 'claude-haiku-4-5',
-  openai: 'gpt-4.1',
+  openai: 'gpt-5.4',
   google: 'gemini-2.5-pro'
 }
 
@@ -28,6 +28,75 @@ const PROVIDER_ENV_KEYS = {
 function hasCredential(providerID) {
   const envKeys = PROVIDER_ENV_KEYS[providerID] ?? []
   return envKeys.some((key) => typeof process.env[key] === 'string' && process.env[key].trim())
+}
+
+function stripTomlQuotes(value) {
+  return String(value)
+    .trim()
+    .replace(/^['"]|['"]$/g, '')
+}
+
+function readCodexOpenAICompatBaseUrl() {
+  const configPath = join(homedir(), '.codex/config.toml')
+  if (!existsSync(configPath)) return null
+
+  const providers = new Map()
+  let selectedProvider = null
+  let section = ''
+
+  for (const rawLine of readFileSync(configPath, 'utf8').split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (!line || line.startsWith('#')) continue
+
+    const sectionMatch = line.match(/^\[(.+)]$/)
+    if (sectionMatch) {
+      section = sectionMatch[1]
+      continue
+    }
+
+    const kv = line.match(/^([A-Za-z0-9_.-]+)\s*=\s*(.+)$/)
+    if (!kv) continue
+
+    const [, key, rawValue] = kv
+    const value = stripTomlQuotes(rawValue)
+    if (!section && key === 'model_provider') {
+      selectedProvider = value
+      continue
+    }
+
+    const providerMatch = section.match(/^model_providers\.([A-Za-z0-9_.-]+)$/)
+    if (!providerMatch) continue
+
+    const providerID = providerMatch[1]
+    const provider = providers.get(providerID) ?? {}
+    provider[key] = value
+    providers.set(providerID, provider)
+  }
+
+  if (!selectedProvider) return null
+
+  const provider = providers.get(selectedProvider)
+  if (!provider?.base_url) return null
+
+  return {
+    providerID: selectedProvider,
+    baseUrl: provider.base_url.replace(/\/+$/, ''),
+    wireApi: provider.wire_api ?? null,
+    requiresOpenAIAuth: provider.requires_openai_auth === 'true'
+  }
+}
+
+function installCodexOpenAICompatBaseUrl(providerID) {
+  if (providerID !== 'openai') return null
+  if (process.env.XUANPU_AGENT_OPENAI_BASE_URL?.trim() || process.env.OPENAI_BASE_URL?.trim()) {
+    return null
+  }
+
+  const config = readCodexOpenAICompatBaseUrl()
+  if (!config?.requiresOpenAIAuth) return null
+
+  process.env.XUANPU_AGENT_OPENAI_BASE_URL = config.baseUrl
+  return config
 }
 
 async function runProbe() {
@@ -55,6 +124,8 @@ async function runProbe() {
   const prompt =
     process.env.XUANPU_AGENT_REAL_PROVIDER_PROMPT ||
     'Reply with one short sentence confirming the xuanpu-agent real provider probe succeeded.'
+  const previousXuanpuOpenAIBaseUrl = process.env.XUANPU_AGENT_OPENAI_BASE_URL
+  const codexOpenAICompatBaseUrl = installCodexOpenAICompatBaseUrl(providerID)
 
   if (!modelID) {
     fail('No model selected for real provider probe.', { providerID })
@@ -82,6 +153,11 @@ async function runProbe() {
       delete process.env.XUANPU_AGENT_BUILT_PROBE_FAKE_SQLITE
     } else {
       process.env.XUANPU_AGENT_BUILT_PROBE_FAKE_SQLITE = previousFakeSqlite
+    }
+    if (previousXuanpuOpenAIBaseUrl === undefined) {
+      delete process.env.XUANPU_AGENT_OPENAI_BASE_URL
+    } else {
+      process.env.XUANPU_AGENT_OPENAI_BASE_URL = previousXuanpuOpenAIBaseUrl
     }
   }
 
@@ -189,6 +265,21 @@ async function runProbe() {
       status: 'completed',
       providerID,
       modelID,
+      openAICompatibleBaseUrl: codexOpenAICompatBaseUrl
+        ? {
+            source: 'codex-config',
+            providerID: codexOpenAICompatBaseUrl.providerID,
+            baseUrl: codexOpenAICompatBaseUrl.baseUrl,
+            wireApi: codexOpenAICompatBaseUrl.wireApi
+          }
+        : process.env.XUANPU_AGENT_OPENAI_BASE_URL || process.env.OPENAI_BASE_URL
+          ? {
+              source: process.env.XUANPU_AGENT_OPENAI_BASE_URL
+                ? 'XUANPU_AGENT_OPENAI_BASE_URL'
+                : 'OPENAI_BASE_URL',
+              baseUrl: process.env.XUANPU_AGENT_OPENAI_BASE_URL || process.env.OPENAI_BASE_URL
+            }
+          : null,
       implementerChunk,
       responseChars: responseText.length,
       responsePreview: responseText.slice(0, 200),

@@ -10,6 +10,10 @@ const piAiMock = vi.hoisted(() => {
       id: 'gpt-4.1',
       provider: 'openai'
     },
+    'openai/gpt-5.4': {
+      id: 'gpt-5.4',
+      provider: 'openai'
+    },
     'google/gemini-2.5-pro': {
       id: 'gemini-2.5-pro',
       provider: 'google'
@@ -41,6 +45,7 @@ vi.mock('../../src/main/services/xuanpu-agent/pi-agent-core-loader', () => ({
 
 import {
   assertXuanpuAgentProviderCredential,
+  getXuanpuAgentOpenAIBaseUrlOverride,
   getXuanpuAgentProviderCredentialRequirement,
   resolvePiModel,
   resolveXuanpuAgentModelRef
@@ -53,7 +58,9 @@ describe('xuanpu-agent model config', () => {
     'ANTHROPIC_API_KEY',
     'ANTHROPIC_FOUNDRY_API_KEY',
     'OPENAI_API_KEY',
-    'GEMINI_API_KEY'
+    'GEMINI_API_KEY',
+    'XUANPU_AGENT_OPENAI_BASE_URL',
+    'OPENAI_BASE_URL'
   ]
   const previousCredentialEnv = Object.fromEntries(
     credentialEnvKeys.map((key) => [key, process.env[key]])
@@ -127,6 +134,32 @@ describe('xuanpu-agent model config', () => {
     expect(piAiMock.getBundledModel).toHaveBeenNthCalledWith(1, 'anthropic', 'claude-haiku-4-5')
     expect(piAiMock.getBundledModel).toHaveBeenNthCalledWith(2, 'openai', 'gpt-4.1')
     expect(piAiMock.getBundledModel).toHaveBeenNthCalledWith(3, 'google', 'gemini-2.5-pro')
+  })
+
+  it('applies the explicit OpenAI-compatible base URL override to OpenAI models', async () => {
+    process.env.XUANPU_AGENT_OPENAI_BASE_URL = 'https://api.asxs.top/v1/'
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+
+    const resolved = await resolvePiModel({ providerID: 'openai', modelID: 'gpt-5.4' })
+
+    expect(getXuanpuAgentOpenAIBaseUrlOverride()).toEqual({
+      envKey: 'XUANPU_AGENT_OPENAI_BASE_URL',
+      baseUrl: 'https://api.asxs.top/v1'
+    })
+    expect(resolved.modelRef).toEqual({ providerID: 'openai', modelID: 'gpt-5.4' })
+    expect(resolved.model).toEqual({
+      id: 'gpt-5.4',
+      provider: 'openai',
+      baseUrl: 'https://api.asxs.top/v1'
+    })
+  })
+
+  it('rejects invalid OpenAI-compatible base URL overrides before provider execution', async () => {
+    process.env.XUANPU_AGENT_OPENAI_BASE_URL = 'ftp://api.asxs.top/v1'
+
+    await expect(resolvePiModel({ providerID: 'openai', modelID: 'gpt-5.4' })).rejects.toThrow(
+      'Invalid XUANPU_AGENT_OPENAI_BASE_URL: expected an http(s) URL.'
+    )
   })
 
   it('reports unsupported models with known pi-ai providers', async () => {

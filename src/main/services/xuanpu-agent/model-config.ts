@@ -34,6 +34,12 @@ const PROVIDER_CREDENTIAL_ENV_KEYS: Record<string, string[]> = {
   openai: ['OPENAI_API_KEY'],
   google: ['GEMINI_API_KEY']
 }
+const OPENAI_BASE_URL_ENV_KEYS = ['XUANPU_AGENT_OPENAI_BASE_URL', 'OPENAI_BASE_URL'] as const
+
+export interface XuanpuAgentBaseUrlOverride {
+  envKey: (typeof OPENAI_BASE_URL_ENV_KEYS)[number]
+  baseUrl: string
+}
 
 export function resolveXuanpuAgentModelRef(
   modelOverride?: XuanpuAgentModelRef,
@@ -114,7 +120,7 @@ export async function resolvePiModel(modelRef: XuanpuAgentModelRef): Promise<Res
   if (model) {
     return {
       modelRef: { ...modelRef, providerID },
-      model
+      model: applyProviderBaseUrlOverride(providerID, model)
     }
   }
 
@@ -128,4 +134,42 @@ export async function resolvePiModel(modelRef: XuanpuAgentModelRef): Promise<Res
       .filter(Boolean)
       .join('\n')
   )
+}
+
+export function getXuanpuAgentOpenAIBaseUrlOverride(): XuanpuAgentBaseUrlOverride | null {
+  for (const envKey of OPENAI_BASE_URL_ENV_KEYS) {
+    const raw = process.env[envKey]?.trim()
+    if (!raw) continue
+
+    let parsed: URL
+    try {
+      parsed = new URL(raw)
+    } catch {
+      throw new Error(`Invalid ${envKey}: expected an absolute http(s) URL.`)
+    }
+
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      throw new Error(`Invalid ${envKey}: expected an http(s) URL.`)
+    }
+
+    return {
+      envKey,
+      baseUrl: raw.replace(/\/+$/, '')
+    }
+  }
+
+  return null
+}
+
+function applyProviderBaseUrlOverride(providerID: string, model: unknown): unknown {
+  if (providerID !== 'openai') return model
+
+  const override = getXuanpuAgentOpenAIBaseUrlOverride()
+  if (!override) return model
+  if (!model || typeof model !== 'object') return model
+
+  return {
+    ...(model as Record<string, unknown>),
+    baseUrl: override.baseUrl
+  }
 }

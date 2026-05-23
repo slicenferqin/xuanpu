@@ -713,7 +713,7 @@ pnpm run probe:xuanpu-agent-spike
 Results:
 
 - Core probe reports the expected direct Node import limitation in non-strict success mode.
-- 19 focused test files pass, covering 57 tests across model readiness, runtime status, no-tools
+- 19 focused test files pass, covering 59 tests across model readiness, runtime status, no-tools
   runtime, IPC smoke, UI gate, managed context packages, Context Budget Debugger, episode
   repository/freezer/retrieval, and tool-surface gates.
 - Real-provider probe defaults to `status: "skipped"` without touching network credentials.
@@ -744,6 +744,9 @@ Latest provider/model readiness progress:
   `OPENAI_API_KEY`.
 - Confirmed provider aliases are intentionally narrow for now: `claude-code -> anthropic`,
   `codex -> openai`, and `gemini -> google`.
+- Added OpenAI-compatible base URL override support for the managed runtime. `XUANPU_AGENT_OPENAI_BASE_URL`
+  takes precedence over `OPENAI_BASE_URL`, is validated before provider execution, and is injected into
+  the bundled pi-ai OpenAI model as `model.baseUrl`.
 - Directly importing the built app chunks from plain Node is not a reliable provider-readiness
   check because the built main graph still expects Electron process assumptions. Provider readiness
   should be validated through focused tests/probes or the hidden desktop UI path after
@@ -758,6 +761,9 @@ Latest provider/model readiness progress:
   `XUANPU_AGENT_REAL_PROVIDER_PROBE=1` is set, `XUANPU_AGENT_MOCK_RESPONSE` is unset, a required
   provider credential env var is present, and a built `out/main/xuanpu-agent-implementer-*` chunk
   exists.
+- The real-provider probe now reads the selected OpenAI-compatible Codex provider from
+  `~/.codex/config.toml` when no explicit base URL env var is set. This is probe-only behavior; the
+  runtime path remains env-driven.
 - The real-provider probe now shares the built-probe SQLite shim used by the mock probe. When a
   real key is available, the same run verifies provider response persistence plus the packaged
   managed context package, selected provider/model, and transcript policy.
@@ -769,8 +775,9 @@ Latest provider/model readiness progress:
   hidden runtime can expose mock mode and missing provider env vars before the first send.
 - Added `xuanpu-agent-session-header-status.test.tsx` to lock the Session HQ status capsule behavior
   and ensure it checks credentials against the selected provider/model, not only the default model.
-- No real API key has been used in this branch yet. The remaining Task 1 blocker is still a
-  real-provider dogfood run through the hidden `xuanpu-agent` UI entry point.
+- A real OpenAI-compatible provider probe has now passed through the built hidden runtime using the
+  local Codex `sxs` provider base URL and `openai/gpt-5.4`. The remaining Task 1 blocker is the full
+  Session HQ UI dogfood run.
 
 Latest Context Budget Debugger progress:
 
@@ -807,10 +814,13 @@ Results:
 - The real-provider probe defaults to a safe skip without touching network credentials.
 - With the real-provider flag enabled but Anthropic credentials removed, the probe fails before any
   provider call and reports the required env vars.
-- With credentials, the real-provider probe is now expected to also report a packaged
-  `contextPackage` block with selected model metadata and `persist-user-authored-message-only`.
+- With credentials, the real-provider probe now reports a packaged `contextPackage` block with
+  selected model metadata and `persist-user-authored-message-only`.
 - `xuanpu-agent-runtime.test.ts` proves the runtime also fails before creating a pi Agent when
   real-provider credentials are missing.
+- `xuanpu-agent-model-config.test.ts` proves OpenAI-compatible base URL overrides are applied only
+  to OpenAI models, that `XUANPU_AGENT_OPENAI_BASE_URL` wins over `OPENAI_BASE_URL`, and that
+  invalid non-http(s) base URLs fail before provider execution.
 - `xuanpu-agent-runtime-status.test.ts` proves disabled, missing-credentials, mock-ready, and ready
   states, including explicit provider/model overrides, without revealing secrets or calling
   providers.
@@ -829,7 +839,8 @@ XUANPU_AGENT_REAL_PROVIDER_PROBE=1 ANTHROPIC_API_KEY=... \
 Optional overrides:
 
 ```bash
-XUANPU_AGENT_PROVIDER_ID=openai XUANPU_AGENT_MODEL_ID=gpt-4.1 OPENAI_API_KEY=...
+XUANPU_AGENT_PROVIDER_ID=openai XUANPU_AGENT_MODEL_ID=gpt-5.4 OPENAI_API_KEY=...
+XUANPU_AGENT_OPENAI_BASE_URL=https://api.asxs.top/v1
 ```
 
 ## 2026-05-24 Checkpoint
@@ -855,15 +866,18 @@ Current scope for this push:
 - Extended the opt-in real-provider probe so a credentialed run verifies the same packaged context
   package path as the built mock probe: persisted provider answer, selected provider/model,
   transcript policy, and package section ids.
+- Added OpenAI-compatible base URL support for `xuanpu-agent` and the real-provider probe. The probe
+  can pick up the local Codex `sxs` base URL (`https://api.asxs.top/v1`) while the runtime itself
+  stays controlled by explicit env vars.
+- Ran a real-provider dogfood probe through the built hidden runtime with `openai/gpt-5.4` via the
+  Codex `sxs` base URL. It returned a provider response, persisted only the visible user/assistant
+  messages, and recorded a managed context package with the selected provider/model and section ids.
 - Kept the current runtime strict no-tools: shell/file/MCP tools, permission prompts, native process
   control, and oh-my-pi tool surfaces remain blocked behind explicit readiness gates.
 
 Follow-up sequence:
 
-- Run one real-provider dogfood pass through the built hidden runtime after credentials are
-  available. This should now produce both provider-response evidence and context-package evidence
-  in a single probe output.
-- Then run the full Session HQ UI dogfood with `XUANPU_AGENT_RUNTIME=1`, validating that the status
+- Run the full Session HQ UI dogfood with `XUANPU_AGENT_RUNTIME=1`, validating that the status
   capsule matches the actual provider path before the first prompt and after a successful answer.
 - After real-provider and UI dogfood pass, decide whether to keep `xuanpu-agent` inside this repo for
   the next iteration or extract it into an independently maintained agent package/repo.
@@ -875,10 +889,10 @@ Follow-up sequence:
 ### Task 1: Minimal No-Tools Provider Call
 
 Status: implemented for the managed wrapper, mock probe, model resolution readiness probe, hidden
-Session HQ IPC path, environment-gated UI entry points, credential preflight, and an opt-in
-real-provider probe. Built-artifact mock dogfood is now automated; pending one actual real-provider
-dogfood run with credentials. Session HQ can now show mock/missing-credential runtime status before
-the first prompt.
+Session HQ IPC path, environment-gated UI entry points, credential preflight, OpenAI-compatible base
+URL overrides, and an opt-in real-provider probe. Built-artifact mock dogfood is automated, and one
+real-provider probe has passed through the built hidden runtime with the local Codex `sxs` base URL.
+Pending full Session HQ UI dogfood.
 
 - Use `XUANPU_AGENT_RUNTIME=1` to register the runtime and real provider env vars such as
   `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` according to the selected bundled pi-ai provider.
