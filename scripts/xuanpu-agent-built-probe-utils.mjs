@@ -5,6 +5,83 @@ import { resolve } from 'node:path'
 const require = createRequire(import.meta.url)
 
 let electronMocksInstalled = false
+const sqliteProbeState = {
+  settings: new Map(),
+  contextPackages: []
+}
+
+function normalizeSql(sql) {
+  return String(sql).replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
+class FakeSqliteStatement {
+  constructor(sql) {
+    this.sql = sql
+    this.normalized = normalizeSql(sql)
+  }
+
+  run(...args) {
+    if (this.normalized.includes('insert into field_context_packages')) {
+      sqliteProbeState.contextPackages.push({
+        id: args[0],
+        session_id: args[1],
+        worktree_id: args[2],
+        runtime_id: args[3],
+        model_provider_id: args[4],
+        model_id: args[5],
+        created_at: args[6],
+        budget_profile: args[7],
+        approx_tokens: args[8],
+        sections_json: args[9],
+        rendered_markdown: args[10],
+        decisions_json: args[11]
+      })
+    } else if (this.normalized.includes('settings')) {
+      if (args.length >= 2) {
+        sqliteProbeState.settings.set(String(args[0]), String(args[1]))
+      }
+    }
+
+    return { changes: 1, lastInsertRowid: 1 }
+  }
+
+  get(...args) {
+    if (this.normalized.includes('from settings')) {
+      const value = sqliteProbeState.settings.get(String(args[0]))
+      return value === undefined ? undefined : { value }
+    }
+    return undefined
+  }
+
+  all() {
+    return []
+  }
+}
+
+class FakeSqliteDatabase {
+  pragma() {}
+
+  exec() {}
+
+  prepare(sql) {
+    return new FakeSqliteStatement(sql)
+  }
+
+  transaction(fn) {
+    return (...args) => fn(...args)
+  }
+
+  close() {}
+}
+
+export function resetBuiltProbeSqliteState() {
+  sqliteProbeState.settings.clear()
+  sqliteProbeState.contextPackages.length = 0
+}
+
+export function getBuiltProbeSqliteState() {
+  return sqliteProbeState
+}
 
 export function printJson(payload) {
   console.log(JSON.stringify(payload, null, 2))
@@ -123,6 +200,9 @@ export function installElectronMainMocks() {
 
   Module._load = function loadWithProbeMocks(request, parent, isMain) {
     if (request === 'electron') return electronMock
+    if (request === 'better-sqlite3' && process.env.XUANPU_AGENT_BUILT_PROBE_FAKE_SQLITE === '1') {
+      return FakeSqliteDatabase
+    }
     if (request === '@electron-toolkit/utils') {
       return {
         electronApp: { setAppUserModelId: noop },

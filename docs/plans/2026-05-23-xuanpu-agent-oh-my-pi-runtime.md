@@ -688,6 +688,10 @@ Latest verification matrix progress:
   `out/main/xuanpu-agent-implementer-*` chunk, installs Electron main-process mocks, runs
   `connect -> prompt -> persist` with `XUANPU_AGENT_MOCK_RESPONSE`, and verifies the visible
   transcript contains only the user prompt and assistant response.
+- The built mock probe now also installs a probe-only fake `better-sqlite3` layer so the packaged
+  `XuanpuAgentImplementer` can record a real managed context package without depending on the local
+  Node/Electron native SQLite ABI. It verifies the packaged context package keeps the selected
+  provider/model and `persist-user-authored-message-only` transcript policy.
 - Added a no-op `bun:sqlite` compatibility alias for the main-process build. This keeps pi-ai
   cache/auth-storage imports loadable in Electron/Node without granting xuanpu-agent a real
   runtime-owned SQLite credential store.
@@ -717,6 +721,8 @@ Results:
 - Builds with `XUANPU_AGENT_RUNTIME=1`.
 - The built mock dogfood probe loads the emitted `xuanpu-agent-implementer` chunk and confirms the
   hidden runtime can answer one text prompt without provider credentials.
+- The same built probe now verifies a packaged managed context package with the selected model and
+  transcript policy, using an in-memory probe SQLite shim to avoid local native ABI drift.
 - The emitted `out/main` bundle no longer contains a bare `bun:sqlite` import.
 - This still does not prove real-provider or full Electron UI dogfood; it proves the packaged
   no-tools runtime path is executable and transcript-safe.
