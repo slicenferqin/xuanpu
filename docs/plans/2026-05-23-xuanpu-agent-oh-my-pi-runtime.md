@@ -490,6 +490,13 @@ Task 2 and the minimal Task 3 bridge are now partially landed:
   `XUANPU_AGENT_STORE_CONTEXT_MARKDOWN=1` to store it during debugging.
 - Context package decisions now record the rendered-markdown policy and the context transform
   decisions.
+- Added read-only debug IPC/preload APIs for managed context traces:
+  `field:listContextPackages` and `field:listEpisodeBlocks`.
+- Added shared renderer-facing debug types for context package sections and episode block records.
+- Extended the dev-only `FieldContextDebug` panel with `Managed Context` and `Episode Blocks` tabs.
+  The panel uses the runtime session id first, falls back to the Hive session id, and displays
+  included/excluded sections, decisions JSON, rendered-markdown storage state, frozen episode
+  metadata, extracted files/commands/constraints/failures, and raw refs.
 - Added `src/main/services/xuanpu-agent/context-transform.ts`, which builds the first Xuanpu-owned
   `messages[]` boundary for oh-my-pi Agent:
   - Xuanpu context anchor
@@ -505,7 +512,7 @@ Task 2 and the minimal Task 3 bridge are now partially landed:
 Focused verification:
 
 ```bash
-pnpm vitest run test/phase-24/xuanpu-agent-context-transform.test.ts test/phase-24/field-context-package-repository.test.ts test/phase-24/xuanpu-agent-runtime.test.ts
+pnpm vitest run test/phase-24/field-managed-debug-handlers.test.ts test/phase-24/field-context-debug-managed.test.tsx test/phase-24/xuanpu-agent-context-transform.test.ts test/phase-24/field-context-package-repository.test.ts test/phase-24/xuanpu-agent-runtime.test.ts
 ```
 
 Results:
@@ -515,6 +522,9 @@ Results:
 - Context package repository test proves v23 migration SQL coverage, create/read/list behavior, and
   privacy-by-default rendered markdown reads without relying on native `better-sqlite3` in Node
   Vitest.
+- Managed debug handler/component tests prove scoped package and episode IPC reads, query
+  validation, fallback Hive session lookup, and visible included/excluded package sections plus
+  frozen episode metadata in the dev debugger.
 - Runtime test still proves deterministic no-tools provider flow.
 
 Task 4 base layer is now partially landed:
@@ -537,6 +547,8 @@ Task 4 base layer is now partially landed:
   at least 4 are eligible.
 - The freezer skips messages already referenced by existing episode blocks, so later turns do not
   overwrite or duplicate frozen raw refs.
+- Episode blocks are now inspectable from the dev-only Field Context debugger through the same
+  read-only `field:listEpisodeBlocks` IPC/preload path used by the managed context tab.
 
 Focused verification:
 
@@ -572,8 +584,9 @@ Exit criteria: a hidden `xuanpu-agent` session can answer a simple prompt from S
 
 ### Task 2: Context Package Trace Hardening
 
-Status: implemented for repository create/read/list, query filtering, migration SQL coverage, and
-rendered markdown privacy defaults. Still needs a renderer/debugger surface later.
+Status: implemented for repository create/read/list, query filtering, migration SQL coverage,
+rendered markdown privacy defaults, and a dev-only renderer/debugger surface. Still needs a
+first-class production Context Budget Debugger later.
 
 - Add read/query helpers for `field_context_packages`.
 - Store enough section metadata for a future Context Budget Debugger.
@@ -600,9 +613,9 @@ Exit criteria: Xuanpu owns final `messages[]` for `xuanpu-agent` while preservin
 
 ### Task 4: Append-Only Episodes
 
-Status: schema/repository/rule-based creation, automatic old-turn freezing, and packer inclusion
-implemented. Still needs a UI/debugger surface for inspection and a future LLM prose compactor after
-deterministic extraction stabilizes.
+Status: schema/repository/rule-based creation, automatic old-turn freezing, packer inclusion, and
+dev-only inspection implemented. Still needs a first-class production UI and a future LLM prose
+compactor after deterministic extraction stabilizes.
 
 - Add `field_episode_blocks` after the no-tools loop is usable.
 - Implement rule-based episode creation first.

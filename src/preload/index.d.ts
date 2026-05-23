@@ -1547,6 +1547,14 @@ declare global {
           packetHash: string
         } | null
       } | null>
+      /** Phase 24D debug: list managed context packages for a session/worktree. */
+      listContextPackages: (
+        query: import('../shared/types/field-context-debug').FieldContextPackageDebugQuery
+      ) => Promise<import('../shared/types/field-context-debug').FieldContextPackageDebugRecord[]>
+      /** Phase 24D debug: list managed context episode blocks for a worktree. */
+      listEpisodeBlocks: (
+        query: import('../shared/types/field-context-debug').FieldEpisodeBlockDebugQuery
+      ) => Promise<import('../shared/types/field-context-debug').FieldEpisodeBlockDebugRecord[]>
       /** v1.4.1: Pinned Facts — read user-authored permanent facts for a worktree. */
       getPinnedFacts: (worktreeId: string) => Promise<{
         worktreeId: string

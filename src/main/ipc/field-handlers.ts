@@ -26,6 +26,7 @@ import {
   PINNED_FACTS_MAX_CHARS
 } from '../field/pinned-facts-repository'
 import type { WorktreeSwitchTrigger } from '../../shared/types'
+import type { FieldEpisodeBlockKind } from '../../shared/types/field-context-debug'
 
 const log = createLogger({ component: 'FieldHandlers' })
 
@@ -33,6 +34,19 @@ const MAX_ID_LEN = 64
 const MAX_PATH_LEN = 4096
 const MAX_NAME_LEN = 256
 const MAX_LINE = 10_000_000
+const VALID_FIELD_RUNTIMES = new Set([
+  'opencode',
+  'claude-code',
+  'codex',
+  'terminal',
+  'xuanpu-agent'
+])
+const VALID_EPISODE_KINDS = new Set<FieldEpisodeBlockKind>([
+  'turns',
+  'events',
+  'checkpoint',
+  'manual'
+])
 const VALID_TRIGGERS: ReadonlySet<string> = new Set<WorktreeSwitchTrigger>([
   'user-click',
   'keyboard',
@@ -77,6 +91,20 @@ function readAuditFilter(input: unknown): {
 
 function resolveProjectId(worktreeId: string): string | null {
   return getDatabase().getWorktree(worktreeId)?.project_id ?? null
+}
+
+function optionalShortString(value: unknown, maxLen: number): string | undefined {
+  if (value === undefined || value === null || value === '') return undefined
+  return isShortString(value, maxLen) ? value : undefined
+}
+
+function hasProvidedValue(value: unknown): boolean {
+  return value !== undefined && value !== null && value !== ''
+}
+
+function optionalLimit(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  return Math.min(Math.max(Math.trunc(value), 1), 50)
 }
 
 export function registerFieldHandlers(): void {
@@ -238,6 +266,58 @@ export function registerFieldHandlers(): void {
     }).catch(() => null)
     const raw = getLatestCheckpoint(worktreeId)
     return { verified, raw }
+  })
+
+  // -------------------------------------------------------------------------
+  // Debug: list managed context package traces for the Context Budget Debugger.
+  // Requires a session or worktree filter so the renderer cannot dump every
+  // stored package from one accidental call.
+  // -------------------------------------------------------------------------
+  ipcMain.handle('field:listContextPackages', async (_event, input: unknown) => {
+    if (!isPlainObject(input)) return []
+    const sessionId = optionalShortString(input.sessionId, MAX_ID_LEN)
+    const worktreeId = optionalShortString(input.worktreeId, MAX_ID_LEN)
+    if (hasProvidedValue(input.sessionId) && !sessionId) return []
+    if (hasProvidedValue(input.worktreeId) && !worktreeId) return []
+    if (!sessionId && !worktreeId) return []
+
+    const runtimeId = optionalShortString(input.runtimeId, MAX_ID_LEN)
+    if (hasProvidedValue(input.runtimeId) && !runtimeId) return []
+    if (runtimeId && !VALID_FIELD_RUNTIMES.has(runtimeId)) return []
+
+    const { listFieldContextPackages } = await import('../field/context-package-repository')
+    return listFieldContextPackages({
+      sessionId,
+      worktreeId,
+      runtimeId,
+      includeRenderedMarkdown: input.includeRenderedMarkdown === true,
+      limit: optionalLimit(input.limit)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Debug: list immutable episode blocks for the managed context debugger.
+  // Worktree scoping is required; session scoping is optional for runtime ids
+  // that differ from Hive session ids.
+  // -------------------------------------------------------------------------
+  ipcMain.handle('field:listEpisodeBlocks', async (_event, input: unknown) => {
+    if (!isPlainObject(input)) return []
+    const worktreeId = optionalShortString(input.worktreeId, MAX_ID_LEN)
+    if (!worktreeId) return []
+
+    const sessionId = optionalShortString(input.sessionId, MAX_ID_LEN)
+    const kind = optionalShortString(input.kind, MAX_ID_LEN)
+    if (hasProvidedValue(input.sessionId) && !sessionId) return []
+    if (hasProvidedValue(input.kind) && !kind) return []
+    if (kind && !VALID_EPISODE_KINDS.has(kind as FieldEpisodeBlockKind)) return []
+
+    const { listFieldEpisodeBlocks } = await import('../field/episode-block-repository')
+    return listFieldEpisodeBlocks({
+      worktreeId,
+      sessionId,
+      kind: kind as FieldEpisodeBlockKind | undefined,
+      limit: optionalLimit(input.limit)
+    })
   })
 
   // -------------------------------------------------------------------------

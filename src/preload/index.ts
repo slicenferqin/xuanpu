@@ -2127,6 +2127,20 @@ const fieldOps = {
         packetHash: string
       } | null
     } | null>,
+  /** Phase 24D debug: list managed context packages for a session/worktree. */
+  listContextPackages: (
+    query: import('../shared/types/field-context-debug').FieldContextPackageDebugQuery
+  ) =>
+    ipcRenderer.invoke('field:listContextPackages', query) as Promise<
+      import('../shared/types/field-context-debug').FieldContextPackageDebugRecord[]
+    >,
+  /** Phase 24D debug: list managed context episode blocks for a worktree. */
+  listEpisodeBlocks: (
+    query: import('../shared/types/field-context-debug').FieldEpisodeBlockDebugQuery
+  ) =>
+    ipcRenderer.invoke('field:listEpisodeBlocks', query) as Promise<
+      import('../shared/types/field-context-debug').FieldEpisodeBlockDebugRecord[]
+    >,
   /** v1.4.1: Pinned Facts — read user-authored permanent facts for a worktree. */
   getPinnedFacts: (worktreeId: string) =>
     ipcRenderer.invoke('field:getPinnedFacts', worktreeId) as Promise<{
