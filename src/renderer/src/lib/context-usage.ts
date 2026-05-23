@@ -2,9 +2,7 @@ import type { AgentSessionContextUsageData } from '@shared/types/agent-protocol'
 import type { ContextUsageCategory, TokenInfo } from '@/stores/useContextStore'
 import { useContextStore } from '@/stores/useContextStore'
 
-function normalizeTokens(
-  tokens: AgentSessionContextUsageData['tokens'] | undefined
-): TokenInfo {
+function normalizeTokens(tokens: AgentSessionContextUsageData['tokens'] | undefined): TokenInfo {
   return {
     input: tokens?.input ?? 0,
     output: tokens?.output ?? 0,
@@ -22,6 +20,26 @@ function hasTokenPayload(tokens: TokenInfo): boolean {
     tokens.cacheRead > 0 ||
     tokens.cacheWrite > 0
   )
+}
+
+function applyContextUsageCost(sessionId: string, data: AgentSessionContextUsageData): void {
+  const store = useContextStore.getState()
+  if (typeof data.totalCost === 'number' && Number.isFinite(data.totalCost) && data.totalCost > 0) {
+    if ((store.costBySession[sessionId] ?? 0) < data.totalCost) {
+      store.setSessionCost(sessionId, data.totalCost)
+    }
+    return
+  }
+
+  if (typeof data.cost !== 'number' || !Number.isFinite(data.cost) || data.cost <= 0) return
+
+  const requestId = typeof data.requestId === 'string' ? data.requestId.trim() : ''
+  if (requestId) {
+    store.addSessionCostOnce(sessionId, `context:${requestId}`, data.cost)
+    return
+  }
+
+  store.addSessionCost(sessionId, data.cost)
 }
 
 function normalizeCategories(
@@ -47,6 +65,8 @@ export function applySessionContextUsage(
   data: AgentSessionContextUsageData
 ): void {
   const store = useContextStore.getState()
+  applyContextUsageCost(sessionId, data)
+
   const tokens = normalizeTokens(data.tokens)
   const model = data.model
     ? {
@@ -80,7 +100,12 @@ export function applySessionContextUsage(
     return
   }
 
-  if (model && typeof data.contextWindow === 'number' && data.contextWindow > 0 && hasTokenPayload(tokens)) {
+  if (
+    model &&
+    typeof data.contextWindow === 'number' &&
+    data.contextWindow > 0 &&
+    hasTokenPayload(tokens)
+  ) {
     const usedTokens = tokens.input + tokens.cacheRead + tokens.cacheWrite
     store.setSessionContextSnapshot(sessionId, {
       usedTokens,

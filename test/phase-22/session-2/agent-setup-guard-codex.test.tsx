@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 let mockSettingsState: {
   initialSetupComplete: boolean
   isLoading: boolean
+  defaultAgentSdk: 'codex'
   updateSetting: ReturnType<typeof vi.fn>
 }
 
@@ -12,7 +13,7 @@ let wizardProps: {
   loading: boolean
   error: string | null
   onRefresh: () => void
-  onComplete: (sdk: 'claude-code' | 'codex' | 'opencode' | 'terminal') => void
+  onComplete: () => void
 } | null = null
 
 vi.mock('@/stores/useSettingsStore', () => ({
@@ -32,7 +33,7 @@ vi.mock('@/components/setup/AgentSetupWizard', () => ({
     loading: boolean
     error: string | null
     onRefresh: () => void
-    onComplete: (sdk: 'claude-code' | 'codex' | 'opencode' | 'terminal') => void
+    onComplete: () => void
   }) => {
     wizardProps = props
 
@@ -44,11 +45,23 @@ vi.mock('@/components/setup/AgentSetupWizard', () => ({
         <button data-testid="wizard-refresh" onClick={() => props.onRefresh()}>
           refresh
         </button>
-        <button data-testid="wizard-complete-codex" onClick={() => props.onComplete('codex')}>
+        <button data-testid="wizard-complete-codex" onClick={() => props.onComplete()}>
           complete codex
         </button>
       </div>
     )
+  }
+}))
+
+vi.mock('@/stores/useShortcutStore', () => ({
+  useShortcutStore: {
+    getState: () => ({ activePreset: 'vscode' })
+  }
+}))
+
+vi.mock('@/stores/useThemeStore', () => ({
+  useThemeStore: {
+    getState: () => ({ themeId: 'system', followSystem: true })
   }
 }))
 
@@ -101,6 +114,7 @@ describe('AgentSetupGuard', () => {
     mockSettingsState = {
       initialSetupComplete: false,
       isLoading: false,
+      defaultAgentSdk: 'codex',
       updateSetting: vi.fn()
     }
 
@@ -149,14 +163,22 @@ describe('AgentSetupGuard', () => {
 
     fireEvent.click(screen.getByTestId('wizard-complete-codex'))
 
-    expect(mockSettingsState.updateSetting).toHaveBeenCalledWith('defaultAgentSdk', 'codex')
     expect(mockSettingsState.updateSetting).toHaveBeenCalledWith('initialSetupComplete', true)
-    expect(mockTrack).toHaveBeenCalledWith('onboarding_completed', {
-      sdk: 'codex',
-      auto_selected: false,
-      wizard: true,
-      ready_agents: 2
-    })
+    expect(mockSettingsState.updateSetting).toHaveBeenCalledTimes(1)
+    expect(mockTrack).toHaveBeenCalledWith(
+      'onboarding_completed',
+      expect.objectContaining({
+        sdk: 'codex',
+        auto_selected: false,
+        wizard: true,
+        ready_agents: 2,
+        event_version: 2,
+        default_runtime: 'codex',
+        keymap_preset: 'vscode',
+        theme_id: 'system',
+        theme_follow_system: true
+      })
+    )
   })
 
   it('surfaces onboarding doctor errors and refreshes on demand', async () => {

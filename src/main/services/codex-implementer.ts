@@ -1,5 +1,6 @@
 import type { BrowserWindow } from 'electron'
 import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 
 import type {
   AgentSdkCapabilities,
@@ -26,10 +27,12 @@ import {
 import { ensureCodexAppServerLaunchSpec } from './codex-binary-resolver'
 import { asNumber, asObject, asString, toDebugSnapshot } from './codex-utils'
 import { generateCodexSessionTitle } from './codex-session-title'
+import { getCodexConfiguredContextWindow, getCodexConfiguredModel } from './codex-config'
 import type { DatabaseService } from '../db/database'
 import { autoRenameWorktreeBranch } from './git-service'
 import { beginSessionRun, emitAgentEvent } from '@shared/lib/normalize-agent-event'
 import { stripFieldContextEnvelope } from '@shared/lib/field-context-envelope'
+import { calculateUsageCost } from '@shared/usage/pricing'
 import { notificationService } from './notification-service'
 import { buildXfpFallbackContext } from '../xfp/fallback-context'
 import { xfpProvider } from '../xfp/provider'
@@ -52,6 +55,7 @@ export interface CodexSessionState {
   revertDiff: string | null
   titleGenerated: boolean
   titleGenerationStarted: boolean
+  tokenUsageCostByTurn?: Map<string, number>
   /**
    * Per-session mapper state. Codex commandExecution streams stdout via
    * outputDelta chunks; the mapper aggregates them into state.output here so
@@ -69,6 +73,7 @@ export interface CodexSessionState {
    * between streaming and the snapshot.
    */
   itemTimestampsByTurn: Map<string, string[]>
+  recordedItemIdsByTurn?: Map<string, Set<string>>
 }
 
 interface CodexActiveRun {
@@ -77,6 +82,7 @@ interface CodexActiveRun {
   state: 'starting' | 'running' | 'aborting' | 'finalizing' | 'settled'
   startedAt: number
   abortController: AbortController
+  interruptRequestedTurnId?: string | null
 }
 
 interface CodexLiveToolPart {
@@ -115,6 +121,24 @@ interface CodexLiveAssistantDraft {
   timestamp: string
   parts: CodexLiveDraftPart[]
   toolIndexById: Map<string, number>
+}
+
+interface CodexJsonlTextTimestamp {
+  text: string
+  timestamp: string
+}
+
+interface CodexJsonlTurnTimeline {
+  /**
+   * Fallback sequence from the JSONL response stream. This is only safe when
+   * its length matches the `thread/read` item count; otherwise the server may
+   * have returned a summarized item list and text must be matched by content.
+   */
+  positional: string[]
+  userMessages: CodexJsonlTextTimestamp[]
+  assistantMessages: CodexJsonlTextTimestamp[]
+  reasoningMessages: CodexJsonlTextTimestamp[]
+  toolCallTimestampsById: Map<string, string>
 }
 
 // ── Pending HITL entry (shared by questions and approvals) ────────
@@ -205,6 +229,49 @@ function stripCodexPromptPart(part: CodexPromptPart): CodexPromptPart {
   return { ...part, text: stripFieldContextEnvelope(part.text) }
 }
 
+function normalizeCodexTimelineText(text: string): string {
+  return text.trim().replace(/\s+/g, ' ')
+}
+
+function extractCodexJsonlContentText(content: unknown): string {
+  if (!Array.isArray(content)) return ''
+
+  return content
+    .map((entry) => asObject(entry))
+    .map((entry) => asString(entry?.text) ?? '')
+    .filter(Boolean)
+    .join('\n')
+    .trim()
+}
+
+function extractCodexJsonlReasoningText(payload: Record<string, unknown>): string {
+  const extract = (value: unknown): string[] => {
+    if (!Array.isArray(value)) return []
+    return value.flatMap((entry) => {
+      if (typeof entry === 'string') return entry
+      const entryObj = asObject(entry)
+      const text = asString(entryObj?.text)
+      return text ? [text] : []
+    })
+  }
+
+  return [...extract(payload.summary), ...extract(payload.content)].join('\n').trim()
+}
+
+function shiftMatchingCodexJsonlTextTimestamp(
+  entries: CodexJsonlTextTimestamp[],
+  text: string
+): string | null {
+  const target = normalizeCodexTimelineText(text)
+  if (!target) return null
+
+  const index = entries.findIndex((entry) => normalizeCodexTimelineText(entry.text) === target)
+  if (index < 0) return null
+
+  const [entry] = entries.splice(index, 1)
+  return entry?.timestamp ?? null
+}
+
 function normalizeCodexDisplayMessage(message: CodexPromptMessage): {
   text: string
   parts: CodexPromptPart[]
@@ -268,6 +335,30 @@ function sanitizeCodexUserMessageForPersistence(message: unknown): unknown {
   return sanitized
 }
 
+function hasRenderableAssistantMessage(messages: unknown[]): boolean {
+  return messages.some((message) => {
+    const record = asObject(message)
+    if (record?.role !== 'assistant') return false
+
+    if (typeof record.content === 'string' && record.content.trim().length > 0) {
+      return true
+    }
+
+    const parts = Array.isArray(record.parts) ? record.parts : []
+    return parts.some((part) => {
+      const partRecord = asObject(part)
+      if (!partRecord) return false
+      if (partRecord.type === 'text' && typeof partRecord.text === 'string') {
+        return partRecord.text.trim().length > 0
+      }
+      if (partRecord.type === 'reasoning' && typeof partRecord.text === 'string') {
+        return partRecord.text.trim().length > 0
+      }
+      return false
+    })
+  })
+}
+
 // ── Immediate title helpers ────────────────────────────────────────────────
 
 const IMMEDIATE_TITLE_LENGTH = 50
@@ -296,18 +387,167 @@ export function normalizeCodexMessageTimestamps<T extends { created_at: string }
   })
 }
 
+function extractCodexTurnIdFromMessageId(messageId: string | undefined): string | null {
+  if (!messageId) return null
+  const match = messageId.match(/^(.*):(user|assistant)(?::.*)?$/)
+  return match?.[1] ?? null
+}
+
+function hasRenderableTextMessage(message: unknown): boolean {
+  const record = asObject(message)
+  if (!record) return false
+  if (typeof record.content === 'string' && record.content.trim().length > 0) return true
+
+  const parts = Array.isArray(record.parts) ? record.parts : []
+  return parts.some((part) => {
+    const partRecord = asObject(part)
+    if (!partRecord) return false
+    if (partRecord.type === 'text' && typeof partRecord.text === 'string') {
+      return partRecord.text.trim().length > 0
+    }
+    if (partRecord.type === 'reasoning' && typeof partRecord.text === 'string') {
+      return partRecord.text.trim().length > 0
+    }
+    return false
+  })
+}
+
+function isCodexToolItemType(itemType: string | undefined): boolean {
+  return (
+    itemType === 'commandExecution' ||
+    itemType === 'fileChange' ||
+    itemType === 'webSearch' ||
+    itemType === 'mcpToolCall'
+  )
+}
+
+function timestampFromMs(value: unknown): string | null {
+  const raw = asNumber(value)
+  if (raw === undefined) return null
+  const ms = raw < 10_000_000_000 ? raw * 1000 : raw
+  const date = new Date(ms)
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null
+}
+
+function eventTimestampFromPayload(payload: Record<string, unknown> | null): string | null {
+  return (
+    timestampFromMs(payload?.startedAtMs) ??
+    timestampFromMs(payload?.completedAtMs) ??
+    timestampFromMs(payload?.createdAtMs) ??
+    timestampFromMs(payload?.updatedAtMs)
+  )
+}
+
+export function hasCollapsedCodexMessageTimeline(
+  messages: unknown[],
+  activities: Array<{ turn_id?: string | null; kind?: string; created_at?: string }>
+): boolean {
+  const toolSpansByTurn = new Map<string, { min: number; max: number; count: number }>()
+
+  for (const activity of activities) {
+    if (!activity.kind?.startsWith('tool.')) continue
+    if (!activity.turn_id) continue
+    const ts = Date.parse(activity.created_at ?? '')
+    if (!Number.isFinite(ts)) continue
+    const current = toolSpansByTurn.get(activity.turn_id) ?? {
+      min: Number.POSITIVE_INFINITY,
+      max: Number.NEGATIVE_INFINITY,
+      count: 0
+    }
+    current.min = Math.min(current.min, ts)
+    current.max = Math.max(current.max, ts)
+    current.count += 1
+    toolSpansByTurn.set(activity.turn_id, current)
+  }
+
+  if (toolSpansByTurn.size === 0) return false
+
+  const assistantTimesByTurn = new Map<string, number[]>()
+  for (const message of messages) {
+    const record = asObject(message)
+    if (!record || record.role !== 'assistant') continue
+    if (!hasRenderableTextMessage(message)) continue
+
+    const turnId = extractCodexTurnIdFromMessageId(asString(record.id))
+    if (!turnId) continue
+    const ts = Date.parse(asString(record.timestamp) ?? '')
+    if (!Number.isFinite(ts)) continue
+    const list = assistantTimesByTurn.get(turnId) ?? []
+    list.push(ts)
+    assistantTimesByTurn.set(turnId, list)
+  }
+
+  for (const [turnId, assistantTimes] of assistantTimesByTurn) {
+    if (assistantTimes.length < 2) continue
+    const toolSpan = toolSpansByTurn.get(turnId)
+    if (!toolSpan || toolSpan.count === 0) continue
+
+    const minAssistant = Math.min(...assistantTimes)
+    const maxAssistant = Math.max(...assistantTimes)
+    const assistantSpread = maxAssistant - minAssistant
+    const toolSpread = toolSpan.max - toolSpan.min
+
+    if (assistantSpread <= 1000 && toolSpread >= 2000 && maxAssistant < toolSpan.min) {
+      return true
+    }
+  }
+
+  return false
+}
+
 export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapter {
   readonly id = 'codex' as const
   readonly capabilities: AgentSdkCapabilities = CODEX_CAPABILITIES
 
   private mainWindow: BrowserWindow | null = null
   private dbService: DatabaseService | null = null
-  private selectedModel: string = CODEX_DEFAULT_MODEL
+  private selectedModel: string = resolveCodexModelSlug(
+    getCodexConfiguredModel() ?? CODEX_DEFAULT_MODEL
+  )
   private selectedVariant: string | undefined
   private manager: CodexAppServerManager = new CodexAppServerManager()
   private sessions = new Map<string, CodexSessionState>()
   private pendingQuestions = new Map<string, PendingHitlEntry>()
   private pendingApprovalSessions = new Map<string, PendingHitlEntry>()
+
+  private resolveContextWindow(runtimeValue: number | undefined, modelID: string): number {
+    return (
+      getCodexConfiguredContextWindow() ??
+      runtimeValue ??
+      getCodexModelInfo(modelID)?.limit.context ??
+      0
+    )
+  }
+
+  private calculateTurnTokenUsageCostDelta(
+    session: CodexSessionState,
+    turnId: string | undefined,
+    modelID: string,
+    tokens: { input: number; cacheRead: number; cacheWrite: number; output: number }
+  ): { cost?: number; requestId?: string } {
+    if (!turnId) return {}
+
+    const costByTurn =
+      session.tokenUsageCostByTurn ?? (session.tokenUsageCostByTurn = new Map<string, number>())
+    const totalCost = calculateUsageCost(modelID, tokens, 'codex')
+    const previousCost = costByTurn.get(turnId) ?? 0
+    costByTurn.set(turnId, Math.max(previousCost, totalCost))
+
+    const delta = Math.max(0, totalCost - previousCost)
+    if (delta <= 0) return {}
+
+    return {
+      cost: delta,
+      requestId: [
+        'codex-context-usage',
+        turnId,
+        tokens.input,
+        tokens.cacheRead,
+        tokens.cacheWrite,
+        tokens.output
+      ].join(':')
+    }
+  }
 
   // ── Window binding ───────────────────────────────────────────────
 
@@ -387,24 +627,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     if (targetSession) {
       this.persistActivity(targetSession, event)
 
-      // Record per-turn item arrival timestamps so parseThreadSnapshot can
-      // assign chronologically-correct timestamps later. Codex's thread/read
-      // response renumbers item ids (`item-1`, `item-2`, …) so id-keyed
-      // matching always misses; positional matching (turn → ordered list of
-      // ts) is the reliable bridge between streaming and snapshot.
-      if (
-        event.kind === 'notification' &&
-        (event.method === 'item/started' || event.method === 'item.started')
-      ) {
-        const turnId = event.turnId ?? asString(asObject(event.payload)?.turnId) ?? null
-        if (turnId) {
-          const list =
-            targetSession.itemTimestampsByTurn.get(turnId) ??
-            (targetSession.itemTimestampsByTurn.set(turnId, []),
-            targetSession.itemTimestampsByTurn.get(turnId)!)
-          list.push(new Date().toISOString())
-        }
-      }
+      this.recordCodexItemTimelineTimestamp(targetSession, event)
 
       // Phase 21.5: emit agent.* field events when a tool item completes.
       // Wrapped in try/catch — instrumentation failure must never affect
@@ -445,7 +668,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       // The context window shows how full the current prompt is,
       // not the sum of all tokens consumed across every turn.
       const last = asObject(tokenUsage?.last)
-      const contextWindow = asNumber(tokenUsage?.modelContextWindow) ?? 0
+      const turnId = event.turnId ?? asString(payload?.turnId)
 
       const inputTokens = asNumber(last?.inputTokens) ?? 0
       const cachedInputTokens = asNumber(last?.cachedInputTokens) ?? 0
@@ -453,22 +676,27 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       const reasoningTokens = asNumber(last?.reasoningOutputTokens) ?? 0
 
       const modelID = resolveCodexModelSlug(asString(payload?.model) ?? this.selectedModel)
+      const contextWindow = this.resolveContextWindow(
+        asNumber(tokenUsage?.modelContextWindow),
+        modelID
+      )
+      const tokens = {
+        input: Math.max(0, inputTokens - cachedInputTokens),
+        cacheRead: cachedInputTokens,
+        cacheWrite: 0,
+        output: outputTokens,
+        reasoning: reasoningTokens
+      }
+      const costData = this.calculateTurnTokenUsageCostDelta(targetSession, turnId, modelID, tokens)
 
       emitAgentEvent(this.mainWindow, {
         type: 'session.context_usage',
         sessionId: targetSession.hiveSessionId,
         data: {
-          tokens: {
-            // inputTokens includes cached; subtract so
-            // input + cacheRead = total prompt tokens in store
-            input: inputTokens - cachedInputTokens,
-            cacheRead: cachedInputTokens,
-            cacheWrite: 0,
-            output: outputTokens,
-            reasoning: reasoningTokens
-          },
+          tokens,
           model: { providerID: 'codex', modelID },
-          contextWindow
+          contextWindow,
+          ...costData
         }
       })
       return
@@ -721,8 +949,10 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       revertDiff: null,
       titleGenerated: false,
       titleGenerationStarted: false,
+      tokenUsageCostByTurn: new Map(),
       mapperState: createCodexMapperState(),
-      itemTimestampsByTurn: new Map()
+      itemTimestampsByTurn: new Map(),
+      recordedItemIdsByTurn: new Map()
     }
     this.sessions.set(key, state)
 
@@ -743,6 +973,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     hiveSessionId: string
   ): Promise<{
     success: boolean
+    sessionId?: string
     sessionStatus?: 'idle' | 'busy' | 'retry'
     revertMessageID?: string | null
   }> {
@@ -759,7 +990,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         hiveSessionId,
         sessionStatus
       })
-      return { success: true, sessionStatus, revertMessageID: null }
+      return { success: true, sessionId: existing.threadId, sessionStatus, revertMessageID: null }
     }
 
     // Otherwise, start a new session with thread resume
@@ -795,8 +1026,10 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         revertDiff: null,
         titleGenerated: true,
         titleGenerationStarted: true,
+        tokenUsageCostByTurn: new Map(),
         mapperState: createCodexMapperState(),
-        itemTimestampsByTurn: new Map()
+        itemTimestampsByTurn: new Map(),
+        recordedItemIdsByTurn: new Map()
       }
       this.sessions.set(newKey, state)
 
@@ -808,6 +1041,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
 
       return {
         success: true,
+        sessionId: state.threadId,
         sessionStatus: this.statusToHive(state.status),
         revertMessageID: null
       }
@@ -949,6 +1183,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       // prevents late events from a stopped turn from completing or repainting
       // a newly-started prompt on the same Codex thread.
       if (!this.eventMatchesActiveRun(session, runId, event)) return
+      this.bindActiveRunTurnId(session, runId, event)
 
       const streamEvents = mapCodexEventToStreamEvents(
         event,
@@ -957,7 +1192,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       )
       for (const streamEvent of streamEvents) {
         if (
-          event.method === 'turn/completed' &&
+          (event.method === 'turn/completed' || event.method === 'thread/status/changed') &&
           streamEvent.type === 'session.status' &&
           streamEvent.statusPayload?.type === 'idle'
         ) {
@@ -1163,8 +1398,10 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         return
       }
 
-      activeRun.expectedTurnId = turnStart.turnId || null
-      activeRun.state = 'running'
+      activeRun.expectedTurnId = turnStart.turnId || activeRun.expectedTurnId || null
+      if (activeRun.state !== 'aborting') {
+        activeRun.state = 'running'
+      }
 
       // Wait for turn completion (the sendTurn starts the turn, but
       // events stream asynchronously via the manager's event emitter)
@@ -1480,19 +1717,8 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     const managerSession = this.manager.getSession(session.threadId)
     const expectedTurnId = activeRun?.expectedTurnId ?? managerSession?.activeTurnId ?? null
 
-    const materialized = this.materializeLiveAssistantDraft(session, {
-      aborted: true,
-      terminalizeRunningTools: true,
-      emitTerminalTools: true
-    })
-    if (materialized) {
-      this.persistCanonicalMessages(session)
-    }
-    session.liveAssistantDraft = null
-
     if (activeRun) {
-      activeRun.abortController.abort()
-      this.settleRun(session, activeRun.runId)
+      activeRun.interruptRequestedTurnId = expectedTurnId
     }
 
     try {
@@ -1502,19 +1728,36 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         await this.manager.interruptTurn(session.threadId)
       }
     } catch (error) {
-      log.warn('Abort: interruptTurn failed, continuing cleanup', {
+      log.warn('Abort: interruptTurn failed', {
         worktreePath,
         agentSessionId,
         error: error instanceof Error ? error.message : String(error)
       })
+      return false
     }
 
-    session.status = 'ready'
-    this.emitStatus(session.hiveSessionId, 'idle')
+    if (!activeRun) {
+      const materialized = this.materializeLiveAssistantDraft(session, {
+        aborted: true,
+        terminalizeRunningTools: true,
+        emitTerminalTools: true
+      })
+      if (materialized) {
+        this.persistCanonicalMessages(session)
+      }
+      session.liveAssistantDraft = null
+      session.status = 'ready'
+      this.emitStatus(session.hiveSessionId, 'idle')
+    }
+
     return true
   }
 
-  async getMessages(worktreePath: string, agentSessionId: string): Promise<unknown[]> {
+  async getMessages(
+    worktreePath: string,
+    agentSessionId: string,
+    options?: { forceRefresh?: boolean }
+  ): Promise<unknown[]> {
     const key = this.getSessionKey(worktreePath, agentSessionId)
     let session = this.sessions.get(key)
     if (!session) {
@@ -1527,11 +1770,25 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       return []
     }
 
-    // Return in-memory messages if available
+    let fallbackMessages: unknown[] | null = null
+
+    // Return in-memory messages if they contain assistant text. A user-only
+    // cache is incomplete after reconnect/abort paths; continue to thread/read
+    // so missing Codex replies can be recovered.
     if (session.messages.length > 0) {
       const liveDraftMessage =
         session.status === 'running' ? this.cloneLiveAssistantDraftMessage(session) : null
-      return liveDraftMessage ? [...session.messages, liveDraftMessage] : [...session.messages]
+      const inMemoryMessages = liveDraftMessage
+        ? [...session.messages, liveDraftMessage]
+        : [...session.messages]
+      if (
+        !options?.forceRefresh &&
+        (hasRenderableAssistantMessage(inMemoryMessages) || session.status === 'running') &&
+        !this.shouldRefreshCollapsedTimeline(session, inMemoryMessages)
+      ) {
+        return inMemoryMessages
+      }
+      fallbackMessages = inMemoryMessages
     }
 
     if (session.status === 'running') {
@@ -1558,7 +1815,14 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
               sanitizeCodexUserMessageForPersistence(message)
             )
             session.messages = sanitized
-            return [...sanitized]
+            if (
+              !options?.forceRefresh &&
+              (hasRenderableAssistantMessage(sanitized) || session.status === 'closed') &&
+              !this.shouldRefreshCollapsedTimeline(session, sanitized)
+            ) {
+              return [...sanitized]
+            }
+            fallbackMessages = [...sanitized]
           }
         }
       } catch (error) {
@@ -1591,13 +1855,28 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       }
     }
 
-    return []
+    return fallbackMessages ? [...fallbackMessages] : []
   }
 
   // ── Models ───────────────────────────────────────────────────────
 
   async getAvailableModels(): Promise<unknown> {
-    return getAvailableCodexModels()
+    const configuredContextWindow = getCodexConfiguredContextWindow()
+    const providers = getAvailableCodexModels()
+    if (!configuredContextWindow) return providers
+
+    return providers.map((provider) => ({
+      ...provider,
+      models: Object.fromEntries(
+        Object.entries(provider.models).map(([id, model]) => [
+          id,
+          {
+            ...model,
+            limit: { ...model.limit, context: configuredContextWindow }
+          }
+        ])
+      )
+    }))
   }
 
   async getModelInfo(
@@ -1608,7 +1887,13 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     name: string
     limit: { context: number; input?: number; output: number }
   } | null> {
-    return getCodexModelInfo(modelId)
+    const info = getCodexModelInfo(modelId)
+    const configuredContextWindow = getCodexConfiguredContextWindow()
+    if (!info || !configuredContextWindow) return info
+    return {
+      ...info,
+      limit: { ...info.limit, context: configuredContextWindow }
+    }
   }
 
   setSelectedModel(model: { providerID: string; modelID: string; variant?: string }): void {
@@ -1622,7 +1907,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
   }
 
   clearSelectedModel(): void {
-    this.selectedModel = CODEX_DEFAULT_MODEL
+    this.selectedModel = resolveCodexModelSlug(getCodexConfiguredModel() ?? CODEX_DEFAULT_MODEL)
     this.selectedVariant = undefined
     log.info('Selected model cleared, reset to default', { model: this.selectedModel })
   }
@@ -2129,18 +2414,19 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       const cachedInputTokens = asNumber(lastUsage.cached_input_tokens) ?? 0
       const outputTokens = asNumber(lastUsage.output_tokens) ?? 0
       const reasoningTokens = asNumber(lastUsage.reasoning_output_tokens) ?? 0
-      const contextWindow = asNumber(lastTokenCount.model_context_window) ?? 0
-
       if (inputTokens === 0 && outputTokens === 0) return
 
       const modelID = resolveCodexModelSlug(this.selectedModel)
-
+      const contextWindow = this.resolveContextWindow(
+        asNumber(lastTokenCount.model_context_window),
+        modelID
+      )
       emitAgentEvent(this.mainWindow, {
         type: 'session.context_usage',
         sessionId: session.hiveSessionId,
         data: {
           tokens: {
-            input: inputTokens - cachedInputTokens,
+            input: Math.max(0, inputTokens - cachedInputTokens),
             cacheRead: cachedInputTokens,
             cacheWrite: 0,
             output: outputTokens,
@@ -2352,6 +2638,52 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     return event.turnId ?? asString(payload?.turnId) ?? asString(asObject(payload?.turn)?.id)
   }
 
+  private recordCodexItemTimelineTimestamp(
+    session: CodexSessionState,
+    event: CodexManagerEvent
+  ): void {
+    if (event.kind !== 'notification') return
+
+    const method = event.method
+    const isStarted = method === 'item/started' || method === 'item.started'
+    const isCompleted = method === 'item/completed' || method === 'item.completed'
+    if (!isStarted && !isCompleted) return
+
+    const payload = asObject(event.payload)
+    const item = asObject(payload?.item)
+    if (!item) return
+
+    const turnId = this.extractEventTurnId(event)
+    if (!turnId) return
+
+    const itemType = asString(item.type)
+    session.itemTimestampsByTurn ??= new Map()
+
+    const itemId =
+      asString(item.id) ??
+      event.itemId ??
+      `${method}:${turnId}:${session.itemTimestampsByTurn.get(turnId)?.length ?? 0}`
+    const isTool = isCodexToolItemType(itemType)
+
+    // Record one timestamp per turn item, matching the order `thread/read`
+    // later exposes. Tool items are anchored at start; text/reasoning items
+    // only become useful once completed and carrying their final content.
+    if ((isTool && !isStarted) || (!isTool && !isCompleted)) return
+
+    const seenByTurn =
+      session.recordedItemIdsByTurn ??
+      (session.recordedItemIdsByTurn = new Map<string, Set<string>>())
+    const seen = seenByTurn.get(turnId) ?? new Set<string>()
+    if (seen.has(itemId)) return
+
+    const list =
+      session.itemTimestampsByTurn.get(turnId) ??
+      (session.itemTimestampsByTurn.set(turnId, []), session.itemTimestampsByTurn.get(turnId)!)
+    list.push(eventTimestampFromPayload(payload) ?? event.createdAt ?? new Date().toISOString())
+    seen.add(itemId)
+    seenByTurn.set(turnId, seen)
+  }
+
   private eventMatchesActiveRun(
     session: CodexSessionState,
     runId: string,
@@ -2364,12 +2696,28 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     const expectedTurnId = activeRun.expectedTurnId
     const eventTurnId = this.extractEventTurnId(event)
     if (!expectedTurnId && eventTurnId) {
-      return false
+      if (event.method === 'turn/started') return true
+      const managerTurnId = this.manager.getSession(session.threadId)?.activeTurnId
+      return managerTurnId === eventTurnId
     }
     if (expectedTurnId && eventTurnId && eventTurnId !== expectedTurnId) {
       return false
     }
     return true
+  }
+
+  private bindActiveRunTurnId(
+    session: CodexSessionState,
+    runId: string,
+    event: CodexManagerEvent
+  ): void {
+    const activeRun = session.activeRun
+    if (!activeRun || activeRun.runId !== runId || activeRun.expectedTurnId) return
+
+    const eventTurnId = this.extractEventTurnId(event)
+    if (eventTurnId) {
+      activeRun.expectedTurnId = eventTurnId
+    }
   }
 
   private parsedMessagesContainUserText(messages: unknown[], candidates: string[]): boolean {
@@ -2394,6 +2742,20 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       }
     }
     return false
+  }
+
+  private shouldRefreshCollapsedTimeline(
+    session: CodexSessionState,
+    messages: unknown[]
+  ): boolean {
+    if (!this.dbService || session.status === 'running' || session.status === 'closed') return false
+
+    try {
+      const activities = this.dbService.getSessionActivities(session.hiveSessionId)
+      return hasCollapsedCodexMessageTimeline(messages, activities)
+    } catch {
+      return false
+    }
   }
 
   private resetLiveAssistantDraft(session: CodexSessionState): void {
@@ -2700,6 +3062,16 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
           return
         }
 
+        if (event.method === 'thread/status/changed') {
+          const payload = asObject(event.payload)
+          const status = asObject(payload?.status) ?? payload
+          if (asString(status?.type) === 'idle') {
+            const activeRun = session.activeRun
+            finish(activeRun?.state === 'aborting' ? 'interrupted' : 'completed')
+            return
+          }
+        }
+
         // Only reject on truly fatal errors — not stderr warnings.
         // The Codex app-server may output benign stderr content (warnings,
         // progress info, non-standard log formats) that should not abort
@@ -2862,8 +3234,10 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         revertDiff: null,
         titleGenerated: true,
         titleGenerationStarted: true,
+        tokenUsageCostByTurn: new Map(),
         mapperState: createCodexMapperState(),
-        itemTimestampsByTurn: new Map()
+        itemTimestampsByTurn: new Map(),
+        recordedItemIdsByTurn: new Map()
       }
 
       this.sessions.set(this.getSessionKey(worktreePath, threadId), recovered)
@@ -3013,6 +3387,170 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     }
   }
 
+  private readJsonlItemTimelineByTurn(snapshot: unknown): Map<string, CodexJsonlTurnTimeline> {
+    const obj = asObject(snapshot)
+    const threadObj = asObject(obj?.thread) ?? obj
+    const jsonlPath = asString(threadObj?.path)
+    if (!jsonlPath) return new Map()
+
+    const result = new Map<string, CodexJsonlTurnTimeline>()
+    const getTurnTimeline = (turnId: string): CodexJsonlTurnTimeline => {
+      const existing = result.get(turnId)
+      if (existing) return existing
+      const created: CodexJsonlTurnTimeline = {
+        positional: [],
+        userMessages: [],
+        assistantMessages: [],
+        reasoningMessages: [],
+        toolCallTimestampsById: new Map()
+      }
+      result.set(turnId, created)
+      return created
+    }
+
+    try {
+      const lines = readFileSync(jsonlPath, 'utf-8').split('\n')
+      let currentTurnId: string | null = null
+
+      const normalizeTimestamp = (timestamp: string | undefined): string | null => {
+        if (!timestamp) return null
+        const parsed = Date.parse(timestamp)
+        if (!Number.isFinite(parsed)) return null
+        return new Date(parsed).toISOString()
+      }
+
+      const pushPositional = (timestamp: string | undefined): string | null => {
+        if (!currentTurnId || !timestamp) return null
+        const normalized = normalizeTimestamp(timestamp)
+        if (!normalized) return null
+        getTurnTimeline(currentTurnId).positional.push(normalized)
+        return normalized
+      }
+
+      const pushText = (
+        collection: keyof Pick<
+          CodexJsonlTurnTimeline,
+          'userMessages' | 'assistantMessages' | 'reasoningMessages'
+        >,
+        text: string,
+        timestamp: string | undefined
+      ): void => {
+        if (!currentTurnId || !text.trim()) return
+        const normalized = normalizeTimestamp(timestamp)
+        if (!normalized) return
+        getTurnTimeline(currentTurnId)[collection].push({ text, timestamp: normalized })
+      }
+
+      for (const line of lines) {
+        if (!line.trim()) continue
+        let entry: Record<string, unknown>
+        try {
+          entry = JSON.parse(line) as Record<string, unknown>
+        } catch {
+          continue
+        }
+
+        const entryType = asString(entry.type)
+        const payload = asObject(entry.payload)
+        const timestamp = asString(entry.timestamp)
+
+        if (entryType === 'event_msg') {
+          const payloadType = asString(payload?.type)
+          if (payloadType === 'task_started') {
+            currentTurnId = asString(payload?.turn_id) ?? null
+            continue
+          }
+          if (payloadType === 'user_message') {
+            pushPositional(timestamp)
+            pushText('userMessages', asString(payload?.message) ?? '', timestamp)
+          }
+          continue
+        }
+
+        if (entryType !== 'response_item' || !currentTurnId) continue
+
+        const itemType = asString(payload?.type)
+        const role = asString(payload?.role)
+        if (itemType === 'message' && role === 'assistant') {
+          pushPositional(timestamp)
+          pushText('assistantMessages', extractCodexJsonlContentText(payload?.content), timestamp)
+        } else if (itemType === 'message' && role === 'user') {
+          pushText('userMessages', extractCodexJsonlContentText(payload?.content), timestamp)
+        } else if (itemType === 'reasoning') {
+          pushPositional(timestamp)
+          pushText('reasoningMessages', extractCodexJsonlReasoningText(payload), timestamp)
+        } else if (
+          itemType === 'function_call' ||
+          itemType === 'custom_tool_call' ||
+          itemType === 'tool_search_call' ||
+          itemType === 'local_shell_call' ||
+          itemType === 'web_search_call' ||
+          itemType === 'image_generation_call'
+        ) {
+          const normalized = pushPositional(timestamp)
+          const callId = asString(payload?.call_id) ?? asString(payload?.id)
+          if (normalized && callId) {
+            getTurnTimeline(currentTurnId).toolCallTimestampsById.set(callId, normalized)
+          }
+        }
+      }
+    } catch (error) {
+      log.debug('parseThreadSnapshot: failed to read Codex JSONL timestamps', {
+        jsonlPath,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
+
+    return result
+  }
+
+  private getJsonlTimestampForThreadItem(
+    turnTimeline: CodexJsonlTurnTimeline | undefined,
+    itemObj: Record<string, unknown>,
+    itemType: string | undefined
+  ): string | null {
+    if (!turnTimeline) return null
+
+    if (itemType === 'userMessage') {
+      const content = itemObj.content as unknown[] | undefined
+      const text = Array.isArray(content)
+        ? content
+            .map((entry) => asObject(entry))
+            .map((entry) => asString(entry?.text) ?? '')
+            .filter(Boolean)
+            .join('\n')
+        : ''
+      return shiftMatchingCodexJsonlTextTimestamp(turnTimeline.userMessages, text)
+    }
+
+    if (itemType === 'agentMessage' || itemType === 'plan') {
+      return shiftMatchingCodexJsonlTextTimestamp(
+        turnTimeline.assistantMessages,
+        asString(itemObj.text) ?? ''
+      )
+    }
+
+    if (itemType === 'reasoning') {
+      const summary = Array.isArray(itemObj.summary)
+        ? itemObj.summary.filter((entry): entry is string => typeof entry === 'string')
+        : []
+      const content = Array.isArray(itemObj.content)
+        ? itemObj.content.filter((entry): entry is string => typeof entry === 'string')
+        : []
+      return shiftMatchingCodexJsonlTextTimestamp(
+        turnTimeline.reasoningMessages,
+        [...summary, ...content].join('\n').trim()
+      )
+    }
+
+    const itemId = asString(itemObj.id)
+    if (itemId && turnTimeline.toolCallTimestampsById.has(itemId)) {
+      return turnTimeline.toolCallTimestampsById.get(itemId) ?? null
+    }
+
+    return null
+  }
+
   /** Parse a thread/read snapshot into a message array for getMessages() */
   private parseThreadSnapshot(
     snapshot: unknown,
@@ -3027,6 +3565,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
 
     const messages: Array<{ message: unknown; sortTime: number; order: number }> = []
     let order = 0
+    const jsonlTimelineByTurn = this.readJsonlItemTimelineByTurn(snapshot)
     const pushMessage = (message: unknown, timestamp: string | null | undefined): void => {
       const parsedTimestamp = timestamp ? Date.parse(timestamp) : Number.NaN
       messages.push({
@@ -3075,11 +3614,15 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
           return `${turnId}:assistant:${suffix}`
         }
 
-        // Resolve per-turn streaming timestamps. We match by POSITION within
-        // the turn because codex's thread/read renumbers item ids. Falls back
-        // to turnTimestamp (turn startedAt) when the streaming list is too
-        // short — happens for past turns we never streamed.
-        const turnPositionalTimestamps = turnId ? (itemTimestampsByTurn?.get(turnId) ?? []) : []
+        // Resolve per-turn timestamps. Codex `thread/read` may return a
+        // summarized item list whose item positions do not match the JSONL
+        // `response_item` stream, so JSONL timestamps are matched by content
+        // first. Positional fallback is only used when the sequence lengths
+        // match exactly.
+        const turnJsonlTimeline = turnId ? jsonlTimelineByTurn.get(turnId) : undefined
+        const livePositionalTimestamps = turnId ? (itemTimestampsByTurn?.get(turnId) ?? []) : []
+        const livePositionReliable = livePositionalTimestamps.length === items.length
+        const jsonlPositionReliable = turnJsonlTimeline?.positional.length === items.length
         let itemPositionInTurn = 0
 
         for (const item of items) {
@@ -3088,8 +3631,20 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
 
           const itemType = asString(itemObj.type)
           const itemId = asString(itemObj.id)
-          const positionalTs = turnPositionalTimestamps[itemPositionInTurn]
-          const itemTimestamp = positionalTs ?? turnTimestamp ?? new Date().toISOString()
+          const jsonlItemTimestamp = this.getJsonlTimestampForThreadItem(
+            turnJsonlTimeline,
+            itemObj,
+            itemType
+          )
+          const positionalTs =
+            (livePositionReliable ? livePositionalTimestamps[itemPositionInTurn] : undefined) ??
+            (jsonlPositionReliable ? turnJsonlTimeline?.positional[itemPositionInTurn] : undefined)
+          const itemTimestamp =
+            eventTimestampFromPayload(itemObj) ??
+            jsonlItemTimestamp ??
+            positionalTs ??
+            turnTimestamp ??
+            new Date().toISOString()
           itemPositionInTurn += 1
 
           if (itemType === 'userMessage') {

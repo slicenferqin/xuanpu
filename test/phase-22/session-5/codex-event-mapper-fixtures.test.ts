@@ -15,6 +15,8 @@ import {
 } from '../../../src/main/services/codex-event-mapper'
 import { loadFixture } from './fixtures/load'
 
+process.env.CODEX_HOME = '/tmp/xuanpu-vitest-empty-codex-home'
+
 const HIVE = 'hive-test'
 
 function streamFromFixture(name: string): unknown[] {
@@ -31,7 +33,9 @@ interface PartUpdate {
 function partsOf(stream: unknown[]): PartUpdate[] {
   return stream.filter(
     (e): e is PartUpdate =>
-      typeof e === 'object' && e !== null && (e as { type?: string }).type === 'message.part.updated'
+      typeof e === 'object' &&
+      e !== null &&
+      (e as { type?: string }).type === 'message.part.updated'
   )
 }
 
@@ -121,9 +125,7 @@ describe('codex mapper › read-via-cat', () => {
 
   it('captures command output inside the tool part state.output', () => {
     const tools = allToolParts(stream)
-    const completed = tools.find(
-      (t) => (t.state as { status?: string }).status === 'completed'
-    )
+    const completed = tools.find((t) => (t.state as { status?: string }).status === 'completed')
     expect(completed).toBeDefined()
     const state = completed!.state as { output?: string }
     expect(typeof state.output).toBe('string')
@@ -179,9 +181,7 @@ describe('codex mapper › file-change-edit', () => {
   it('emits session.turn_diff with cumulative git diff', () => {
     const turnDiffs = stream.filter(
       (e): e is { type: 'session.turn_diff'; data: { turnId: string; diff: string } } =>
-        typeof e === 'object' &&
-        e !== null &&
-        (e as { type?: string }).type === 'session.turn_diff'
+        typeof e === 'object' && e !== null && (e as { type?: string }).type === 'session.turn_diff'
     )
     expect(turnDiffs.length).toBeGreaterThan(0)
     expect(turnDiffs[0].data.diff).toContain('diff --git')

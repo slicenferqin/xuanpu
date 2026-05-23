@@ -57,6 +57,22 @@ describe('AgentTimeline user message actions', () => {
     expect(screen.getByTestId('fork-message-button')).toBeInTheDocument()
   })
 
+  it('uses the distinct user bubble tint instead of the neutral tool-card style', () => {
+    render(
+      <AgentTimeline
+        timelineMessages={[makeUserMessage('u-style', 'Keep this as a user bubble')]}
+        streamingContent=""
+        streamingParts={[]}
+        isStreaming={false}
+        lifecycle="idle"
+      />
+    )
+
+    const bubble = screen.getByTestId('timeline-user-bubble-u-style')
+    expect(bubble.className).toContain('bg-primary/10')
+    expect(bubble.className).not.toContain('bg-agent-card')
+  })
+
   it('shows edit button only when the message is editable', () => {
     render(
       <AgentTimeline

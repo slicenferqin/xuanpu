@@ -1257,6 +1257,7 @@ const agentOps = {
     hiveSessionId: string
   ): Promise<{
     success: boolean
+    sessionId?: string
     sessionStatus?: 'idle' | 'busy' | 'retry'
     revertMessageID?: string | null
   }> => ipcRenderer.invoke('agent:reconnect', worktreePath, sessionId, hiveSessionId),

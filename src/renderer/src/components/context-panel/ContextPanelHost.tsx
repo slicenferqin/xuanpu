@@ -519,8 +519,16 @@ function TasksPanel({ activeSessionId }: { activeSessionId: string | null }): Re
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto p-3" data-testid="context-panel-tasks">
-      <TodoCard tasks={tasks} />
+    <div className="min-h-0 flex flex-1 flex-col overflow-hidden px-3 pb-3 pt-2" data-testid="context-panel-tasks">
+      <div className="pb-2">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          {t('contextPanel.tabs.tasks')}
+        </div>
+        <div className="mt-1 text-xs leading-relaxed text-muted-foreground">仅显示当前最新一轮规划。</div>
+      </div>
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <TodoCard tasks={tasks} />
+      </div>
     </div>
   )
 }

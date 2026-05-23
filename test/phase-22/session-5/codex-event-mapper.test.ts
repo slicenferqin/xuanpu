@@ -4,7 +4,7 @@
  * codex-event-mapper-fixtures.test.ts: this file exercises individual code
  * paths in isolation; the fixture file covers end-to-end real-traffic shapes.
  */
-import { describe, it, expect } from 'vitest'
+import { beforeEach, describe, it, expect, vi } from 'vitest'
 import {
   mapCodexEventToStreamEvents,
   contentStreamKindFromMethod,
@@ -27,6 +27,10 @@ function makeEvent(overrides: Partial<CodexManagerEvent>): CodexManagerEvent {
 }
 
 const HIVE = 'hive-test'
+
+beforeEach(() => {
+  vi.stubEnv('CODEX_HOME', '/tmp/xuanpu-vitest-empty-codex-home')
+})
 
 // ────────────────────────────────────────────────────────────────────
 // contentStreamKindFromMethod
@@ -582,12 +586,19 @@ describe('thread/goal notifications', () => {
 // thread/tokenUsage/updated → session.context_usage
 // ────────────────────────────────────────────────────────────────────
 describe('thread/tokenUsage/updated', () => {
-  it('emits session.context_usage with totals + contextWindow', () => {
+  it('emits session.context_usage from the current turn usage + contextWindow', () => {
     const result = mapCodexEventToStreamEvents(
       makeEvent({
         method: 'thread/tokenUsage/updated',
         payload: {
           tokenUsage: {
+            last: {
+              totalTokens: 1000,
+              inputTokens: 800,
+              outputTokens: 200,
+              cachedInputTokens: 100,
+              reasoningOutputTokens: 50
+            },
             total: {
               totalTokens: 1000,
               inputTokens: 800,
@@ -604,7 +615,7 @@ describe('thread/tokenUsage/updated', () => {
     expect(result[0].type).toBe('session.context_usage')
     const data = result[0].data as any
     expect(data.tokens).toEqual({
-      input: 800,
+      input: 700,
       output: 200,
       cacheRead: 100,
       reasoning: 50
@@ -631,6 +642,17 @@ describe('thread/status/changed', () => {
       makeEvent({
         method: 'thread/status/changed',
         payload: { status: { type: 'active' } }
+      }),
+      HIVE
+    )
+    expect(result[0].statusPayload?.type).toBe('busy')
+  })
+
+  it('running → busy', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
+        method: 'thread/status/changed',
+        payload: { type: 'running' }
       }),
       HIVE
     )

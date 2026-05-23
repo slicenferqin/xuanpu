@@ -29,7 +29,7 @@ export function SettingsUpdates(): React.JSX.Element {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-8">
       <div>
         <h3 className="text-base font-medium mb-1">{t('settings.updates.title')}</h3>
         <p className="text-sm text-muted-foreground">{t('settings.updates.description')}</p>

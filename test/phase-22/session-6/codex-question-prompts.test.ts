@@ -617,7 +617,7 @@ describe('Codex Question Prompts', () => {
 
       const sendCalls = mockWindow.webContents.send.mock.calls
       const streamCalls = sendCalls
-        .filter((c: any[]) => c[0] === 'opencode:stream')
+        .filter((c: any[]) => c[0] === 'agent:stream')
         .map((c: any[]) => c[1])
 
       const questionEvent = streamCalls.find((e: any) => e.type === 'question.asked')

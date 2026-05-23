@@ -40,6 +40,47 @@ describe('SessionTaskTracker', () => {
     expect(screen.queryByText('分析现有图标样式实现')).not.toBeInTheDocument()
   })
 
+  test('orders visible tasks by shared status and priority semantics when expanded', () => {
+    render(
+      <SessionTaskTracker
+        toolStatus="running"
+        todos={[
+          {
+            id: 'task-1',
+            content: 'Completed task',
+            status: 'completed',
+            priority: 'medium'
+          },
+          {
+            id: 'task-2',
+            content: 'Pending low task',
+            status: 'pending',
+            priority: 'low'
+          },
+          {
+            id: 'task-3',
+            content: 'Working task',
+            status: 'in_progress',
+            priority: 'medium'
+          },
+          {
+            id: 'task-4',
+            content: 'Pending high task',
+            status: 'pending',
+            priority: 'high'
+          }
+        ]}
+      />
+    )
+
+    act(() => {
+      fireEvent.click(screen.getByLabelText(/expand tasks/i))
+    })
+
+    const labels = screen.getAllByTitle(/task$/).map((node) => node.textContent)
+    expect(labels).toEqual(['Working task', 'Pending high task', 'Pending low task', 'Completed task'])
+  })
+
   test('shows newly completed todo with completion styling while expanded', () => {
     const { rerender } = render(
       <SessionTaskTracker

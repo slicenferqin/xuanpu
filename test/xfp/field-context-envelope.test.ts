@@ -26,6 +26,17 @@ Observed context
     expect(stripFieldContextEnvelope(input)).toBe('继续')
   })
 
+  it('extracts the real user message from an XFP fallback envelope', () => {
+    const input = `[Xuanpu Field Fallback]
+## Current Focus
+- File: src/main.ts
+
+[User Message]
+这里为什么挂？`
+
+    expect(stripFieldContextEnvelope(input)).toBe('这里为什么挂？')
+  })
+
   it('returns non-envelope input unchanged', () => {
     const input = '普通消息\n[User Message]\n也只是用户自己输入的文本'
 

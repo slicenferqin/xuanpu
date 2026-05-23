@@ -159,7 +159,7 @@ describe('Codex Abort & getMessages', () => {
       await interruptPromise
     })
 
-    it('updates session status to ready and clears activeTurnId', async () => {
+    it('keeps session running until provider confirms interruption', async () => {
       const { context, child } = createTestContext({
         status: 'running',
         activeTurnId: 'turn-active-1'
@@ -182,11 +182,11 @@ describe('Codex Abort & getMessages', () => {
 
       await interruptPromise
 
-      expect(context.session.status).toBe('ready')
-      expect(context.session.activeTurnId).toBeNull()
+      expect(context.session.status).toBe('running')
+      expect(context.session.activeTurnId).toBe('turn-active-1')
     })
 
-    it('emits turn/interrupted event', async () => {
+    it('does not synthesize turn/interrupted on interrupt acknowledgement', async () => {
       const { context, child } = createTestContext()
       const sessionsMap = (manager as any).sessions as Map<string, CodexSessionContext>
       sessionsMap.set('thread-abort-1', context)
@@ -210,7 +210,7 @@ describe('Codex Abort & getMessages', () => {
       await interruptPromise
 
       const interruptEvent = events.find((e) => e.method === 'turn/interrupted')
-      expect(interruptEvent).toBeDefined()
+      expect(interruptEvent).toBeUndefined()
     })
 
     it('throws when threadId is unknown', async () => {
@@ -346,7 +346,7 @@ describe('Codex Abort & getMessages', () => {
       expect(result).toBe(false)
     })
 
-    it('still succeeds even if interruptTurn throws', async () => {
+    it('returns false if interruptTurn throws', async () => {
       const { CodexImplementer } = await import('../../../src/main/services/codex-implementer')
       const impl = new CodexImplementer()
       const internalManager = impl.getManager() as any
@@ -371,10 +371,10 @@ describe('Codex Abort & getMessages', () => {
       internalManager.interruptTurn = vi.fn().mockRejectedValue(new Error('Server not responding'))
 
       const result = await impl.abort('/test', 'thread-abort-1')
-      expect(result).toBe(true) // Still succeeds
+      expect(result).toBe(false)
     })
 
-    it('materializes live assistant draft before clearing an aborted run', async () => {
+    it('keeps the live draft and active run until provider confirms abort', async () => {
       const { CodexImplementer } = await import('../../../src/main/services/codex-implementer')
       const impl = new CodexImplementer()
       const internalManager = impl.getManager() as any
@@ -429,19 +429,15 @@ describe('Codex Abort & getMessages', () => {
 
       expect(result).toBe(true)
       expect(internalManager.interruptTurn).toHaveBeenCalledWith('thread-abort-1', 'turn-live-1')
-      expect(session.liveAssistantDraft).toBeNull()
-      expect(session.activeRun).toBeNull()
-
-      const assistant = session.messages[0] as any
-      expect(assistant.role).toBe('assistant')
-      expect(assistant.aborted).toBe(true)
-      expect(assistant.parts[0].text).toBe('Partial answer')
-      expect(assistant.parts[1].state.status).toBe('cancelled')
-      expect(assistant.parts[1].state.output).toBe('running...')
+      expect(session.liveAssistantDraft).not.toBeNull()
+      expect(session.activeRun?.state).toBe('aborting')
+      expect(session.activeRun?.interruptRequestedTurnId).toBe('turn-live-1')
+      expect(session.messages).toHaveLength(0)
 
       const messages = await impl.getMessages('/test', 'thread-abort-1')
       expect(messages).toHaveLength(1)
-      expect((messages[0] as any).aborted).toBe(true)
+      expect((messages[0] as any).aborted).toBeUndefined()
+      expect((messages[0] as any).parts[0].text).toBe('Partial answer')
     })
   })
 
@@ -515,6 +511,80 @@ describe('Codex Abort & getMessages', () => {
       expect((messages[0] as any).parts[0].text).toBe('User question')
       expect((messages[1] as any).role).toBe('assistant')
       expect((messages[1] as any).parts[0].text).toBe('Assistant answer')
+    })
+
+    it('does not treat persisted user-only Codex rows as a complete transcript', async () => {
+      const { CodexImplementer } = await import('../../../src/main/services/codex-implementer')
+      const impl = new CodexImplementer()
+      const internalManager = impl.getManager() as any
+
+      impl.getSessions().set('/test::thread-msg-1', {
+        threadId: 'thread-msg-1',
+        hiveSessionId: 'hive-msg-1',
+        worktreePath: '/test',
+        status: 'ready',
+        messages: [],
+        liveAssistantDraft: null,
+        revertMessageID: null,
+        revertDiff: null,
+        titleGenerated: false
+      })
+
+      const replaceSessionMessages = vi.fn()
+      impl.setDatabaseService({
+        getSessionMessages: vi.fn().mockReturnValue([
+          {
+            id: 'db-user-1',
+            session_id: 'hive-msg-1',
+            role: 'user',
+            content: 'Persisted question',
+            opencode_message_id: 'turn-1:user',
+            opencode_message_json: JSON.stringify({
+              id: 'turn-1:user',
+              role: 'user',
+              parts: [{ type: 'text', text: 'Persisted question' }],
+              timestamp: '2026-01-01T00:00:00.000Z'
+            }),
+            opencode_parts_json: null,
+            opencode_timeline_json: null,
+            created_at: '2026-01-01T00:00:00.000Z'
+          }
+        ]),
+        replaceSessionMessages
+      } as any)
+
+      internalManager.readThread = vi.fn().mockResolvedValue({
+        thread: {
+          id: 'thread-msg-1',
+          turns: [
+            {
+              id: 'turn-1',
+              items: [
+                {
+                  type: 'userMessage',
+                  id: 'user-1',
+                  content: [{ type: 'text', text: 'Persisted question' }]
+                },
+                {
+                  type: 'agentMessage',
+                  id: 'assistant-1',
+                  text: 'Recovered assistant answer'
+                }
+              ],
+              createdAt: '2026-01-01T00:00:00.000Z',
+              updatedAt: '2026-01-01T00:00:02.000Z'
+            }
+          ]
+        }
+      })
+
+      const messages = await impl.getMessages('/test', 'thread-msg-1')
+
+      expect(internalManager.readThread).toHaveBeenCalledWith('thread-msg-1')
+      expect(messages).toHaveLength(2)
+      expect((messages[1] as any).role).toBe('assistant')
+      expect((messages[1] as any).parts[0].text).toBe('Recovered assistant answer')
+      expect(replaceSessionMessages).toHaveBeenCalled()
     })
 
     it('warms in-memory cache from readThread result', async () => {

@@ -252,15 +252,119 @@ describe('ContextPanelHost', () => {
     expect(screen.getByTestId('context-panel-terminal')).toBeInTheDocument()
   })
 
-  it('selects the terminal bottom tab when the right terminal rail item is clicked', async () => {
+  it('renders grouped latest-round tasks in the tasks panel from durable timeline data', async () => {
     const user = userEvent.setup()
-    useLayoutStore.setState({ bottomPanelTab: 'run' })
-    renderHost({ terminalPanel: <div data-testid="context-panel-terminal">Terminal panel</div> })
+    useSessionStore.setState({ activeSessionId: 'sess-tasks' })
+    Object.defineProperty(window, 'agentOps', {
+      configurable: true,
+      writable: true,
+      value: {
+        getTimeline: vi.fn().mockResolvedValue({
+          messages: [
+            {
+              id: 'user-1',
+              role: 'user',
+              content: '旧任务轮次',
+              timestamp: '2026-05-21T00:00:00.000Z'
+            },
+            {
+              id: 'assistant-1',
+              role: 'assistant',
+              content: '',
+              timestamp: '2026-05-21T00:00:01.000Z',
+              parts: [
+                {
+                  type: 'tool_use',
+                  toolUse: {
+                    id: 'todo-old',
+                    name: 'TodoWrite',
+                    status: 'success',
+                    startTime: 1,
+                    input: {
+                      todos: [
+                        { id: 'task-old-1', content: 'Completed old task', status: 'completed' },
+                        { id: 'task-old-2', content: 'Pending old task', status: 'pending' }
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              id: 'user-2',
+              role: 'user',
+              content: '最新任务轮次',
+              timestamp: '2026-05-21T00:00:02.000Z'
+            },
+            {
+              id: 'assistant-2',
+              role: 'assistant',
+              content: '',
+              timestamp: '2026-05-21T00:00:03.000Z',
+              parts: [
+                {
+                  type: 'tool_use',
+                  toolUse: {
+                    id: 'todo-new',
+                    name: 'TodoWrite',
+                    status: 'success',
+                    startTime: 2,
+                    input: {
+                      todos: [
+                        { id: 'task-1', content: 'Inspect session tasks', status: 'in_progress' },
+                        { id: 'task-2', content: 'Update task panel', status: 'pending' },
+                        { id: 'task-3', content: 'Verify UI changes', status: 'completed' }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        })
+      }
+    })
 
-    await user.click(screen.getByTestId('context-panel-tab-terminal'))
+    renderHost()
 
-    expect(useLayoutStore.getState().rightContextTab).toBe('terminal')
-    expect(useLayoutStore.getState().bottomPanelTab).toBe('terminal')
+    await user.click(screen.getByTestId('context-panel-tab-tasks'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('context-panel-tasks')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('进行中')).toBeInTheDocument()
+    expect(screen.getByText('待处理')).toBeInTheDocument()
+    expect(screen.getByText('已完成')).toBeInTheDocument()
+    expect(screen.getByText('查看任务')).toBeInTheDocument()
+    expect(screen.getByText('更新任务面板')).toBeInTheDocument()
+    expect(screen.getByText('Verify UI changes')).toBeInTheDocument()
+    expect(screen.queryByText('Completed old task')).not.toBeInTheDocument()
+    expect(screen.queryByText('Pending old task')).not.toBeInTheDocument()
+  })
+
+  it('prefers runtime tasks over durable fallback in the tasks panel', async () => {
+    const user = userEvent.setup()
+    useSessionStore.setState({ activeSessionId: 'sess-live-tasks' })
+    useSessionRuntimeStore.getState().setSessionTasks('sess-live-tasks', [
+      { id: 'task-live', content: 'Inspect live runtime task', status: 'in_progress' }
+    ])
+    Object.defineProperty(window, 'agentOps', {
+      configurable: true,
+      writable: true,
+      value: {
+        getTimeline: vi.fn().mockResolvedValue({ messages: todoTimeline() })
+      }
+    })
+
+    renderHost()
+
+    await user.click(screen.getByTestId('context-panel-tab-tasks'))
+
+    await waitFor(() => {
+      expect(screen.getByText('查看任务')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Move tasks into the context panel')).not.toBeInTheDocument()
   })
 
   it('keeps the terminal panel mounted while switching away and back', async () => {
@@ -389,37 +493,6 @@ describe('ContextPanelHost', () => {
     expect(screen.getByTestId('pr-target-branch-trigger')).toHaveTextContent('origin/main')
   })
 
-  it('renders latest session tasks from the shared timeline extraction helper', async () => {
-    const user = userEvent.setup()
-    useSessionStore.setState({ activeSessionId: 'sess-1' })
-    window.agentOps.getTimeline = vi.fn().mockResolvedValue({ messages: todoTimeline() })
-
-    renderHost()
-    await user.click(screen.getByTestId('context-panel-tab-tasks'))
-
-    await waitFor(() => {
-      expect(screen.getByText('Move tasks into the context panel')).toBeInTheDocument()
-    })
-  })
-
-  it('prefers live task snapshots over the persisted timeline in the tasks panel', async () => {
-    const user = userEvent.setup()
-    useSessionStore.setState({ activeSessionId: 'sess-live' })
-    useSessionRuntimeStore.getState().setSessionTasks('sess-live', [
-      {
-        id: 'live-task',
-        content: 'Live task from streaming update',
-        status: 'in_progress'
-      }
-    ])
-    window.agentOps.getTimeline = vi.fn().mockResolvedValue({ messages: todoTimeline() })
-
-    renderHost()
-    await user.click(screen.getByTestId('context-panel-tab-tasks'))
-
-    expect(screen.getByText('Live task from streaming update')).toBeInTheDocument()
-    expect(screen.queryByText('Move tasks into the context panel')).not.toBeInTheDocument()
-  })
 
   it('renders and dismisses completed goals from the right goal panel', async () => {
     const user = userEvent.setup()

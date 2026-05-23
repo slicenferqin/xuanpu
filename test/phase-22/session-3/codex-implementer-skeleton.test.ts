@@ -12,6 +12,11 @@ vi.mock('../../../src/main/services/logger', () => ({
   })
 }))
 
+vi.mock('../../../src/main/services/codex-config', () => ({
+  getCodexConfiguredModel: vi.fn(() => undefined),
+  getCodexConfiguredContextWindow: vi.fn(() => undefined)
+}))
+
 import { CodexImplementer } from '../../../src/main/services/codex-implementer'
 import { CODEX_CAPABILITIES } from '../../../src/main/services/agent-runtime-types'
 import { CODEX_DEFAULT_MODEL } from '../../../src/main/services/codex-models'
@@ -60,10 +65,10 @@ describe('CodexImplementer skeleton', () => {
       expect(result[0].id).toBe('codex')
     })
 
-    it('provider contains all 4 models', async () => {
+    it('provider contains all 5 models', async () => {
       const result = (await impl.getAvailableModels()) as any[]
       const models = result[0].models
-      expect(Object.keys(models)).toHaveLength(4)
+      expect(Object.keys(models)).toHaveLength(5)
     })
   })
 
@@ -304,12 +309,16 @@ describe('CodexImplementer skeleton', () => {
 
     it('times out after the budget when there is no pending HITL request', async () => {
       ;(impl as any).manager = new EventEmitter()
+      const session = {
+        threadId: 'thread-1',
+        activeRun: { runId: 'run-1', expectedTurnId: null }
+      }
 
-      const promise = (impl as any).waitForTurnCompletion(
-        { threadId: 'thread-1' },
-        () => false,
-        1000
-      ) as Promise<void>
+      const promise = (impl as any).waitForTurnCompletion(session, {
+        runId: 'run-1',
+        isComplete: () => false,
+        timeoutMs: 1000
+      }) as Promise<void>
 
       const outcome = promise.then(
         () => 'resolved',
@@ -326,12 +335,16 @@ describe('CodexImplementer skeleton', () => {
     it('pauses timeout consumption while HITL is pending and resumes with the remaining budget', async () => {
       const manager = new EventEmitter()
       ;(impl as any).manager = manager
+      const session = {
+        threadId: 'thread-1',
+        activeRun: { runId: 'run-1', expectedTurnId: null }
+      }
 
-      const promise = (impl as any).waitForTurnCompletion(
-        { threadId: 'thread-1' },
-        () => false,
-        1000
-      ) as Promise<void>
+      const promise = (impl as any).waitForTurnCompletion(session, {
+        runId: 'run-1',
+        isComplete: () => false,
+        timeoutMs: 1000
+      }) as Promise<void>
       const outcome = promise.then(
         () => 'resolved',
         (error) => error

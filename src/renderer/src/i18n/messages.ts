@@ -2435,6 +2435,7 @@ export const messages: Record<AppLocale, MessageTree> = {
     },
     contextIndicator: {
       title: 'Context Window',
+      explainer: 'Model limit, not billing. Shows the latest turn prompt occupancy.',
       latestTurn: 'Latest turn API usage',
       summary: {
         withLimit: '{used} / {limit} tokens ({percent}%)',
@@ -5311,6 +5312,7 @@ export const messages: Record<AppLocale, MessageTree> = {
     },
     contextIndicator: {
       title: '上下文窗口',
+      explainer: '这是模型上下文上限/当前轮占用，不是计费金额。',
       latestTurn: '最近一轮 API 用量',
       summary: {
         withLimit: '{used} / {limit} tokens ({percent}%)',

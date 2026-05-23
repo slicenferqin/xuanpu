@@ -3183,16 +3183,22 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           )
           if (shouldAbortInit()) return
           if (reconnectResult.success) {
-            setOpencodeSessionId(existingOpcSessionId)
-            useSessionStore.getState().setOpenCodeSessionId(sessionId, existingOpcSessionId)
-            transcriptSourceRef.current.opencodeSessionId = existingOpcSessionId
+            const runtimeSessionId = reconnectResult.sessionId ?? existingOpcSessionId
+            setOpencodeSessionId(runtimeSessionId)
+            useSessionStore.getState().setOpenCodeSessionId(sessionId, runtimeSessionId)
+            transcriptSourceRef.current.opencodeSessionId = runtimeSessionId
+            if (runtimeSessionId !== existingOpcSessionId) {
+              await window.db.session.update(sessionId, {
+                opencode_session_id: runtimeSessionId
+              })
+            }
             // Only update revertMessageID from reconnect if it carries a value;
             // sessionInfo already hydrated the authoritative value earlier.
             if (reconnectResult.revertMessageID != null) {
               setRevertMessageID(reconnectResult.revertMessageID)
             }
             fetchModelLimits()
-            fetchCommands(wtPath, existingOpcSessionId)
+            fetchCommands(wtPath, runtimeSessionId)
             hydratePermissions(wtPath)
             // Create response log file if logging is enabled
             if (isLogModeRef.current) {
@@ -3386,13 +3392,19 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
           sessionId
         )
         if (reconnectResult.success) {
-          setOpencodeSessionId(existingOpcSessionId)
-          useSessionStore.getState().setOpenCodeSessionId(sessionId, existingOpcSessionId)
-          transcriptSourceRef.current.opencodeSessionId = existingOpcSessionId
+          const runtimeSessionId = reconnectResult.sessionId ?? existingOpcSessionId
+          setOpencodeSessionId(runtimeSessionId)
+          useSessionStore.getState().setOpenCodeSessionId(sessionId, runtimeSessionId)
+          transcriptSourceRef.current.opencodeSessionId = runtimeSessionId
+          if (runtimeSessionId !== existingOpcSessionId) {
+            await window.db.session.update(sessionId, {
+              opencode_session_id: runtimeSessionId
+            })
+          }
           if (reconnectResult.revertMessageID != null) {
             setRevertMessageID(reconnectResult.revertMessageID)
           }
-          activeOpcSessionId = existingOpcSessionId
+          activeOpcSessionId = runtimeSessionId
         } else {
           setRevertMessageID(null)
           activeOpcSessionId = null
