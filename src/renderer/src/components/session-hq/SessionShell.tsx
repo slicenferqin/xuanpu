@@ -1901,8 +1901,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   // Plan interrupts are handled by PlanReadyImplementFab, not the composer/dock.
   // Filter them out so the composer doesn't enter reply_interrupt mode for plans.
   const composerInterrupt = currentInterrupt?.type === 'plan' ? null : currentInterrupt
-  const composerBoundaryHeight = Math.max(smartScroll.bottomFloatingHeight + 16, 104)
-  const composerVeilHeight = Math.min(Math.max(smartScroll.bottomFloatingHeight + 32, 72), 132)
+  const composerVeilHeight = Math.min(Math.max(smartScroll.bottomFloatingHeight + 24, 72), 128)
 
   return (
     <div className="flex flex-col h-full">
@@ -1952,20 +1951,13 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           style={{ bottom: `${scrollFabBottomOffset}px` }}
         />
 
-        <div ref={timelineBottomAreaRef}>
+        <div ref={timelineBottomAreaRef} className="shrink-0">
           <InterruptDock
             sessionId={sessionId}
             interrupt={currentInterrupt}
             worktreePath={worktreePath}
           />
         </div>
-
-        <div
-          className="shrink-0"
-          style={{ height: `${composerBoundaryHeight}px` }}
-          aria-hidden="true"
-          data-testid="session-composer-boundary"
-        />
 
         <PlanReadyImplementFab
           onImplement={handlePlanImplement}
@@ -1976,33 +1968,38 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         />
 
         <div
-          className="crisp-composer-veil pointer-events-none absolute bottom-0 left-0 right-0 z-10"
-          style={{ height: `${composerVeilHeight}px` }}
-        />
+          className="relative z-20 shrink-0 pb-4 pt-2"
+          data-testid="session-composer-dock"
+        >
+          <div
+            className="crisp-composer-veil pointer-events-none absolute inset-x-0 bottom-0 z-0"
+            style={{ height: `${composerVeilHeight}px` }}
+          />
 
-        <ComposerBar
-          containerRef={composerBarRef}
-          sessionId={sessionId}
-          lifecycle={lifecycle}
-          pendingCount={pendingCount}
-          firstInterrupt={composerInterrupt}
-          onAction={handleComposerAction}
-          isConnected={!!droidSessionId && !!worktreePath}
-          supportsSteer={supportsSteer}
-          preferSteerWhenBusy={preferSteerWhenBusy}
-          mode={mode}
-          onToggleMode={toggleMode}
-          pendingPlan={pendingPlan}
-          supportsGoalMode={supportsSessionGoalMode}
-          goalMode={goalMode}
-          onToggleGoalMode={toggleGoalMode}
-          successCriteria={successCriteria}
-          onSuccessCriteriaChange={setSuccessCriteria}
-          worktreePath={worktreePath}
-          commandsVersion={commandsVersion}
-          contextAttachmentSlot={<DiffCommentAttachments />}
-          controlSlot={<MemoryPanel worktreeId={worktreeId} variant="composer" />}
-        />
+          <ComposerBar
+            containerRef={composerBarRef}
+            sessionId={sessionId}
+            lifecycle={lifecycle}
+            pendingCount={pendingCount}
+            firstInterrupt={composerInterrupt}
+            onAction={handleComposerAction}
+            isConnected={!!droidSessionId && !!worktreePath}
+            supportsSteer={supportsSteer}
+            preferSteerWhenBusy={preferSteerWhenBusy}
+            mode={mode}
+            onToggleMode={toggleMode}
+            pendingPlan={pendingPlan}
+            supportsGoalMode={supportsSessionGoalMode}
+            goalMode={goalMode}
+            onToggleGoalMode={toggleGoalMode}
+            successCriteria={successCriteria}
+            onSuccessCriteriaChange={setSuccessCriteria}
+            worktreePath={worktreePath}
+            commandsVersion={commandsVersion}
+            contextAttachmentSlot={<DiffCommentAttachments />}
+            controlSlot={<MemoryPanel worktreeId={worktreeId} variant="composer" />}
+          />
+        </div>
 
         {process.env.NODE_ENV === 'development' && (
           <div className="absolute bottom-0 left-0 right-0 z-30">

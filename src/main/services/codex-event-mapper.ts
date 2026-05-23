@@ -632,15 +632,14 @@ function tokenUsageEvent(
   const payload = asObject(event.payload)
   const tokenUsage = asObject(payload?.tokenUsage)
   if (!tokenUsage) return null
-  // The context meter represents the current prompt's window occupancy, not
-  // cumulative billing/usage across the whole thread. Codex sends that as
-  // `last`; older payloads may only include `total`, so keep it as a fallback.
-  const usage = asObject(tokenUsage.last) ?? asObject(tokenUsage.total)
+  const currentUsage = asObject(tokenUsage.last) ?? asObject(tokenUsage.total)
+  const cumulativeUsage = asObject(tokenUsage.total) ?? currentUsage
   const contextWindow = getCodexConfiguredContextWindow() ?? asNumber(tokenUsage.modelContextWindow)
-  const inputTokens = asNumber(usage?.inputTokens) ?? 0
-  const outputTokens = asNumber(usage?.outputTokens) ?? 0
-  const cachedInputTokens = asNumber(usage?.cachedInputTokens)
-  const reasoningTokens = asNumber(usage?.reasoningOutputTokens)
+  const inputTokens = asNumber(cumulativeUsage?.inputTokens) ?? 0
+  const outputTokens = asNumber(cumulativeUsage?.outputTokens) ?? 0
+  const cachedInputTokens = asNumber(cumulativeUsage?.cachedInputTokens)
+  const reasoningTokens = asNumber(cumulativeUsage?.reasoningOutputTokens)
+  const currentInputTokens = asNumber(currentUsage?.inputTokens) ?? inputTokens
   const uncachedInputTokens =
     cachedInputTokens !== undefined ? Math.max(0, inputTokens - cachedInputTokens) : inputTokens
   return {
@@ -653,7 +652,16 @@ function tokenUsageEvent(
         ...(cachedInputTokens !== undefined ? { cacheRead: cachedInputTokens } : {}),
         ...(reasoningTokens !== undefined ? { reasoning: reasoningTokens } : {})
       },
-      ...(contextWindow !== undefined ? { contextWindow } : {})
+      ...(contextWindow !== undefined
+        ? {
+            contextWindow,
+            breakdown: {
+              usedTokens: currentInputTokens,
+              maxTokens: contextWindow,
+              percentage: contextWindow > 0 ? (currentInputTokens / contextWindow) * 100 : 0
+            }
+          }
+        : {})
     }
   }
 }

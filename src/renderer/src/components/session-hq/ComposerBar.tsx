@@ -877,7 +877,7 @@ export function ComposerBar({
     <div
       ref={containerRef}
       className={cn(
-        'absolute bottom-6 z-20',
+        'relative z-20',
         'w-[85%] ml-[5%]',
         'crisp-floating-surface rounded-xl backdrop-blur-xl',
         voiceCaptureVisible && 'crisp-voice-surface'

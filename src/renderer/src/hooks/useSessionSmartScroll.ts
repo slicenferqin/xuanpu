@@ -456,9 +456,8 @@ export function useSessionSmartScroll({
   const showScrollFab = !viewState.stickyBottom && scrollFabCount > 0
 
   const scrollFabBottomOffset = useMemo(() => {
-    const dockOffset = dockHeight > 0 ? dockHeight + 16 : DEFAULT_SCROLL_FAB_OFFSET
-    const composerOffset = composerHeight > 0 ? composerHeight + 32 : DEFAULT_SCROLL_FAB_OFFSET
-    return Math.max(DEFAULT_SCROLL_FAB_OFFSET, dockOffset, composerOffset)
+    const bottomChromeHeight = dockHeight + composerHeight
+    return bottomChromeHeight > 0 ? bottomChromeHeight + 32 : DEFAULT_SCROLL_FAB_OFFSET
   }, [composerHeight, dockHeight])
 
   return {

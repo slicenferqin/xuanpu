@@ -664,16 +664,18 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
 
       const payload = asObject(event.payload)
       const tokenUsage = asObject(payload?.tokenUsage)
-      // Use "last" (per-turn prompt size) not "total" (cumulative).
-      // The context window shows how full the current prompt is,
-      // not the sum of all tokens consumed across every turn.
       const last = asObject(tokenUsage?.last)
+      const total = asObject(tokenUsage?.total) ?? last
       const turnId = event.turnId ?? asString(payload?.turnId)
 
-      const inputTokens = asNumber(last?.inputTokens) ?? 0
-      const cachedInputTokens = asNumber(last?.cachedInputTokens) ?? 0
-      const outputTokens = asNumber(last?.outputTokens) ?? 0
-      const reasoningTokens = asNumber(last?.reasoningOutputTokens) ?? 0
+      const lastInputTokens = asNumber(last?.inputTokens) ?? 0
+      const lastCachedInputTokens = asNumber(last?.cachedInputTokens) ?? 0
+      const lastOutputTokens = asNumber(last?.outputTokens) ?? 0
+      const lastReasoningTokens = asNumber(last?.reasoningOutputTokens) ?? 0
+      const totalInputTokens = asNumber(total?.inputTokens) ?? lastInputTokens
+      const totalCachedInputTokens = asNumber(total?.cachedInputTokens) ?? lastCachedInputTokens
+      const totalOutputTokens = asNumber(total?.outputTokens) ?? lastOutputTokens
+      const totalReasoningTokens = asNumber(total?.reasoningOutputTokens) ?? lastReasoningTokens
 
       const modelID = resolveCodexModelSlug(asString(payload?.model) ?? this.selectedModel)
       const contextWindow = this.resolveContextWindow(
@@ -681,13 +683,25 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         modelID
       )
       const tokens = {
-        input: Math.max(0, inputTokens - cachedInputTokens),
-        cacheRead: cachedInputTokens,
+        input: Math.max(0, totalInputTokens - totalCachedInputTokens),
+        cacheRead: totalCachedInputTokens,
         cacheWrite: 0,
-        output: outputTokens,
-        reasoning: reasoningTokens
+        output: totalOutputTokens,
+        reasoning: totalReasoningTokens
       }
-      const costData = this.calculateTurnTokenUsageCostDelta(targetSession, turnId, modelID, tokens)
+      const lastTokens = {
+        input: Math.max(0, lastInputTokens - lastCachedInputTokens),
+        cacheRead: lastCachedInputTokens,
+        cacheWrite: 0,
+        output: lastOutputTokens,
+        reasoning: lastReasoningTokens
+      }
+      const costData = this.calculateTurnTokenUsageCostDelta(
+        targetSession,
+        turnId,
+        modelID,
+        lastTokens
+      )
 
       emitAgentEvent(this.mainWindow, {
         type: 'session.context_usage',
@@ -696,6 +710,11 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
           tokens,
           model: { providerID: 'codex', modelID },
           contextWindow,
+          breakdown: {
+            usedTokens: lastInputTokens,
+            maxTokens: contextWindow,
+            percentage: contextWindow > 0 ? (lastInputTokens / contextWindow) * 100 : 0
+          },
           ...costData
         }
       })
@@ -2403,18 +2422,24 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         return
       }
 
-      // 3. Extract token data (snake_case fields from JSONL)
-      // Use last_token_usage (per-turn prompt size), not total_token_usage
-      // (cumulative). The context bar shows current prompt fill, not
-      // lifetime consumption.
+      // 3. Extract token data (snake_case fields from JSONL).  The renderer
+      // uses cumulative tokens for session/worktree totals, while the context
+      // bar uses the last prompt's input size as current window occupancy.
       const lastUsage = asObject(lastTokenCount.last_token_usage)
+      const totalUsage = asObject(lastTokenCount.total_token_usage) ?? lastUsage
       if (!lastUsage) return
 
-      const inputTokens = asNumber(lastUsage.input_tokens) ?? 0
-      const cachedInputTokens = asNumber(lastUsage.cached_input_tokens) ?? 0
-      const outputTokens = asNumber(lastUsage.output_tokens) ?? 0
-      const reasoningTokens = asNumber(lastUsage.reasoning_output_tokens) ?? 0
-      if (inputTokens === 0 && outputTokens === 0) return
+      const lastInputTokens = asNumber(lastUsage.input_tokens) ?? 0
+      const totalInputTokens = asNumber(totalUsage?.input_tokens) ?? lastInputTokens
+      const totalCachedInputTokens =
+        asNumber(totalUsage?.cached_input_tokens) ?? asNumber(lastUsage.cached_input_tokens) ?? 0
+      const totalOutputTokens =
+        asNumber(totalUsage?.output_tokens) ?? asNumber(lastUsage.output_tokens) ?? 0
+      const totalReasoningTokens =
+        asNumber(totalUsage?.reasoning_output_tokens) ??
+        asNumber(lastUsage.reasoning_output_tokens) ??
+        0
+      if (totalInputTokens === 0 && totalOutputTokens === 0) return
 
       const modelID = resolveCodexModelSlug(this.selectedModel)
       const contextWindow = this.resolveContextWindow(
@@ -2426,20 +2451,25 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         sessionId: session.hiveSessionId,
         data: {
           tokens: {
-            input: Math.max(0, inputTokens - cachedInputTokens),
-            cacheRead: cachedInputTokens,
+            input: Math.max(0, totalInputTokens - totalCachedInputTokens),
+            cacheRead: totalCachedInputTokens,
             cacheWrite: 0,
-            output: outputTokens,
-            reasoning: reasoningTokens
+            output: totalOutputTokens,
+            reasoning: totalReasoningTokens
           },
           model: { providerID: 'codex', modelID },
-          contextWindow
+          contextWindow,
+          breakdown: {
+            usedTokens: lastInputTokens,
+            maxTokens: contextWindow,
+            percentage: contextWindow > 0 ? (lastInputTokens / contextWindow) * 100 : 0
+          }
         }
       })
 
       log.info('hydrateTokenUsage: emitted context_usage from JSONL', {
         hiveSessionId: session.hiveSessionId,
-        inputTokens,
+        inputTokens: totalInputTokens,
         contextWindow,
         modelID
       })

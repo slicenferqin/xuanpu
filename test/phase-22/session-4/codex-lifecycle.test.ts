@@ -628,6 +628,17 @@ describe('CodexImplementer lifecycle', () => {
       const contextUsageEvents = mockWindow.webContents.send.mock.calls
         .map((call) => call[1] as any)
         .filter((event) => event.type === 'session.context_usage')
+      expect(contextUsageEvents[0].data.tokens).toEqual({
+        input: 5000,
+        cacheRead: 5000,
+        cacheWrite: 0,
+        output: 500,
+        reasoning: 0
+      })
+      expect(contextUsageEvents[0].data.breakdown).toMatchObject({
+        usedTokens: 1000,
+        maxTokens: 258400
+      })
       const firstCost = calculateUsageCost(
         'gpt-5.4',
         { input: 500, cacheRead: 500, cacheWrite: 0, output: 50 },

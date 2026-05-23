@@ -586,7 +586,7 @@ describe('thread/goal notifications', () => {
 // thread/tokenUsage/updated → session.context_usage
 // ────────────────────────────────────────────────────────────────────
 describe('thread/tokenUsage/updated', () => {
-  it('emits session.context_usage from the current turn usage + contextWindow', () => {
+  it('emits cumulative tokens with current prompt context occupancy', () => {
     const result = mapCodexEventToStreamEvents(
       makeEvent({
         method: 'thread/tokenUsage/updated',
@@ -600,11 +600,11 @@ describe('thread/tokenUsage/updated', () => {
               reasoningOutputTokens: 50
             },
             total: {
-              totalTokens: 1000,
-              inputTokens: 800,
-              outputTokens: 200,
-              cachedInputTokens: 100,
-              reasoningOutputTokens: 50
+              totalTokens: 5000,
+              inputTokens: 4200,
+              outputTokens: 700,
+              cachedInputTokens: 3000,
+              reasoningOutputTokens: 100
             },
             modelContextWindow: 475000
           }
@@ -615,12 +615,17 @@ describe('thread/tokenUsage/updated', () => {
     expect(result[0].type).toBe('session.context_usage')
     const data = result[0].data as any
     expect(data.tokens).toEqual({
-      input: 700,
-      output: 200,
-      cacheRead: 100,
-      reasoning: 50
+      input: 1200,
+      output: 700,
+      cacheRead: 3000,
+      reasoning: 100
     })
     expect(data.contextWindow).toBe(475000)
+    expect(data.breakdown).toEqual({
+      usedTokens: 800,
+      maxTokens: 475000,
+      percentage: (800 / 475000) * 100
+    })
   })
 
   it('drops if tokenUsage missing', () => {
