@@ -703,10 +703,13 @@ Latest Context Budget Debugger progress:
 - It shows latest package budget profile, approximate tokens, included/excluded section counts,
   retrieved episode count, frozen episode candidate count, per-section source/reason metadata, model
   id, rendered-markdown policy, and decisions JSON.
+- Extended the panel with an `Episodes` tab backed by `field:listEpisodeBlocks`. It shows frozen
+  episode title, kind, confidence, token estimate, summary, files, commands, constraints, failures,
+  message bounds, and raw-ref count/details.
 - `SessionShell` only mounts this first-class panel for `agentSdk === "xuanpu-agent"`, leaving
   Claude Code, Codex, and OpenCode UI unchanged.
 - Added `test/phase-24/context-budget-debugger.test.tsx` to lock fallback session lookup and the
-  privacy-preserving package read behavior.
+  privacy-preserving package read behavior plus frozen episode rendering.
 
 Additional verification:
 
@@ -729,7 +732,7 @@ Results:
   real-provider credentials are missing.
 - `context-budget-debugger.test.tsx` proves the production panel reads managed packages with
   `includeRenderedMarkdown: false`, uses runtime-session then Hive-session fallback, and renders
-  included/excluded package sections.
+  included/excluded package sections plus frozen episode metadata.
 
 Real-provider dogfood command shape:
 
@@ -797,17 +800,17 @@ Exit criteria: Xuanpu owns final `messages[]` for `xuanpu-agent` while preservin
 
 ### Task 4: Append-Only Episodes
 
-Status: schema/repository/rule-based creation, automatic old-turn freezing, packer inclusion, and
-dev-only inspection implemented. Still needs a first-class production UI and a future LLM prose
-compactor after deterministic extraction stabilizes.
+Status: schema/repository/rule-based creation, automatic old-turn freezing, packer inclusion,
+dev-only inspection, and first production-visible Session HQ inspection implemented. Future LLM
+prose compaction remains deferred until deterministic extraction stabilizes.
 
 - Add `field_episode_blocks` after the no-tools loop is usable.
 - Implement rule-based episode creation first.
 - Add LLM prose compaction only after deterministic metadata extraction works.
 - Keep raw refs mandatory and never overwrite existing episode blocks.
 
-Exit criteria: old raw turns can be frozen into immutable blocks and selectively included by the
-packer.
+Exit criteria: old raw turns can be frozen into immutable blocks, selectively included by the
+packer, and inspected from Session HQ without mutating the append-only records.
 
 ### Task 4.5: Gated Episode Retrieval
 

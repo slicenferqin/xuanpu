@@ -47,6 +47,29 @@ function installFieldOpsMock(): Window['fieldOps'] {
             }
           ]
         : []
+    ),
+    listEpisodeBlocks: vi.fn().mockImplementation(async (query: { sessionId?: string }) =>
+      query.sessionId === 'hive-session'
+        ? [
+            {
+              id: 'episode-123456789',
+              worktreeId: 'worktree-1',
+              sessionId: 'hive-session',
+              createdAt: 2000,
+              kind: 'turns',
+              title: 'Frozen Conversation Turns',
+              summaryMarkdown: '## Frozen Conversation Turns\n\n- **user:** keep pnpm',
+              keyFacts: [],
+              constraints: ['keep using pnpm'],
+              files: ['src/main/services/xuanpu-agent/runtime.ts'],
+              commands: ['pnpm vitest run test/phase-24/xuanpu-agent-runtime.test.ts'],
+              failures: [],
+              rawRefs: [{ type: 'session_message', id: 'm-1', role: 'user' }],
+              tokenEstimate: 64,
+              confidence: 'medium'
+            }
+          ]
+        : []
     )
   } as unknown as Window['fieldOps']
 
@@ -92,6 +115,16 @@ describe('ContextBudgetDebugger', () => {
         includeRenderedMarkdown: false,
         limit: 5
       })
+      expect(fieldOps.listEpisodeBlocks).toHaveBeenCalledWith({
+        worktreeId: 'worktree-1',
+        sessionId: 'runtime-session',
+        limit: 5
+      })
+      expect(fieldOps.listEpisodeBlocks).toHaveBeenCalledWith({
+        worktreeId: 'worktree-1',
+        sessionId: 'hive-session',
+        limit: 5
+      })
     })
 
     expect(await screen.findByText('Current Field')).toBeInTheDocument()
@@ -99,5 +132,10 @@ describe('ContextBudgetDebugger', () => {
     expect(screen.getAllByText(/balanced/).length).toBeGreaterThan(0)
     expect(screen.getAllByText(/~256 tokens/).length).toBeGreaterThan(0)
     expect(screen.getAllByText(/omitted-by-default/).length).toBeGreaterThan(0)
+
+    fireEvent.click(screen.getByText('Episodes'))
+    expect(await screen.findByText('Frozen Conversation Turns')).toBeInTheDocument()
+    expect(screen.getByText(/keep using pnpm/)).toBeInTheDocument()
+    expect(screen.getByText(/src\/main\/services\/xuanpu-agent\/runtime\.ts/)).toBeInTheDocument()
   })
 })
