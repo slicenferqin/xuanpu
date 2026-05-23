@@ -466,6 +466,10 @@ node -e "const f=require('node:fs');const p=f.readdirSync('./out/main').find(x=>
 Results:
 
 - `probe:xuanpu-agent-core` exits `0` and documents the direct Node import failure as expected.
+  Non-strict mode now reports `ok: true` with
+  `status: "expected-direct-node-import-failure"` so the aggregate spike probe does not look like a
+  failed health check. Set `XUANPU_AGENT_CORE_PROBE_STRICT=1` to make the direct Node failure exit
+  non-zero.
 - `probe:xuanpu-agent-no-tools` exercises the wrapped runtime with a deterministic mock provider. It
   verifies `setTools([])`, text deltas, final response shape, and abort-on-dispose behavior without
   requiring Electron or a real API key.
@@ -670,6 +674,28 @@ Results:
 - The tool-surface readiness test locks the unresolved gates:
   `permission-policy`, `checkpoint-policy`, `tool-audit`, `native-packaging`, `ui-capability-gate`,
   and `mcp-boundary`.
+
+Latest verification matrix progress:
+
+- Added `probe:xuanpu-agent-spike` as the fast aggregate health check for the current branch. It
+  runs the core packaging probe, all xuanpu-agent model/runtime/context/episode/tool/UI focused
+  tests, and the safe default real-provider probe.
+- Added `probe:xuanpu-agent-spike:build` for the heavier pre-merge path: aggregate probe plus
+  `XUANPU_AGENT_RUNTIME=1 pnpm build`.
+
+Additional aggregate verification:
+
+```bash
+pnpm run probe:xuanpu-agent-spike
+```
+
+Results:
+
+- Core probe reports the expected direct Node import limitation in non-strict success mode.
+- 16 focused test files pass, covering 46 tests across model readiness, no-tools runtime, IPC smoke,
+  UI gate, managed context packages, Context Budget Debugger, episode repository/freezer/retrieval,
+  and tool-surface gates.
+- Real-provider probe defaults to `status: "skipped"` without touching network credentials.
 
 Latest provider/model readiness progress:
 
