@@ -16,6 +16,7 @@
 
 import React, {
   useEffect,
+  useLayoutEffect,
   useState,
   useCallback,
   useRef,
@@ -125,6 +126,17 @@ function buildLocalDiffCommentContext(comments: DiffComment[]): string {
       })
       .join('\n\n') + '\n\n'
   )
+}
+
+function findRoundSection(container: HTMLElement, roundId: string): HTMLElement | null {
+  const sections = Array.from(container.querySelectorAll<HTMLElement>('[data-round-id]'))
+  return sections.find((section) => section.dataset.roundId === roundId) ?? null
+}
+
+function getContainerRelativeTop(container: HTMLElement, target: HTMLElement): number {
+  const containerRect = container.getBoundingClientRect()
+  const targetRect = target.getBoundingClientRect()
+  return container.scrollTop + targetRect.top - containerRect.top
 }
 
 function DiffCommentAttachments(): React.JSX.Element | null {
@@ -656,6 +668,19 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   const [pendingForkMessageId, setPendingForkMessageId] = useState<string | null>(null)
   const [forkConfirmDismissChecked, setForkConfirmDismissChecked] = useState(false)
   const [activeRoundId, setActiveRoundId] = useState<string | null>(null)
+  const [clearScreenActive, setClearScreenActive] = useState(false)
+  const pendingTurnTopScrollRef = useRef<string | null>(null)
+
+  const requestTurnTopScroll = useCallback((roundId: string) => {
+    pendingTurnTopScrollRef.current = roundId
+    setClearScreenActive(true)
+    setActiveRoundId(roundId)
+  }, [])
+
+  useEffect(() => {
+    pendingTurnTopScrollRef.current = null
+    setClearScreenActive(false)
+  }, [sessionId])
 
   useEffect(() => {
     const lastUserMessage = [...timelineMessages]
@@ -842,13 +867,37 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     mirrorVersion,
     isStreaming,
     bottomAreaRef: timelineBottomAreaRef,
-    composerRef: composerBarRef
+    composerRef: composerBarRef,
+    clearScreenActive
   })
+  const timelineScrollContainerRef = smartScroll.scrollContainerRef
+  const clearScreenBottomInset = smartScroll.clearScreenBottomInset
+  const scrollTimelineToOffset = smartScroll.scrollToOffset
 
   const scrollFabBottomOffset = useMemo(
     () => Math.max(smartScroll.scrollFabBottomOffset, pendingPlan ? 152 : 16),
     [pendingPlan, smartScroll.scrollFabBottomOffset]
   )
+
+  useLayoutEffect(() => {
+    const roundId = pendingTurnTopScrollRef.current
+    const container = timelineScrollContainerRef.current
+    if (!roundId || !container) return
+
+    const section = findRoundSection(container, roundId)
+    if (!section) return
+
+    const targetTop = Math.max(getContainerRelativeTop(container, section) - 24, 0)
+    scrollTimelineToOffset(targetTop, 'instant')
+    pendingTurnTopScrollRef.current = null
+  }, [
+    activeRoundId,
+    clearScreenActive,
+    clearScreenBottomInset,
+    scrollTimelineToOffset,
+    timelineScrollContainerRef,
+    timelineMessages.length
+  ])
 
   useEffect(() => {
     if (hasDurableCompactionMessage && compactionState?.phase === 'completed') {
@@ -963,6 +1012,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           timestamp: new Date().toISOString()
         }
         appendOptimistic(optimisticMsg)
+        requestTurnTopScroll(optimisticMsg.id)
         timelineMessagesRef.current = [...timelineMessagesRef.current, optimisticMsg]
         syncOptimisticMessagesToMirror()
 
@@ -1013,6 +1063,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     mode,
     requestModel,
     appendOptimistic,
+    requestTurnTopScroll,
     syncOptimisticMessagesToMirror,
     optimisticRef,
     resetLiveOverlay,
@@ -1307,6 +1358,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         }
         optimisticMessageId = optimisticMsg.id
         appendOptimistic(optimisticMsg)
+        requestTurnTopScroll(optimisticMsg.id)
         // Sync ref immediately so streaming callbacks can find the user message
         // before the next useEffect tick.
         timelineMessagesRef.current = [...timelineMessagesRef.current, optimisticMsg]
@@ -1375,6 +1427,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       droidSessionId,
       sessionId,
       appendOptimistic,
+      requestTurnTopScroll,
       optimisticRef,
       goalMode,
       successCriteria,
@@ -1438,6 +1491,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         timestamp: new Date().toISOString()
       }
       appendOptimistic(optimisticMsg)
+      requestTurnTopScroll(optimisticMsg.id)
       timelineMessagesRef.current = [...trimmedMessages, optimisticMsg]
       syncOptimisticMessagesToMirror()
 
@@ -1472,6 +1526,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       timelineMessages,
       setMessages,
       appendOptimistic,
+      requestTurnTopScroll,
       requestModel,
       promptOptions,
       agentSdk,
@@ -1635,6 +1690,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         timestamp: new Date().toISOString()
       }
       appendOptimistic(optimisticMsg)
+      requestTurnTopScroll(optimisticMsg.id)
       timelineMessagesRef.current = [...timelineMessagesRef.current, optimisticMsg]
       syncOptimisticMessagesToMirror()
 
@@ -1663,6 +1719,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     agentSdk,
     sessionId,
     appendOptimistic,
+    requestTurnTopScroll,
     resetLiveOverlay,
     syncOptimisticMessagesToMirror,
     transitionToolStatus,
@@ -1801,14 +1858,15 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   const handleRoundAnchorNavigate = useCallback(
     (roundId: string) => {
       setActiveRoundId(roundId)
-      const container = smartScroll.scrollContainerRef.current
-      const section = container?.querySelector<HTMLElement>(`[data-round-id="${roundId}"]`)
-      if (!container || !section) return
+      const container = timelineScrollContainerRef.current
+      if (!container) return
+      const section = findRoundSection(container, roundId)
+      if (!section) return
 
-      const targetTop = Math.max(section.offsetTop - 24, 0)
-      container.scrollTo({ top: targetTop, behavior: 'smooth' })
+      const targetTop = Math.max(getContainerRelativeTop(container, section) - 24, 0)
+      scrollTimelineToOffset(targetTop, 'smooth')
     },
-    [smartScroll.scrollContainerRef]
+    [scrollTimelineToOffset, timelineScrollContainerRef]
   )
 
   useEffect(() => {
@@ -1843,8 +1901,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   // Plan interrupts are handled by PlanReadyImplementFab, not the composer/dock.
   // Filter them out so the composer doesn't enter reply_interrupt mode for plans.
   const composerInterrupt = currentInterrupt?.type === 'plan' ? null : currentInterrupt
-  const composerBoundaryHeight = Math.max(smartScroll.bottomFloatingHeight + 24, 132)
-  const composerVeilHeight = Math.min(Math.max(smartScroll.bottomFloatingHeight + 48, 96), 168)
+  const composerBoundaryHeight = Math.max(smartScroll.bottomFloatingHeight + 16, 104)
+  const composerVeilHeight = Math.min(Math.max(smartScroll.bottomFloatingHeight + 32, 72), 132)
 
   return (
     <div className="flex flex-col h-full">
@@ -1881,6 +1939,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           onPointerUp={smartScroll.handleScrollPointerUp}
           onPointerCancel={smartScroll.handleScrollPointerCancel}
           bottomFloatingHeight={smartScroll.bottomFloatingHeight}
+          clearScreenBottomInset={clearScreenBottomInset}
           activeRoundId={activeRoundId}
           onActiveRoundChange={setActiveRoundId}
           onRoundAnchorNavigate={handleRoundAnchorNavigate}

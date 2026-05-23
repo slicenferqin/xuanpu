@@ -839,6 +839,7 @@ export interface AgentTimelineProps {
    * causing the last few transcript nodes to render BEHIND the composer.
    */
   bottomFloatingHeight?: number
+  clearScreenBottomInset?: number
   activeRoundId?: string | null
   onActiveRoundChange?: (roundId: string | null) => void
   onRoundAnchorNavigate?: (roundId: string) => void
@@ -876,6 +877,7 @@ export function AgentTimeline({
   onPointerUp,
   onPointerCancel,
   bottomFloatingHeight = 0,
+  clearScreenBottomInset = 0,
   activeRoundId = null,
   onActiveRoundChange,
   onRoundAnchorNavigate
@@ -1462,6 +1464,14 @@ export function AgentTimeline({
               <ThreadStatusRow key={status.id} status={status} />
             ))}
 
+            {clearScreenBottomInset > 0 && nodes.length > 0 && (
+              <div
+                aria-hidden="true"
+                data-testid="timeline-clear-screen-spacer"
+                style={{ height: `${clearScreenBottomInset}px` }}
+              />
+            )}
+
             {/* Empty state */}
             {nodes.length === 0 && ephemeralStatusRows.length === 0 && !isStreaming && (
               <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
@@ -1473,8 +1483,11 @@ export function AgentTimeline({
           </div>
 
           {rounds.length > 0 && (
-            <aside className="sticky top-6 hidden w-10 shrink-0 lg:block">
-              <div className="flex flex-col items-center gap-2 py-2">
+            <aside
+              className="sticky top-1/2 hidden w-10 shrink-0 -translate-y-1/2 lg:block"
+              data-testid="timeline-round-anchor-rail"
+            >
+              <div className="flex max-h-[60vh] flex-col items-center justify-center gap-2 overflow-y-auto py-2">
                 {rounds.map((round, index) => {
                   const isActive =
                     activeRoundId === round.id || (!activeRoundId && index === rounds.length - 1)

@@ -3034,12 +3034,33 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         }, remainingMs)
       }
 
+      const resetInactivityTimer = () => {
+        if (hasPendingHitlForThread()) return
+        remainingMs = timeoutMs
+        startTimer()
+      }
+
       const pauseTimer = () => {
         if (!timer) return
         clearTimeout(timer)
         timer = null
         const elapsed = Date.now() - timerStartedAt
         remainingMs = Math.max(0, remainingMs - elapsed)
+      }
+
+      const isProgressEvent = (event: CodexManagerEvent): boolean => {
+        if (contentStreamKindFromMethod(event.method)) return true
+        if (event.method.startsWith('item/')) return true
+        if (event.method.startsWith('codex/event/')) return true
+        if (event.method === 'turn/started') return true
+        if (event.method === 'thread/tokenUsage/updated') return true
+        if (event.method === 'account/rateLimits/updated') return true
+        if (event.method === 'thread/status/changed') {
+          const payload = asObject(event.payload)
+          const status = asObject(payload?.status) ?? payload
+          return asString(status?.type) === 'active'
+        }
+        return false
       }
 
       const checkEvent = (event: CodexManagerEvent) => {
@@ -3115,6 +3136,11 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
 
         if (hitlStateChanged && !hasPendingHitlForThread() && remainingMs > 0) {
           startTimer()
+          return
+        }
+
+        if (isProgressEvent(event)) {
+          resetInactivityTimer()
         }
       }
 
