@@ -377,6 +377,7 @@ export interface DbSessionMessage {
   opencode_message_json: string | null
   opencode_parts_json: string | null
   opencode_timeline_json: string | null
+  sequence: number | null
   created_at: string
 }
 
@@ -570,6 +571,9 @@ function getOrderedActivityTurnIds(activityRows: DbSessionActivity[]): string[] 
           const leftTime = Date.parse(left.created_at)
           const rightTime = Date.parse(right.created_at)
           if (leftTime !== rightTime) return leftTime - rightTime
+          // TODO(seq-activities): once session_activities.sequence is backfilled
+          // by a follow-up migration, prefer it over UUID lex order here
+          // (mirrors normalizeCodexMessageRows for session_messages.sequence).
           return left.id.localeCompare(right.id)
         })
         .map((activity) => activity.turn_id)
@@ -586,7 +590,15 @@ function normalizeCodexMessageRows(
     const leftTime = Date.parse(left.created_at)
     const rightTime = Date.parse(right.created_at)
     if (leftTime !== rightTime) return leftTime - rightTime
-    return left.id.localeCompare(right.id)
+    // session_messages now carries a per-session monotonic sequence (v24).
+    // Prefer it over UUID lexical order for same-millisecond rows so the
+    // first INSERT is rendered first.
+    const ls = left.sequence
+    const rs = right.sequence
+    if (ls != null && rs != null && ls !== rs) return ls - rs
+    if (ls != null && rs == null) return -1
+    if (ls == null && rs != null) return 1
+    return left.id.localeCompare(right.id) // last-resort for pre-v24 rows
   })
 
   const orderedTurnIds = getOrderedActivityTurnIds(activityRows)
@@ -929,6 +941,9 @@ function mergeCodexActivityMessages(
     const leftTime = Date.parse(left.created_at)
     const rightTime = Date.parse(right.created_at)
     if (leftTime !== rightTime) return leftTime - rightTime
+    // TODO(seq-activities): session_activities.sequence exists but is 0% filled
+    // today. Once a follow-up migration backfills it, prefer it over UUID lex
+    // order here (same shape as normalizeCodexMessageRows).
     return left.id.localeCompare(right.id)
   })
 
