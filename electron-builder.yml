@@ -3,6 +3,7 @@ productName: '玄圃'
 directories:
   buildResources: resources
   output: dist
+afterPack: build/after-pack-prune.cjs
 files:
   - out/**/*
   - resources/**/*

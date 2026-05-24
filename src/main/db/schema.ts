@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 26
+export const CURRENT_SCHEMA_VERSION = 27
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -920,26 +920,8 @@ export const MIGRATIONS: Migration[] = [
   {
     version: 24,
     name: 'add_session_messages_sequence',
-    up: `
-      ALTER TABLE session_messages ADD COLUMN sequence INTEGER;
-      WITH ordered AS (
-        SELECT id,
-               ROW_NUMBER() OVER (
-                 PARTITION BY session_id
-                 ORDER BY created_at ASC, id ASC
-               ) AS seq
-        FROM session_messages
-      )
-      UPDATE session_messages
-         SET sequence = (SELECT seq FROM ordered WHERE ordered.id = session_messages.id)
-       WHERE sequence IS NULL;
-      CREATE INDEX IF NOT EXISTS idx_messages_session_seq
-        ON session_messages(session_id, sequence);
-    `,
-    down: `
-      DROP INDEX IF EXISTS idx_messages_session_seq;
-      -- SQLite cannot DROP COLUMN reliably across versions; leave the column behind.
-    `
+    up: `-- handled idempotently by ensureSessionMessageSequenceColumn() in database.ts`,
+    down: `-- SQLite cannot DROP COLUMN reliably across versions; this is a no-op for safety`
   },
   {
     version: 25,
@@ -1008,5 +990,11 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_field_episode_blocks_worktree_created;
       DROP TABLE IF EXISTS field_episode_blocks;
     `
+  },
+  {
+    version: 27,
+    name: 'repair_session_messages_sequence',
+    up: `-- handled idempotently by ensureSessionMessageSequenceColumn() in database.ts`,
+    down: `-- SQLite cannot DROP COLUMN reliably across versions; this is a no-op for safety`
   }
 ]

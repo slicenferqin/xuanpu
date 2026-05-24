@@ -163,6 +163,7 @@ export class DatabaseService {
     // exist. This handles partial migrations, merge conflicts, or version
     // skew between worktree builds.
     this.ensureConnectionTables()
+    this.ensureSessionMessageSequenceColumn()
     this.ensureUsageAnalyticsTables()
     this.ensureFieldEventsTable()
     this.ensureEpisodicMemoryTable()
@@ -311,6 +312,28 @@ export class DatabaseService {
     if (!columns.some((c) => c.name === column)) {
       db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
     }
+  }
+
+  private ensureSessionMessageSequenceColumn(): void {
+    const db = this.getDb()
+    if (!this.tableExists('session_messages')) return
+
+    this.safeAddColumn('session_messages', 'sequence', 'INTEGER')
+    db.exec(`
+      WITH ordered AS (
+        SELECT id,
+               ROW_NUMBER() OVER (
+                 PARTITION BY session_id
+                 ORDER BY created_at ASC, id ASC
+               ) AS seq
+        FROM session_messages
+      )
+      UPDATE session_messages
+         SET sequence = (SELECT seq FROM ordered WHERE ordered.id = session_messages.id)
+       WHERE sequence IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_messages_session_seq
+        ON session_messages(session_id, sequence);
+    `)
   }
 
   /**
