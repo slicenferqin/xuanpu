@@ -94,7 +94,7 @@ export function PlanCard({
       defaultExpanded={isPending}
       collapsible
     >
-      <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed">
+      <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-[1.72]">
         <MarkdownRenderer content={content} />
       </div>
 

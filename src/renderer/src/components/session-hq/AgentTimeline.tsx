@@ -1151,7 +1151,7 @@ export function AgentTimeline({
   return (
     <div
       ref={scrollContainerRef}
-      className="min-h-0 overflow-y-auto"
+      className="h-full min-h-0 overflow-y-auto"
       onScroll={onScroll}
       onWheel={onWheel}
       onPointerDown={onPointerDown}

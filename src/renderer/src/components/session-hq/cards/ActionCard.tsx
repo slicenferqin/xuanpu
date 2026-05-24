@@ -78,7 +78,9 @@ export function ActionCard({
 
       {/* Body */}
       {children && expanded && (
-        <div className="px-3.5 py-3 text-sm text-muted-foreground leading-relaxed">{children}</div>
+        <div className="px-3.5 py-3 text-sm leading-[1.68] text-muted-foreground">
+          {children}
+        </div>
       )}
     </div>
   )
