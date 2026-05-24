@@ -19,7 +19,7 @@ export interface ToolUseInfo {
   id: string
   name: string
   input: Record<string, unknown>
-  status: 'pending' | 'running' | 'success' | 'error'
+  status: 'pending' | 'running' | 'success' | 'error' | 'rejected'
   startTime: number
   endTime?: number
   output?: string

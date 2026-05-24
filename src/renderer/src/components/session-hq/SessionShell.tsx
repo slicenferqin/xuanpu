@@ -913,7 +913,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   }, [hasDurableCompactionMessage, compactionState, sessionId])
 
   const transitionToolStatus = useCallback(
-    (toolUseID: string, status: 'success' | 'error', error?: string) => {
+    (toolUseID: string, status: 'success' | 'error' | 'rejected', error?: string) => {
       const mapper = (p: SharedStreamingPart): SharedStreamingPart =>
         p.type === 'tool_use' && p.toolUse?.id === toolUseID
           ? { ...p, toolUse: { ...p.toolUse!, status, ...(error ? { error } : {}) } }
@@ -1820,6 +1820,13 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     useSessionRuntimeStore.getState().removeInterrupt(sessionId, pendingBeforeAction.requestId)
     useWorktreeStatusStore.getState().clearSessionStatus(sessionId)
 
+    // Flip the tool card status to 'rejected' immediately so the durable
+    // PlanCard shows "Rejected" instead of falling through to "Approved"
+    // (mirror of handlePlanImplement's transitionToolStatus('success') call).
+    if (pendingBeforeAction.toolUseID) {
+      transitionToolStatus(pendingBeforeAction.toolUseID, 'rejected')
+    }
+
     if (!worktreePath) return
 
     // Always call the reject IPC — for claude-code it unblocks the SDK; for
@@ -1853,7 +1860,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         console.warn('[SessionShell] codex plan reject persistence failed:', err)
       }
     }
-  }, [pendingPlan, sessionRecord?.agent_sdk, sessionId, worktreePath, refresh])
+  }, [pendingPlan, sessionRecord?.agent_sdk, sessionId, worktreePath, refresh, transitionToolStatus])
 
   const handleRoundAnchorNavigate = useCallback(
     (roundId: string) => {

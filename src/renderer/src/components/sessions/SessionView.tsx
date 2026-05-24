@@ -1377,7 +1377,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   // Transition an ExitPlanMode tool card's status in both streaming parts and
   // committed messages. The card may live in either location depending on timing.
   const transitionToolStatus = useCallback(
-    (toolUseID: string, status: 'success' | 'error', error?: string) => {
+    (toolUseID: string, status: 'success' | 'error' | 'rejected', error?: string) => {
       const mapper = (p: StreamingPart): StreamingPart =>
         p.type === 'tool_use' && p.toolUse?.id === toolUseID
           ? { ...p, toolUse: { ...p.toolUse!, status, ...(error ? { error } : {}) } }

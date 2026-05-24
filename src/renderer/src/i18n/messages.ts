@@ -1615,6 +1615,7 @@ export const messages: Record<AppLocale, MessageTree> = {
           title: 'Proposed Execution Plan',
           requiresApproval: 'Requires Approval',
           approved: 'Approved',
+          rejected: 'Rejected',
           rejectModify: 'Reject / Modify',
           approveStart: 'Approve & Start'
         },
@@ -4496,6 +4497,7 @@ export const messages: Record<AppLocale, MessageTree> = {
           title: '待执行计划',
           requiresApproval: '需要批准',
           approved: '已批准',
+          rejected: '已拒绝',
           rejectModify: '拒绝 / 修改',
           approveStart: '批准并开始'
         },

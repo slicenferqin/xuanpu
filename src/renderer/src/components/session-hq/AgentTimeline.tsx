@@ -693,10 +693,18 @@ function TimelineNodeView({
         (inputPlan && inputPlan.length > 0 ? inputPlan : undefined) ??
         output ??
         ''
+      const planStatus = node.toolUse?.status
+      const verdict: 'approved' | 'rejected' | undefined =
+        planStatus === 'success'
+          ? 'approved'
+          : planStatus === 'rejected'
+            ? 'rejected'
+            : undefined
       return (
         <PlanCard
           content={content}
-          isPending={node.toolUse?.status === 'pending' || node.toolUse?.status === 'running'}
+          isPending={planStatus === 'pending' || planStatus === 'running'}
+          verdict={verdict}
         />
       )
     }

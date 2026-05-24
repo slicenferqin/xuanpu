@@ -755,7 +755,7 @@ export function parseToolPartFromActivity(activity: DbSessionActivity): Streamin
 
 function parsePlanPartFromActivity(
   activity: DbSessionActivity,
-  resolvedRequestIds?: Set<string>
+  resolvedVerdictByRequestId?: Map<string, 'approved' | 'rejected'>
 ): StreamingPart | null {
   const payload = parseJson<Record<string, unknown>>(activity.payload_json)
   if (activity.kind === 'plan.ready') {
@@ -772,10 +772,13 @@ function parsePlanPartFromActivity(
       activity.id
 
     // If a matching plan.resolved activity exists, the plan has been
-    // approved/rejected — surface the card with success status so the
-    // "Requires Approval" badge disappears and the card collapses.
+    // approved/rejected — surface the card in the corresponding terminal
+    // state so the "Requires Approval" badge disappears. Rejected plans
+    // get status='rejected' so PlanCard renders the greyed-out rejected
+    // verdict on reload (instead of mis-rendering as approved).
     const reqId = activity.request_id ?? activity.id
-    const isResolved = resolvedRequestIds?.has(reqId) ?? false
+    const verdict = resolvedVerdictByRequestId?.get(reqId)
+    const isResolved = verdict != null
 
     return {
       type: 'tool_use',
@@ -783,7 +786,7 @@ function parsePlanPartFromActivity(
         id: toolUseId,
         name: 'ExitPlanMode',
         input: { plan },
-        status: isResolved ? 'success' : 'pending',
+        status: isResolved ? (verdict === 'rejected' ? 'rejected' : 'success') : 'pending',
         startTime: Date.parse(activity.created_at) || Date.now(),
         ...(isResolved ? { endTime: Date.parse(activity.created_at) || Date.now() } : {})
       }
@@ -948,11 +951,20 @@ function mergeCodexActivityMessages(
   })
 
   // Pre-scan for plan.resolved activities so plan.ready cards rendered later
-  // can be marked as resolved (no more "Requires Approval" badge).
-  const resolvedRequestIds = new Set<string>()
+  // can be marked as resolved (no more "Requires Approval" badge) and so
+  // rejected plans surface a 'rejected' verdict instead of mis-rendering as
+  // approved. agent-handlers persists plan.resolved with payload
+  // `{ resolution: 'rejected', ... }` on reject; absence of that field is
+  // treated as approved (e.g. claude-code's approve path doesn't write a
+  // payload but only the reject path persists today — defaulting to
+  // 'approved' for any future approve-side persistence is the safer choice).
+  const resolvedVerdictByRequestId = new Map<string, 'approved' | 'rejected'>()
   for (const activity of sortedActivities) {
     if (activity.kind === 'plan.resolved' && activity.request_id) {
-      resolvedRequestIds.add(activity.request_id)
+      const payload = parseJson<Record<string, unknown>>(activity.payload_json)
+      const verdict: 'approved' | 'rejected' =
+        payload?.resolution === 'rejected' ? 'rejected' : 'approved'
+      resolvedVerdictByRequestId.set(activity.request_id, verdict)
     }
   }
 
@@ -961,7 +973,7 @@ function mergeCodexActivityMessages(
     if (activity.kind === 'plan.resolved') continue
     const activityPart = activity.kind.startsWith('tool.')
       ? parseToolPartFromActivity(activity)
-      : parsePlanPartFromActivity(activity, resolvedRequestIds)
+      : parsePlanPartFromActivity(activity, resolvedVerdictByRequestId)
     if (!activityPart?.toolUse) continue
 
     const toolId = activityPart.toolUse.id
@@ -1101,7 +1113,8 @@ export function deriveCodexTimeline(
  *     synthetic assistant message anchored at the activity's timestamp so
  *     the card still appears.
  *   - Plans with a paired `plan.resolved` row render as `status: 'success'`
- *     (greyed out, no "Requires Approval" badge), same logic Codex uses.
+ *     when approved (greyed out, no badge) or `status: 'rejected'` when the
+ *     payload carries `resolution: 'rejected'`, same logic Codex uses.
  */
 export function mergeOpenCodePlanActivities(
   messages: TimelineMessage[],
@@ -1112,10 +1125,13 @@ export function mergeOpenCodePlanActivities(
   const planReadyRows = activityRows.filter((row) => row.kind === 'plan.ready')
   if (planReadyRows.length === 0) return messages
 
-  const resolvedRequestIds = new Set<string>()
+  const resolvedVerdictByRequestId = new Map<string, 'approved' | 'rejected'>()
   for (const row of activityRows) {
     if (row.kind === 'plan.resolved' && row.request_id) {
-      resolvedRequestIds.add(row.request_id)
+      const payload = parseJson<Record<string, unknown>>(row.payload_json)
+      const verdict: 'approved' | 'rejected' =
+        payload?.resolution === 'rejected' ? 'rejected' : 'approved'
+      resolvedVerdictByRequestId.set(row.request_id, verdict)
     }
   }
 
@@ -1144,7 +1160,7 @@ export function mergeOpenCodePlanActivities(
   const trailing: TimelineMessage[] = []
 
   for (const row of planReadyRows) {
-    const part = parsePlanPartFromActivity(row, resolvedRequestIds)
+    const part = parsePlanPartFromActivity(row, resolvedVerdictByRequestId)
     if (!part?.toolUse) continue
     if (knownToolIds.has(part.toolUse.id)) continue
     knownToolIds.add(part.toolUse.id)

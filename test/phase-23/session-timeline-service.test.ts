@@ -346,7 +346,10 @@ describe('getSessionTimeline', () => {
       const planPart = result.messages[0].parts?.find(
         (p) => p.type === 'tool_use' && p.toolUse?.name === 'ExitPlanMode'
       )
-      expect(planPart?.toolUse?.status).toBe('success')
+      // Bug 3 fix: plan.resolved payload with resolution='rejected' must
+      // surface a 'rejected' verdict on reload so PlanCard renders the
+      // rejected state (greyed out) instead of mis-rendering as approved.
+      expect(planPart?.toolUse?.status).toBe('rejected')
     })
 
     it('strips text part whose content matches the plan to avoid double-rendering', () => {
