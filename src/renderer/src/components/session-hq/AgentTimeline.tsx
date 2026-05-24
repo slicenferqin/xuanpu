@@ -38,6 +38,7 @@ import { SystemNotificationBar } from '../sessions/SystemNotificationBar'
 import { extractTaskNotifications, stripTaskNotifications } from '@/lib/content-sanitizer'
 import { getMessageDisplayContent } from '@/lib/message-actions'
 import type { SessionTask } from '@/lib/session-tasks'
+import { useQuestionStore, type QuestionRequest } from '@/stores/useQuestionStore'
 
 import {
   Terminal,
@@ -53,6 +54,11 @@ import {
   User,
   Loader2
 } from 'lucide-react'
+
+// Stable module-level empty array so the useQuestionStore selector never
+// returns a fresh reference (which would force every TimelineNodeView to
+// re-render on every store mutation).
+const EMPTY_QUESTIONS: readonly QuestionRequest[] = Object.freeze([])
 
 // ---------------------------------------------------------------------------
 // Card type derivation
@@ -477,6 +483,16 @@ function TimelineNodeView({
 }): React.JSX.Element | null {
   const { t } = useI18n()
 
+  // Bug 2 cross-validation: subscribe to the question store so an ask-user
+  // card stays in 'pending' state whenever the runtime still believes the
+  // question is unanswered, even if `toolUse.status` has been advanced to
+  // 'success' (e.g. by Codex emitting a tool-completed event after the user
+  // switched sessions). Without this, switching back to the session shows the
+  // card as "Answered" while the composer is still blocked waiting for input.
+  const pendingQuestions = useQuestionStore((s) =>
+    sessionId ? (s.pendingBySession.get(sessionId) ?? EMPTY_QUESTIONS) : EMPTY_QUESTIONS
+  )
+
   switch (node.cardType) {
     case 'user-message': {
       type FilePart = Extract<MessagePart, { type: 'file' }>
@@ -709,7 +725,21 @@ function TimelineNodeView({
       )
     }
 
-    case 'ask-user':
+    case 'ask-user': {
+      const askToolUseId = node.toolUse?.id
+      // Cross-validate against the runtime question store: even if
+      // toolUse.status says the question was resolved, keep the card in
+      // pending mode while useQuestionStore still has a matching unanswered
+      // question for this session (Bug 2). Match by tool callID first, then
+      // by question id, since either side could be the stable identifier
+      // depending on which agent runtime produced the request.
+      const stillPendingForThisCard =
+        !!askToolUseId &&
+        pendingQuestions.some(
+          (q) => q.tool?.callID === askToolUseId || q.id === askToolUseId
+        )
+      const askStatus = node.toolUse?.status
+      const isPending = askStatus === 'pending' || askStatus === 'running' || stillPendingForThisCard
       return (
         <AskUserCard
           question={(node.toolUse?.input?.question as string) ?? ''}
@@ -723,12 +753,13 @@ function TimelineNodeView({
                 }>)
               : undefined
           }
-          isPending={node.toolUse?.status === 'pending' || node.toolUse?.status === 'running'}
+          isPending={isPending}
           sessionId={sessionId}
           worktreePath={worktreePath}
           answer={node.toolUse?.output}
         />
       )
+    }
 
     case 'todo':
       return node.toolUse ? <TodoCard toolUse={node.toolUse} /> : null
