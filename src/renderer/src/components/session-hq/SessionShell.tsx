@@ -16,6 +16,7 @@
 
 import React, {
   useEffect,
+  useLayoutEffect,
   useState,
   useCallback,
   useRef,
@@ -70,7 +71,11 @@ import { applySessionContextUsage } from '@/lib/context-usage'
 import { mapRawTranscriptToTimeline } from '@shared/lib/timeline-mappers'
 import { lastSendMode, messageSendTimes } from '@/lib/message-send-times'
 import { refreshSessionLastMessageAt } from '@/lib/session-last-message'
-import { extractMissionTasks, type SessionTask } from '@/lib/session-tasks'
+import {
+  applySessionTaskToolEvent,
+  extractMissionTasks,
+  type SessionTask
+} from '@/lib/session-tasks'
 import {
   getMessageDisplayContent,
   getUserMessageForkCutoff,
@@ -79,7 +84,6 @@ import {
 import { useI18n } from '@/i18n/useI18n'
 import { useSessionSmartScroll } from '@/hooks/useSessionSmartScroll'
 import { toast } from 'sonner'
-import { isTodoWriteTool } from '@/components/sessions/tools/todo-utils'
 
 function attachmentToMessagePart(attachment: Attachment): MessagePart | null {
   if (attachment.kind !== 'data') return null
@@ -123,6 +127,17 @@ function buildLocalDiffCommentContext(comments: DiffComment[]): string {
       })
       .join('\n\n') + '\n\n'
   )
+}
+
+function findRoundSection(container: HTMLElement, roundId: string): HTMLElement | null {
+  const sections = Array.from(container.querySelectorAll<HTMLElement>('[data-round-id]'))
+  return sections.find((section) => section.dataset.roundId === roundId) ?? null
+}
+
+function getContainerRelativeTop(container: HTMLElement, target: HTMLElement): number {
+  const containerRect = container.getBoundingClientRect()
+  const targetRect = target.getBoundingClientRect()
+  return container.scrollTop + targetRect.top - containerRect.top
 }
 
 function DiffCommentAttachments(): React.JSX.Element | null {
@@ -653,6 +668,31 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   const [forkingMessageId, setForkingMessageId] = useState<string | null>(null)
   const [pendingForkMessageId, setPendingForkMessageId] = useState<string | null>(null)
   const [forkConfirmDismissChecked, setForkConfirmDismissChecked] = useState(false)
+  const [activeRoundId, setActiveRoundId] = useState<string | null>(null)
+  const [clearScreenActive, setClearScreenActive] = useState(false)
+  const pendingTurnTopScrollRef = useRef<string | null>(null)
+
+  const requestTurnTopScroll = useCallback((roundId: string) => {
+    pendingTurnTopScrollRef.current = roundId
+    setClearScreenActive(true)
+    setActiveRoundId(roundId)
+  }, [])
+
+  useEffect(() => {
+    pendingTurnTopScrollRef.current = null
+    setClearScreenActive(false)
+  }, [sessionId])
+
+  useEffect(() => {
+    const lastUserMessage = [...timelineMessages]
+      .reverse()
+      .find((message) => message.role === 'user')
+    if (lastUserMessage) {
+      setActiveRoundId((current) => current ?? lastUserMessage.id)
+    } else {
+      setActiveRoundId(null)
+    }
+  }, [timelineMessages])
 
   const drainQueuedMessage = useCallback(async (): Promise<boolean> => {
     if (!worktreePath || !droidSessionId) return false
@@ -754,6 +794,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   // --- Mission task state (shared with the right-side context panel) ---
   const missionTasksRef = useRef<SessionTask[]>([])
   const timelineMessagesRef = useRef<TimelineMessage[]>([])
+  const lastTaskRoundIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     timelineMessagesRef.current = timelineMessages
@@ -767,16 +808,23 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     [sessionId]
   )
 
-  useEffect(() => {
-    missionTasksRef.current = useSessionRuntimeStore.getState().getSessionTasks(sessionId)
-  }, [sessionId])
-
-  const lastUserMessageId = useMemo(() => {
+  const latestUserMessageId = useMemo(() => {
     for (let i = timelineMessages.length - 1; i >= 0; i--) {
       if (timelineMessages[i].role === 'user') return timelineMessages[i].id
     }
     return null
   }, [timelineMessages])
+
+  useEffect(() => {
+    if (lastTaskRoundIdRef.current !== latestUserMessageId) {
+      lastTaskRoundIdRef.current = latestUserMessageId
+      setSharedMissionTasks([])
+    }
+  }, [latestUserMessageId, setSharedMissionTasks])
+
+  useEffect(() => {
+    missionTasksRef.current = useSessionRuntimeStore.getState().getSessionTasks(sessionId)
+  }, [sessionId])
 
   const hasDurableCompactionMessage = useMemo(
     () =>
@@ -820,13 +868,37 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     mirrorVersion,
     isStreaming,
     bottomAreaRef: timelineBottomAreaRef,
-    composerRef: composerBarRef
+    composerRef: composerBarRef,
+    clearScreenActive
   })
+  const timelineScrollContainerRef = smartScroll.scrollContainerRef
+  const clearScreenBottomInset = smartScroll.clearScreenBottomInset
+  const scrollTimelineToOffset = smartScroll.scrollToOffset
 
   const scrollFabBottomOffset = useMemo(
     () => Math.max(smartScroll.scrollFabBottomOffset, pendingPlan ? 152 : 16),
     [pendingPlan, smartScroll.scrollFabBottomOffset]
   )
+
+  useLayoutEffect(() => {
+    const roundId = pendingTurnTopScrollRef.current
+    const container = timelineScrollContainerRef.current
+    if (!roundId || !container) return
+
+    const section = findRoundSection(container, roundId)
+    if (!section) return
+
+    const targetTop = Math.max(getContainerRelativeTop(container, section) - 24, 0)
+    scrollTimelineToOffset(targetTop, 'instant')
+    pendingTurnTopScrollRef.current = null
+  }, [
+    activeRoundId,
+    clearScreenActive,
+    clearScreenBottomInset,
+    scrollTimelineToOffset,
+    timelineScrollContainerRef,
+    timelineMessages.length
+  ])
 
   useEffect(() => {
     if (hasDurableCompactionMessage && compactionState?.phase === 'completed') {
@@ -842,7 +914,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   }, [hasDurableCompactionMessage, compactionState, sessionId])
 
   const transitionToolStatus = useCallback(
-    (toolUseID: string, status: 'success' | 'error', error?: string) => {
+    (toolUseID: string, status: 'success' | 'error' | 'rejected', error?: string) => {
       const mapper = (p: SharedStreamingPart): SharedStreamingPart =>
         p.type === 'tool_use' && p.toolUse?.id === toolUseID
           ? { ...p, toolUse: { ...p.toolUse!, status, ...(error ? { error } : {}) } }
@@ -884,7 +956,14 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         if (opcSessionId) {
           const result = await window.agentOps.reconnect(worktreePath, opcSessionId, sessionId)
           if (!cancelled && result.success) {
-            setDroidSessionId(opcSessionId)
+            const runtimeSessionId = result.sessionId ?? opcSessionId
+            setDroidSessionId(runtimeSessionId)
+            if (runtimeSessionId !== opcSessionId) {
+              useSessionStore.getState().setOpenCodeSessionId(sessionId, runtimeSessionId)
+              await window.db.session.update(sessionId, {
+                opencode_session_id: runtimeSessionId
+              })
+            }
           }
         } else {
           const result = await window.agentOps.connect(worktreePath, sessionId)
@@ -934,6 +1013,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           timestamp: new Date().toISOString()
         }
         appendOptimistic(optimisticMsg)
+        requestTurnTopScroll(optimisticMsg.id)
         timelineMessagesRef.current = [...timelineMessagesRef.current, optimisticMsg]
         syncOptimisticMessagesToMirror()
 
@@ -984,6 +1064,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     mode,
     requestModel,
     appendOptimistic,
+    requestTurnTopScroll,
     syncOptimisticMessagesToMirror,
     optimisticRef,
     resetLiveOverlay,
@@ -1058,38 +1139,13 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
             const state = (part.state as Record<string, unknown>) || {}
 
             // --- Mission Control: detect todo/task tools ---
-            const lowerToolName = toolName?.toLowerCase() ?? ''
-            if (isTodoWriteTool(lowerToolName)) {
-              const todos = (state.input as Record<string, unknown>)?.todos
-              if (Array.isArray(todos)) {
-                const newTasks: SessionTask[] = todos.map(
-                  (t: Record<string, unknown>, idx: number) => ({
-                    id: String(t.id ?? `todo-${idx}`),
-                    content: String(t.content ?? t.subject ?? t.activeForm ?? ''),
-                    status: (t.status as SessionTask['status']) ?? 'pending'
-                  })
-                )
-                setSharedMissionTasks(newTasks)
-              }
-            } else if (lowerToolName === 'taskcreate' || lowerToolName === 'task_create') {
-              const input = (state.input as Record<string, unknown>) ?? {}
-              const newTask: SessionTask = {
-                id: String(input.taskId ?? `task-${Date.now()}`),
-                content: String(input.subject ?? input.description ?? ''),
-                status: 'pending'
-              }
-              setSharedMissionTasks([...missionTasksRef.current, newTask])
-            } else if (lowerToolName === 'taskupdate' || lowerToolName === 'task_update') {
-              const input = (state.input as Record<string, unknown>) ?? {}
-              const taskId = String(input.taskId ?? '')
-              const newStatus = input.status as SessionTask['status'] | undefined
-              if (taskId && newStatus) {
-                setSharedMissionTasks(
-                  missionTasksRef.current.map((t) =>
-                    t.id === taskId ? { ...t, status: newStatus } : t
-                  )
-                )
-              }
+            const nextTasks = applySessionTaskToolEvent(
+              missionTasksRef.current,
+              toolName,
+              state.input
+            )
+            if (nextTasks !== missionTasksRef.current) {
+              setSharedMissionTasks(nextTasks)
             }
           }
         }
@@ -1122,20 +1178,12 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
             // Refresh timeline to pick up newly committed messages
             void refresh()
               .then((msgs) => {
-                // Sync mission tasks from committed timeline (source of truth after idle)
+                // Sync mission tasks from committed timeline using the same reducer semantics
                 if (msgs.length > 0) {
                   const extracted = extractMissionTasks(msgs)
-                  if (extracted.length > 0) {
-                    // Don't overwrite if all tasks already completed in memory —
-                    // streaming TaskUpdate events are more authoritative than DB
-                    // snapshots for task status (DB only has original TodoWrite input)
-                    const currentAllComplete =
-                      missionTasksRef.current.length > 0 &&
-                      missionTasksRef.current.every((t) => t.status === 'completed')
-                    if (!currentAllComplete) {
-                      setSharedMissionTasks(extracted)
-                    }
-                  }
+                  setSharedMissionTasks(extracted)
+                } else {
+                  setSharedMissionTasks([])
                 }
               })
               .finally(() => {
@@ -1245,32 +1293,23 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       const previousGoalMode = goalMode
       const previousSuccessCriteria = successCriteria
 
-      // Pure stop (no content) — abort, then optimistically clear the live
-      // overlay so the streaming tool / text cards disappear immediately. The
-      // committed transcript (durable timeline messages) remains. Without
-      // this, the in-flight tool card stayed visible until the next prompt,
-      // which made the user think the Stop button "didn't work" and click it
-      // 2-3 more times. Backend aborts were going through; only the optics
-      // were wrong. (See OpenCode plan-mode dump 2026-05-01T09:59 — three
-      // abort.accepted markers within ~6 s for the same idle session.)
+      // Pure stop (no content) requests provider interruption only. Do not
+      // force lifecycle idle or clear the live overlay here: Codex may keep
+      // streaming until it confirms interruption/completion, and hiding that
+      // stream makes a still-running thread look stopped.
       if (action === 'stop_and_send' && !content.trim()) {
         try {
-          const result = await window.agentOps.abort(worktreePath, droidSessionId)
-          if (result.success && result.aborted !== false) {
-            resetLiveOverlay(false)
-            // Phase 1.4.8: optimistically flip lifecycle to 'idle' so the
-            // ComposerBar Stop button (red square) flips back to Send (blue
-            // arrow) immediately. Backend will eventually emit
-            // `session.status idle` via flushAbortDraft, but on slow networks
-            // or when SSE reconnects mid-abort the event can lag by seconds —
-            // long enough that users keep clicking Stop thinking it failed.
-            // Safe because the worst case (abort actually didn't take) is
-            // self-correcting: the next backend `busy` event would put us
-            // back into busy state.
-            useSessionRuntimeStore.getState().setLifecycle(sessionId, 'idle')
+          const result = (await window.agentOps.abort(worktreePath, droidSessionId)) as {
+            success: boolean
+            aborted?: boolean
+            error?: string
+          }
+          if (!result.success || result.aborted === false) {
+            toast.error(result.error ?? 'Failed to stop active turn')
           }
         } catch (err) {
           console.error('[SessionShell] abort failed:', err)
+          toast.error(err instanceof Error ? err.message : 'Failed to stop active turn')
         }
         return false
       }
@@ -1320,6 +1359,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         }
         optimisticMessageId = optimisticMsg.id
         appendOptimistic(optimisticMsg)
+        requestTurnTopScroll(optimisticMsg.id)
         // Sync ref immediately so streaming callbacks can find the user message
         // before the next useEffect tick.
         timelineMessagesRef.current = [...timelineMessagesRef.current, optimisticMsg]
@@ -1388,6 +1428,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       droidSessionId,
       sessionId,
       appendOptimistic,
+      requestTurnTopScroll,
       optimisticRef,
       goalMode,
       successCriteria,
@@ -1404,11 +1445,11 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   const canEditUserMessage = useCallback(
     (message: TimelineMessage) =>
       message.role === 'user' &&
-      message.id === lastUserMessageId &&
+      message.id === latestUserMessageId &&
       !isStreaming &&
       lifecycle !== 'busy' &&
       lifecycle !== 'materializing',
-    [lastUserMessageId, isStreaming, lifecycle]
+    [latestUserMessageId, isStreaming, lifecycle]
   )
 
   const handleEditUserMessage = useCallback((message: TimelineMessage) => {
@@ -1451,6 +1492,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         timestamp: new Date().toISOString()
       }
       appendOptimistic(optimisticMsg)
+      requestTurnTopScroll(optimisticMsg.id)
       timelineMessagesRef.current = [...trimmedMessages, optimisticMsg]
       syncOptimisticMessagesToMirror()
 
@@ -1485,6 +1527,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
       timelineMessages,
       setMessages,
       appendOptimistic,
+      requestTurnTopScroll,
       requestModel,
       promptOptions,
       agentSdk,
@@ -1648,6 +1691,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         timestamp: new Date().toISOString()
       }
       appendOptimistic(optimisticMsg)
+      requestTurnTopScroll(optimisticMsg.id)
       timelineMessagesRef.current = [...timelineMessagesRef.current, optimisticMsg]
       syncOptimisticMessagesToMirror()
 
@@ -1676,6 +1720,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     agentSdk,
     sessionId,
     appendOptimistic,
+    requestTurnTopScroll,
     resetLiveOverlay,
     syncOptimisticMessagesToMirror,
     transitionToolStatus,
@@ -1776,6 +1821,13 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     useSessionRuntimeStore.getState().removeInterrupt(sessionId, pendingBeforeAction.requestId)
     useWorktreeStatusStore.getState().clearSessionStatus(sessionId)
 
+    // Flip the tool card status to 'rejected' immediately so the durable
+    // PlanCard shows "Rejected" instead of falling through to "Approved"
+    // (mirror of handlePlanImplement's transitionToolStatus('success') call).
+    if (pendingBeforeAction.toolUseID) {
+      transitionToolStatus(pendingBeforeAction.toolUseID, 'rejected')
+    }
+
     if (!worktreePath) return
 
     // Always call the reject IPC — for claude-code it unblocks the SDK; for
@@ -1809,7 +1861,32 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         console.warn('[SessionShell] codex plan reject persistence failed:', err)
       }
     }
-  }, [pendingPlan, sessionRecord?.agent_sdk, sessionId, worktreePath, refresh])
+  }, [pendingPlan, sessionRecord?.agent_sdk, sessionId, worktreePath, refresh, transitionToolStatus])
+
+  const handleRoundAnchorNavigate = useCallback(
+    (roundId: string) => {
+      setActiveRoundId(roundId)
+      const container = timelineScrollContainerRef.current
+      if (!container) return
+      const section = findRoundSection(container, roundId)
+      if (!section) return
+
+      const targetTop = Math.max(getContainerRelativeTop(container, section) - 24, 0)
+      scrollTimelineToOffset(targetTop, 'smooth')
+    },
+    [scrollTimelineToOffset, timelineScrollContainerRef]
+  )
+
+  useEffect(() => {
+    if (isStreaming) {
+      const lastUserMessage = [...timelineMessages]
+        .reverse()
+        .find((message) => message.role === 'user')
+      if (lastUserMessage) {
+        setActiveRoundId(lastUserMessage.id)
+      }
+    }
+  }, [isStreaming, timelineMessages])
 
   // --- Loading state ---
   if (loading && timelineMessages.length === 0) {
@@ -1832,11 +1909,12 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   // Plan interrupts are handled by PlanReadyImplementFab, not the composer/dock.
   // Filter them out so the composer doesn't enter reply_interrupt mode for plans.
   const composerInterrupt = currentInterrupt?.type === 'plan' ? null : currentInterrupt
+  const composerVeilHeight = Math.min(Math.max(smartScroll.bottomFloatingHeight + 24, 72), 128)
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Main content area — relative for floating ComposerBar */}
-      <div className="flex-1 flex flex-col overflow-hidden relative">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      {/* Main content area — hard-row layout keeps transcript output inside the scroll region. */}
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto_auto] overflow-hidden relative">
         <AgentTimeline
           timelineMessages={timelineMessages}
           streamingContent={streamingContent}
@@ -1868,6 +1946,10 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           onPointerUp={smartScroll.handleScrollPointerUp}
           onPointerCancel={smartScroll.handleScrollPointerCancel}
           bottomFloatingHeight={smartScroll.bottomFloatingHeight}
+          clearScreenBottomInset={clearScreenBottomInset}
+          activeRoundId={activeRoundId}
+          onActiveRoundChange={setActiveRoundId}
+          onRoundAnchorNavigate={handleRoundAnchorNavigate}
         />
 
         <ScrollToBottomFab
@@ -1877,7 +1959,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           style={{ bottom: `${scrollFabBottomOffset}px` }}
         />
 
-        <div ref={timelineBottomAreaRef}>
+        <div ref={timelineBottomAreaRef} className="min-h-0">
           <InterruptDock
             sessionId={sessionId}
             interrupt={currentInterrupt}
@@ -1893,31 +1975,39 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           superpowersAvailable={false}
         />
 
-        <div className="crisp-composer-veil pointer-events-none absolute bottom-0 left-0 right-0 z-10 h-44" />
+        <div
+          className="relative z-20 min-h-0 pb-4 pt-2"
+          data-testid="session-composer-dock"
+        >
+          <div
+            className="crisp-composer-veil pointer-events-none absolute inset-x-0 bottom-0 z-0"
+            style={{ height: `${composerVeilHeight}px` }}
+          />
 
-        <ComposerBar
-          containerRef={composerBarRef}
-          sessionId={sessionId}
-          lifecycle={lifecycle}
-          pendingCount={pendingCount}
-          firstInterrupt={composerInterrupt}
-          onAction={handleComposerAction}
-          isConnected={!!droidSessionId && !!worktreePath}
-          supportsSteer={supportsSteer}
-          preferSteerWhenBusy={preferSteerWhenBusy}
-          mode={mode}
-          onToggleMode={toggleMode}
-          pendingPlan={pendingPlan}
-          supportsGoalMode={supportsSessionGoalMode}
-          goalMode={goalMode}
-          onToggleGoalMode={toggleGoalMode}
-          successCriteria={successCriteria}
-          onSuccessCriteriaChange={setSuccessCriteria}
-          worktreePath={worktreePath}
-          commandsVersion={commandsVersion}
-          contextAttachmentSlot={<DiffCommentAttachments />}
-          controlSlot={<MemoryPanel worktreeId={worktreeId} variant="composer" />}
-        />
+          <ComposerBar
+            containerRef={composerBarRef}
+            sessionId={sessionId}
+            lifecycle={lifecycle}
+            pendingCount={pendingCount}
+            firstInterrupt={composerInterrupt}
+            onAction={handleComposerAction}
+            isConnected={!!droidSessionId && !!worktreePath}
+            supportsSteer={supportsSteer}
+            preferSteerWhenBusy={preferSteerWhenBusy}
+            mode={mode}
+            onToggleMode={toggleMode}
+            pendingPlan={pendingPlan}
+            supportsGoalMode={supportsSessionGoalMode}
+            goalMode={goalMode}
+            onToggleGoalMode={toggleGoalMode}
+            successCriteria={successCriteria}
+            onSuccessCriteriaChange={setSuccessCriteria}
+            worktreePath={worktreePath}
+            commandsVersion={commandsVersion}
+            contextAttachmentSlot={<DiffCommentAttachments />}
+            controlSlot={<MemoryPanel worktreeId={worktreeId} variant="composer" />}
+          />
+        </div>
 
         <div className="absolute bottom-0 left-0 right-0 z-30">
           {agentSdk === 'xuanpu-agent' && (

@@ -12,8 +12,14 @@ describe('codex-models', () => {
   // ── CODEX_MODELS constant ──────────────────────────────────────
 
   describe('CODEX_MODELS', () => {
-    it('contains exactly 4 models', () => {
-      expect(CODEX_MODELS).toHaveLength(4)
+    it('contains exactly 5 models', () => {
+      expect(CODEX_MODELS).toHaveLength(5)
+    })
+
+    it('includes gpt-5.5', () => {
+      const model = CODEX_MODELS.find((m) => m.id === 'gpt-5.5')
+      expect(model).toBeDefined()
+      expect(model!.name).toBe('GPT-5.5')
     })
 
     it('includes gpt-5.4', () => {
@@ -95,10 +101,11 @@ describe('codex-models', () => {
       expect(result[0].name).toBe('Codex')
     })
 
-    it('provider entry contains all 4 models keyed by id', () => {
+    it('provider entry contains all 5 models keyed by id', () => {
       const result = getAvailableCodexModels()
       const models = result[0].models
-      expect(Object.keys(models)).toHaveLength(4)
+      expect(Object.keys(models)).toHaveLength(5)
+      expect(models['gpt-5.5']).toBeDefined()
       expect(models['gpt-5.4']).toBeDefined()
       expect(models['gpt-5.3-codex']).toBeDefined()
       expect(models['gpt-5.3-codex-spark']).toBeDefined()
@@ -136,7 +143,7 @@ describe('codex-models', () => {
       expect(info).not.toBeNull()
       expect(info!.id).toBe('gpt-5.4')
       expect(info!.name).toBe('GPT-5.4')
-      expect(info!.limit.context).toBe(200000)
+      expect(info!.limit.context).toBe(258400)
     })
 
     it('returns model info for gpt-5.3-codex', () => {

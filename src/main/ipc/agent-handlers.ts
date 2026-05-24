@@ -269,6 +269,20 @@ export function registerAgentHandlers(
         }
         const impl = c.runtimeManager.getImplementer(runtimeId)
         const result = await impl.reconnect(worktreePath, runtimeSessionId, hiveSessionId)
+        if (result.success && result.sessionId && result.sessionId !== runtimeSessionId) {
+          try {
+            c.dbService.updateSession(hiveSessionId, {
+              opencode_session_id: result.sessionId
+            })
+          } catch (err) {
+            log.warn('Failed to persist opencode_session_id after reconnect', {
+              hiveSessionId,
+              previousRuntimeSessionId: runtimeSessionId,
+              runtimeSessionId: result.sessionId,
+              error: err instanceof Error ? err.message : String(err)
+            })
+          }
+        }
         // Strip the inner `success` so the wrapper's success envelope wins
         // (adapter returns success:false on reconnect failure — treat as error path)
         const { success: innerSuccess, ...rest } = result

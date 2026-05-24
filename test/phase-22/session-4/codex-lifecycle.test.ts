@@ -1,5 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 // Mock logger
 vi.mock('../../../src/main/services/logger', () => ({
@@ -20,6 +23,7 @@ vi.mock('../../../src/main/services/codex-app-server-manager', () => {
     hasSession: vi.fn().mockReturnValue(false),
     getSession: vi.fn(),
     listSessions: vi.fn().mockReturnValue([]),
+    readThread: vi.fn(),
     on: vi.fn(),
     emit: vi.fn(),
     removeAllListeners: vi.fn()
@@ -31,6 +35,7 @@ vi.mock('../../../src/main/services/codex-app-server-manager', () => {
 
 import { CodexImplementer } from '../../../src/main/services/codex-implementer'
 import { CODEX_DEFAULT_MODEL } from '../../../src/main/services/codex-models'
+import { calculateUsageCost } from '../../../src/shared/usage/pricing'
 
 describe('CodexImplementer lifecycle', () => {
   let impl: CodexImplementer
@@ -38,6 +43,7 @@ describe('CodexImplementer lifecycle', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubEnv('CODEX_HOME', '/tmp/xuanpu-vitest-empty-codex-home')
     impl = new CodexImplementer()
     mockManager = impl.getManager()
   })
@@ -203,6 +209,7 @@ describe('CodexImplementer lifecycle', () => {
       const result = await impl.reconnect('/test', 'thread-existing', 'new-hive-id')
 
       expect(result.success).toBe(true)
+      expect(result.sessionId).toBe('thread-existing')
       expect(result.sessionStatus).toBe('idle')
 
       // Verify hiveSessionId was updated
@@ -223,6 +230,7 @@ describe('CodexImplementer lifecycle', () => {
       const result = await impl.reconnect('/test', 'thread-running', 'hive-2')
 
       expect(result.success).toBe(true)
+      expect(result.sessionId).toBe('thread-running')
       expect(result.sessionStatus).toBe('busy')
     })
 
@@ -242,6 +250,7 @@ describe('CodexImplementer lifecycle', () => {
       const result = await impl.reconnect('/test', 'thread-old', 'hive-new')
 
       expect(result.success).toBe(true)
+      expect(result.sessionId).toBe('thread-reconnected')
       expect(result.sessionStatus).toBe('idle')
 
       // Verify manager was called with resume
@@ -462,6 +471,208 @@ describe('CodexImplementer lifecycle', () => {
     it('getMessages returns empty array for unknown session', async () => {
       const messages = await impl.getMessages('/test', 'session-1')
       expect(messages).toEqual([])
+    })
+
+    it('getMessages recovers messages from thread/read when local and DB caches are empty', async () => {
+      impl.getSessions().set('/test::thread-read', {
+        threadId: 'thread-read',
+        hiveSessionId: 'hive-read',
+        worktreePath: '/test',
+        status: 'ready',
+        messages: [],
+        revertMessageID: null,
+        revertDiff: null,
+        titleGenerated: true,
+        titleGenerationStarted: true,
+        mapperState: {
+          outputBuffers: new Map(),
+          toolStartTimes: new Map()
+        },
+        itemTimestampsByTurn: new Map()
+      })
+
+      mockManager.readThread.mockResolvedValue({
+        thread: {
+          turns: [
+            {
+              id: 'turn-1',
+              createdAt: '2026-05-23T08:00:00.000Z',
+              items: [
+                {
+                  type: 'userMessage',
+                  content: [{ type: 'text', text: '继续' }]
+                },
+                {
+                  type: 'agentMessage',
+                  text: '可以继续'
+                }
+              ]
+            }
+          ]
+        }
+      })
+
+      const messages = await impl.getMessages('/test', 'thread-read')
+
+      expect(mockManager.readThread).toHaveBeenCalledWith('thread-read')
+      expect(messages).toHaveLength(2)
+      expect((messages[0] as any).role).toBe('user')
+      expect((messages[1] as any).role).toBe('assistant')
+    })
+  })
+
+  describe('context usage reporting', () => {
+    it('uses model_context_window from codex config over provider runtime limit', () => {
+      const codexHome = mkdtempSync(join(tmpdir(), 'xuanpu-codex-config-'))
+      mkdirSync(codexHome, { recursive: true })
+      writeFileSync(
+        join(codexHome, 'config.toml'),
+        'model = "gpt-5.5"\nmodel_context_window = 500000\n'
+      )
+      vi.stubEnv('CODEX_HOME', codexHome)
+
+      impl = new CodexImplementer()
+      const mockWindow = {
+        isDestroyed: () => false,
+        webContents: { send: vi.fn() }
+      } as any
+      impl.setMainWindow(mockWindow)
+      impl.getSessions().set('/test::thread-usage', {
+        threadId: 'thread-usage',
+        hiveSessionId: 'hive-usage',
+        worktreePath: '/test',
+        status: 'ready',
+        messages: []
+      })
+      ;(impl as any).handleManagerEvent({
+        id: 'evt-usage',
+        kind: 'notification',
+        provider: 'codex',
+        threadId: 'thread-usage',
+        method: 'thread/tokenUsage/updated',
+        createdAt: new Date().toISOString(),
+        payload: {
+          turnId: 'turn-usage',
+          tokenUsage: {
+            last: {
+              inputTokens: 1000,
+              cachedInputTokens: 400,
+              outputTokens: 50,
+              reasoningOutputTokens: 5
+            },
+            modelContextWindow: 258400
+          }
+        }
+      })
+
+      expect(mockWindow.webContents.send).toHaveBeenCalledWith(
+        'agent:stream',
+        expect.objectContaining({
+          type: 'session.context_usage',
+          data: expect.objectContaining({
+            contextWindow: 500000,
+            model: { providerID: 'codex', modelID: 'gpt-5.5' },
+            cost: expect.any(Number),
+            requestId: expect.stringContaining('turn-usage')
+          })
+        })
+      )
+    })
+
+    it('emits incremental Codex turn usage cost without adding cumulative totals', () => {
+      const mockWindow = {
+        isDestroyed: () => false,
+        webContents: { send: vi.fn() }
+      } as any
+      impl.setMainWindow(mockWindow)
+      impl.getSessions().set('/test::thread-cost', {
+        threadId: 'thread-cost',
+        hiveSessionId: 'hive-cost',
+        worktreePath: '/test',
+        status: 'ready',
+        messages: []
+      })
+
+      const emitUsage = (input: number, cached: number, output: number): void => {
+        ;(impl as any).handleManagerEvent({
+          id: `evt-cost-${input}`,
+          kind: 'notification',
+          provider: 'codex',
+          threadId: 'thread-cost',
+          method: 'thread/tokenUsage/updated',
+          createdAt: new Date().toISOString(),
+          payload: {
+            model: 'gpt-5.4',
+            turnId: 'turn-cost',
+            tokenUsage: {
+              last: {
+                inputTokens: input,
+                cachedInputTokens: cached,
+                outputTokens: output,
+                reasoningOutputTokens: 0
+              },
+              total: {
+                inputTokens: input * 10,
+                cachedInputTokens: cached * 10,
+                outputTokens: output * 10
+              },
+              modelContextWindow: 258400
+            }
+          }
+        })
+      }
+
+      emitUsage(1000, 500, 50)
+      emitUsage(1200, 500, 70)
+
+      const contextUsageEvents = mockWindow.webContents.send.mock.calls
+        .map((call) => call[1] as any)
+        .filter((event) => event.type === 'session.context_usage')
+      expect(contextUsageEvents[0].data.tokens).toEqual({
+        input: 5000,
+        cacheRead: 5000,
+        cacheWrite: 0,
+        output: 500,
+        reasoning: 0
+      })
+      expect(contextUsageEvents[0].data.breakdown).toMatchObject({
+        usedTokens: 1000,
+        maxTokens: 258400
+      })
+      const firstCost = calculateUsageCost(
+        'gpt-5.4',
+        { input: 500, cacheRead: 500, cacheWrite: 0, output: 50 },
+        'codex'
+      )
+      const secondSnapshotCost = calculateUsageCost(
+        'gpt-5.4',
+        { input: 700, cacheRead: 500, cacheWrite: 0, output: 70 },
+        'codex'
+      )
+
+      expect(contextUsageEvents[0].data.cost).toBeCloseTo(firstCost)
+      expect(contextUsageEvents[1].data.cost).toBeCloseTo(secondSnapshotCost - firstCost)
+      expect(contextUsageEvents[0].data.totalCost).toBeUndefined()
+    })
+
+    it('applies configured context window to Codex model metadata', async () => {
+      const codexHome = mkdtempSync(join(tmpdir(), 'xuanpu-codex-config-'))
+      mkdirSync(codexHome, { recursive: true })
+      writeFileSync(
+        join(codexHome, 'config.toml'),
+        'model = "gpt-5.5"\nmodel_context_window = 500000\n'
+      )
+      vi.stubEnv('CODEX_HOME', codexHome)
+
+      impl = new CodexImplementer()
+
+      const modelInfo = await impl.getModelInfo('/test', 'gpt-5.4')
+      expect(modelInfo?.limit.context).toBe(500000)
+
+      const providers = (await impl.getAvailableModels()) as Array<{
+        models: Record<string, { limit: { context: number } }>
+      }>
+      expect(providers[0]?.models['gpt-5.4']?.limit.context).toBe(500000)
     })
   })
 })

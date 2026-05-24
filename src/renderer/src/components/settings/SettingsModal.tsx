@@ -80,7 +80,8 @@ export function SettingsModal(): React.JSX.Element {
           'p-0 gap-0 overflow-hidden',
           activeSection === 'usage' ||
             activeSection === 'archivedChats' ||
-            activeSection === 'skills'
+            activeSection === 'skills' ||
+            activeSection === 'updates'
             ? 'max-w-[min(96vw,1280px)] h-[88vh]'
             : 'max-w-3xl h-[70vh]'
         )}

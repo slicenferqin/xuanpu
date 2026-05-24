@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 25
+export const CURRENT_SCHEMA_VERSION = 26
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS session_messages (
   opencode_message_json TEXT,
   opencode_parts_json TEXT,
   opencode_timeline_json TEXT,
+  sequence INTEGER,
   created_at TEXT NOT NULL
 );
 
@@ -173,6 +174,8 @@ CREATE INDEX IF NOT EXISTS idx_worktrees_project ON worktrees(project_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_worktree ON sessions(worktree_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
 CREATE INDEX IF NOT EXISTS idx_messages_session ON session_messages(session_id);
+CREATE INDEX IF NOT EXISTS idx_messages_session_seq
+  ON session_messages(session_id, sequence);
 CREATE INDEX IF NOT EXISTS idx_messages_session_opencode
   ON session_messages(session_id, opencode_message_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_session_opencode_unique
@@ -361,6 +364,7 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_sessions_updated;
       DROP INDEX IF EXISTS idx_messages_session_opencode_unique;
       DROP INDEX IF EXISTS idx_messages_session_opencode;
+      DROP INDEX IF EXISTS idx_messages_session_seq;
       DROP INDEX IF EXISTS idx_messages_session;
       DROP INDEX IF EXISTS idx_session_activities_session_turn;
       DROP INDEX IF EXISTS idx_session_activities_session_created;
@@ -915,6 +919,30 @@ export const MIGRATIONS: Migration[] = [
   },
   {
     version: 24,
+    name: 'add_session_messages_sequence',
+    up: `
+      ALTER TABLE session_messages ADD COLUMN sequence INTEGER;
+      WITH ordered AS (
+        SELECT id,
+               ROW_NUMBER() OVER (
+                 PARTITION BY session_id
+                 ORDER BY created_at ASC, id ASC
+               ) AS seq
+        FROM session_messages
+      )
+      UPDATE session_messages
+         SET sequence = (SELECT seq FROM ordered WHERE ordered.id = session_messages.id)
+       WHERE sequence IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_messages_session_seq
+        ON session_messages(session_id, sequence);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_messages_session_seq;
+      -- SQLite cannot DROP COLUMN reliably across versions; leave the column behind.
+    `
+  },
+  {
+    version: 25,
     name: 'add_field_context_packages',
     up: `
       -- xuanpu-agent: auditable managed context packages.
@@ -944,7 +972,7 @@ export const MIGRATIONS: Migration[] = [
     `
   },
   {
-    version: 25,
+    version: 26,
     name: 'add_field_episode_blocks',
     up: `
       -- xuanpu-agent: immutable managed-context episode blocks.

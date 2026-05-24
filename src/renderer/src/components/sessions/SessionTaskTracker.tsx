@@ -12,6 +12,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/i18n/useI18n'
 import { getTodoCounts, type TodoItem, type TodoToolStatus } from './tools/todo-utils'
+import { sortSessionTaskLikeItems } from '@/lib/session-tasks'
 
 interface SessionTaskTrackerProps {
   todos: TodoItem[]
@@ -69,21 +70,7 @@ export function SessionTaskTracker({
 
   const progressPercent = Math.round((completed / todos.length) * 100)
 
-  const orderedTodos = useMemo(() => {
-    const rank: Record<TodoItem['status'], number> = {
-      in_progress: 0,
-      pending: 1,
-      completed: 2,
-      cancelled: 3
-    }
-
-    return [...todos].sort((a, b) => {
-      if (rank[a.status] !== rank[b.status]) return rank[a.status] - rank[b.status]
-      if (a.priority === b.priority) return 0
-      const priorityRank = { high: 0, medium: 1, low: 2 }
-      return priorityRank[a.priority] - priorityRank[b.priority]
-    })
-  }, [todos])
+  const orderedTodos = useMemo(() => sortSessionTaskLikeItems(todos), [todos])
 
   useEffect(() => {
     setExpanded(false)

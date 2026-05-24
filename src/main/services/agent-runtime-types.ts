@@ -47,6 +47,7 @@ export interface AgentRuntimeAdapter {
     hiveSessionId: string
   ): Promise<{
     success: boolean
+    sessionId?: string
     sessionStatus?: 'idle' | 'busy' | 'retry'
     revertMessageID?: string | null
   }>
@@ -69,7 +70,11 @@ export interface AgentRuntimeAdapter {
     options?: PromptOptions
   ): Promise<void>
   abort(worktreePath: string, agentSessionId: string): Promise<boolean>
-  getMessages(worktreePath: string, agentSessionId: string): Promise<unknown[]>
+  getMessages(
+    worktreePath: string,
+    agentSessionId: string,
+    options?: { forceRefresh?: boolean }
+  ): Promise<unknown[]>
 
   // Models
   getAvailableModels(): Promise<unknown>

@@ -57,6 +57,58 @@ describe('AgentTimeline user message actions', () => {
     expect(screen.getByTestId('fork-message-button')).toBeInTheDocument()
   })
 
+  it('uses the distinct user bubble tint instead of the neutral tool-card style', () => {
+    render(
+      <AgentTimeline
+        timelineMessages={[makeUserMessage('u-style', 'Keep this as a user bubble')]}
+        streamingContent=""
+        streamingParts={[]}
+        isStreaming={false}
+        lifecycle="idle"
+      />
+    )
+
+    const bubble = screen.getByTestId('timeline-user-bubble-u-style')
+    expect(bubble.className).toContain('bg-primary/10')
+    expect(bubble.className).not.toContain('bg-agent-card')
+  })
+
+  it('renders a clear-screen spacer when the active turn reserves top-scroll room', () => {
+    render(
+      <AgentTimeline
+        timelineMessages={[makeUserMessage('u-spacer', 'Start a fresh turn')]}
+        streamingContent=""
+        streamingParts={[]}
+        isStreaming={false}
+        lifecycle="idle"
+        clearScreenBottomInset={320}
+      />
+    )
+
+    expect(screen.getByTestId('timeline-clear-screen-spacer')).toHaveStyle({
+      height: '320px'
+    })
+  })
+
+  it('keeps the prompt anchor rail vertically centered', () => {
+    render(
+      <AgentTimeline
+        timelineMessages={[
+          makeUserMessage('u-anchor-1', 'First prompt'),
+          makeUserMessage('u-anchor-2', 'Second prompt')
+        ]}
+        streamingContent=""
+        streamingParts={[]}
+        isStreaming={false}
+        lifecycle="idle"
+      />
+    )
+
+    const rail = screen.getByTestId('timeline-round-anchor-rail')
+    expect(rail.className).toContain('top-1/2')
+    expect(rail.className).toContain('-translate-y-1/2')
+  })
+
   it('shows edit button only when the message is editable', () => {
     render(
       <AgentTimeline

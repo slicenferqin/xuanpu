@@ -1449,6 +1449,14 @@ export class DatabaseService {
   createSessionMessage(data: SessionMessageCreate): SessionMessage {
     const db = this.getDb()
     const now = data.created_at ?? new Date().toISOString()
+    // Allocate a monotonic per-session sequence number so messages that land in
+    // the same millisecond keep a stable insert order on read.
+    const seqRow = db
+      .prepare(
+        'SELECT COALESCE(MAX(sequence), 0) + 1 AS next_seq FROM session_messages WHERE session_id = ?'
+      )
+      .get(data.session_id) as { next_seq: number } | undefined
+    const nextSequence = seqRow?.next_seq ?? 1
     const message: SessionMessage = {
       id: randomUUID(),
       session_id: data.session_id,
@@ -1458,6 +1466,7 @@ export class DatabaseService {
       opencode_message_json: data.opencode_message_json ?? null,
       opencode_parts_json: data.opencode_parts_json ?? null,
       opencode_timeline_json: data.opencode_timeline_json ?? null,
+      sequence: nextSequence,
       created_at: now
     }
 
@@ -1471,8 +1480,9 @@ export class DatabaseService {
         opencode_message_json,
         opencode_parts_json,
         opencode_timeline_json,
+        sequence,
         created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       message.id,
       message.session_id,
@@ -1482,6 +1492,7 @@ export class DatabaseService {
       message.opencode_message_json,
       message.opencode_parts_json,
       message.opencode_timeline_json,
+      message.sequence,
       message.created_at
     )
 
@@ -1554,7 +1565,11 @@ export class DatabaseService {
       .prepare(
         `SELECT * FROM session_messages
          WHERE session_id = ? AND opencode_message_id = ?
-         ORDER BY created_at ASC
+         ORDER BY
+           CASE WHEN sequence IS NULL THEN 1 ELSE 0 END,
+           sequence ASC,
+           created_at ASC,
+           id ASC
          LIMIT 1`
       )
       .get(sessionId, opencodeMessageId) as SessionMessage | undefined
@@ -1589,7 +1604,15 @@ export class DatabaseService {
   getSessionMessages(sessionId: string): SessionMessage[] {
     const db = this.getDb()
     return db
-      .prepare('SELECT * FROM session_messages WHERE session_id = ? ORDER BY created_at ASC')
+      .prepare(
+        `SELECT * FROM session_messages
+         WHERE session_id = ?
+         ORDER BY
+           CASE WHEN sequence IS NULL THEN 1 ELSE 0 END,
+           sequence ASC,
+           created_at ASC,
+           id ASC`
+      )
       .all(sessionId) as SessionMessage[]
   }
 

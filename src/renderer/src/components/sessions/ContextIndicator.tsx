@@ -110,6 +110,7 @@ export function ContextIndicator({
       <TooltipContent side="top" sideOffset={8} className="max-w-[260px]">
         <div className="space-y-1.5">
           <div className="font-medium">{t('contextIndicator.title')}</div>
+          <div className="text-[10px] opacity-70">{t('contextIndicator.explainer')}</div>
           {typeof limit === 'number' ? (
             <div>
               {t('contextIndicator.summary.withLimit', {

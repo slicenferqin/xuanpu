@@ -128,7 +128,7 @@ describe('CodexFastToggle', () => {
       'utf8'
     )
 
-    const modelIndex = source.indexOf('<ModelSelector sessionId={sessionId} />')
+    const modelIndex = source.indexOf('<ModelSelector sessionId={sessionId}')
     const fastIndex = source.indexOf('<CodexFastToggle')
     const attachmentIndex = source.indexOf('<AttachmentButton onAttach={handleAttach} />')
 

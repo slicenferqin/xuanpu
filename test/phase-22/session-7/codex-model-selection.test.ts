@@ -21,6 +21,11 @@ vi.mock('node:child_process', async (importOriginal) => {
   }
 })
 
+vi.mock('../../../src/main/services/codex-config', () => ({
+  getCodexConfiguredModel: vi.fn(() => undefined),
+  getCodexConfiguredContextWindow: vi.fn(() => undefined)
+}))
+
 import {
   normalizeCodexModelSlug,
   resolveCodexModelSlug,
@@ -219,7 +224,7 @@ describe('Codex Model Selection', () => {
       expect(info).not.toBeNull()
       expect(info!.id).toBe('gpt-5.4')
       expect(info!.name).toBe('GPT-5.4')
-      expect(info!.limit.context).toBe(200000)
+      expect(info!.limit.context).toBe(258400)
     })
 
     it('getModelInfo resolves aliases', async () => {

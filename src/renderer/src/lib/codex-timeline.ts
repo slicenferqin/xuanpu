@@ -128,6 +128,40 @@ function getOrderedActivityTurnIds(activityRows: SessionActivity[]): string[] {
   ]
 }
 
+function extractTurnIdFromMessage(message: OpenCodeMessage): string | null {
+  if (message.role === 'assistant') return extractAssistantTurnId(message.id)
+  if (message.role === 'user') return extractUserTurnId(message.id)
+  return null
+}
+
+function inferToolActivityTurnId(
+  activity: SessionActivity,
+  messages: OpenCodeMessage[]
+): string | null {
+  if (!activity.kind.startsWith('tool.')) return null
+
+  const activityTime = Date.parse(activity.created_at)
+  if (!Number.isFinite(activityTime)) return null
+
+  let currentTurnId: string | null = null
+  for (const message of messages) {
+    const messageTime = Date.parse(message.timestamp)
+    if (!Number.isFinite(messageTime)) continue
+
+    if (message.role === 'user') {
+      if (messageTime > activityTime) break
+      currentTurnId = extractUserTurnId(message.id) ?? currentTurnId
+      continue
+    }
+
+    if (!currentTurnId && messageTime <= activityTime) {
+      currentTurnId = extractTurnIdFromMessage(message)
+    }
+  }
+
+  return currentTurnId
+}
+
 function normalizeCodexMessageRows(
   messages: SessionMessage[],
   activityRows: SessionActivity[]
@@ -381,7 +415,7 @@ export function mergeCodexActivityMessages(
       continue
     }
 
-    const turnId = activity.turn_id
+    const turnId = activity.turn_id ?? inferToolActivityTurnId(activity, normalizedBaseMessages)
     const syntheticId = turnId ? `${turnId}:tool:${toolId}` : `tool:${toolId}`
     const targetCollection = turnId
       ? (anchoredSyntheticByTurnId.get(turnId) ?? [])
@@ -407,6 +441,35 @@ export function mergeCodexActivityMessages(
   const injectedTurns = new Set<string>()
   const orderedMessages: OpenCodeMessage[] = []
 
+  function buildTurnBatch(turnId: string): OpenCodeMessage[] {
+    const synthetics = anchoredSyntheticByTurnId.get(turnId) ?? []
+    const reals = mergedMessages.filter(
+      (message) => message.role === 'assistant' && extractAssistantTurnId(message.id) === turnId
+    )
+    if (synthetics.length === 0) return reals
+
+    const tagged: Array<{ message: OpenCodeMessage; ts: number; isSynthetic: boolean }> = [
+      ...reals.map((message) => ({
+        message,
+        ts: Date.parse(message.timestamp) || 0,
+        isSynthetic: false
+      })),
+      ...synthetics.map((message) => ({
+        message,
+        ts: Date.parse(message.timestamp) || 0,
+        isSynthetic: true
+      }))
+    ]
+
+    tagged.sort((left, right) => {
+      if (left.ts !== right.ts) return left.ts - right.ts
+      if (left.isSynthetic !== right.isSynthetic) return left.isSynthetic ? 1 : -1
+      return 0
+    })
+
+    return tagged.map((entry) => entry.message)
+  }
+
   mergedMessages.forEach((message, index) => {
     const turnId =
       message.role === 'assistant'
@@ -419,8 +482,13 @@ export function mergeCodexActivityMessages(
       firstAssistantIndexByTurnId.get(turnId) === index &&
       !injectedTurns.has(turnId)
     ) {
-      orderedMessages.push(...(anchoredSyntheticByTurnId.get(turnId) ?? []))
+      orderedMessages.push(...buildTurnBatch(turnId))
       injectedTurns.add(turnId)
+      return
+    }
+
+    if (turnId && message.role === 'assistant' && injectedTurns.has(turnId)) {
+      return
     }
 
     orderedMessages.push(message)

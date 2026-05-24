@@ -1,5 +1,5 @@
 const FIELD_CONTEXT_HEADER_RE =
-  /^\s*\[Field Context(?:\s+[^\]\r\n]*|[\u2013\u2014-][^\]\r\n]*)?\][ \t]*(?:\r?\n|$)/
+  /^\s*\[(?:Field Context|Xuanpu Field Fallback)(?:\s+[^\]\r\n]*|[\u2013\u2014-][^\]\r\n]*)?\][ \t]*(?:\r?\n|$)/
 
 const USER_MESSAGE_MARKER_RE = /(?:^|\r?\n)[ \t]*\[User Message\][ \t]*(?:\r?\n|$)/
 

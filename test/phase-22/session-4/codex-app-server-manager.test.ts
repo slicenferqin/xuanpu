@@ -1,8 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { EventEmitter } from 'node:events'
-import { spawn } from 'node:child_process'
 import { PassThrough } from 'node:stream'
+
+const mockSpawnLaunchSpec = vi.hoisted(() => vi.fn())
 
 // Mock logger
 vi.mock('../../../src/main/services/logger', () => ({
@@ -23,6 +24,10 @@ vi.mock('node:child_process', async (importOriginal) => {
     spawnSync: vi.fn()
   }
 })
+
+vi.mock('../../../src/main/services/command-launch-utils', () => ({
+  spawnLaunchSpec: mockSpawnLaunchSpec
+}))
 
 vi.mock('node:readline', () => {
   const createInterface = vi.fn(() => ({
@@ -547,6 +552,21 @@ describe('CodexAppServerManager', () => {
       expect(context.session.status).toBe('error')
     })
 
+    it('updates session status on thread/status/changed idle notification', () => {
+      const { context } = createTestContext({ status: 'running', activeTurnId: 'turn-1' })
+
+      manager.handleStdoutLine(
+        context,
+        JSON.stringify({
+          method: 'thread/status/changed',
+          params: { status: { type: 'idle' } }
+        })
+      )
+
+      expect(context.session.status).toBe('ready')
+      expect(context.session.activeTurnId).toBeNull()
+    })
+
     it('extracts route fields from notification params', () => {
       const { context } = createTestContext()
       const events: any[] = []
@@ -561,6 +581,23 @@ describe('CodexAppServerManager', () => {
       )
 
       expect(events[0].turnId).toBe('turn-42')
+      expect(events[0].itemId).toBe('item-7')
+    })
+
+    it('falls back to activeTurnId for item notifications without route fields', () => {
+      const { context } = createTestContext({ status: 'running', activeTurnId: 'turn-active-1' })
+      const events: any[] = []
+      manager.on('event', (event) => events.push(event))
+
+      manager.handleStdoutLine(
+        context,
+        JSON.stringify({
+          method: 'item/started',
+          params: { item: { id: 'item-7', type: 'commandExecution' } }
+        })
+      )
+
+      expect(events[0].turnId).toBe('turn-active-1')
       expect(events[0].itemId).toBe('item-7')
     })
 
@@ -602,7 +639,7 @@ describe('CodexAppServerManager', () => {
       child.kill = vi.fn(() => {
         child.killed = true
       })
-      vi.mocked(spawn).mockReturnValue(child)
+      mockSpawnLaunchSpec.mockReturnValue(child)
 
       const sendRequestSpy = vi
         .spyOn(manager, 'sendRequest')
@@ -639,7 +676,7 @@ describe('CodexAppServerManager', () => {
       child.kill = vi.fn(() => {
         child.killed = true
       })
-      vi.mocked(spawn).mockReturnValue(child)
+      mockSpawnLaunchSpec.mockReturnValue(child)
 
       const sendRequestSpy = vi
         .spyOn(manager, 'sendRequest')

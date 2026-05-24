@@ -237,7 +237,7 @@ interface InFlightToolDraft {
   blockIdx: number
   inputJson: string
   input?: unknown
-  status: 'pending' | 'running' | 'success' | 'error'
+  status: 'pending' | 'running' | 'success' | 'error' | 'rejected'
   startTime: number
   endTime?: number
 }

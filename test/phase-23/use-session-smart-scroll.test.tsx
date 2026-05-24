@@ -58,6 +58,7 @@ interface HarnessProps {
   contentVersion: number
   ready: boolean
   isStreaming?: boolean
+  clearScreenActive?: boolean
 }
 
 function SmartScrollHarness({
@@ -65,7 +66,8 @@ function SmartScrollHarness({
   mirrorVersion,
   contentVersion,
   ready,
-  isStreaming = true
+  isStreaming = true,
+  clearScreenActive = false
 }: HarnessProps): React.JSX.Element {
   const bottomAreaRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLDivElement>(null)
@@ -76,7 +78,8 @@ function SmartScrollHarness({
     mirrorVersion,
     isStreaming,
     bottomAreaRef,
-    composerRef
+    composerRef,
+    clearScreenActive
   })
 
   return (
@@ -97,20 +100,28 @@ function SmartScrollHarness({
       <button onClick={smartScroll.handleScrollToBottomClick} data-testid="smart-scroll-fab-button">
         Jump
       </button>
-      <div data-testid="smart-scroll-fab-visible">
-        {smartScroll.showScrollFab ? 'yes' : 'no'}
-      </div>
+      <button
+        onClick={() => smartScroll.scrollToOffset(320, 'instant')}
+        data-testid="smart-scroll-offset-button"
+      >
+        Offset
+      </button>
+      <div data-testid="smart-scroll-fab-visible">{smartScroll.showScrollFab ? 'yes' : 'no'}</div>
       <div data-testid="smart-scroll-fab-count">{smartScroll.scrollFabCount}</div>
       <div data-testid="smart-scroll-fab-offset">{smartScroll.scrollFabBottomOffset}</div>
+      <div data-testid="smart-scroll-clear-inset">{smartScroll.clearScreenBottomInset}</div>
     </div>
   )
 }
 
-function attachScrollMetrics(element: HTMLElement, values: {
-  scrollTop: { current: number }
-  scrollHeight: { current: number }
-  clientHeight: number
-}) {
+function attachScrollMetrics(
+  element: HTMLElement,
+  values: {
+    scrollTop: { current: number }
+    scrollHeight: { current: number }
+    clientHeight: number
+  }
+) {
   Object.defineProperty(element, 'scrollTop', {
     configurable: true,
     get: () => values.scrollTop.current,
@@ -193,12 +204,7 @@ describe('useSessionSmartScroll', () => {
     attachScrollMetrics(scroller, { scrollTop, scrollHeight, clientHeight: 400 })
 
     rerender(
-      <SmartScrollHarness
-        sessionId="session-a"
-        mirrorVersion={2}
-        contentVersion={1}
-        ready={true}
-      />
+      <SmartScrollHarness sessionId="session-a" mirrorVersion={2} contentVersion={1} ready={true} />
     )
 
     expect(scrollTop.current).toBe(240)
@@ -232,15 +238,10 @@ describe('useSessionSmartScroll', () => {
     attachScrollMetrics(scroller, { scrollTop, scrollHeight, clientHeight: 400 })
 
     rerender(
-      <SmartScrollHarness
-        sessionId="session-a"
-        mirrorVersion={4}
-        contentVersion={1}
-        ready={true}
-      />
+      <SmartScrollHarness sessionId="session-a" mirrorVersion={4} contentVersion={1} ready={true} />
     )
 
-    expect(scrollTop.current).toBe(1200)
+    expect(scrollTop.current).toBe(800)
     expect(getSessionViewState('session-a')).toMatchObject({
       stickyBottom: true,
       manualScrollLocked: false,
@@ -265,12 +266,7 @@ describe('useSessionSmartScroll', () => {
     attachScrollMetrics(scroller, { scrollTop, scrollHeight, clientHeight: 400 })
 
     rerender(
-      <SmartScrollHarness
-        sessionId="session-a"
-        mirrorVersion={1}
-        contentVersion={1}
-        ready={true}
-      />
+      <SmartScrollHarness sessionId="session-a" mirrorVersion={1} contentVersion={1} ready={true} />
     )
 
     scrollTop.current = 200
@@ -278,12 +274,7 @@ describe('useSessionSmartScroll', () => {
     fireEvent.scroll(scroller)
 
     rerender(
-      <SmartScrollHarness
-        sessionId="session-a"
-        mirrorVersion={4}
-        contentVersion={2}
-        ready={true}
-      />
+      <SmartScrollHarness sessionId="session-a" mirrorVersion={4} contentVersion={2} ready={true} />
     )
 
     expect(screen.getByTestId('smart-scroll-fab-visible')).toHaveTextContent('yes')
@@ -296,7 +287,7 @@ describe('useSessionSmartScroll', () => {
 
     fireEvent.click(screen.getByTestId('smart-scroll-fab-button'))
 
-    expect(scrollTop.current).toBe(1200)
+    expect(scrollTop.current).toBe(800)
     expect(screen.getByTestId('smart-scroll-fab-visible')).toHaveTextContent('no')
     expect(getSessionViewState('session-a')).toMatchObject({
       stickyBottom: true,
@@ -325,11 +316,52 @@ describe('useSessionSmartScroll', () => {
     attachHeight(composer, 80)
 
     rerender(
+      <SmartScrollHarness sessionId="session-a" mirrorVersion={2} contentVersion={1} ready={true} />
+    )
+
+    scrollHeight.current = 1440
+    act(() => {
+      getObserverFor(composer).trigger(120)
+    })
+
+    expect(scrollTop.current).toBe(1040)
+    expect(
+      Number(screen.getByTestId('smart-scroll-fab-offset').textContent)
+    ).toBeGreaterThanOrEqual(152)
+  })
+
+  it('does not auto-scroll bottom-area resize while clear-screen top lock is active', () => {
+    setSessionViewState('session-a', {
+      scrollTop: 320,
+      stickyBottom: false,
+      manualScrollLocked: false,
+      lastSeenVersion: 2
+    })
+
+    const { rerender } = render(
+      <SmartScrollHarness
+        sessionId="session-a"
+        mirrorVersion={2}
+        contentVersion={1}
+        ready={false}
+        clearScreenActive
+      />
+    )
+
+    const scroller = screen.getByTestId('smart-scroll-scroller')
+    const composer = screen.getByTestId('smart-scroll-composer')
+    const scrollTop = { current: 320 }
+    const scrollHeight = { current: 1200 }
+    attachScrollMetrics(scroller, { scrollTop, scrollHeight, clientHeight: 400 })
+    attachHeight(composer, 80)
+
+    rerender(
       <SmartScrollHarness
         sessionId="session-a"
         mirrorVersion={2}
         contentVersion={1}
         ready={true}
+        clearScreenActive
       />
     )
 
@@ -338,18 +370,89 @@ describe('useSessionSmartScroll', () => {
       getObserverFor(composer).trigger(120)
     })
 
-    expect(scrollTop.current).toBe(1440)
-    expect(Number(screen.getByTestId('smart-scroll-fab-offset').textContent)).toBeGreaterThanOrEqual(152)
+    expect(scrollTop.current).toBe(320)
+  })
+
+  it('scrolls to a programmatic turn-top offset without re-enabling sticky bottom', () => {
+    const { rerender } = render(
+      <SmartScrollHarness
+        sessionId="session-a"
+        mirrorVersion={5}
+        contentVersion={1}
+        ready={false}
+        clearScreenActive
+      />
+    )
+
+    const scroller = screen.getByTestId('smart-scroll-scroller')
+    const scrollTop = { current: 0 }
+    const scrollHeight = { current: 1600 }
+    attachScrollMetrics(scroller, { scrollTop, scrollHeight, clientHeight: 500 })
+
+    rerender(
+      <SmartScrollHarness
+        sessionId="session-a"
+        mirrorVersion={5}
+        contentVersion={1}
+        ready={true}
+        clearScreenActive
+      />
+    )
+
+    fireEvent.click(screen.getByTestId('smart-scroll-offset-button'))
+
+    expect(scrollTop.current).toBe(320)
+    expect(getSessionViewState('session-a')).toMatchObject({
+      scrollTop: 320,
+      stickyBottom: false,
+      manualScrollLocked: false,
+      lastSeenVersion: 5
+    })
+  })
+
+  it('ignores the clear-screen spacer when jumping to the real content bottom', () => {
+    const { rerender } = render(
+      <SmartScrollHarness
+        sessionId="session-a"
+        mirrorVersion={5}
+        contentVersion={1}
+        ready={false}
+        clearScreenActive
+      />
+    )
+
+    const scroller = screen.getByTestId('smart-scroll-scroller')
+    const scrollTop = { current: 0 }
+    const scrollHeight = { current: 1600 }
+    attachScrollMetrics(scroller, { scrollTop, scrollHeight, clientHeight: 500 })
+
+    rerender(
+      <SmartScrollHarness
+        sessionId="session-a"
+        mirrorVersion={5}
+        contentVersion={1}
+        ready={true}
+        clearScreenActive
+      />
+    )
+
+    const clearInset = Number(screen.getByTestId('smart-scroll-clear-inset').textContent)
+    fireEvent.click(screen.getByTestId('smart-scroll-fab-button'))
+
+    expect(clearInset).toBeGreaterThan(0)
+    expect(scrollTop.current).toBe(1600 - 500 - clearInset)
+    expect(getSessionViewState('session-a')).toMatchObject({
+      stickyBottom: true,
+      manualScrollLocked: false,
+      lastSeenVersion: 5
+    })
   })
 
   it('keeps the v1 smart-scroll guard structure in the shared hook source', async () => {
     const fs = await import('fs')
     const path = await import('path')
     const source = fs.readFileSync(
-      path.resolve(
-        __dirname,
-        '../../src/renderer/src/hooks/useSessionSmartScroll.ts'
-      ),
+      path.resolve(__dirname, '../../src/renderer/src/hooks/useSessionSmartScroll.ts'),
       'utf-8'
     )
 
@@ -358,5 +461,6 @@ describe('useSessionSmartScroll', () => {
     expect(source).toContain('pointerDownInScrollerRef')
     expect(source).toContain("scrollToBottom('instant')")
     expect(source).toContain('BOTTOM_AREA_COMPENSATE_THRESHOLD')
+    expect(source).toContain('clearScreenBottomInset')
   })
 })

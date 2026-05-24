@@ -804,15 +804,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       threadId: context.session.threadId,
       ...(targetTurnId ? { turnId: targetTurnId } : {})
     })
-
-    this.updateSession(context, {
-      status: 'ready',
-      activeTurnId: null
-    })
-
-    this.emitLifecycleEvent(context, 'turn/interrupted', 'Turn interrupted', {
-      turnId: targetTurnId ?? undefined
-    })
   }
 
   async readThread(threadId: string): Promise<unknown> {
@@ -1001,6 +992,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     const route = this.readRouteFields(notification.params)
+    const effectiveTurnId = route.turnId ?? context.session.activeTurnId ?? undefined
 
     // Extract textDelta for streaming text notifications (matches t3code pattern)
     const textDelta =
@@ -1012,10 +1004,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       id: randomUUID(),
       kind: 'notification',
       provider: 'codex',
-      threadId: context.session.threadId ?? '',
+      threadId: context.session.threadId ?? route.threadId ?? '',
       createdAt: new Date().toISOString(),
       method: notification.method,
-      turnId: route.turnId,
+      turnId: effectiveTurnId,
       itemId: route.itemId,
       textDelta,
       payload: notification.params
@@ -1041,10 +1033,40 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       })
       return
     }
+
+    if (notification.method === 'thread/status/changed') {
+      const params = asObject(notification.params)
+      const statusObj = asObject(params?.status) ?? params
+      const statusType = asString(statusObj?.type)
+
+      if (statusType === 'active' || statusType === 'running' || statusType === 'busy') {
+        this.updateSession(context, {
+          status: 'running',
+          ...(route.turnId ? { activeTurnId: route.turnId } : {})
+        })
+        return
+      }
+
+      if (statusType === 'idle') {
+        this.updateSession(context, {
+          status: 'ready',
+          activeTurnId: null
+        })
+        return
+      }
+
+      if (statusType === 'error') {
+        this.updateSession(context, {
+          status: 'error',
+          activeTurnId: null
+        })
+      }
+    }
   }
 
   private handleServerRequest(context: CodexSessionContext, request: JsonRpcRequest): void {
     const route = this.readRouteFields(request.params)
+    const effectiveTurnId = route.turnId ?? context.session.activeTurnId ?? undefined
     const requestId = randomUUID()
 
     // Track approval requests
@@ -1057,9 +1079,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         requestId,
         jsonRpcId: request.id,
         method: request.method,
-        threadId: context.session.threadId ?? '',
+        threadId: context.session.threadId ?? route.threadId ?? '',
         payload: request.params,
-        ...(route.turnId ? { turnId: route.turnId } : {}),
+        ...(effectiveTurnId ? { turnId: effectiveTurnId } : {}),
         ...(route.itemId ? { itemId: route.itemId } : {})
       })
     }
@@ -1069,8 +1091,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       context.pendingUserInputs.set(requestId, {
         requestId,
         jsonRpcId: request.id,
-        threadId: context.session.threadId ?? '',
-        ...(route.turnId ? { turnId: route.turnId } : {}),
+        threadId: context.session.threadId ?? route.threadId ?? '',
+        ...(effectiveTurnId ? { turnId: effectiveTurnId } : {}),
         ...(route.itemId ? { itemId: route.itemId } : {})
       })
     }
@@ -1079,10 +1101,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       id: randomUUID(),
       kind: 'request',
       provider: 'codex',
-      threadId: context.session.threadId ?? '',
+      threadId: context.session.threadId ?? route.threadId ?? '',
       createdAt: new Date().toISOString(),
       method: request.method,
-      turnId: route.turnId,
+      turnId: effectiveTurnId,
       itemId: route.itemId,
       requestId,
       payload: request.params
@@ -1204,6 +1226,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   // ── Protocol helpers ──────────────────────────────────────────
 
   private readRouteFields(params: unknown): {
+    threadId?: string
     turnId?: string
     itemId?: string
   } {
@@ -1213,10 +1236,18 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const turnObj = asObject(paramsObj.turn)
     const itemObj = asObject(paramsObj.item)
 
-    const turnId = asString(paramsObj.turnId) ?? asString(turnObj?.id)
-    const itemId = asString(paramsObj.itemId) ?? asString(itemObj?.id)
+    const threadId = asString(paramsObj.threadId) ?? asString(paramsObj.thread_id)
+    const turnId =
+      asString(paramsObj.turnId) ??
+      asString(paramsObj.turn_id) ??
+      asString(turnObj?.id) ??
+      asString(itemObj?.turnId) ??
+      asString(itemObj?.turn_id)
+    const itemId =
+      asString(paramsObj.itemId) ?? asString(paramsObj.item_id) ?? asString(itemObj?.id)
 
     return {
+      ...(threadId ? { threadId } : {}),
       ...(turnId ? { turnId } : {}),
       ...(itemId ? { itemId } : {})
     }

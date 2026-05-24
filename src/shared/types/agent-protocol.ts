@@ -29,6 +29,12 @@ export interface AgentSessionContextUsageData {
     output: number
     reasoning?: number
   }
+  /** Incremental session cost in USD for this usage event. */
+  cost?: number
+  /** Authoritative cumulative session cost in USD when the provider reports total usage. */
+  totalCost?: number
+  /** Stable id used by the renderer to avoid applying the same cost twice. */
+  requestId?: string
   model?: {
     providerID: string
     modelID: string

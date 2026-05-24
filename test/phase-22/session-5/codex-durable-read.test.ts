@@ -10,7 +10,9 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
+  deriveCodexTimeline,
   parseToolPartFromActivity,
+  type DbSessionMessage,
   type DbSessionActivity
 } from '../../../src/shared/lib/timeline-mappers'
 
@@ -40,9 +42,7 @@ describe('timeline-mappers › codex durable read path', () => {
           type: 'commandExecution',
           id: 'item-1',
           command: 'cat README.md',
-          commandActions: [
-            { type: 'read', name: 'README.md', path: '/abs/README.md' }
-          ],
+          commandActions: [{ type: 'read', name: 'README.md', path: '/abs/README.md' }],
           status: 'completed',
           aggregatedOutput: '# Title\nbody\n',
           exitCode: 0
@@ -180,5 +180,81 @@ describe('timeline-mappers › codex durable read path', () => {
     const part = parseToolPartFromActivity(a)
     expect(part!.toolUse?.status).toBe('error')
     expect(part!.toolUse?.error).toContain('permission denied')
+  })
+
+  it('anchors unscoped Codex tool activities to the surrounding turn by time', () => {
+    const messages: DbSessionMessage[] = [
+      {
+        id: 'db-user-1',
+        session_id: 's-1',
+        role: 'user',
+        content: 'First prompt',
+        opencode_message_id: 'turn-1:user',
+        opencode_message_json: null,
+        opencode_parts_json: JSON.stringify([{ type: 'text', text: 'First prompt' }]),
+        opencode_timeline_json: null,
+        created_at: '2026-05-23T08:00:00.000Z'
+      },
+      {
+        id: 'db-assistant-1',
+        session_id: 's-1',
+        role: 'assistant',
+        content: 'First answer',
+        opencode_message_id: 'turn-1:assistant',
+        opencode_message_json: null,
+        opencode_parts_json: JSON.stringify([{ type: 'text', text: 'First answer' }]),
+        opencode_timeline_json: null,
+        created_at: '2026-05-23T08:00:05.000Z'
+      },
+      {
+        id: 'db-user-2',
+        session_id: 's-1',
+        role: 'user',
+        content: 'Second prompt',
+        opencode_message_id: 'turn-2:user',
+        opencode_message_json: null,
+        opencode_parts_json: JSON.stringify([{ type: 'text', text: 'Second prompt' }]),
+        opencode_timeline_json: null,
+        created_at: '2026-05-23T08:01:00.000Z'
+      },
+      {
+        id: 'db-assistant-2',
+        session_id: 's-1',
+        role: 'assistant',
+        content: 'Second answer',
+        opencode_message_id: 'turn-2:assistant',
+        opencode_message_json: null,
+        opencode_parts_json: JSON.stringify([{ type: 'text', text: 'Second answer' }]),
+        opencode_timeline_json: null,
+        created_at: '2026-05-23T08:01:08.000Z'
+      }
+    ]
+
+    const timeline = deriveCodexTimeline(messages, [
+      activity({
+        id: 'tool-unscoped',
+        turn_id: null,
+        item_id: 'tool-1',
+        created_at: '2026-05-23T08:01:03.000Z',
+        payload_json: JSON.stringify({
+          item: {
+            type: 'commandExecution',
+            id: 'tool-1',
+            command: 'pnpm test',
+            commandActions: [],
+            status: 'completed',
+            aggregatedOutput: 'ok'
+          }
+        })
+      })
+    ])
+
+    expect(timeline.map((message) => message.id)).toEqual([
+      'turn-1:user',
+      'turn-1:assistant',
+      'turn-2:user',
+      'turn-2:tool:tool-1',
+      'turn-2:assistant'
+    ])
   })
 })

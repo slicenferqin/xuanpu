@@ -10,7 +10,7 @@
  *   streamingContent (live)    → inline streaming text at bottom
  */
 
-import React, { useMemo } from 'react'
+import React, { useEffect, useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import { formatMessageTime } from '@/lib/format-time'
 import type { TimelineMessage, StreamingPart, ToolUseInfo } from '@shared/lib/timeline-types'
@@ -37,6 +37,8 @@ import { ThreadStatusRow, type ThreadStatusRowData } from './ThreadStatusRow'
 import { SystemNotificationBar } from '../sessions/SystemNotificationBar'
 import { extractTaskNotifications, stripTaskNotifications } from '@/lib/content-sanitizer'
 import { getMessageDisplayContent } from '@/lib/message-actions'
+import type { SessionTask } from '@/lib/session-tasks'
+import { useQuestionStore, type QuestionRequest } from '@/stores/useQuestionStore'
 
 import {
   Terminal,
@@ -52,6 +54,11 @@ import {
   User,
   Loader2
 } from 'lucide-react'
+
+// Stable module-level empty array so the useQuestionStore selector never
+// returns a fresh reference (which would force every TimelineNodeView to
+// re-render on every store mutation).
+const EMPTY_QUESTIONS: readonly QuestionRequest[] = Object.freeze([])
 
 // ---------------------------------------------------------------------------
 // Card type derivation
@@ -109,6 +116,52 @@ interface TimelineNode {
   attachments?: MessagePart[]
   /** True for the last node produced from a single TimelineMessage */
   isLastInMessage?: boolean
+}
+
+interface TimelineRound {
+  id: string
+  anchorId: string
+  preview: string
+  userNode: TimelineNode
+  nodes: TimelineNode[]
+}
+
+function buildRoundPreview(node: TimelineNode): string {
+  const displayText = getMessageDisplayContent(node.textContent ?? '')
+  const compact = displayText.replace(/\s+/g, ' ').trim()
+  return compact.length > 0 ? compact.slice(0, 24) : '未命名提问'
+}
+
+function groupNodesIntoRounds(nodes: TimelineNode[]): {
+  preludeNodes: TimelineNode[]
+  rounds: TimelineRound[]
+} {
+  const preludeNodes: TimelineNode[] = []
+  const rounds: TimelineRound[] = []
+  let currentRound: TimelineRound | null = null
+
+  for (const node of nodes) {
+    if (node.cardType === 'user-message') {
+      const preview = buildRoundPreview(node)
+      currentRound = {
+        id: node.message.id,
+        anchorId: `round-${node.message.id}`,
+        preview,
+        userNode: node,
+        nodes: [node]
+      }
+      rounds.push(currentRound)
+      continue
+    }
+
+    if (currentRound) {
+      currentRound.nodes.push(node)
+    } else {
+      preludeNodes.push(node)
+    }
+  }
+
+  return { preludeNodes, rounds }
 }
 
 /**
@@ -430,6 +483,16 @@ function TimelineNodeView({
 }): React.JSX.Element | null {
   const { t } = useI18n()
 
+  // Bug 2 cross-validation: subscribe to the question store so an ask-user
+  // card stays in 'pending' state whenever the runtime still believes the
+  // question is unanswered, even if `toolUse.status` has been advanced to
+  // 'success' (e.g. by Codex emitting a tool-completed event after the user
+  // switched sessions). Without this, switching back to the session shows the
+  // card as "Answered" while the composer is still blocked waiting for input.
+  const pendingQuestions = useQuestionStore((s) =>
+    sessionId ? (s.pendingBySession.get(sessionId) ?? EMPTY_QUESTIONS) : EMPTY_QUESTIONS
+  )
+
   switch (node.cardType) {
     case 'user-message': {
       type FilePart = Extract<MessagePart, { type: 'file' }>
@@ -445,131 +508,136 @@ function TimelineNodeView({
       const timestampLabel = node.message.timestamp ? formatMessageTime(node.message.timestamp) : ''
 
       return (
-        <div className="group/user-message">
-          <div className="crisp-subtle-shadow rounded-xl border border-tech-blue/15 bg-tech-blue-soft/70 px-3.5 py-2.5">
-            {node.message.steered === true && (
-              <div className="mb-2">
-                <span className="inline-flex items-center rounded-md bg-neon-violet-soft px-2 py-0.5 text-[10px] font-semibold text-neon-violet">
-                  {t('sessionHq.timeline.steered')}
-                </span>
-              </div>
-            )}
-            {node.message.deliveryStatus === 'queued' && (
-              <div className="mb-2">
-                <span className="inline-flex items-center rounded-md bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
-                  {t('queuedMessageBubble.badge')}
-                </span>
-              </div>
-            )}
-            {images.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {images.map((img, i) => (
-                  <img
-                    key={i}
-                    src={img.url}
-                    alt={img.filename ?? 'attachment'}
-                    className="max-h-48 max-w-[280px] rounded-lg border border-border/50 object-contain"
-                  />
-                ))}
-              </div>
-            )}
-            {files.length > 0 && (
-              <div className={cn('flex flex-wrap gap-2', images.length > 0 && 'mt-2')}>
-                {files.map((f, i) => (
-                  <div
-                    key={i}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-background/50 px-2.5 py-1.5 text-xs text-muted-foreground"
-                  >
-                    <FileText className="h-3.5 w-3.5 shrink-0" />
-                    {f.filename ?? 'file'}
-                  </div>
-                ))}
-              </div>
-            )}
-            {isEditing ? (
-              <div className={cn((images.length > 0 || files.length > 0) && 'mt-2')}>
-                <textarea
-                  value={editingContent ?? ''}
-                  onChange={(e) => onEditingContentChange?.(e.target.value)}
-                  className="min-h-[96px] w-full resize-y rounded-lg border border-border/70 bg-background/55 px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/20"
-                  autoFocus
-                  data-testid="timeline-user-edit-textarea"
-                />
-                <div className="mt-2 flex justify-end gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onCancelUserMessageEdit?.()}
-                  >
-                    {t('editMessageButton.cancel')}
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={!editingContent?.trim()}
-                    onClick={() => {
-                      void onSaveUserMessageEdit?.(node.message.id)
-                    }}
-                  >
-                    {t('editMessageButton.save')}
-                  </Button>
+        <div className="group/user-message flex justify-end">
+          <div className="max-w-[82%]">
+            <div
+              className="rounded-2xl border border-primary/20 bg-primary/10 px-4 py-3 text-foreground shadow-sm transition-colors hover:border-primary/30 hover:bg-primary/14"
+              data-testid={`timeline-user-bubble-${node.message.id}`}
+            >
+              {node.message.steered === true && (
+                <div className="mb-2">
+                  <span className="inline-flex items-center rounded-md bg-neon-violet-soft px-2 py-0.5 text-[10px] font-semibold text-neon-violet">
+                    {t('sessionHq.timeline.steered')}
+                  </span>
                 </div>
-              </div>
-            ) : displayText ? (
-              <div
-                className={cn(
-                  'crisp-readable text-sm text-foreground whitespace-pre-wrap break-words',
-                  (images.length > 0 || files.length > 0) && 'mt-2'
-                )}
-              >
-                {displayText}
-              </div>
-            ) : null}
-          </div>
-          <div
-            className="mt-1.5 flex items-center justify-end gap-1.5 text-xs text-muted-foreground"
-            data-testid={`timeline-user-actions-${node.message.id}`}
-          >
-            {timestampLabel && (
-              <span data-testid={`timeline-user-timestamp-${node.message.id}`}>
-                {timestampLabel}
-              </span>
-            )}
-            {!isEditing && (
-              <>
-                <CopyMessageButton
-                  content={displayText}
-                  className="h-7 w-7 rounded-full bg-transparent opacity-0 group-hover/user-message:opacity-100"
-                  showOnHoverClassName=""
-                  unstyled
-                  onCopy={() => onCopyUserMessage?.(node.message)}
-                />
-                {canEdit && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 w-7 rounded-full p-0 opacity-0 transition-opacity group-hover/user-message:opacity-100"
-                    aria-label={t('editMessageButton.ariaLabel')}
-                    data-testid="edit-message-button"
-                    onClick={() => onEditUserMessage?.(node.message)}
-                  >
-                    <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-                  </Button>
-                )}
-                {onForkUserMessage && (
-                  <ForkMessageButton
-                    onFork={() => onForkUserMessage(node.message)}
-                    isForking={forkingMessageId === node.message.id}
-                    disabled={forkingMessageId !== null && forkingMessageId !== node.message.id}
+              )}
+              {node.message.deliveryStatus === 'queued' && (
+                <div className="mb-2">
+                  <span className="inline-flex items-center rounded-md bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                    {t('queuedMessageBubble.badge')}
+                  </span>
+                </div>
+              )}
+              {images.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {images.map((img, i) => (
+                    <img
+                      key={i}
+                      src={img.url}
+                      alt={img.filename ?? 'attachment'}
+                      className="max-h-48 max-w-[280px] rounded-lg border border-border/50 object-contain"
+                    />
+                  ))}
+                </div>
+              )}
+              {files.length > 0 && (
+                <div className={cn('flex flex-wrap gap-2', images.length > 0 && 'mt-2')}>
+                  {files.map((f, i) => (
+                    <div
+                      key={i}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-background/50 px-2.5 py-1.5 text-xs text-muted-foreground"
+                    >
+                      <FileText className="h-3.5 w-3.5 shrink-0" />
+                      {f.filename ?? 'file'}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {isEditing ? (
+                <div className={cn((images.length > 0 || files.length > 0) && 'mt-2')}>
+                  <textarea
+                    value={editingContent ?? ''}
+                    onChange={(e) => onEditingContentChange?.(e.target.value)}
+                    className="min-h-[96px] w-full resize-y rounded-lg border border-border/70 bg-background/55 px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/20"
+                    autoFocus
+                    data-testid="timeline-user-edit-textarea"
+                  />
+                  <div className="mt-2 flex justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onCancelUserMessageEdit?.()}
+                    >
+                      {t('editMessageButton.cancel')}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={!editingContent?.trim()}
+                      onClick={() => {
+                        void onSaveUserMessageEdit?.(node.message.id)
+                      }}
+                    >
+                      {t('editMessageButton.save')}
+                    </Button>
+                  </div>
+                </div>
+              ) : displayText ? (
+                <div
+                  className={cn(
+                    'crisp-readable text-sm text-foreground whitespace-pre-wrap break-words',
+                    (images.length > 0 || files.length > 0) && 'mt-2'
+                  )}
+                >
+                  {displayText}
+                </div>
+              ) : null}
+            </div>
+            <div
+              className="mt-1.5 flex items-center justify-end gap-1.5 text-xs text-muted-foreground"
+              data-testid={`timeline-user-actions-${node.message.id}`}
+            >
+              {timestampLabel && (
+                <span data-testid={`timeline-user-timestamp-${node.message.id}`}>
+                  {timestampLabel}
+                </span>
+              )}
+              {!isEditing && (
+                <>
+                  <CopyMessageButton
+                    content={displayText}
                     className="h-7 w-7 rounded-full bg-transparent opacity-0 group-hover/user-message:opacity-100"
                     showOnHoverClassName=""
                     unstyled
+                    onCopy={() => onCopyUserMessage?.(node.message)}
                   />
-                )}
-              </>
-            )}
+                  {canEdit && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 rounded-full p-0 opacity-0 transition-opacity group-hover/user-message:opacity-100"
+                      aria-label={t('editMessageButton.ariaLabel')}
+                      data-testid="edit-message-button"
+                      onClick={() => onEditUserMessage?.(node.message)}
+                    >
+                      <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                    </Button>
+                  )}
+                  {onForkUserMessage && (
+                    <ForkMessageButton
+                      onFork={() => onForkUserMessage(node.message)}
+                      isForking={forkingMessageId === node.message.id}
+                      disabled={forkingMessageId !== null && forkingMessageId !== node.message.id}
+                      className="h-7 w-7 rounded-full bg-transparent opacity-0 group-hover/user-message:opacity-100"
+                      showOnHoverClassName=""
+                      unstyled
+                    />
+                  )}
+                </>
+              )}
+            </div>
           </div>
         </div>
       )
@@ -641,15 +709,37 @@ function TimelineNodeView({
         (inputPlan && inputPlan.length > 0 ? inputPlan : undefined) ??
         output ??
         ''
+      const planStatus = node.toolUse?.status
+      const verdict: 'approved' | 'rejected' | undefined =
+        planStatus === 'success'
+          ? 'approved'
+          : planStatus === 'rejected'
+            ? 'rejected'
+            : undefined
       return (
         <PlanCard
           content={content}
-          isPending={node.toolUse?.status === 'pending' || node.toolUse?.status === 'running'}
+          isPending={planStatus === 'pending' || planStatus === 'running'}
+          verdict={verdict}
         />
       )
     }
 
-    case 'ask-user':
+    case 'ask-user': {
+      const askToolUseId = node.toolUse?.id
+      // Cross-validate against the runtime question store: even if
+      // toolUse.status says the question was resolved, keep the card in
+      // pending mode while useQuestionStore still has a matching unanswered
+      // question for this session (Bug 2). Match by tool callID first, then
+      // by question id, since either side could be the stable identifier
+      // depending on which agent runtime produced the request.
+      const stillPendingForThisCard =
+        !!askToolUseId &&
+        pendingQuestions.some(
+          (q) => q.tool?.callID === askToolUseId || q.id === askToolUseId
+        )
+      const askStatus = node.toolUse?.status
+      const isPending = askStatus === 'pending' || askStatus === 'running' || stillPendingForThisCard
       return (
         <AskUserCard
           question={(node.toolUse?.input?.question as string) ?? ''}
@@ -663,12 +753,13 @@ function TimelineNodeView({
                 }>)
               : undefined
           }
-          isPending={node.toolUse?.status === 'pending' || node.toolUse?.status === 'running'}
+          isPending={isPending}
           sessionId={sessionId}
           worktreePath={worktreePath}
           answer={node.toolUse?.output}
         />
       )
+    }
 
     case 'todo':
       return node.toolUse ? <TodoCard toolUse={node.toolUse} /> : null
@@ -750,7 +841,7 @@ export interface AgentTimelineProps {
   /** Suppress inline TodoCard rendering when the right context panel owns tasks. */
   suppressTodoCards?: boolean
   /** Aggregated final task list — renders one TodoCard when explicitly requested. */
-  finalTodoTasks?: Array<{ id: string; content: string; status: string }>
+  finalTodoTasks?: SessionTask[]
   /** Session ID — needed for interactive AskUserCard reply */
   sessionId?: string
   /** Worktree path — needed for interactive AskUserCard reply */
@@ -787,6 +878,10 @@ export interface AgentTimelineProps {
    * causing the last few transcript nodes to render BEHIND the composer.
    */
   bottomFloatingHeight?: number
+  clearScreenBottomInset?: number
+  activeRoundId?: string | null
+  onActiveRoundChange?: (roundId: string | null) => void
+  onRoundAnchorNavigate?: (roundId: string) => void
 }
 
 export function AgentTimeline({
@@ -820,7 +915,11 @@ export function AgentTimeline({
   onPointerDown,
   onPointerUp,
   onPointerCancel,
-  bottomFloatingHeight = 0
+  bottomFloatingHeight = 0,
+  clearScreenBottomInset = 0,
+  activeRoundId = null,
+  onActiveRoundChange,
+  onRoundAnchorNavigate
 }: AgentTimelineProps): React.JSX.Element {
   const { t } = useI18n()
 
@@ -894,19 +993,6 @@ export function AgentTimeline({
     }
     return ids
   }, [timelineMessages])
-
-  const shouldRenderConnector = (nodeIndex: number): boolean => {
-    const node = nodes[nodeIndex]
-    if (!node || node.cardType === 'user-message') return false
-
-    if (nodeIndex < nodes.length - 1) return true
-
-    // Keep the rail visible for the final committed assistant node.
-    // While streaming, the live streaming nodes continue the rail below it.
-    // After streaming ends, hiding the rail makes the last reply visually
-    // "collapse" until a later message appears.
-    return node.message.role === 'assistant'
-  }
 
   // Convert live streaming parts into timeline nodes
   const streamingNodes = useMemo(() => {
@@ -1013,12 +1099,59 @@ export function AgentTimeline({
     })
   }, [streamingParts, suppressTodoCards, committedToolUseIds])
 
-  const safeBottomPadding = Math.max(bottomFloatingHeight + 88, 140)
+  const { preludeNodes, rounds } = useMemo(() => groupNodesIntoRounds(nodes), [nodes])
+
+  useEffect(() => {
+    if (isStreaming && rounds.length > 0) {
+      onActiveRoundChange?.(rounds[rounds.length - 1].id)
+      return
+    }
+
+    if (!activeRoundId && rounds.length > 0) {
+      onActiveRoundChange?.(rounds[rounds.length - 1].id)
+    }
+  }, [activeRoundId, isStreaming, onActiveRoundChange, rounds])
+
+  useEffect(() => {
+    const container = scrollContainerRef?.current
+    if (!container || rounds.length === 0 || !onActiveRoundChange) return
+
+    const updateActiveRoundFromScroll = (): void => {
+      const sections = Array.from(
+        container.querySelectorAll<HTMLElement>('[data-round-anchor="true"]')
+      )
+      if (sections.length === 0) return
+
+      const containerRect = container.getBoundingClientRect()
+      const targetY = containerRect.top + Math.min(container.clientHeight * 0.28, 180)
+      let bestId: string | null = null
+      let bestDistance = Number.POSITIVE_INFINITY
+
+      for (const section of sections) {
+        const rect = section.getBoundingClientRect()
+        const distance = Math.abs(rect.top - targetY)
+        if (distance < bestDistance) {
+          bestDistance = distance
+          bestId = section.dataset.roundId ?? null
+        }
+      }
+
+      if (bestId) {
+        onActiveRoundChange(bestId)
+      }
+    }
+
+    updateActiveRoundFromScroll()
+    container.addEventListener('scroll', updateActiveRoundFromScroll, { passive: true })
+    return () => container.removeEventListener('scroll', updateActiveRoundFromScroll)
+  }, [onActiveRoundChange, rounds, scrollContainerRef])
+
+  const safeBottomPadding = bottomFloatingHeight > 0 ? 24 : 72
 
   return (
     <div
       ref={scrollContainerRef}
-      className="flex-1 overflow-y-auto"
+      className="min-h-0 overflow-y-auto"
       onScroll={onScroll}
       onWheel={onWheel}
       onPointerDown={onPointerDown}
@@ -1029,76 +1162,76 @@ export function AgentTimeline({
       <div
         className="w-[85%] ml-[5%] py-6"
         style={{
-          // The ComposerBar is `absolute bottom-16` (64px from viewport bottom).
-          // Its TOP edge sits `composerHeight + 64` above the bottom. Reserve
-          // that much plus breathing room so the last transcript node is never
-          // hidden behind it. Keep a hard 140px minimum for the floating console.
+          // SessionShell reserves real layout space for the floating composer.
+          // Keep only breathing room here so the final transcript node does not
+          // feel glued to that boundary.
           paddingBottom: `${safeBottomPadding}px`
         }}
       >
-        {/* Inline compaction marker inserted by timestamp. */}
-        {inflightCompaction && inflightCompactionInsertAfter === -1 && (
-          <ThreadStatusRow key={inflightCompaction.id} status={inflightCompaction} />
-        )}
-        {/* Timeline nodes */}
-        {nodes.map((node, index) => {
-          const iconCfg = ICON_MAP[node.cardType]
-          const Icon = iconCfg.icon
-          const renderConnector = shouldRenderConnector(index)
+        <div className="flex items-start gap-4">
+          <div className="min-w-0 flex-1">
+            {/* Inline compaction marker inserted by timestamp. */}
+            {inflightCompaction && inflightCompactionInsertAfter === -1 && (
+              <ThreadStatusRow key={inflightCompaction.id} status={inflightCompaction} />
+            )}
 
-          // Only show timestamp on: user messages, and the LAST assistant node
-          // before a user message or end of timeline (not on every message).
-          const nextNode = nodes[index + 1]
-          const showTimestamp =
-            node.cardType !== 'user-message' &&
-            node.isLastInMessage &&
-            (!nextNode || nextNode.cardType === 'user-message')
+            {preludeNodes.map((node, index) => {
+              const iconCfg = ICON_MAP[node.cardType]
+              const Icon = iconCfg.icon
+              const renderConnector = node.cardType !== 'user-message'
+              const nextNode = preludeNodes[index + 1]
+              const showTimestamp =
+                node.cardType !== 'user-message' &&
+                node.isLastInMessage &&
+                (!nextNode || nextNode.cardType === 'user-message')
 
-          const compactionSuffix =
-            inflightCompaction && inflightCompactionInsertAfter === index ? (
-              <ThreadStatusRow
-                key={`${inflightCompaction.id}-after-${index}`}
-                status={inflightCompaction}
-              />
-            ) : null
+              if (node.cardType === 'text') {
+                return (
+                  <div key={node.key} className="relative pl-10 mb-4">
+                    {renderConnector && (
+                      <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border opacity-60" />
+                    )}
+                    <TimelineNodeView
+                      node={node}
+                      sessionId={sessionId}
+                      worktreePath={worktreePath}
+                      childPartsMap={childPartsMap}
+                      planContentByToolUseId={planContentByToolUseId}
+                      canEditUserMessage={canEditUserMessage}
+                      editingMessageId={editingMessageId}
+                      editingContent={editingContent}
+                      onEditingContentChange={onEditingContentChange}
+                      onSaveUserMessageEdit={onSaveUserMessageEdit}
+                      onCancelUserMessageEdit={onCancelUserMessageEdit}
+                      onCopyUserMessage={onCopyUserMessage}
+                      onEditUserMessage={onEditUserMessage}
+                      onForkUserMessage={onForkUserMessage}
+                      forkingMessageId={forkingMessageId}
+                    />
+                    {showTimestamp && node.message.timestamp && (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {formatMessageTime(node.message.timestamp)}
+                      </div>
+                    )}
+                  </div>
+                )
+              }
 
-          // User messages render without the timeline line
-          if (node.cardType === 'user-message') {
-            return (
-              <React.Fragment key={node.key}>
-                <div className="mb-6">
-                  <TimelineNodeView
-                    node={node}
-                    sessionId={sessionId}
-                    worktreePath={worktreePath}
-                    childPartsMap={childPartsMap}
-                    planContentByToolUseId={planContentByToolUseId}
-                    canEditUserMessage={canEditUserMessage}
-                    editingMessageId={editingMessageId}
-                    editingContent={editingContent}
-                    onEditingContentChange={onEditingContentChange}
-                    onSaveUserMessageEdit={onSaveUserMessageEdit}
-                    onCancelUserMessageEdit={onCancelUserMessageEdit}
-                    onCopyUserMessage={onCopyUserMessage}
-                    onEditUserMessage={onEditUserMessage}
-                    onForkUserMessage={onForkUserMessage}
-                    forkingMessageId={forkingMessageId}
-                  />
-                </div>
-                {compactionSuffix}
-              </React.Fragment>
-            )
-          }
-
-          // Text nodes render inline without icon
-          if (node.cardType === 'text') {
-            return (
-              <React.Fragment key={node.key}>
-                <div className="relative pl-10 mb-4">
-                  {/* Vertical line */}
+              return (
+                <div key={node.key} className="relative pl-10 mb-4">
                   {renderConnector && (
-                    <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-agent-hover/70" />
+                    <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border opacity-60" />
                   )}
+                  <div
+                    className={cn(
+                      'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
+                      'flex items-center justify-center z-10',
+                      iconCfg.bgClass,
+                      iconCfg.colorClass
+                    )}
+                  >
+                    <Icon className="h-3 w-3" />
+                  </div>
                   <TimelineNodeView
                     node={node}
                     sessionId={sessionId}
@@ -1122,174 +1255,308 @@ export function AgentTimeline({
                     </div>
                   )}
                 </div>
-                {compactionSuffix}
-              </React.Fragment>
-            )
-          }
-
-          return (
-            <React.Fragment key={node.key}>
-              <div className="relative pl-10 mb-4">
-                {/* Vertical line */}
-                {renderConnector && (
-                  <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-agent-hover/70" />
-                )}
-
-                {/* Icon node */}
-                <div
-                  className={cn(
-                    'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
-                    'flex items-center justify-center z-10',
-                    iconCfg.bgClass,
-                    iconCfg.colorClass
-                  )}
-                >
-                  <Icon className="h-3 w-3" />
-                </div>
-
-                {/* Card */}
-                <TimelineNodeView
-                  node={node}
-                  sessionId={sessionId}
-                  worktreePath={worktreePath}
-                  childPartsMap={childPartsMap}
-                  planContentByToolUseId={planContentByToolUseId}
-                  canEditUserMessage={canEditUserMessage}
-                  editingMessageId={editingMessageId}
-                  editingContent={editingContent}
-                  onEditingContentChange={onEditingContentChange}
-                  onSaveUserMessageEdit={onSaveUserMessageEdit}
-                  onCancelUserMessageEdit={onCancelUserMessageEdit}
-                  onCopyUserMessage={onCopyUserMessage}
-                  onEditUserMessage={onEditUserMessage}
-                  onForkUserMessage={onForkUserMessage}
-                  forkingMessageId={forkingMessageId}
-                />
-                {showTimestamp && node.message.timestamp && (
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {formatMessageTime(node.message.timestamp)}
-                  </div>
-                )}
-              </div>
-              {compactionSuffix}
-            </React.Fragment>
-          )
-        })}
-
-        {/* Final aggregated TodoCard — rendered only when a parent explicitly passes it. */}
-        {finalTodoTasks && finalTodoTasks.length > 0 && (
-          <div className="relative pl-10 mb-4">
-            <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-agent-hover/70" />
-            <div
-              className={cn(
-                'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
-                'flex items-center justify-center z-10',
-                ICON_MAP.todo.bgClass,
-                ICON_MAP.todo.colorClass
-              )}
-            >
-              <CheckSquare className="h-3 w-3" />
-            </div>
-            <TodoCard tasks={finalTodoTasks} />
-          </div>
-        )}
-
-        {/* Live streaming parts — real-time tool/text/reasoning rendering */}
-        {isStreaming &&
-          streamingNodes.length > 0 &&
-          streamingNodes.map((node, idx) => {
-            const iconCfg = ICON_MAP[node.cardType]
-            const Icon = iconCfg.icon
-            const isLastStreamNode = idx === streamingNodes.length - 1
-
-            if (node.cardType === 'text') {
-              return (
-                <div key={node.key} className="relative pl-10 mb-4">
-                  <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-agent-hover/70" />
-                  <div
-                    className={cn(
-                      'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
-                      'flex items-center justify-center z-10',
-                      isLastStreamNode
-                        ? 'bg-neon-mint-soft text-neon-mint'
-                        : iconCfg.bgClass + ' ' + iconCfg.colorClass
-                    )}
-                  >
-                    {isLastStreamNode ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <Icon className="h-3 w-3" />
-                    )}
-                  </div>
-                  <TextCard content={node.textContent ?? ''} isStreaming={isLastStreamNode} />
-                </div>
               )
-            }
+            })}
 
-            return (
-              <div key={node.key} className="relative pl-10 mb-4">
-                <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-agent-hover/70" />
+            {rounds.map((round) => {
+              return (
+                <section
+                  key={round.id}
+                  id={round.anchorId}
+                  data-round-anchor="true"
+                  data-round-id={round.id}
+                  className="mb-7 scroll-mt-8"
+                >
+                  {round.nodes.map((node, nodeIndex) => {
+                    const iconCfg = ICON_MAP[node.cardType]
+                    const Icon = iconCfg.icon
+                    const renderConnector = node.cardType !== 'user-message'
+                    const nextNode = round.nodes[nodeIndex + 1]
+                    const showTimestamp =
+                      node.cardType !== 'user-message' &&
+                      node.isLastInMessage &&
+                      (!nextNode || nextNode.cardType === 'user-message')
+
+                    const globalNodeIndex = nodes.findIndex(
+                      (candidate) => candidate.key === node.key
+                    )
+                    const compactionSuffix =
+                      inflightCompaction && inflightCompactionInsertAfter === globalNodeIndex ? (
+                        <ThreadStatusRow
+                          key={`${inflightCompaction.id}-after-${globalNodeIndex}`}
+                          status={inflightCompaction}
+                        />
+                      ) : null
+
+                    if (node.cardType === 'user-message') {
+                      return (
+                        <React.Fragment key={node.key}>
+                          <div className="mb-6">
+                            <TimelineNodeView
+                              node={node}
+                              sessionId={sessionId}
+                              worktreePath={worktreePath}
+                              childPartsMap={childPartsMap}
+                              planContentByToolUseId={planContentByToolUseId}
+                              canEditUserMessage={canEditUserMessage}
+                              editingMessageId={editingMessageId}
+                              editingContent={editingContent}
+                              onEditingContentChange={onEditingContentChange}
+                              onSaveUserMessageEdit={onSaveUserMessageEdit}
+                              onCancelUserMessageEdit={onCancelUserMessageEdit}
+                              onCopyUserMessage={onCopyUserMessage}
+                              onEditUserMessage={onEditUserMessage}
+                              onForkUserMessage={onForkUserMessage}
+                              forkingMessageId={forkingMessageId}
+                            />
+                          </div>
+                          {compactionSuffix}
+                        </React.Fragment>
+                      )
+                    }
+
+                    if (node.cardType === 'text') {
+                      return (
+                        <React.Fragment key={node.key}>
+                          <div className="relative pl-10 mb-4">
+                            {renderConnector && (
+                              <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border opacity-60" />
+                            )}
+                            <TimelineNodeView
+                              node={node}
+                              sessionId={sessionId}
+                              worktreePath={worktreePath}
+                              childPartsMap={childPartsMap}
+                              planContentByToolUseId={planContentByToolUseId}
+                              canEditUserMessage={canEditUserMessage}
+                              editingMessageId={editingMessageId}
+                              editingContent={editingContent}
+                              onEditingContentChange={onEditingContentChange}
+                              onSaveUserMessageEdit={onSaveUserMessageEdit}
+                              onCancelUserMessageEdit={onCancelUserMessageEdit}
+                              onCopyUserMessage={onCopyUserMessage}
+                              onEditUserMessage={onEditUserMessage}
+                              onForkUserMessage={onForkUserMessage}
+                              forkingMessageId={forkingMessageId}
+                            />
+                            {showTimestamp && node.message.timestamp && (
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {formatMessageTime(node.message.timestamp)}
+                              </div>
+                            )}
+                          </div>
+                          {compactionSuffix}
+                        </React.Fragment>
+                      )
+                    }
+
+                    return (
+                      <React.Fragment key={node.key}>
+                        <div className="relative pl-10 mb-4">
+                          {renderConnector && (
+                            <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border opacity-60" />
+                          )}
+                          <div
+                            className={cn(
+                              'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
+                              'flex items-center justify-center z-10',
+                              iconCfg.bgClass,
+                              iconCfg.colorClass
+                            )}
+                          >
+                            <Icon className="h-3 w-3" />
+                          </div>
+                          <TimelineNodeView
+                            node={node}
+                            sessionId={sessionId}
+                            worktreePath={worktreePath}
+                            childPartsMap={childPartsMap}
+                            planContentByToolUseId={planContentByToolUseId}
+                            canEditUserMessage={canEditUserMessage}
+                            editingMessageId={editingMessageId}
+                            editingContent={editingContent}
+                            onEditingContentChange={onEditingContentChange}
+                            onSaveUserMessageEdit={onSaveUserMessageEdit}
+                            onCancelUserMessageEdit={onCancelUserMessageEdit}
+                            onCopyUserMessage={onCopyUserMessage}
+                            onEditUserMessage={onEditUserMessage}
+                            onForkUserMessage={onForkUserMessage}
+                            forkingMessageId={forkingMessageId}
+                          />
+                          {showTimestamp && node.message.timestamp && (
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              {formatMessageTime(node.message.timestamp)}
+                            </div>
+                          )}
+                        </div>
+                        {compactionSuffix}
+                      </React.Fragment>
+                    )
+                  })}
+                </section>
+              )
+            })}
+
+            {/* Final aggregated TodoCard — rendered only when a parent explicitly passes it. */}
+            {finalTodoTasks && finalTodoTasks.length > 0 && (
+              <div className="relative pl-10 mb-4">
+                <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border opacity-60" />
                 <div
                   className={cn(
                     'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
                     'flex items-center justify-center z-10',
-                    iconCfg.bgClass,
-                    iconCfg.colorClass
+                    ICON_MAP.todo.bgClass,
+                    ICON_MAP.todo.colorClass
                   )}
                 >
-                  <Icon className="h-3 w-3" />
+                  <CheckSquare className="h-3 w-3" />
                 </div>
-                <TimelineNodeView
-                  node={node}
-                  sessionId={sessionId}
-                  worktreePath={worktreePath}
-                  childPartsMap={childPartsMap}
-                  planContentByToolUseId={planContentByToolUseId}
-                  canEditUserMessage={canEditUserMessage}
-                  editingMessageId={editingMessageId}
-                  editingContent={editingContent}
-                  onEditingContentChange={onEditingContentChange}
-                  onSaveUserMessageEdit={onSaveUserMessageEdit}
-                  onCancelUserMessageEdit={onCancelUserMessageEdit}
-                  onCopyUserMessage={onCopyUserMessage}
-                  onEditUserMessage={onEditUserMessage}
-                  onForkUserMessage={onForkUserMessage}
-                  forkingMessageId={forkingMessageId}
-                />
+                <TodoCard tasks={finalTodoTasks} />
               </div>
-            )
-          })}
+            )}
 
-        {/* Streaming with no content yet — show pulse */}
-        {isStreaming && streamingNodes.length === 0 && !streamingContent && (
-          <div className="relative pl-10 mb-4">
-            <div
-              className={cn(
-                'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
-                'flex items-center justify-center z-10',
-                'bg-neon-mint-soft text-neon-mint'
-              )}
+            {/* Live streaming parts — real-time tool/text/reasoning rendering */}
+            {isStreaming &&
+              streamingNodes.length > 0 &&
+              streamingNodes.map((node, idx) => {
+                const iconCfg = ICON_MAP[node.cardType]
+                const Icon = iconCfg.icon
+                const isLastStreamNode = idx === streamingNodes.length - 1
+
+                if (node.cardType === 'text') {
+                  return (
+                    <div key={node.key} className="relative pl-10 mb-4">
+                      <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border opacity-60" />
+                      <div
+                        className={cn(
+                          'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
+                          'flex items-center justify-center z-10',
+                          isLastStreamNode
+                            ? 'bg-neon-mint-soft text-neon-mint'
+                            : iconCfg.bgClass + ' ' + iconCfg.colorClass
+                        )}
+                      >
+                        {isLastStreamNode ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Icon className="h-3 w-3" />
+                        )}
+                      </div>
+                      <TextCard content={node.textContent ?? ''} isStreaming={isLastStreamNode} />
+                    </div>
+                  )
+                }
+
+                return (
+                  <div key={node.key} className="relative pl-10 mb-4">
+                    <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border opacity-60" />
+                    <div
+                      className={cn(
+                        'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
+                        'flex items-center justify-center z-10',
+                        iconCfg.bgClass,
+                        iconCfg.colorClass
+                      )}
+                    >
+                      <Icon className="h-3 w-3" />
+                    </div>
+                    <TimelineNodeView
+                      node={node}
+                      sessionId={sessionId}
+                      worktreePath={worktreePath}
+                      childPartsMap={childPartsMap}
+                      planContentByToolUseId={planContentByToolUseId}
+                      canEditUserMessage={canEditUserMessage}
+                      editingMessageId={editingMessageId}
+                      editingContent={editingContent}
+                      onEditingContentChange={onEditingContentChange}
+                      onSaveUserMessageEdit={onSaveUserMessageEdit}
+                      onCancelUserMessageEdit={onCancelUserMessageEdit}
+                      onCopyUserMessage={onCopyUserMessage}
+                      onEditUserMessage={onEditUserMessage}
+                      onForkUserMessage={onForkUserMessage}
+                      forkingMessageId={forkingMessageId}
+                    />
+                  </div>
+                )
+              })}
+
+            {/* Streaming with no content yet — show pulse */}
+            {isStreaming && streamingNodes.length === 0 && !streamingContent && (
+              <div className="relative pl-10 mb-4">
+                <div
+                  className={cn(
+                    'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
+                    'flex items-center justify-center z-10',
+                    'bg-neon-mint-soft text-neon-mint'
+                  )}
+                >
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                </div>
+                <div className="text-sm text-muted-foreground italic">
+                  {t('sessionHq.timeline.thinking')}
+                </div>
+              </div>
+            )}
+
+            {ephemeralStatusRows.map((status) => (
+              <ThreadStatusRow key={status.id} status={status} />
+            ))}
+
+            {clearScreenBottomInset > 0 && nodes.length > 0 && (
+              <div
+                aria-hidden="true"
+                data-testid="timeline-clear-screen-spacer"
+                style={{ height: `${clearScreenBottomInset}px` }}
+              />
+            )}
+
+            {/* Empty state */}
+            {nodes.length === 0 && ephemeralStatusRows.length === 0 && !isStreaming && (
+              <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+                <MessageSquare className="h-10 w-10 mb-3 opacity-30" />
+                <div className="text-sm font-medium">{t('sessionHq.timeline.emptyTitle')}</div>
+                <div className="text-xs mt-1">{t('sessionHq.timeline.emptySubtitle')}</div>
+              </div>
+            )}
+          </div>
+
+          {rounds.length > 0 && (
+            <aside
+              className="sticky top-1/2 hidden w-10 shrink-0 -translate-y-1/2 lg:block"
+              data-testid="timeline-round-anchor-rail"
             >
-              <Loader2 className="h-3 w-3 animate-spin" />
-            </div>
-            <div className="text-sm text-muted-foreground italic">
-              {t('sessionHq.timeline.thinking')}
-            </div>
-          </div>
-        )}
-
-        {ephemeralStatusRows.map((status) => (
-          <ThreadStatusRow key={status.id} status={status} />
-        ))}
-
-        {/* Empty state */}
-        {nodes.length === 0 && ephemeralStatusRows.length === 0 && !isStreaming && (
-          <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-            <MessageSquare className="h-10 w-10 mb-3 opacity-30" />
-            <div className="text-sm font-medium">{t('sessionHq.timeline.emptyTitle')}</div>
-            <div className="text-xs mt-1">{t('sessionHq.timeline.emptySubtitle')}</div>
-          </div>
-        )}
+              <div className="flex max-h-[60vh] flex-col items-center justify-center gap-2 overflow-y-auto py-2">
+                {rounds.map((round, index) => {
+                  const isActive =
+                    activeRoundId === round.id || (!activeRoundId && index === rounds.length - 1)
+                  return (
+                    <button
+                      key={`rail-${round.id}`}
+                      type="button"
+                      onClick={() => onRoundAnchorNavigate?.(round.id)}
+                      className={cn(
+                        'group relative flex h-4 w-4 items-center justify-center rounded-full transition-all',
+                        isActive ? 'scale-110' : 'hover:scale-105'
+                      )}
+                      title={round.preview}
+                      aria-label={`跳转到第 ${index + 1} 轮：${round.preview}`}
+                    >
+                      <span
+                        className={cn(
+                          'block h-2.5 w-2.5 rounded-full border transition-all',
+                          isActive
+                            ? 'border-primary bg-primary shadow-[0_0_14px_rgba(59,130,246,0.55)]'
+                            : 'border-border/80 bg-muted-foreground/30 group-hover:border-primary/55 group-hover:bg-primary/45'
+                        )}
+                      />
+                    </button>
+                  )
+                })}
+              </div>
+            </aside>
+          )}
+        </div>
       </div>
     </div>
   )

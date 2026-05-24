@@ -133,10 +133,7 @@ function isSyntheticUserMessage(content: string): boolean {
  */
 export function stripInjectedContextEnvelope(content: string): string {
   if (!content) return content
-  if (
-    !content.startsWith('[Field Context') &&
-    !content.startsWith('[Worktree Context]')
-  ) {
+  if (!content.startsWith('[Field Context') && !content.startsWith('[Worktree Context]')) {
     return content
   }
   // Anchor on the literal closing marker the prefix templates always emit.
@@ -329,9 +326,7 @@ function mapRawMessage(rawMessage: unknown, index: number): MappedMessage {
       timestamp,
       ...(messageRecord?.steered === true || info?.steered === true ? { steered: true } : {}),
       parts: mappedParts.length > 0 ? mappedParts : undefined,
-      ...(role === 'user' && fileAttachments.length > 0
-        ? { attachments: fileAttachments }
-        : {})
+      ...(role === 'user' && fileAttachments.length > 0 ? { attachments: fileAttachments } : {})
     },
     sortTime,
     originalIndex: index
@@ -382,6 +377,7 @@ export interface DbSessionMessage {
   opencode_message_json: string | null
   opencode_parts_json: string | null
   opencode_timeline_json: string | null
+  sequence: number | null
   created_at: string
 }
 
@@ -405,96 +401,93 @@ export function mapDbRowsToTimelineMessages(messages: DbSessionMessage[]): Timel
   return messages
     .filter((m) => !(m.role === 'user' && isSyntheticUserMessage(m.content)))
     .map((message) => {
-    const parsedMessage = parseJson<Record<string, unknown>>(message.opencode_message_json)
-    const parsedParts = parseJson<unknown[]>(message.opencode_parts_json)
-    const parts = Array.isArray(parsedParts)
-      ? parsedParts
-          .map((part, index) => mapPartToStreamingPart(part, index))
-          .filter((part): part is StreamingPart => part !== null)
-      : undefined
+      const parsedMessage = parseJson<Record<string, unknown>>(message.opencode_message_json)
+      const parsedParts = parseJson<unknown[]>(message.opencode_parts_json)
+      const parts = Array.isArray(parsedParts)
+        ? parsedParts
+            .map((part, index) => mapPartToStreamingPart(part, index))
+            .filter((part): part is StreamingPart => part !== null)
+        : undefined
 
-    // Extract usage + model identity from the raw SDK message so the renderer
-    // can rehydrate context-window state when reopening old sessions.
-    let usage: TimelineMessage['usage']
-    let modelRef: TimelineMessage['modelRef']
-    if (message.role === 'assistant' && parsedMessage) {
-      const info = isPlainRecord(parsedMessage.info) ? parsedMessage.info : undefined
-      const innerMessage = isPlainRecord(parsedMessage.message) ? parsedMessage.message : undefined
-      const rawUsage =
-        (isPlainRecord(parsedMessage.usage) ? parsedMessage.usage : undefined) ??
-        (info && isPlainRecord(info.usage) ? info.usage : undefined) ??
-        (innerMessage && isPlainRecord(innerMessage.usage) ? innerMessage.usage : undefined)
+      // Extract usage + model identity from the raw SDK message so the renderer
+      // can rehydrate context-window state when reopening old sessions.
+      let usage: TimelineMessage['usage']
+      let modelRef: TimelineMessage['modelRef']
+      if (message.role === 'assistant' && parsedMessage) {
+        const info = isPlainRecord(parsedMessage.info) ? parsedMessage.info : undefined
+        const innerMessage = isPlainRecord(parsedMessage.message)
+          ? parsedMessage.message
+          : undefined
+        const rawUsage =
+          (isPlainRecord(parsedMessage.usage) ? parsedMessage.usage : undefined) ??
+          (info && isPlainRecord(info.usage) ? info.usage : undefined) ??
+          (innerMessage && isPlainRecord(innerMessage.usage) ? innerMessage.usage : undefined)
 
-      if (rawUsage) {
-        const input = pickNumber(rawUsage, 'input_tokens', 'inputTokens', 'input')
-        const output = pickNumber(rawUsage, 'output_tokens', 'outputTokens', 'output')
-        const cacheRead = pickNumber(
-          rawUsage,
-          'cache_read_input_tokens',
-          'cacheReadInputTokens',
-          'cache_read',
-          'cacheRead'
+        if (rawUsage) {
+          const input = pickNumber(rawUsage, 'input_tokens', 'inputTokens', 'input')
+          const output = pickNumber(rawUsage, 'output_tokens', 'outputTokens', 'output')
+          const cacheRead = pickNumber(
+            rawUsage,
+            'cache_read_input_tokens',
+            'cacheReadInputTokens',
+            'cache_read',
+            'cacheRead'
+          )
+          const cacheWrite = pickNumber(
+            rawUsage,
+            'cache_creation_input_tokens',
+            'cacheCreationInputTokens',
+            'cache_creation',
+            'cacheCreation',
+            'cache_write',
+            'cacheWrite'
+          )
+          const reasoning = pickNumber(rawUsage, 'reasoning_tokens', 'reasoningTokens', 'reasoning')
+          if (input || output || cacheRead || cacheWrite || reasoning) {
+            usage = { input, output, cacheRead, cacheWrite, reasoning }
+          }
+        }
+
+        const providerID = firstString(
+          parsedMessage.providerID,
+          info?.providerID,
+          info?.provider_id,
+          innerMessage?.provider
         )
-        const cacheWrite = pickNumber(
-          rawUsage,
-          'cache_creation_input_tokens',
-          'cacheCreationInputTokens',
-          'cache_creation',
-          'cacheCreation',
-          'cache_write',
-          'cacheWrite'
+        const modelID = firstString(
+          parsedMessage.modelID,
+          parsedMessage.model,
+          info?.modelID,
+          info?.model_id,
+          info?.model,
+          innerMessage?.model
         )
-        const reasoning = pickNumber(rawUsage, 'reasoning_tokens', 'reasoningTokens', 'reasoning')
-        if (input || output || cacheRead || cacheWrite || reasoning) {
-          usage = { input, output, cacheRead, cacheWrite, reasoning }
+        if (providerID && modelID) {
+          modelRef = { providerID, modelID }
+        } else if (modelID) {
+          modelRef = { providerID: 'anthropic', modelID }
         }
       }
 
-      const providerID = firstString(
-        parsedMessage.providerID,
-        info?.providerID,
-        info?.provider_id,
-        innerMessage?.provider
-      )
-      const modelID = firstString(
-        parsedMessage.modelID,
-        parsedMessage.model,
-        info?.modelID,
-        info?.model_id,
-        info?.model,
-        innerMessage?.model
-      )
-      if (providerID && modelID) {
-        modelRef = { providerID, modelID }
-      } else if (modelID) {
-        modelRef = { providerID: 'anthropic', modelID }
+      return {
+        id: message.opencode_message_id ?? message.id,
+        role: message.role,
+        content:
+          message.role === 'user' ? stripInjectedContextEnvelope(message.content) : message.content,
+        timestamp: message.created_at,
+        ...(parsedMessage?.steered === true ? { steered: true } : {}),
+        parts: parts && parts.length > 0 ? parts : undefined,
+        ...(usage ? { usage } : {}),
+        ...(modelRef ? { modelRef } : {})
       }
-    }
-
-    return {
-      id: message.opencode_message_id ?? message.id,
-      role: message.role,
-      content:
-        message.role === 'user'
-          ? stripInjectedContextEnvelope(message.content)
-          : message.content,
-      timestamp: message.created_at,
-      ...(parsedMessage?.steered === true ? { steered: true } : {}),
-      parts: parts && parts.length > 0 ? parts : undefined,
-      ...(usage ? { usage } : {}),
-      ...(modelRef ? { modelRef } : {})
-    }
-  })
+    })
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function pickNumber(
-  source: Record<string, unknown>,
-  ...keys: string[]
-): number {
+function pickNumber(source: Record<string, unknown>, ...keys: string[]): number {
   for (const key of keys) {
     const raw = source[key]
     if (typeof raw === 'number' && Number.isFinite(raw)) return raw
@@ -528,6 +521,40 @@ function extractUserTurnId(messageId: string): string | null {
   return match?.[1] ?? null
 }
 
+function extractTurnIdFromTimelineMessage(message: TimelineMessage): string | null {
+  if (message.role === 'assistant') return extractAssistantTurnId(message.id)
+  if (message.role === 'user') return extractUserTurnId(message.id)
+  return null
+}
+
+function inferToolActivityTurnId(
+  activity: DbSessionActivity,
+  messages: TimelineMessage[]
+): string | null {
+  if (!activity.kind.startsWith('tool.')) return null
+
+  const activityTime = Date.parse(activity.created_at)
+  if (!Number.isFinite(activityTime)) return null
+
+  let currentTurnId: string | null = null
+  for (const message of messages) {
+    const messageTime = Date.parse(message.timestamp)
+    if (!Number.isFinite(messageTime)) continue
+
+    if (message.role === 'user') {
+      if (messageTime > activityTime) break
+      currentTurnId = extractUserTurnId(message.id) ?? currentTurnId
+      continue
+    }
+
+    if (!currentTurnId && messageTime <= activityTime) {
+      currentTurnId = extractTurnIdFromTimelineMessage(message)
+    }
+  }
+
+  return currentTurnId
+}
+
 function extractRoleOrdinal(messageId: string, role: 'user' | 'assistant'): number {
   const match = messageId.match(new RegExp(`^[^]*:${role}(?::(.+))?$`))
   if (!match) return 0
@@ -544,6 +571,9 @@ function getOrderedActivityTurnIds(activityRows: DbSessionActivity[]): string[] 
           const leftTime = Date.parse(left.created_at)
           const rightTime = Date.parse(right.created_at)
           if (leftTime !== rightTime) return leftTime - rightTime
+          // TODO(seq-activities): once session_activities.sequence is backfilled
+          // by a follow-up migration, prefer it over UUID lex order here
+          // (mirrors normalizeCodexMessageRows for session_messages.sequence).
           return left.id.localeCompare(right.id)
         })
         .map((activity) => activity.turn_id)
@@ -560,7 +590,15 @@ function normalizeCodexMessageRows(
     const leftTime = Date.parse(left.created_at)
     const rightTime = Date.parse(right.created_at)
     if (leftTime !== rightTime) return leftTime - rightTime
-    return left.id.localeCompare(right.id)
+    // session_messages now carries a per-session monotonic sequence (v24).
+    // Prefer it over UUID lexical order for same-millisecond rows so the
+    // first INSERT is rendered first.
+    const ls = left.sequence
+    const rs = right.sequence
+    if (ls != null && rs != null && ls !== rs) return ls - rs
+    if (ls != null && rs == null) return -1
+    if (ls == null && rs != null) return 1
+    return left.id.localeCompare(right.id) // last-resort for pre-v24 rows
   })
 
   const orderedTurnIds = getOrderedActivityTurnIds(activityRows)
@@ -632,9 +670,7 @@ function normalizeCodexMessageRows(
 export function parseToolPartFromActivity(activity: DbSessionActivity): StreamingPart | null {
   const payload = parseJson<Record<string, unknown>>(activity.payload_json)
   const item =
-    payload && typeof payload.item === 'object'
-      ? (payload.item as Record<string, unknown>)
-      : null
+    payload && typeof payload.item === 'object' ? (payload.item as Record<string, unknown>) : null
 
   // Codex shape detection: codex items have type ∈ {commandExecution,
   // fileChange, mcpToolCall, webSearch, agentMessage, reasoning,
@@ -669,9 +705,7 @@ export function parseToolPartFromActivity(activity: DbSessionActivity): Streamin
               ? Date.parse(activity.created_at) || Date.now()
               : undefined,
           output:
-            activity.kind === 'tool.completed' && classified.output
-              ? classified.output
-              : undefined,
+            activity.kind === 'tool.completed' && classified.output ? classified.output : undefined,
           error:
             activity.kind === 'tool.failed'
               ? (stringifyValue(classified.output) ?? activity.summary)
@@ -721,7 +755,7 @@ export function parseToolPartFromActivity(activity: DbSessionActivity): Streamin
 
 function parsePlanPartFromActivity(
   activity: DbSessionActivity,
-  resolvedRequestIds?: Set<string>
+  resolvedVerdictByRequestId?: Map<string, 'approved' | 'rejected'>
 ): StreamingPart | null {
   const payload = parseJson<Record<string, unknown>>(activity.payload_json)
   if (activity.kind === 'plan.ready') {
@@ -738,10 +772,13 @@ function parsePlanPartFromActivity(
       activity.id
 
     // If a matching plan.resolved activity exists, the plan has been
-    // approved/rejected — surface the card with success status so the
-    // "Requires Approval" badge disappears and the card collapses.
+    // approved/rejected — surface the card in the corresponding terminal
+    // state so the "Requires Approval" badge disappears. Rejected plans
+    // get status='rejected' so PlanCard renders the greyed-out rejected
+    // verdict on reload (instead of mis-rendering as approved).
     const reqId = activity.request_id ?? activity.id
-    const isResolved = resolvedRequestIds?.has(reqId) ?? false
+    const verdict = resolvedVerdictByRequestId?.get(reqId)
+    const isResolved = verdict != null
 
     return {
       type: 'tool_use',
@@ -749,11 +786,9 @@ function parsePlanPartFromActivity(
         id: toolUseId,
         name: 'ExitPlanMode',
         input: { plan },
-        status: isResolved ? 'success' : 'pending',
+        status: isResolved ? (verdict === 'rejected' ? 'rejected' : 'success') : 'pending',
         startTime: Date.parse(activity.created_at) || Date.now(),
-        ...(isResolved
-          ? { endTime: Date.parse(activity.created_at) || Date.now() }
-          : {})
+        ...(isResolved ? { endTime: Date.parse(activity.created_at) || Date.now() } : {})
       }
     }
   }
@@ -909,15 +944,27 @@ function mergeCodexActivityMessages(
     const leftTime = Date.parse(left.created_at)
     const rightTime = Date.parse(right.created_at)
     if (leftTime !== rightTime) return leftTime - rightTime
+    // TODO(seq-activities): session_activities.sequence exists but is 0% filled
+    // today. Once a follow-up migration backfills it, prefer it over UUID lex
+    // order here (same shape as normalizeCodexMessageRows).
     return left.id.localeCompare(right.id)
   })
 
   // Pre-scan for plan.resolved activities so plan.ready cards rendered later
-  // can be marked as resolved (no more "Requires Approval" badge).
-  const resolvedRequestIds = new Set<string>()
+  // can be marked as resolved (no more "Requires Approval" badge) and so
+  // rejected plans surface a 'rejected' verdict instead of mis-rendering as
+  // approved. agent-handlers persists plan.resolved with payload
+  // `{ resolution: 'rejected', ... }` on reject; absence of that field is
+  // treated as approved (e.g. claude-code's approve path doesn't write a
+  // payload but only the reject path persists today — defaulting to
+  // 'approved' for any future approve-side persistence is the safer choice).
+  const resolvedVerdictByRequestId = new Map<string, 'approved' | 'rejected'>()
   for (const activity of sortedActivities) {
     if (activity.kind === 'plan.resolved' && activity.request_id) {
-      resolvedRequestIds.add(activity.request_id)
+      const payload = parseJson<Record<string, unknown>>(activity.payload_json)
+      const verdict: 'approved' | 'rejected' =
+        payload?.resolution === 'rejected' ? 'rejected' : 'approved'
+      resolvedVerdictByRequestId.set(activity.request_id, verdict)
     }
   }
 
@@ -926,13 +973,13 @@ function mergeCodexActivityMessages(
     if (activity.kind === 'plan.resolved') continue
     const activityPart = activity.kind.startsWith('tool.')
       ? parseToolPartFromActivity(activity)
-      : parsePlanPartFromActivity(activity, resolvedRequestIds)
+      : parsePlanPartFromActivity(activity, resolvedVerdictByRequestId)
     if (!activityPart?.toolUse) continue
 
     const toolId = activityPart.toolUse.id
     if (knownToolIds.has(toolId)) continue
 
-    const turnId = activity.turn_id
+    const turnId = activity.turn_id ?? inferToolActivityTurnId(activity, normalizedBaseMessages)
     const syntheticId = turnId ? `${turnId}:tool:${toolId}` : `tool:${toolId}`
     const targetCollection = turnId
       ? (anchoredSyntheticByTurnId.get(turnId) ?? [])
@@ -1044,10 +1091,7 @@ export function deriveCodexTimeline(
   activityRows: DbSessionActivity[]
 ): TimelineMessage[] {
   const normalizedMessages = normalizeCodexMessageRows(messageRows, activityRows)
-  return mergeCodexActivityMessages(
-    mapDbRowsToTimelineMessages(normalizedMessages),
-    activityRows
-  )
+  return mergeCodexActivityMessages(mapDbRowsToTimelineMessages(normalizedMessages), activityRows)
 }
 
 /**
@@ -1069,7 +1113,8 @@ export function deriveCodexTimeline(
  *     synthetic assistant message anchored at the activity's timestamp so
  *     the card still appears.
  *   - Plans with a paired `plan.resolved` row render as `status: 'success'`
- *     (greyed out, no "Requires Approval" badge), same logic Codex uses.
+ *     when approved (greyed out, no badge) or `status: 'rejected'` when the
+ *     payload carries `resolution: 'rejected'`, same logic Codex uses.
  */
 export function mergeOpenCodePlanActivities(
   messages: TimelineMessage[],
@@ -1080,10 +1125,13 @@ export function mergeOpenCodePlanActivities(
   const planReadyRows = activityRows.filter((row) => row.kind === 'plan.ready')
   if (planReadyRows.length === 0) return messages
 
-  const resolvedRequestIds = new Set<string>()
+  const resolvedVerdictByRequestId = new Map<string, 'approved' | 'rejected'>()
   for (const row of activityRows) {
     if (row.kind === 'plan.resolved' && row.request_id) {
-      resolvedRequestIds.add(row.request_id)
+      const payload = parseJson<Record<string, unknown>>(row.payload_json)
+      const verdict: 'approved' | 'rejected' =
+        payload?.resolution === 'rejected' ? 'rejected' : 'approved'
+      resolvedVerdictByRequestId.set(row.request_id, verdict)
     }
   }
 
@@ -1112,7 +1160,7 @@ export function mergeOpenCodePlanActivities(
   const trailing: TimelineMessage[] = []
 
   for (const row of planReadyRows) {
-    const part = parsePlanPartFromActivity(row, resolvedRequestIds)
+    const part = parsePlanPartFromActivity(row, resolvedVerdictByRequestId)
     if (!part?.toolUse) continue
     if (knownToolIds.has(part.toolUse.id)) continue
     knownToolIds.add(part.toolUse.id)
@@ -1124,9 +1172,7 @@ export function mergeOpenCodePlanActivities(
     // approval card. Strip text parts whose content is fully contained in the
     // plan we're about to render so the card becomes the single source.
     const planText =
-      typeof part.toolUse.input?.plan === 'string'
-        ? (part.toolUse.input.plan as string).trim()
-        : ''
+      typeof part.toolUse.input?.plan === 'string' ? (part.toolUse.input.plan as string).trim() : ''
 
     const itemId = row.item_id ?? null
     if (itemId && messageIndex.has(itemId)) {
@@ -1150,8 +1196,7 @@ export function mergeOpenCodePlanActivities(
         ...target,
         // Also clear `content` if it's the same plan text — `messageToNodes`
         // falls back to `content` when `parts` is empty (line 153).
-        content:
-          planText && (target.content ?? '').trim() === planText ? '' : target.content,
+        content: planText && (target.content ?? '').trim() === planText ? '' : target.content,
         parts: [...filteredParts, part]
       }
     } else {

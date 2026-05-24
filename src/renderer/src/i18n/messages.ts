@@ -1615,6 +1615,7 @@ export const messages: Record<AppLocale, MessageTree> = {
           title: 'Proposed Execution Plan',
           requiresApproval: 'Requires Approval',
           approved: 'Approved',
+          rejected: 'Rejected',
           rejectModify: 'Reject / Modify',
           approveStart: 'Approve & Start'
         },
@@ -2436,6 +2437,7 @@ export const messages: Record<AppLocale, MessageTree> = {
     },
     contextIndicator: {
       title: 'Context Window',
+      explainer: 'Model limit, not billing. Shows the latest turn prompt occupancy.',
       latestTurn: 'Latest turn API usage',
       summary: {
         withLimit: '{used} / {limit} tokens ({percent}%)',
@@ -4496,6 +4498,7 @@ export const messages: Record<AppLocale, MessageTree> = {
           title: '待执行计划',
           requiresApproval: '需要批准',
           approved: '已批准',
+          rejected: '已拒绝',
           rejectModify: '拒绝 / 修改',
           approveStart: '批准并开始'
         },
@@ -5313,6 +5316,7 @@ export const messages: Record<AppLocale, MessageTree> = {
     },
     contextIndicator: {
       title: '上下文窗口',
+      explainer: '这是模型上下文上限/当前轮占用，不是计费金额。',
       latestTurn: '最近一轮 API 用量',
       summary: {
         withLimit: '{used} / {limit} tokens ({percent}%)',
