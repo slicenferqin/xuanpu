@@ -10,6 +10,7 @@ function installFieldOpsMock(): Window['fieldOps'] {
     reportFileFocus: vi.fn(),
     reportFileSelection: vi.fn(),
     getLastInjection: vi.fn().mockResolvedValue(null),
+    getXfpAuditEvents: vi.fn().mockResolvedValue([]),
     getEpisodicMemory: vi.fn().mockResolvedValue(null),
     getSemanticMemory: vi.fn().mockResolvedValue(null),
     getCheckpoint: vi.fn().mockResolvedValue(null),
@@ -104,7 +105,7 @@ describe('FieldContextDebug managed context tabs', () => {
       />
     )
 
-    fireEvent.click(screen.getByText('Field Context'))
+    fireEvent.click(screen.getByText('XFP Inspector'))
 
     await waitFor(() => {
       expect(fieldOps.listContextPackages).toHaveBeenCalledWith({

@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 24
+export const CURRENT_SCHEMA_VERSION = 25
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -351,6 +351,8 @@ export const MIGRATIONS: Migration[] = [
     down: `
       DROP INDEX IF EXISTS idx_project_spaces_project;
       DROP INDEX IF EXISTS idx_project_spaces_space;
+      DROP INDEX IF EXISTS idx_field_episode_blocks_session_created;
+      DROP INDEX IF EXISTS idx_field_episode_blocks_worktree_created;
       DROP INDEX IF EXISTS idx_field_context_packages_worktree_created;
       DROP INDEX IF EXISTS idx_field_context_packages_session_created;
       DROP INDEX IF EXISTS idx_diff_comments_worktree_updated;
@@ -374,6 +376,7 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_worktrees_project;
       DROP TABLE IF EXISTS project_spaces;
       DROP TABLE IF EXISTS spaces;
+      DROP TABLE IF EXISTS field_episode_blocks;
       DROP TABLE IF EXISTS field_context_packages;
       DROP TABLE IF EXISTS diff_comments;
       DROP TABLE IF EXISTS settings;
@@ -941,7 +944,7 @@ export const MIGRATIONS: Migration[] = [
     `
   },
   {
-    version: 24,
+    version: 25,
     name: 'add_field_episode_blocks',
     up: `
       -- xuanpu-agent: immutable managed-context episode blocks.

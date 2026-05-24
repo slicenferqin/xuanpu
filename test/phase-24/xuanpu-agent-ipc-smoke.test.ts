@@ -199,6 +199,10 @@ class FakeDatabaseService {
     return id === 'hive-session-1' ? { id, agent_sdk: 'xuanpu-agent' } : null
   }
 
+  getSessionByOpenCodeSessionId(id: string): { id: string; agent_sdk: 'xuanpu-agent' } | null {
+    return id === this.runtimeSessionId ? { id: 'hive-session-1', agent_sdk: 'xuanpu-agent' } : null
+  }
+
   updateSession(id: string, data: { opencode_session_id?: string; name?: string }): void {
     if (id === 'hive-session-1' && data.opencode_session_id) {
       this.runtimeSessionId = data.opencode_session_id

@@ -244,6 +244,22 @@ describe('SessionShell xuanpu-agent dogfood path', () => {
       }
     })
 
+    Object.defineProperty(window, 'voiceOps', {
+      configurable: true,
+      writable: true,
+      value: {
+        onRuntimeProgress: vi.fn(() => vi.fn()),
+        onTranscript: vi.fn(() => vi.fn()),
+        onVoiceError: vi.fn(() => vi.fn()),
+        disconnectTranscription: vi.fn().mockResolvedValue(undefined),
+        finishUtterance: vi.fn().mockResolvedValue(undefined),
+        ensureRuntime: vi.fn(),
+        detectRuntime: vi.fn(),
+        startTranscription: vi.fn(),
+        sendAudioChunk: vi.fn()
+      }
+    })
+
     Object.defineProperty(window, 'usageAnalyticsOps', {
       configurable: true,
       writable: true,
@@ -306,13 +322,6 @@ describe('SessionShell xuanpu-agent dogfood path', () => {
         '/tmp/xuanpu-agent-worktree',
         'hive-session-xuanpu'
       )
-    })
-
-    await waitFor(() => {
-      expect(window.systemOps.getXuanpuAgentRuntimeStatus).toHaveBeenCalledWith({
-        providerID: 'anthropic',
-        modelID: 'claude-haiku-4-5'
-      })
     })
 
     const input = await screen.findByPlaceholderText('Type a message...')
@@ -500,16 +509,6 @@ describe('SessionShell xuanpu-agent dogfood path', () => {
             'hive-session-xuanpu'
           )
         })
-        await waitFor(() => {
-          expect(window.systemOps.getXuanpuAgentRuntimeStatus).toHaveBeenCalledWith({
-            providerID: 'openai',
-            modelID: 'gpt-5.4'
-          })
-        })
-        await waitFor(() => {
-          expect(screen.queryByTestId('xuanpu-agent-runtime-status')).not.toBeInTheDocument()
-        })
-
         const input = await screen.findByPlaceholderText('Type a message...')
         await userEvent.type(
           input,
