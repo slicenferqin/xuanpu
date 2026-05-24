@@ -164,6 +164,56 @@ function groupNodesIntoRounds(nodes: TimelineNode[]): {
   return { preludeNodes, rounds }
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max)
+}
+
+function smoothStep(value: number): number {
+  const t = clamp(value, 0, 1)
+  return t * t * (3 - 2 * t)
+}
+
+function getRoundRailDotStyle({
+  roundIndex,
+  roundCount,
+  railHeight,
+  hoverY,
+  active
+}: {
+  roundIndex: number
+  roundCount: number
+  railHeight: number
+  hoverY: number | null
+  active: boolean
+}): React.CSSProperties {
+  const topPercent = roundCount <= 1 ? 50 : (roundIndex / (roundCount - 1)) * 100
+  const dotY = (topPercent / 100) * railHeight
+  const spacing = roundCount <= 1 ? railHeight : railHeight / Math.max(roundCount - 1, 1)
+  const compactHeight = clamp(spacing * 0.46, 1.5, 4)
+  const compactWidth = roundCount > 24 ? compactHeight * 1.9 : compactHeight
+  const influenceRadius = clamp(railHeight * 0.22, 52, 96)
+  const hoverStrength =
+    hoverY === null ? 0 : smoothStep(1 - Math.abs(dotY - hoverY) / influenceRadius)
+  const activeStrength = active ? 0.38 : 0
+  const strength = Math.max(hoverStrength, activeStrength)
+  const height = compactHeight + strength * 10
+  const width = compactWidth + strength * 18
+
+  return {
+    top: `${topPercent}%`,
+    width: `${width}px`,
+    height: `${height}px`,
+    opacity: clamp(0.34 + strength * 0.56 + (active ? 0.16 : 0), 0.34, 1),
+    transform: 'translate(-50%, -50%)',
+    zIndex: Math.round(10 + strength * 30)
+  }
+}
+
+function getRoundRailIndexFromY(y: number, railHeight: number, roundCount: number): number {
+  if (roundCount <= 1) return 0
+  return clamp(Math.round((y / railHeight) * (roundCount - 1)), 0, roundCount - 1)
+}
+
 /**
  * Explode a single TimelineMessage into 1+ timeline nodes.
  *
@@ -1100,6 +1150,55 @@ export function AgentTimeline({
   }, [streamingParts, suppressTodoCards, committedToolUseIds])
 
   const { preludeNodes, rounds } = useMemo(() => groupNodesIntoRounds(nodes), [nodes])
+  const [roundRailHoverY, setRoundRailHoverY] = React.useState<number | null>(null)
+  const [roundRailHeight, setRoundRailHeight] = React.useState(336)
+
+  React.useLayoutEffect(() => {
+    const element = scrollContainerRef?.current
+    if (!element) return
+
+    const updateRailHeight = (): void => {
+      const nextHeight = Math.round(element.clientHeight)
+      if (nextHeight > 0) {
+        setRoundRailHeight(nextHeight)
+      }
+    }
+
+    updateRailHeight()
+
+    if (typeof ResizeObserver === 'undefined') return
+
+    const observer = new ResizeObserver(updateRailHeight)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [scrollContainerRef])
+
+  const handleRoundRailPointerMove = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement> | React.MouseEvent<HTMLDivElement>) => {
+      const rect = event.currentTarget.getBoundingClientRect()
+      if (rect.height <= 0) return
+      if (!Number.isFinite(event.clientY)) return
+      setRoundRailHeight(rect.height)
+      setRoundRailHoverY(clamp(event.clientY - rect.top, 0, rect.height))
+    },
+    []
+  )
+
+  const handleRoundRailPointerLeave = React.useCallback(() => {
+    setRoundRailHoverY(null)
+  }, [])
+
+  const handleRoundRailClick = React.useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!onRoundAnchorNavigate || rounds.length === 0) return
+      const rect = event.currentTarget.getBoundingClientRect()
+      if (rect.height <= 0) return
+      const y = clamp(event.clientY - rect.top, 0, rect.height)
+      const roundIndex = getRoundRailIndexFromY(y, rect.height, rounds.length)
+      onRoundAnchorNavigate(rounds[roundIndex].id)
+    },
+    [onRoundAnchorNavigate, rounds]
+  )
 
   useEffect(() => {
     if (isStreaming && rounds.length > 0) {
@@ -1521,36 +1620,56 @@ export function AgentTimeline({
             )}
           </div>
 
-          {rounds.length > 0 && (
+          {rounds.length > 1 && (
             <aside
-              className="sticky top-1/2 hidden w-10 shrink-0 -translate-y-1/2 lg:block"
+              className="sticky top-0 -mt-6 hidden w-8 shrink-0 self-start lg:block"
               data-testid="timeline-round-anchor-rail"
             >
-              <div className="flex max-h-[60vh] flex-col items-center justify-center gap-2 overflow-y-auto py-2">
-                {rounds.map((round, index) => {
+              <div
+                className="relative min-h-40 cursor-pointer overflow-visible rounded-full border border-border/30 bg-background/45 shadow-sm backdrop-blur-sm transition-colors hover:border-primary/35 hover:bg-background/70"
+                data-testid="timeline-round-anchor-rail-items"
+                style={{ height: `${roundRailHeight}px` }}
+                onPointerMove={handleRoundRailPointerMove}
+                onMouseMove={handleRoundRailPointerMove}
+                onPointerLeave={handleRoundRailPointerLeave}
+                onMouseLeave={handleRoundRailPointerLeave}
+                onClick={handleRoundRailClick}
+              >
+                <div
+                  aria-hidden="true"
+                  className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-border/35"
+                />
+                {rounds.map((round, roundIndex) => {
                   const isActive =
-                    activeRoundId === round.id || (!activeRoundId && index === rounds.length - 1)
+                    activeRoundId === round.id ||
+                    (!activeRoundId && roundIndex === rounds.length - 1)
+                  const dotStyle = getRoundRailDotStyle({
+                    roundIndex,
+                    roundCount: rounds.length,
+                    railHeight: roundRailHeight,
+                    hoverY: roundRailHoverY,
+                    active: isActive
+                  })
                   return (
                     <button
                       key={`rail-${round.id}`}
                       type="button"
-                      onClick={() => onRoundAnchorNavigate?.(round.id)}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onRoundAnchorNavigate?.(round.id)
+                      }}
                       className={cn(
-                        'group relative flex h-4 w-4 items-center justify-center rounded-full transition-all',
-                        isActive ? 'scale-110' : 'hover:scale-105'
+                        'absolute left-1/2 rounded-full border transition-[width,height,opacity,background-color,border-color,box-shadow] duration-150 ease-out',
+                        isActive
+                          ? 'border-primary/85 bg-primary/85 shadow-[0_0_12px_rgba(59,130,246,0.42)]'
+                          : 'border-border/45 bg-muted-foreground/25 hover:border-primary/55 hover:bg-primary/45'
                       )}
+                      style={dotStyle}
                       title={round.preview}
-                      aria-label={`跳转到第 ${index + 1} 轮：${round.preview}`}
-                    >
-                      <span
-                        className={cn(
-                          'block h-2.5 w-2.5 rounded-full border transition-all',
-                          isActive
-                            ? 'border-primary bg-primary shadow-[0_0_14px_rgba(59,130,246,0.55)]'
-                            : 'border-border/80 bg-muted-foreground/30 group-hover:border-primary/55 group-hover:bg-primary/45'
-                        )}
-                      />
-                    </button>
+                      aria-current={isActive ? 'step' : undefined}
+                      aria-label={`跳转到第 ${roundIndex + 1} 轮：${round.preview}`}
+                      data-testid="timeline-round-anchor-button"
+                    />
                   )
                 })}
               </div>
