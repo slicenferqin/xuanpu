@@ -11,6 +11,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/i18n/useI18n'
 import { formatModelLabelSummary, getSessionSummaryModelLabels } from '@/lib/model-labels'
+import { resolveUsageTokenTotals } from '@/lib/usage-token-totals'
 
 interface SessionCostPillProps {
   summary: UsageAnalyticsSessionSummary | null
@@ -59,25 +60,13 @@ export function SessionCostPill({
   const { t } = useI18n()
   const modelSummary = formatModelLabelSummary(getSessionSummaryModelLabels(summary))
   const totalCost = Math.max(summary?.total_cost ?? 0, fallbackCost ?? 0)
-  const hasSummary = summary !== null
-  const fallbackTotalTokens = fallbackTokens
-    ? fallbackTokens.input +
-      fallbackTokens.output +
-      fallbackTokens.cacheRead +
-      fallbackTokens.cacheWrite
-    : 0
-  const totalTokens = hasSummary ? (summary?.total_tokens ?? 0) : fallbackTotalTokens
+  const resolvedTokens = resolveUsageTokenTotals(summary, fallbackTokens, fallbackCost)
+  const totalTokens = resolvedTokens.totalTokens
   const hasAnyTokens = totalTokens > 0
-  const inputTokens = hasSummary ? (summary?.input_tokens ?? 0) : (fallbackTokens?.input ?? 0)
-  const outputTokens = hasSummary
-    ? (summary?.output_tokens ?? 0)
-    : (fallbackTokens?.output ?? 0)
-  const cacheWriteTokens = hasSummary
-    ? (summary?.cache_write_tokens ?? 0)
-    : (fallbackTokens?.cacheWrite ?? 0)
-  const cacheReadTokens = hasSummary
-    ? (summary?.cache_read_tokens ?? 0)
-    : (fallbackTokens?.cacheRead ?? 0)
+  const inputTokens = resolvedTokens.inputTokens
+  const outputTokens = resolvedTokens.outputTokens
+  const cacheWriteTokens = resolvedTokens.cacheWriteTokens
+  const cacheReadTokens = resolvedTokens.cacheReadTokens
 
   if (totalCost <= 0 && !hasAnyTokens) return null
 

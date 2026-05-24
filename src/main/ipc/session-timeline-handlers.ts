@@ -55,6 +55,30 @@ function hasToolUsePart(record: Record<string, unknown>): boolean {
   })
 }
 
+function hasTimelineToolUse(messages: unknown[]): boolean {
+  return messages.some((message) => {
+    if (!message || typeof message !== 'object') return false
+    return hasToolUsePart(message as Record<string, unknown>)
+  })
+}
+
+function isCodexJsonlRecoveryMarker(activity: { payload_json?: string | null }): boolean {
+  if (!activity.payload_json) return false
+  try {
+    const payload = JSON.parse(activity.payload_json) as Record<string, unknown>
+    return payload.kind === 'codex_jsonl_recovery'
+  } catch {
+    return false
+  }
+}
+
+function latestTimestamp(rows: Array<{ created_at?: string | null }>): number {
+  return rows.reduce((latest, row) => {
+    const parsed = Date.parse(row.created_at ?? '')
+    return Number.isFinite(parsed) ? Math.max(latest, parsed) : latest
+  }, 0)
+}
+
 function hasCodexCollapsedToolOrdering(messages: unknown[]): boolean {
   const byTurn = new Map<string, { assistantTimes: number[]; toolTimes: number[] }>()
 
@@ -86,7 +110,11 @@ function hasCodexCollapsedToolOrdering(messages: unknown[]): boolean {
     const minTool = Math.min(...bucket.toolTimes)
     const maxTool = Math.max(...bucket.toolTimes)
 
-    if (maxAssistant - minAssistant <= 1000 && maxTool - minTool >= 2000 && maxAssistant < minTool) {
+    if (
+      maxAssistant - minAssistant <= 1000 &&
+      maxTool - minTool >= 2000 &&
+      maxAssistant < minTool
+    ) {
       return true
     }
 
@@ -128,7 +156,23 @@ export function registerTimelineHandlers(runtimeManager?: AgentRuntimeManager): 
       const session = getDatabase().getSession(sessionId)
       const forceCodexTimelineRefresh =
         session?.agent_sdk === 'codex' && hasCodexCollapsedToolOrdering(result.messages)
+      const forceCodexJsonlToolRecovery = (() => {
+        if (session?.agent_sdk !== 'codex' || hasTimelineToolUse(result.messages)) return false
+
+        const db = getDatabase()
+        const messageRows = db.getSessionMessages(sessionId)
+        if (messageRows.length === 0) return false
+
+        const activityRows = db.getSessionActivities(sessionId)
+        const markerRows = activityRows.filter(isCodexJsonlRecoveryMarker)
+        const latestMarkerAt = latestTimestamp(markerRows)
+        const latestMessageAt = latestTimestamp(messageRows)
+        return latestMarkerAt < latestMessageAt
+      })()
       if (forceCodexTimelineRefresh) {
+        needsImplementerRecovery = true
+      }
+      if (forceCodexJsonlToolRecovery) {
         needsImplementerRecovery = true
       }
 
@@ -156,7 +200,7 @@ export function registerTimelineHandlers(runtimeManager?: AgentRuntimeManager): 
 
               if (workPath) {
                 // getMessages triggers in-memory → DB persist as a side effect
-                if (forceCodexTimelineRefresh) {
+                if (forceCodexTimelineRefresh || forceCodexJsonlToolRecovery) {
                   await impl.getMessages(workPath, session.opencode_session_id, {
                     forceRefresh: true
                   })

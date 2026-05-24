@@ -107,6 +107,44 @@ describe('usage analytics UI', () => {
     expect(screen.queryByText('37.8K')).toBeNull()
   })
 
+  it('uses live tokens when a persisted summary has cost but missing token counters', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <SessionCostPill
+        summary={{
+          session_id: 'session-3',
+          engine: 'codex',
+          total_cost: 0,
+          total_tokens: 0,
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_write_tokens: 0,
+          cache_read_tokens: 0,
+          duration_seconds: 60,
+          last_used_at: '2026-05-21T00:35:40.000Z',
+          model_labels: [],
+          latest_model_label: null,
+          partial: true
+        }}
+        fallbackCost={0.1042}
+        fallbackTokens={{
+          input: 3,
+          output: 66,
+          cacheRead: 0,
+          cacheWrite: 37719
+        }}
+      />
+    )
+
+    expect(screen.getByTestId('session-cost-pill')).toHaveTextContent('$0.1042')
+    await user.click(screen.getByTestId('session-cost-pill'))
+
+    expect(screen.queryByText('Session totals are syncing…')).toBeNull()
+    expect(screen.getByText('37.8K')).toBeTruthy()
+    expect(screen.getByText('37.7K')).toBeTruthy()
+  })
+
   it('renders settings usage dashboard and supports tab switching', async () => {
     const user = userEvent.setup()
     fetchDashboardMock.mockResolvedValue({

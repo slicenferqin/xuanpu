@@ -188,7 +188,9 @@ describe('ContextPanelHost', () => {
         getLastInjection: vi.fn().mockResolvedValue(null),
         getEpisodicMemory: vi.fn().mockResolvedValue(null),
         getSemanticMemory: vi.fn().mockResolvedValue(null),
-        getCheckpoint: vi.fn().mockResolvedValue(null)
+        getCheckpoint: vi.fn().mockResolvedValue(null),
+        listContextPackages: vi.fn().mockResolvedValue([]),
+        listEpisodeBlocks: vi.fn().mockResolvedValue([])
       }
     })
   })
@@ -592,6 +594,70 @@ describe('ContextPanelHost', () => {
       expect(screen.getByText('9.2K')).toBeInTheDocument()
       expect(screen.getByText('3.0K')).toBeInTheDocument()
       expect(screen.getByText('2 sessions in this Worktree')).toBeInTheDocument()
+    })
+  })
+
+  it('falls back to live tokens when persisted cost has no token counters yet', async () => {
+    const sessions = [
+      {
+        id: 'sess-codex-cost-only',
+        worktree_id: 'wt-1',
+        project_id: 'proj-1',
+        connection_id: null,
+        name: 'Codex cost only',
+        status: 'active' as const,
+        opencode_session_id: 'codex-runtime-1',
+        agent_sdk: 'codex' as const,
+        mode: 'build' as const,
+        model_provider_id: null,
+        model_id: null,
+        model_variant: null,
+        first_message_at: null,
+        created_at: '2026-05-21T00:00:00.000Z',
+        updated_at: '2026-05-21T00:00:00.000Z',
+        completed_at: null
+      }
+    ]
+    useSessionStore.setState({
+      activeSessionId: 'sess-codex-cost-only',
+      activeWorktreeId: 'wt-1',
+      sessionsByWorktree: new Map([['wt-1', sessions]]),
+      tabOrderByWorktree: new Map([['wt-1', ['sess-codex-cost-only']]])
+    })
+    useContextStore.getState().setSessionTokens('sess-codex-cost-only', {
+      input: 3,
+      output: 66,
+      reasoning: 0,
+      cacheRead: 0,
+      cacheWrite: 37_719
+    })
+    useContextStore.getState().setSessionCost('sess-codex-cost-only', 0.1042)
+    window.db.session.getByWorktree = vi.fn().mockResolvedValue(sessions)
+    window.usageAnalyticsOps.fetchSessionSummary = vi.fn().mockResolvedValue({
+      success: true,
+      data: {
+        session_id: 'sess-codex-cost-only',
+        engine: 'codex',
+        total_cost: 0,
+        total_tokens: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_write_tokens: 0,
+        cache_read_tokens: 0,
+        duration_seconds: 60,
+        last_used_at: '2026-05-21T00:01:00.000Z',
+        model_labels: [],
+        latest_model_label: null,
+        partial: true
+      }
+    })
+
+    renderHost()
+
+    await waitFor(() => {
+      expect(screen.getByText('$0.10')).toBeInTheDocument()
+      expect(screen.getByText('37.8K')).toBeInTheDocument()
+      expect(screen.getByText('37.7K')).toBeInTheDocument()
     })
   })
 

@@ -25,6 +25,7 @@ import { GoalStatusCard } from '@/components/session-hq/cards/GoalStatusCard'
 import { TodoCard } from '@/components/session-hq/cards/TodoCard'
 import { FieldContextDebug } from '@/components/sessions/FieldContextDebug'
 import { extractMissionTasks, type SessionTask } from '@/lib/session-tasks'
+import { resolveUsageTokenTotals } from '@/lib/usage-token-totals'
 import type { UsageAnalyticsSessionSummary } from '@shared/types/usage-analytics'
 
 interface ContextPanelHostProps {
@@ -331,17 +332,15 @@ function OverviewPanel({
     (acc, sessionId) => {
       const summary = summaryBySession[sessionId]
       const tokens = tokensBySession[sessionId]
-      const liveTotalTokens = tokens
-        ? tokens.input + tokens.output + tokens.reasoning + tokens.cacheRead + tokens.cacheWrite
-        : 0
+      const liveCost = costBySession[sessionId] ?? 0
+      const resolvedTokens = resolveUsageTokenTotals(summary, tokens, liveCost)
 
-      acc.totalCost += Math.max(summary?.total_cost ?? 0, costBySession[sessionId] ?? 0)
-      const hasSummary = summary !== undefined
-      acc.totalTokens += hasSummary ? summary.total_tokens : liveTotalTokens
-      acc.inputTokens += hasSummary ? summary.input_tokens : (tokens?.input ?? 0)
-      acc.outputTokens += hasSummary ? summary.output_tokens : (tokens?.output ?? 0)
-      acc.cacheReadTokens += hasSummary ? summary.cache_read_tokens : (tokens?.cacheRead ?? 0)
-      acc.cacheWriteTokens += hasSummary ? summary.cache_write_tokens : (tokens?.cacheWrite ?? 0)
+      acc.totalCost += Math.max(summary?.total_cost ?? 0, liveCost)
+      acc.totalTokens += resolvedTokens.totalTokens
+      acc.inputTokens += resolvedTokens.inputTokens
+      acc.outputTokens += resolvedTokens.outputTokens
+      acc.cacheReadTokens += resolvedTokens.cacheReadTokens
+      acc.cacheWriteTokens += resolvedTokens.cacheWriteTokens
       return acc
     },
     {
