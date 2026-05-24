@@ -336,11 +336,12 @@ function OverviewPanel({
         : 0
 
       acc.totalCost += Math.max(summary?.total_cost ?? 0, costBySession[sessionId] ?? 0)
-      acc.totalTokens += Math.max(summary?.total_tokens ?? 0, liveTotalTokens)
-      acc.inputTokens += Math.max(summary?.input_tokens ?? 0, tokens?.input ?? 0)
-      acc.outputTokens += Math.max(summary?.output_tokens ?? 0, tokens?.output ?? 0)
-      acc.cacheReadTokens += Math.max(summary?.cache_read_tokens ?? 0, tokens?.cacheRead ?? 0)
-      acc.cacheWriteTokens += Math.max(summary?.cache_write_tokens ?? 0, tokens?.cacheWrite ?? 0)
+      const hasSummary = summary !== undefined
+      acc.totalTokens += hasSummary ? summary.total_tokens : liveTotalTokens
+      acc.inputTokens += hasSummary ? summary.input_tokens : (tokens?.input ?? 0)
+      acc.outputTokens += hasSummary ? summary.output_tokens : (tokens?.output ?? 0)
+      acc.cacheReadTokens += hasSummary ? summary.cache_read_tokens : (tokens?.cacheRead ?? 0)
+      acc.cacheWriteTokens += hasSummary ? summary.cache_write_tokens : (tokens?.cacheWrite ?? 0)
       return acc
     },
     {

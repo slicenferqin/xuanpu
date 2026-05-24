@@ -1911,9 +1911,9 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   const composerVeilHeight = Math.min(Math.max(smartScroll.bottomFloatingHeight + 24, 72), 128)
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Main content area — relative for floating ComposerBar */}
-      <div className="flex-1 flex flex-col overflow-hidden relative">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      {/* Main content area — hard-row layout keeps transcript output inside the scroll region. */}
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto_auto] overflow-hidden relative">
         <AgentTimeline
           timelineMessages={timelineMessages}
           streamingContent={streamingContent}
@@ -1958,7 +1958,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           style={{ bottom: `${scrollFabBottomOffset}px` }}
         />
 
-        <div ref={timelineBottomAreaRef} className="shrink-0">
+        <div ref={timelineBottomAreaRef} className="min-h-0">
           <InterruptDock
             sessionId={sessionId}
             interrupt={currentInterrupt}
@@ -1975,7 +1975,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         />
 
         <div
-          className="relative z-20 shrink-0 pb-4 pt-2"
+          className="relative z-20 min-h-0 pb-4 pt-2"
           data-testid="session-composer-dock"
         >
           <div

@@ -594,4 +594,69 @@ describe('ContextPanelHost', () => {
       expect(screen.getByText('2 sessions in this Worktree')).toBeInTheDocument()
     })
   })
+
+  it('does not use live context tokens as worktree session totals once a summary exists', async () => {
+    const sessions = [
+      {
+        id: 'sess-claude-syncing',
+        worktree_id: 'wt-1',
+        project_id: 'proj-1',
+        connection_id: null,
+        name: 'Claude syncing',
+        status: 'active' as const,
+        opencode_session_id: 'claude-runtime-1',
+        agent_sdk: 'claude-code' as const,
+        mode: 'build' as const,
+        model_provider_id: null,
+        model_id: null,
+        model_variant: null,
+        first_message_at: null,
+        created_at: '2026-05-21T00:00:00.000Z',
+        updated_at: '2026-05-21T00:00:00.000Z',
+        completed_at: null
+      }
+    ]
+    useSessionStore.setState({
+      activeSessionId: 'sess-claude-syncing',
+      activeWorktreeId: 'wt-1',
+      sessionsByWorktree: new Map([['wt-1', sessions]]),
+      tabOrderByWorktree: new Map([['wt-1', ['sess-claude-syncing']]])
+    })
+    useContextStore.getState().setSessionTokens('sess-claude-syncing', {
+      input: 3,
+      output: 66,
+      reasoning: 0,
+      cacheRead: 0,
+      cacheWrite: 37_719
+    })
+    window.db.session.getByWorktree = vi.fn().mockResolvedValue(sessions)
+    window.usageAnalyticsOps.fetchSessionSummary = vi.fn().mockResolvedValue({
+      success: true,
+      data: {
+        session_id: 'sess-claude-syncing',
+        engine: 'claude-code',
+        total_cost: 0,
+        total_tokens: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_write_tokens: 0,
+        cache_read_tokens: 0,
+        duration_seconds: 0,
+        last_used_at: null,
+        model_labels: [],
+        latest_model_label: null,
+        partial: true
+      }
+    })
+
+    renderHost()
+
+    await waitFor(() => {
+      expect(window.usageAnalyticsOps.fetchSessionSummary).toHaveBeenCalledWith(
+        'sess-claude-syncing'
+      )
+      expect(screen.queryByText('37.8K')).not.toBeInTheDocument()
+      expect(screen.queryByText('37.7K')).not.toBeInTheDocument()
+    })
+  })
 })
