@@ -108,7 +108,7 @@ export class XuanpuPiAgentSession {
       }
 
       if (event.type === 'agent_end') {
-        const assistant = event.messages?.find((message) => message.role === 'assistant')
+        const assistant = findLastAssistantMessage(event.messages)
         if (assistant) finalMessage = assistant
       }
     })

@@ -220,6 +220,29 @@ describe('XuanpuPiAgentSession', () => {
     expect(fakeRuntime.setToolsCalls).toEqual([[], []])
   })
 
+  it('uses the latest assistant message from reused pi Agent state', async () => {
+    const { XuanpuPiAgentSession } = await import('../../src/main/services/xuanpu-agent/runtime')
+    const session = new XuanpuPiAgentSession('test-session')
+
+    process.env.XUANPU_AGENT_MOCK_RESPONSE = 'first response'
+    const first = await session.prompt('first turn', {
+      providerID: 'anthropic',
+      modelID: 'claude-haiku-4-5'
+    })
+
+    process.env.XUANPU_AGENT_MOCK_RESPONSE = 'second response'
+    const second = await session.prompt('second turn', {
+      providerID: 'anthropic',
+      modelID: 'claude-haiku-4-5'
+    })
+
+    expect(first.text).toBe('first response')
+    expect(second.text).toBe('second response')
+    expect(fakeRuntime.prompts).toEqual(['first turn', 'second turn'])
+
+    session.dispose()
+  })
+
   it('fails before creating a pi Agent when real provider credentials are missing', async () => {
     for (const key of credentialEnvKeys) delete process.env[key]
 
