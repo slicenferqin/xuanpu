@@ -15,14 +15,16 @@ const PI_NATIVE_FILENAMES = {
 function electronArchToNodeArch(arch) {
   if (typeof arch === 'string') return arch
   switch (arch) {
-    case 1:
+    case 0:
       return 'ia32'
-    case 2:
+    case 1:
       return 'x64'
-    case 3:
+    case 2:
       return 'armv7l'
-    case 4:
+    case 3:
       return 'arm64'
+    case 4:
+      return 'universal'
     default:
       return String(arch)
   }
@@ -37,41 +39,49 @@ async function pathExists(filePath) {
   }
 }
 
-function getResourcesDir(context) {
+async function getResourcesDir(context) {
   if (context.electronPlatformName === 'darwin') {
-    return path.join(
-      context.appOutDir,
-      `${context.packager.appInfo.productFilename}.app`,
-      'Contents',
-      'Resources'
-    )
+    const entries = await fs.readdir(context.appOutDir).catch(() => [])
+    const appBundle = entries.find((entry) => entry.endsWith('.app'))
+    const appName = appBundle ?? `${context.packager.appInfo.productFilename}.app`
+    return path.join(context.appOutDir, appName, 'Contents', 'Resources')
   }
 
   return path.join(context.appOutDir, 'resources')
 }
 
-exports.default = async function afterPackPrune(context) {
-  const platform = context.electronPlatformName
-  const arch = electronArchToNodeArch(context.arch)
-  const keep = PI_NATIVE_FILENAMES[`${platform}:${arch}`]
+async function collectPiNativeDirs(rootDir) {
+  const matches = []
 
-  if (!keep) {
-    return
+  async function visit(dir, depthRemaining) {
+    if (depthRemaining < 0) {
+      return
+    }
+
+    let entries
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+
+    if (path.basename(dir) === 'native' && path.basename(path.dirname(dir)) === 'pi-natives') {
+      matches.push(dir)
+      return
+    }
+
+    await Promise.all(
+      entries
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => visit(path.join(dir, entry.name), depthRemaining - 1))
+    )
   }
 
-  const nativeDir = path.join(
-    getResourcesDir(context),
-    'app.asar.unpacked',
-    'node_modules',
-    '@oh-my-pi',
-    'pi-natives',
-    'native'
-  )
+  await visit(rootDir, 12)
+  return matches
+}
 
-  if (!(await pathExists(nativeDir))) {
-    return
-  }
-
+async function prunePiNativeDir(nativeDir, keep) {
   const entries = await fs.readdir(nativeDir)
   await Promise.all(
     entries
@@ -81,3 +91,29 @@ exports.default = async function afterPackPrune(context) {
       .map((entry) => fs.rm(path.join(nativeDir, entry), { force: true }))
   )
 }
+
+async function afterPackPrune(context) {
+  const platform = context.electronPlatformName
+  const arch = electronArchToNodeArch(context.arch)
+  const keep = PI_NATIVE_FILENAMES[`${platform}:${arch}`]
+
+  if (!keep) {
+    return
+  }
+
+  const nodeModulesDir = path.join(
+    await getResourcesDir(context),
+    'app.asar.unpacked',
+    'node_modules'
+  )
+
+  if (!(await pathExists(nodeModulesDir))) {
+    return
+  }
+
+  const nativeDirs = await collectPiNativeDirs(nodeModulesDir)
+  await Promise.all(nativeDirs.map((nativeDir) => prunePiNativeDir(nativeDir, keep)))
+}
+
+module.exports = afterPackPrune
+module.exports.default = afterPackPrune
