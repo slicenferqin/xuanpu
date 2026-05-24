@@ -1914,43 +1914,48 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       {/* Main content area — hard-row layout keeps transcript output inside the scroll region. */}
-      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto_auto] overflow-hidden relative">
-        <AgentTimeline
-          timelineMessages={timelineMessages}
-          streamingContent={streamingContent}
-          streamingParts={streamingParts}
-          isStreaming={isStreaming}
-          activeRunStartedAt={runStartedAt}
-          lifecycle={lifecycle}
-          ephemeralStatusRows={ephemeralStatusRows}
-          inflightCompaction={inflightCompactionRow}
-          suppressTodoCards
-          sessionId={sessionId}
-          worktreePath={worktreePath}
-          childPartsMap={childPartsMap}
-          planContentByToolUseId={planContentByToolUseId}
-          canEditUserMessage={canEditUserMessage}
-          editingMessageId={editingMessageId}
-          editingContent={editingContent}
-          onEditingContentChange={setEditingContent}
-          onSaveUserMessageEdit={handleSaveUserMessageEdit}
-          onCancelUserMessageEdit={handleCancelUserMessageEdit}
-          onEditUserMessage={handleEditUserMessage}
-          onForkUserMessage={handleForkUserMessage}
-          onCopyUserMessage={() => {}}
-          forkingMessageId={forkingMessageId}
-          scrollContainerRef={smartScroll.scrollContainerRef}
-          onScroll={smartScroll.handleScroll}
-          onWheel={smartScroll.handleScrollWheel}
-          onPointerDown={smartScroll.handleScrollPointerDown}
-          onPointerUp={smartScroll.handleScrollPointerUp}
-          onPointerCancel={smartScroll.handleScrollPointerCancel}
-          bottomFloatingHeight={smartScroll.bottomFloatingHeight}
-          clearScreenBottomInset={clearScreenBottomInset}
-          activeRoundId={activeRoundId}
-          onActiveRoundChange={setActiveRoundId}
-          onRoundAnchorNavigate={handleRoundAnchorNavigate}
-        />
+      <div className="relative grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto] overflow-hidden">
+        <div
+          className="row-start-1 row-end-2 min-h-0 overflow-hidden"
+          data-testid="session-transcript-region"
+        >
+          <AgentTimeline
+            timelineMessages={timelineMessages}
+            streamingContent={streamingContent}
+            streamingParts={streamingParts}
+            isStreaming={isStreaming}
+            activeRunStartedAt={runStartedAt}
+            lifecycle={lifecycle}
+            ephemeralStatusRows={ephemeralStatusRows}
+            inflightCompaction={inflightCompactionRow}
+            suppressTodoCards
+            sessionId={sessionId}
+            worktreePath={worktreePath}
+            childPartsMap={childPartsMap}
+            planContentByToolUseId={planContentByToolUseId}
+            canEditUserMessage={canEditUserMessage}
+            editingMessageId={editingMessageId}
+            editingContent={editingContent}
+            onEditingContentChange={setEditingContent}
+            onSaveUserMessageEdit={handleSaveUserMessageEdit}
+            onCancelUserMessageEdit={handleCancelUserMessageEdit}
+            onEditUserMessage={handleEditUserMessage}
+            onForkUserMessage={handleForkUserMessage}
+            onCopyUserMessage={() => {}}
+            forkingMessageId={forkingMessageId}
+            scrollContainerRef={smartScroll.scrollContainerRef}
+            onScroll={smartScroll.handleScroll}
+            onWheel={smartScroll.handleScrollWheel}
+            onPointerDown={smartScroll.handleScrollPointerDown}
+            onPointerUp={smartScroll.handleScrollPointerUp}
+            onPointerCancel={smartScroll.handleScrollPointerCancel}
+            bottomFloatingHeight={smartScroll.bottomFloatingHeight}
+            clearScreenBottomInset={clearScreenBottomInset}
+            activeRoundId={activeRoundId}
+            onActiveRoundChange={setActiveRoundId}
+            onRoundAnchorNavigate={handleRoundAnchorNavigate}
+          />
+        </div>
 
         <ScrollToBottomFab
           onClick={smartScroll.handleScrollToBottomClick}
@@ -1958,14 +1963,6 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           count={smartScroll.scrollFabCount}
           style={{ bottom: `${scrollFabBottomOffset}px` }}
         />
-
-        <div ref={timelineBottomAreaRef} className="min-h-0">
-          <InterruptDock
-            sessionId={sessionId}
-            interrupt={currentInterrupt}
-            worktreePath={worktreePath}
-          />
-        </div>
 
         <PlanReadyImplementFab
           onImplement={handlePlanImplement}
@@ -1976,57 +1973,71 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         />
 
         <div
-          className="relative z-20 min-h-0 pb-4 pt-2"
-          data-testid="session-composer-dock"
+          className="row-start-2 row-end-3 min-h-0 overflow-visible"
+          data-testid="session-bottom-stack"
         >
-          <div
-            className="crisp-composer-veil pointer-events-none absolute inset-x-0 bottom-0 z-0"
-            style={{ height: `${composerVeilHeight}px` }}
-          />
+          <div ref={timelineBottomAreaRef} className="min-h-0">
+            <InterruptDock
+              sessionId={sessionId}
+              interrupt={currentInterrupt}
+              worktreePath={worktreePath}
+            />
+            {agentSdk === 'xuanpu-agent' && (
+              <ContextBudgetDebugger
+                sessionId={sessionId}
+                runtimeSessionId={droidSessionId}
+                worktreeId={worktreeId}
+                className="mt-2 rounded-lg border border-border/45 bg-background/92 shadow-lg backdrop-blur"
+              />
+            )}
+          </div>
 
-          <ComposerBar
-            containerRef={composerBarRef}
-            sessionId={sessionId}
-            lifecycle={lifecycle}
-            pendingCount={pendingCount}
-            firstInterrupt={composerInterrupt}
-            onAction={handleComposerAction}
-            isConnected={!!droidSessionId && !!worktreePath}
-            supportsSteer={supportsSteer}
-            preferSteerWhenBusy={preferSteerWhenBusy}
-            mode={mode}
-            onToggleMode={toggleMode}
-            pendingPlan={pendingPlan}
-            supportsGoalMode={supportsSessionGoalMode}
-            goalMode={goalMode}
-            onToggleGoalMode={toggleGoalMode}
-            successCriteria={successCriteria}
-            onSuccessCriteriaChange={setSuccessCriteria}
-            worktreePath={worktreePath}
-            commandsVersion={commandsVersion}
-            contextAttachmentSlot={<DiffCommentAttachments />}
-            controlSlot={<MemoryPanel worktreeId={worktreeId} variant="composer" />}
-          />
+          <div
+            className="relative z-20 min-h-0 pb-4 pt-2"
+            data-testid="session-composer-dock"
+          >
+            <div
+              className="crisp-composer-veil pointer-events-none absolute inset-x-0 bottom-0 z-0"
+              style={{ height: `${composerVeilHeight}px` }}
+            />
+
+            <ComposerBar
+              containerRef={composerBarRef}
+              sessionId={sessionId}
+              lifecycle={lifecycle}
+              pendingCount={pendingCount}
+              firstInterrupt={composerInterrupt}
+              onAction={handleComposerAction}
+              isConnected={!!droidSessionId && !!worktreePath}
+              supportsSteer={supportsSteer}
+              preferSteerWhenBusy={preferSteerWhenBusy}
+              mode={mode}
+              onToggleMode={toggleMode}
+              pendingPlan={pendingPlan}
+              supportsGoalMode={supportsSessionGoalMode}
+              goalMode={goalMode}
+              onToggleGoalMode={toggleGoalMode}
+              successCriteria={successCriteria}
+              onSuccessCriteriaChange={setSuccessCriteria}
+              worktreePath={worktreePath}
+              commandsVersion={commandsVersion}
+              contextAttachmentSlot={<DiffCommentAttachments />}
+              controlSlot={<MemoryPanel worktreeId={worktreeId} variant="composer" />}
+            />
+          </div>
         </div>
 
-        <div className="absolute bottom-0 left-0 right-0 z-30">
-          {agentSdk === 'xuanpu-agent' && (
-            <ContextBudgetDebugger
-              sessionId={sessionId}
-              runtimeSessionId={droidSessionId}
-              worktreeId={worktreeId}
-            />
-          )}
-          {/* Phase 22A debug: collapsible view of the last Field Context injection.
-              Production users inspect memory through the Composer console. */}
-          {process.env.NODE_ENV === 'development' && (
+        {process.env.NODE_ENV === 'development' && (
+          <div className="absolute right-3 top-3 z-30 w-[min(720px,calc(100%-1.5rem))] rounded-lg border border-border/45 bg-background/92 shadow-lg backdrop-blur">
+            {/* Phase 22A debug: collapsible view of the last Field Context injection.
+                Production users inspect memory through the Composer console. */}
             <FieldContextDebug
               sessionId={droidSessionId}
               fallbackSessionIds={[sessionId]}
               worktreeId={worktreeId}
             />
-          )}
-        </div>
+          </div>
+        )}
 
         <ForkFromMessageConfirmDialog
           open={pendingForkMessageId !== null}

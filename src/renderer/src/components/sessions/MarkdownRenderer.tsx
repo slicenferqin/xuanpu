@@ -11,24 +11,26 @@ interface MarkdownRendererProps {
 
 const components: Components = {
   h1: ({ children }) => (
-    <h1 className="crisp-strong-title text-xl mt-6 mb-3 first:mt-0">{children}</h1>
+    <h1 className="crisp-strong-title text-xl font-bold mt-6 mb-3 first:mt-0">{children}</h1>
   ),
   h2: ({ children }) => (
-    <h2 className="crisp-strong-title text-lg mt-5 mb-2 first:mt-0">{children}</h2>
+    <h2 className="crisp-strong-title text-lg font-semibold mt-5 mb-2 first:mt-0">{children}</h2>
   ),
   h3: ({ children }) => (
-    <h3 className="crisp-strong-title text-base mt-4 mb-2 first:mt-0">{children}</h3>
+    <h3 className="crisp-strong-title text-base font-semibold mt-4 mb-2 first:mt-0">
+      {children}
+    </h3>
   ),
-  p: ({ children }) => <p className="mb-3 last:mb-0 leading-[1.6]">{children}</p>,
+  p: ({ children }) => <p className="mb-3.5 last:mb-0 leading-[1.72]">{children}</p>,
   ul: ({ children }) => (
-    <ul className="list-disc pl-6 mb-3 space-y-1.5 marker:text-steel/70">{children}</ul>
+    <ul className="list-disc pl-6 mb-3.5 space-y-2 marker:text-steel/70">{children}</ul>
   ),
   ol: ({ children }) => (
-    <ol className="list-decimal pl-6 mb-3 space-y-1.5 marker:text-steel/70">{children}</ol>
+    <ol className="list-decimal pl-6 mb-3.5 space-y-2 marker:text-steel/70">{children}</ol>
   ),
-  li: ({ children }) => <li className="leading-[1.6]">{children}</li>,
+  li: ({ children }) => <li className="leading-[1.72]">{children}</li>,
   blockquote: ({ children }) => (
-    <blockquote className="my-3 border-l-2 border-steel/25 pl-4 italic text-muted-foreground">
+    <blockquote className="my-3.5 border-l-2 border-steel/25 pl-4 leading-[1.72] italic text-muted-foreground">
       {children}
     </blockquote>
   ),

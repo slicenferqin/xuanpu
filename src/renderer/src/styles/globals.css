@@ -233,7 +233,7 @@
     font-feature-settings:
       'rlig' 1,
       'calt' 1;
-    line-height: 1.55;
+    line-height: 1.6;
   }
 
   .dark body {
@@ -319,13 +319,14 @@
   }
 
   .crisp-readable {
-    line-height: 1.6;
+    line-height: 1.72;
+    letter-spacing: 0;
   }
 
   .crisp-strong-title {
     color: var(--ink);
     font-weight: 650;
-    letter-spacing: -0.012em;
+    letter-spacing: 0;
   }
 
   .crisp-active-row {
