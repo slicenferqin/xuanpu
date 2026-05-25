@@ -60,6 +60,7 @@ const fakeRuntime = vi.hoisted(() => {
       prompts.push(input)
       const text =
         typeof this.model?.responseText === 'string' ? this.model.responseText : 'mock ok'
+      const eventMode = process.env.XUANPU_AGENT_FAKE_EVENT_MODE
       const firstChunk = text.slice(0, Math.max(1, Math.floor(text.length / 2)))
       const message: FakeAssistantMessage = {
         role: 'assistant',
@@ -74,6 +75,12 @@ const fakeRuntime = vi.hoisted(() => {
         message: { ...message, content: [{ type: 'text', text: firstChunk }] }
       })
       this.emit({ type: 'message_update', message })
+      if (eventMode === 'stale-agent-end-before-state-push') {
+        this.emit({ type: 'agent_end', messages: this.state.messages })
+        this.state.messages.push(message)
+        return
+      }
+
       this.emit({ type: 'message_end', message })
       this.state.messages.push(message)
       this.emit({ type: 'agent_end', messages: this.state.messages })
@@ -126,6 +133,7 @@ vi.mock('../../src/main/services/xuanpu-agent/pi-agent-core-loader', () => ({
 
 describe('XuanpuPiAgentSession', () => {
   const previousMockResponse = process.env.XUANPU_AGENT_MOCK_RESPONSE
+  const previousFakeEventMode = process.env.XUANPU_AGENT_FAKE_EVENT_MODE
   const credentialEnvKeys = [
     'ANTHROPIC_OAUTH_TOKEN',
     'ANTHROPIC_API_KEY',
@@ -143,6 +151,11 @@ describe('XuanpuPiAgentSession', () => {
       delete process.env.XUANPU_AGENT_MOCK_RESPONSE
     } else {
       process.env.XUANPU_AGENT_MOCK_RESPONSE = previousMockResponse
+    }
+    if (previousFakeEventMode === undefined) {
+      delete process.env.XUANPU_AGENT_FAKE_EVENT_MODE
+    } else {
+      process.env.XUANPU_AGENT_FAKE_EVENT_MODE = previousFakeEventMode
     }
     for (const key of credentialEnvKeys) {
       const value = previousCredentialEnv[key]
@@ -238,6 +251,31 @@ describe('XuanpuPiAgentSession', () => {
 
     expect(first.text).toBe('first response')
     expect(second.text).toBe('second response')
+    expect(fakeRuntime.prompts).toEqual(['first turn', 'second turn'])
+
+    session.dispose()
+  })
+
+  it('does not return a previous assistant message from stale reused pi Agent events', async () => {
+    const { XuanpuPiAgentSession } = await import('../../src/main/services/xuanpu-agent/runtime')
+    const session = new XuanpuPiAgentSession('test-session')
+
+    process.env.XUANPU_AGENT_MOCK_RESPONSE = 'first response'
+    const first = await session.prompt('first turn', {
+      providerID: 'anthropic',
+      modelID: 'claude-haiku-4-5'
+    })
+
+    process.env.XUANPU_AGENT_MOCK_RESPONSE = 'second response'
+    process.env.XUANPU_AGENT_FAKE_EVENT_MODE = 'stale-agent-end-before-state-push'
+    const second = await session.prompt('second turn', {
+      providerID: 'anthropic',
+      modelID: 'claude-haiku-4-5'
+    })
+
+    expect(first.text).toBe('first response')
+    expect(second.text).toBe('second response')
+    expect(second.text).not.toBe(first.text)
     expect(fakeRuntime.prompts).toEqual(['first turn', 'second turn'])
 
     session.dispose()

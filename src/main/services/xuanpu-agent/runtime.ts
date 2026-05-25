@@ -84,7 +84,8 @@ export class XuanpuPiAgentSession {
     const agent = await this.getOrCreateAgent(resolved.modelRef, resolved.model, resolved.streamFn)
 
     let streamedText = ''
-    let finalMessage: PiAssistantMessage | null = null
+    const stateMessageCountBeforePrompt = agent.state.messages?.length ?? 0
+    const pendingAssistantMessages: PiAssistantMessage[] = []
 
     this.unsubscribe?.()
     this.unsubscribe = agent.subscribe((event) => {
@@ -98,7 +99,7 @@ export class XuanpuPiAgentSession {
       }
 
       if (event.type === 'message_end' && event.message?.role === 'assistant') {
-        finalMessage = event.message
+        pendingAssistantMessages.push(event.message)
         const nextText = extractText(event.message)
         if (nextText.length > streamedText.length && nextText.startsWith(streamedText)) {
           const delta = nextText.slice(streamedText.length)
@@ -108,14 +109,22 @@ export class XuanpuPiAgentSession {
       }
 
       if (event.type === 'agent_end') {
-        const assistant = findLastAssistantMessage(event.messages)
-        if (assistant) finalMessage = assistant
+        const turnMessages = getNewTurnMessages(event.messages, stateMessageCountBeforePrompt)
+        pendingAssistantMessages.push(
+          ...turnMessages.filter((message) => message?.role === 'assistant')
+        )
       }
     })
 
     await agent.prompt(input)
 
-    const message = finalMessage ?? findLastAssistantMessage(agent.state.messages)
+    const turnStateMessages = getNewTurnMessages(
+      agent.state.messages,
+      stateMessageCountBeforePrompt
+    )
+    const message =
+      findLastAssistantMessage(pendingAssistantMessages) ??
+      findLastAssistantMessage(turnStateMessages)
     const errorMessage = message?.errorMessage ?? agent.state.error
     if (errorMessage) {
       throw new Error(errorMessage)
@@ -186,6 +195,18 @@ function extractText(message: PiAssistantMessage | null | undefined): string {
       return ''
     })
     .join('')
+}
+
+function getNewTurnMessages(
+  messages: PiAssistantMessage[] | undefined,
+  stateMessageCountBeforePrompt: number
+): PiAssistantMessage[] {
+  if (!messages) return []
+  if (stateMessageCountBeforePrompt === 0) return messages
+  if (messages.length > stateMessageCountBeforePrompt)
+    return messages.slice(stateMessageCountBeforePrompt)
+
+  return []
 }
 
 function findLastAssistantMessage(messages?: PiAssistantMessage[]): PiAssistantMessage | null {
