@@ -288,7 +288,9 @@ describe('getSessionTimeline', () => {
       const parts = result.messages[0].parts
       expect(parts).toBeDefined()
       // text part stays + ExitPlanMode tool part appended
-      const planPart = parts!.find((p) => p.type === 'tool_use' && p.toolUse?.name === 'ExitPlanMode')
+      const planPart = parts!.find(
+        (p) => p.type === 'tool_use' && p.toolUse?.name === 'ExitPlanMode'
+      )
       expect(planPart).toBeDefined()
       expect(planPart?.toolUse?.input).toMatchObject({ plan: '## Plan\n- step 1' })
       // Pending status because no plan.resolved row yet
@@ -480,9 +482,7 @@ describe('getSessionTimeline', () => {
       expect(result.messages.length).toBeGreaterThanOrEqual(2)
 
       // Find the tool message
-      const toolMsg = result.messages.find(
-        (m) => m.parts?.some((p) => p.type === 'tool_use')
-      )
+      const toolMsg = result.messages.find((m) => m.parts?.some((p) => p.type === 'tool_use'))
       expect(toolMsg).toBeDefined()
       expect(toolMsg?.parts?.[0].toolUse?.name).toBe('write_file')
     })
@@ -495,6 +495,61 @@ describe('getSessionTimeline', () => {
       getSessionTimeline('sess-1')
 
       expect(mockGetSessionActivities).toHaveBeenCalledWith('sess-1')
+    })
+
+    it('orders same-timestamp codex activities by persisted sequence', () => {
+      mockGetSession.mockReturnValue(makeSession({ agent_sdk: 'codex' }))
+      mockGetSessionMessages.mockReturnValue([
+        makeMessageRow({
+          id: 'msg-user-1',
+          role: 'user',
+          content: 'Run both tools',
+          opencode_message_id: 'turn-1:user',
+          sequence: 1,
+          created_at: '2024-01-01T00:00:00.000Z'
+        }),
+        makeMessageRow({
+          id: 'msg-assistant-1',
+          role: 'assistant',
+          content: 'Done',
+          opencode_message_id: 'turn-1:assistant',
+          sequence: 2,
+          created_at: '2024-01-01T00:00:05.000Z'
+        })
+      ])
+      mockGetSessionActivities.mockReturnValue([
+        makeActivityRow({
+          id: 'activity-a-lexically-first',
+          turn_id: 'turn-1',
+          item_id: 'tool-second',
+          summary: 'Second',
+          payload_json: JSON.stringify({
+            item: { toolName: 'write_file', input: { path: '/second.ts' }, output: 'second' }
+          }),
+          sequence: 2,
+          created_at: '2024-01-01T00:00:03.000Z'
+        }),
+        makeActivityRow({
+          id: 'activity-z-lexically-last',
+          turn_id: 'turn-1',
+          item_id: 'tool-first',
+          summary: 'First',
+          payload_json: JSON.stringify({
+            item: { toolName: 'read_file', input: { path: '/first.ts' }, output: 'first' }
+          }),
+          sequence: 1,
+          created_at: '2024-01-01T00:00:03.000Z'
+        })
+      ])
+
+      const result = getSessionTimeline('sess-1')
+
+      expect(result.messages.map((message) => message.id)).toEqual([
+        'turn-1:user',
+        'turn-1:tool:tool-first',
+        'turn-1:tool:tool-second',
+        'turn-1:assistant'
+      ])
     })
 
     it('does NOT fetch activities for claude-code sessions', () => {

@@ -581,4 +581,75 @@ describe('codex timeline derivation', () => {
       'turn-2:assistant'
     ])
   })
+
+  it('orders same-timestamp activity messages by persisted sequence before UUID fallback', () => {
+    const messages = [
+      {
+        id: 'turn-1:user',
+        role: 'user' as const,
+        content: 'Run both tools',
+        timestamp: '2026-03-14T10:00:00.000Z'
+      },
+      {
+        id: 'turn-1:assistant',
+        role: 'assistant' as const,
+        content: 'Done',
+        timestamp: '2026-03-14T10:00:05.000Z'
+      }
+    ]
+
+    const activities: SessionActivity[] = [
+      {
+        id: 'activity-a-lexically-first',
+        session_id: 'session-1',
+        agent_session_id: 'thread-1',
+        thread_id: 'thread-1',
+        turn_id: 'turn-1',
+        item_id: 'tool-second',
+        request_id: null,
+        kind: 'tool.completed',
+        tone: 'tool',
+        summary: 'Second',
+        payload_json: JSON.stringify({
+          item: {
+            toolName: 'Write',
+            input: { filePath: 'src/second.ts' },
+            output: 'second'
+          }
+        }),
+        sequence: 2,
+        created_at: '2026-03-14T10:00:03.000Z'
+      },
+      {
+        id: 'activity-z-lexically-last',
+        session_id: 'session-1',
+        agent_session_id: 'thread-1',
+        thread_id: 'thread-1',
+        turn_id: 'turn-1',
+        item_id: 'tool-first',
+        request_id: null,
+        kind: 'tool.completed',
+        tone: 'tool',
+        summary: 'First',
+        payload_json: JSON.stringify({
+          item: {
+            toolName: 'Read',
+            input: { filePath: 'src/first.ts' },
+            output: 'first'
+          }
+        }),
+        sequence: 1,
+        created_at: '2026-03-14T10:00:03.000Z'
+      }
+    ]
+
+    const timeline = mergeCodexActivityMessages(messages, activities)
+
+    expect(timeline.map((message) => message.id)).toEqual([
+      'turn-1:user',
+      'turn-1:tool:tool-first',
+      'turn-1:tool:tool-second',
+      'turn-1:assistant'
+    ])
+  })
 })

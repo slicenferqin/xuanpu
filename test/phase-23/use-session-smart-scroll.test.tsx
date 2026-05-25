@@ -410,7 +410,7 @@ describe('useSessionSmartScroll', () => {
     })
   })
 
-  it('ignores the clear-screen spacer when jumping to the real content bottom', () => {
+  it('does not inject a clear-screen spacer when jumping to the real content bottom', () => {
     const { rerender } = render(
       <SmartScrollHarness
         sessionId="session-a"
@@ -439,8 +439,8 @@ describe('useSessionSmartScroll', () => {
     const clearInset = Number(screen.getByTestId('smart-scroll-clear-inset').textContent)
     fireEvent.click(screen.getByTestId('smart-scroll-fab-button'))
 
-    expect(clearInset).toBeGreaterThan(0)
-    expect(scrollTop.current).toBe(1600 - 500 - clearInset)
+    expect(clearInset).toBe(0)
+    expect(scrollTop.current).toBe(1600 - 500)
     expect(getSessionViewState('session-a')).toMatchObject({
       stickyBottom: true,
       manualScrollLocked: false,
@@ -460,6 +460,8 @@ describe('useSessionSmartScroll', () => {
     expect(source).toContain('manualScrollIntentRef')
     expect(source).toContain('pointerDownInScrollerRef')
     expect(source).toContain("scrollToBottom('instant')")
+    expect(source).toContain('getNearBottomThreshold')
+    expect(source).toContain('window.innerHeight * 0.06')
     expect(source).toContain('BOTTOM_AREA_COMPENSATE_THRESHOLD')
     expect(source).toContain('clearScreenBottomInset')
   })

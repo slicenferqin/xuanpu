@@ -33,7 +33,7 @@ import type { SessionActivityCreate } from '../db'
 import { autoRenameWorktreeBranch } from './git-service'
 import { beginSessionRun, emitAgentEvent } from '@shared/lib/normalize-agent-event'
 import { stripFieldContextEnvelope } from '@shared/lib/field-context-envelope'
-import { calculateUsageCost } from '@shared/usage/pricing'
+import { calculateUsageCost, resolvePricingModelKey } from '@shared/usage/pricing'
 import { notificationService } from './notification-service'
 import { buildXfpFallbackContext } from '../xfp/fallback-context'
 import { xfpProvider } from '../xfp/provider'
@@ -744,6 +744,64 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     }
   }
 
+  /**
+   * Persist a codex turn's token usage to `usage_entries`.
+   *
+   * Per-turn rows are keyed by `(session_id, source_message_id='codex-turn:<turnId>')`,
+   * so repeated `tokenUsage/updated` events for the same turn UPSERT (replace) and
+   * different turns accumulate. The values stored are the turn-local `lastTokens`
+   * (NOT the thread cumulative), so summing rows across a session reconstructs the
+   * thread total exactly once.
+   *
+   * Cost is computed from the same `lastTokens` so it matches token detail; the
+   * runtime delta tracker (`calculateTurnTokenUsageCostDelta`) is unchanged.
+   */
+  private persistCodexTurnUsage(
+    session: CodexSessionState,
+    turnId: string | undefined,
+    modelID: string,
+    lastTokens: { input: number; cacheRead: number; cacheWrite: number; output: number }
+  ): void {
+    if (!this.dbService || !turnId) return
+
+    const total =
+      lastTokens.input + lastTokens.output + lastTokens.cacheRead + lastTokens.cacheWrite
+    if (total <= 0) return
+
+    try {
+      const dbSession = this.dbService.getSession(session.hiveSessionId)
+      if (!dbSession) return
+
+      const cost = calculateUsageCost(modelID, lastTokens, 'codex')
+      const pricingModelKey = resolvePricingModelKey(modelID, 'codex')
+
+      this.dbService.upsertUsageEntry({
+        session_id: session.hiveSessionId,
+        project_id: dbSession.project_id,
+        worktree_id: dbSession.worktree_id ?? null,
+        agent_sdk: 'codex',
+        source_kind: 'codex-message',
+        source_message_id: `codex-turn:${turnId}`,
+        provider_id: 'codex',
+        model_id: pricingModelKey,
+        model_label: modelID,
+        input_tokens: lastTokens.input,
+        output_tokens: lastTokens.output,
+        cache_write_tokens: lastTokens.cacheWrite,
+        cache_read_tokens: lastTokens.cacheRead,
+        total_tokens: total,
+        cost,
+        occurred_at: new Date().toISOString()
+      })
+    } catch (error) {
+      log.warn('Failed to persist codex turn usage', {
+        hiveSessionId: session.hiveSessionId,
+        turnId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
+  }
+
   // ── Window binding ───────────────────────────────────────────────
 
   setMainWindow(window: BrowserWindow): void {
@@ -897,6 +955,21 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         modelID,
         lastTokens
       )
+
+      // Persist this turn's token usage so it survives app restart.
+      //
+      // 历史问题：codex 之前只把 token 信息 emit 到 useContextStore（内存），
+      // 从不落库 → 应用一关，所有 codex 用量就只剩 cost 一个标量，明细全丢。
+      // ContextPanelHost 在打包版 / 开发版之间数据相差 11×，根因就是 in-memory
+      // 状态在两个进程之间无法共享。
+      //
+      // 修法：以 turnId 为唯一键（'codex-turn:${turnId}'）写一行 usage_entries，
+      // 同 turn 多次 tokenUsage/updated 通过 UPSERT 覆盖最新值；不同 turn 各自
+      // 累加，summary 路径就能准确算出 thread 总量。
+      //
+      // 使用 lastTokens（本 turn 增量）而不是 total（线程累计），避免 syncSession
+      // 触发时把同一线程的累计值重复计入。
+      this.persistCodexTurnUsage(targetSession, turnId, modelID, lastTokens)
 
       emitAgentEvent(this.mainWindow, {
         type: 'session.context_usage',

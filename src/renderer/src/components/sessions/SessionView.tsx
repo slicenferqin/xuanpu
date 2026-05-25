@@ -87,6 +87,13 @@ import { QueuedMessagesBar, type QueuedMsg } from './QueuedMessagesBar'
 import type { UsageAnalyticsSessionSummary } from '@shared/types/usage-analytics'
 import type { SessionActivity } from '@shared/types/session'
 
+const MIN_NEAR_BOTTOM_THRESHOLD = 80
+
+function getNearBottomThreshold(): number {
+  if (typeof window === 'undefined') return MIN_NEAR_BOTTOM_THRESHOLD
+  return Math.max(MIN_NEAR_BOTTOM_THRESHOLD, Math.round(window.innerHeight * 0.06))
+}
+
 interface SlashCommandInfo {
   name: string
   description?: string
@@ -1107,7 +1114,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
     lastScrollTopRef.current = currentScrollTop
 
     const distanceFromBottom = el.scrollHeight - currentScrollTop - el.clientHeight
-    const isNearBottom = distanceFromBottom < 80
+    const isNearBottom = distanceFromBottom < getNearBottomThreshold()
     const hasManualIntent = manualScrollIntentRef.current || pointerDownInScrollerRef.current
 
     if (isProgrammaticScrollRef.current) {
@@ -3853,7 +3860,10 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
                 toast.warning(t('memory.toasts.forgetAmbiguous'))
                 return
               }
-              const next = lines.filter((_, i) => i !== matchIdx[0].i).join('\n').trim()
+              const next = lines
+                .filter((_, i) => i !== matchIdx[0].i)
+                .join('\n')
+                .trim()
               await window.fieldOps.updatePinnedFacts({
                 worktreeId,
                 contentMd: next
@@ -5229,7 +5239,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
       <div className="relative flex-1 min-h-0">
         <div
           ref={scrollContainerRef}
-          className="h-full overflow-y-auto"
+          className="h-full overflow-y-auto overscroll-contain"
           onScroll={handleScroll}
           onWheel={handleScrollWheel}
           onPointerDown={handleScrollPointerDown}

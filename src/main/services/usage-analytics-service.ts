@@ -2,18 +2,8 @@ import type { DatabaseService } from '../db/database'
 import type { Session } from '../db/types'
 import { readClaudeTranscriptUsage } from './claude-transcript-reader'
 import { createLogger } from './logger'
-import {
-  calculateUsageCost,
-  resolvePricingModelKey,
-  type UsageTokenCounts
-} from '@shared/usage/pricing'
+import { resolvePricingModelKey } from '@shared/usage/pricing'
 import { getCanonicalModelLabel } from '@shared/usage/models'
-import {
-  extractUsageCost,
-  extractUsageMessageID,
-  extractUsageModelRef,
-  extractUsageTokens
-} from '@shared/usage/message'
 import type {
   UsageAnalyticsDashboard,
   UsageAnalyticsDashboardResult,
@@ -92,10 +82,6 @@ function toRangeBounds(range: UsageAnalyticsFilters['range']): {
 
 function toSupportedAgentSdks(filter: UsageAnalyticsEngineFilter): UsageAnalyticsEngine[] {
   return filter === 'all' ? ['claude-code', 'codex'] : [filter]
-}
-
-function sumTokens(tokens: UsageTokenCounts): number {
-  return tokens.input + tokens.output + tokens.cacheWrite + tokens.cacheRead
 }
 
 function appendUnique(target: string[], value: string | null | undefined): void {
@@ -638,79 +624,16 @@ export class UsageAnalyticsService {
   }
 
   private async syncCodexSession(session: SupportedSession): Promise<'synced'> {
-    const messageRows = this.db.getSessionMessages(session.id)
-    this.db.deleteUsageEntriesForSession(session.id, 'codex-message')
-
-    const finalEntries = new Map<
-      string,
-      {
-        occurredAt: string
-        cost: number
-        tokens: UsageTokenCounts
-        modelID: string | null
-        modelLabel: string | null
-        providerID: string | null
-      }
-    >()
-
-    for (const row of messageRows) {
-      if (row.role !== 'assistant' || !row.opencode_message_json) continue
-
-      try {
-        const parsed = JSON.parse(row.opencode_message_json) as Record<string, unknown>
-        const messageId = extractUsageMessageID(parsed) ?? row.opencode_message_id ?? row.id
-        const tokens = extractUsageTokens(parsed)
-        const modelRef = extractUsageModelRef(parsed)
-        const explicitCost = extractUsageCost(parsed)
-
-        if (!tokens && explicitCost <= 0) continue
-
-        const resolvedTokens = tokens ?? {
-          input: 0,
-          output: 0,
-          cacheWrite: 0,
-          cacheRead: 0
-        }
-        const resolvedModel = modelRef?.modelID ?? session.model_id ?? 'unknown'
-        const occurredAt = typeof parsed.timestamp === 'string' ? parsed.timestamp : row.created_at
-        const cost =
-          explicitCost > 0
-            ? explicitCost
-            : calculateUsageCost(resolvedModel, resolvedTokens, modelRef?.providerID ?? 'codex')
-
-        finalEntries.set(messageId, {
-          occurredAt,
-          cost,
-          tokens: resolvedTokens,
-          modelID: resolvePricingModelKey(resolvedModel, modelRef?.providerID ?? 'codex'),
-          modelLabel: modelRef?.displayName ?? resolvedModel,
-          providerID: modelRef?.providerID ?? 'codex'
-        })
-      } catch {
-        // Ignore malformed persisted message rows
-      }
-    }
-
-    for (const [messageId, entry] of finalEntries.entries()) {
-      this.db.upsertUsageEntry({
-        session_id: session.id,
-        project_id: session.project_id,
-        worktree_id: session.worktree_id,
-        agent_sdk: 'codex',
-        source_kind: 'codex-message',
-        source_message_id: messageId,
-        provider_id: entry.providerID,
-        model_id: entry.modelID,
-        model_label: entry.modelLabel,
-        input_tokens: entry.tokens.input,
-        output_tokens: entry.tokens.output,
-        cache_write_tokens: entry.tokens.cacheWrite,
-        cache_read_tokens: entry.tokens.cacheRead,
-        total_tokens: sumTokens(entry.tokens),
-        cost: entry.cost,
-        occurred_at: entry.occurredAt
-      })
-    }
+    // codex 把 token 用量在运行时由 CodexImplementer.persistCodexTurnUsage 直接
+    // 写入 usage_entries（每个 turn 一行，source_message_id='codex-turn:<turnId>'），
+    // session_messages.opencode_message_json 里并不携带 token 信息。
+    //
+    // 因此本同步函数不再尝试从消息流重新提取——只清点现有 codex-message 行数并
+    // 刷新 sync_state。绝对不要在这里 deleteUsageEntriesForSession：那会把运行
+    // 时已经写入的权威数据清空，应用一旦重启就再也算不出 codex 的 token 明细。
+    const existingEntries = this.db
+      .getUsageEntriesBySession(session.id)
+      .filter((entry) => entry.source_kind === 'codex-message')
 
     this.db.upsertUsageSyncState({
       session_id: session.id,
@@ -719,7 +642,7 @@ export class UsageAnalyticsService {
       source_ref: session.opencode_session_id ?? session.id,
       source_mtime_ms: new Date(session.updated_at).getTime(),
       status: 'synced',
-      entry_count: finalEntries.size,
+      entry_count: existingEntries.length,
       last_synced_at: new Date().toISOString(),
       last_error: null
     })

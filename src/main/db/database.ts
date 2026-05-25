@@ -164,6 +164,7 @@ export class DatabaseService {
     // skew between worktree builds.
     this.ensureConnectionTables()
     this.ensureSessionMessageSequenceColumn()
+    this.ensureSessionActivitySequenceColumn()
     this.ensureUsageAnalyticsTables()
     this.ensureFieldEventsTable()
     this.ensureEpisodicMemoryTable()
@@ -336,6 +337,38 @@ export class DatabaseService {
     `)
   }
 
+  private ensureSessionActivitySequenceColumn(): void {
+    const db = this.getDb()
+    if (!this.tableExists('session_activities')) return
+
+    this.safeAddColumn('session_activities', 'sequence', 'INTEGER')
+    db.exec(`
+      WITH existing_max AS (
+        SELECT session_id,
+               COALESCE(MAX(sequence), 0) AS max_sequence
+          FROM session_activities
+         GROUP BY session_id
+      ),
+      ordered AS (
+        SELECT activity.rowid AS rid,
+               COALESCE(existing_max.max_sequence, 0) +
+               ROW_NUMBER() OVER (
+                 PARTITION BY activity.session_id
+                 ORDER BY activity.created_at ASC, activity.rowid ASC
+               ) AS seq
+          FROM session_activities activity
+          LEFT JOIN existing_max
+            ON existing_max.session_id = activity.session_id
+         WHERE activity.sequence IS NULL
+      )
+      UPDATE session_activities
+         SET sequence = (SELECT seq FROM ordered WHERE ordered.rid = session_activities.rowid)
+       WHERE sequence IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_session_activities_session_seq
+        ON session_activities(session_id, sequence);
+    `)
+  }
+
   /**
    * Idempotently ensure connection-related tables and columns exist.
    * Safe to run multiple times -- uses IF NOT EXISTS and checks column presence.
@@ -411,6 +444,8 @@ export class DatabaseService {
 
       CREATE INDEX IF NOT EXISTS idx_session_activities_session_created
         ON session_activities(session_id, created_at, id);
+      CREATE INDEX IF NOT EXISTS idx_session_activities_session_seq
+        ON session_activities(session_id, sequence);
       CREATE INDEX IF NOT EXISTS idx_session_activities_session_turn
         ON session_activities(session_id, turn_id, created_at);
     `)
@@ -1683,6 +1718,15 @@ export class DatabaseService {
     const db = this.getDb()
     const now = data.created_at ?? new Date().toISOString()
     const id = data.id ?? randomUUID()
+    const existing = db.prepare('SELECT sequence FROM session_activities WHERE id = ?').get(id) as
+      | { sequence: number | null }
+      | undefined
+    const seqRow = db
+      .prepare(
+        'SELECT COALESCE(MAX(sequence), 0) + 1 AS next_seq FROM session_activities WHERE session_id = ?'
+      )
+      .get(data.session_id) as { next_seq: number } | undefined
+    const nextSequence = data.sequence ?? existing?.sequence ?? seqRow?.next_seq ?? 1
 
     db.prepare(
       `INSERT INTO session_activities (
@@ -1710,7 +1754,7 @@ export class DatabaseService {
         tone = excluded.tone,
         summary = excluded.summary,
         payload_json = excluded.payload_json,
-        sequence = excluded.sequence,
+        sequence = COALESCE(excluded.sequence, session_activities.sequence),
         created_at = excluded.created_at`
     ).run(
       id,
@@ -1724,7 +1768,7 @@ export class DatabaseService {
       data.tone,
       data.summary,
       data.payload_json ?? null,
-      data.sequence ?? null,
+      nextSequence,
       now
     )
 

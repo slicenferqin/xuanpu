@@ -70,7 +70,7 @@ describe('usage analytics UI', () => {
     expect(screen.getByText('2m 5s')).toBeTruthy()
   })
 
-  it('keeps session cost visible while token totals are still syncing', async () => {
+  it('falls back to live tokens for claude-code when the persisted summary is empty', async () => {
     const user = userEvent.setup()
 
     render(
@@ -103,8 +103,12 @@ describe('usage analytics UI', () => {
     expect(screen.getByTestId('session-cost-pill')).toHaveTextContent('$0.2374')
     await user.click(screen.getByTestId('session-cost-pill'))
 
-    expect(screen.getByText('Session totals are syncing…')).toBeTruthy()
-    expect(screen.queryByText('37.8K')).toBeNull()
+    // 收紧后的 resolveUsageTokenTotals：summary 没有 token 明细就用 live。
+    // 不再为 claude-code 单独保留"显示 syncing 占位"，因为 live token 是用户
+    // 真实产生的数据，比 syncing… 占位文案有用。
+    expect(screen.queryByText('Session totals are syncing…')).toBeNull()
+    expect(screen.getByText('37.8K')).toBeTruthy()
+    expect(screen.getByText('37.7K')).toBeTruthy()
   })
 
   it('uses live tokens when a persisted summary has cost but missing token counters', async () => {

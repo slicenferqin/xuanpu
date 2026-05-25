@@ -5,9 +5,9 @@ import {
   type SessionViewState
 } from '@/lib/session-view-registry'
 
-const NEAR_BOTTOM_THRESHOLD = 80
 const BOTTOM_AREA_COMPENSATE_THRESHOLD = 96
 const DEFAULT_SCROLL_FAB_OFFSET = 16
+const MIN_NEAR_BOTTOM_THRESHOLD = 80
 
 interface UseSessionSmartScrollOptions {
   sessionId: string
@@ -44,6 +44,11 @@ function getBottomScrollTop(element: HTMLDivElement, bottomInset = 0): number {
   return Math.max(0, element.scrollHeight - element.clientHeight - bottomInset)
 }
 
+function getNearBottomThreshold(): number {
+  if (typeof window === 'undefined') return MIN_NEAR_BOTTOM_THRESHOLD
+  return Math.max(MIN_NEAR_BOTTOM_THRESHOLD, Math.round(window.innerHeight * 0.06))
+}
+
 function scrollElementTo(element: HTMLDivElement, top: number, behavior: ScrollBehavior): void {
   if (typeof element.scrollTo === 'function') {
     try {
@@ -76,6 +81,9 @@ export function useSessionSmartScroll({
   const lastScrollTopRef = useRef(0)
   const hasRestoredInitialAnchorRef = useRef(false)
   const latestMirrorVersionRef = useRef(mirrorVersion)
+  // 用 ref 跟踪 isStreaming，避免 ResizeObserver 的 effect 因为流式状态切换
+  // 反复 disconnect / re-observe（composer + dock + scroller 三处 observer）。
+  const isStreamingRef = useRef(isStreaming)
   const [dockHeight, setDockHeight] = useState(0)
   const [composerHeight, setComposerHeight] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(0)
@@ -83,9 +91,18 @@ export function useSessionSmartScroll({
     getSessionViewState(sessionId, mirrorVersion)
   )
   const viewStateRef = useRef(viewState)
-  const clearScreenBottomInset = clearScreenActive
-    ? Math.max((viewportHeight > 0 ? viewportHeight : 456) - 96, 240)
-    : 0
+  // v2 修复：此前 clearScreenActive=true 时会注入"视口高度 - 96px"的底部
+  // 空白（最少 240px），等价于把整屏推到视图外。流式输出落进这片空白后
+  // 就消失在 composer 下面，FAB 也不会亮起来。详见
+  // docs/session-hq-design.md §8.2 / §9.1。
+  //
+  // 现在保留 clearScreenActive 这个 prop 以维持 API 兼容（SessionShell 内
+  // 部仍在 setState），但不再把它翻译成底部 padding。如果将来要重新实现
+  // "Clear Screen"，应通过 transcript 视觉分隔（灰色分割线 / 渐隐遮罩），
+  // 而不是注入物理空白。
+  void clearScreenActive
+  void viewportHeight
+  const clearScreenBottomInset = 0
 
   const writeViewState = useCallback(
     (
@@ -116,7 +133,7 @@ export function useSessionSmartScroll({
 
       const stickyBottom =
         options?.forceStickyBottom ??
-        getDistanceFromBottom(element, clearScreenBottomInset) < NEAR_BOTTOM_THRESHOLD
+        getDistanceFromBottom(element, clearScreenBottomInset) < getNearBottomThreshold()
       const shouldMarkSeen = options?.markSeen ?? stickyBottom
 
       const next = writeViewState(
@@ -250,7 +267,7 @@ export function useSessionSmartScroll({
     viewStateRef.current = current
 
     const distanceFromBottom = getDistanceFromBottom(element, clearScreenBottomInset)
-    const isNearBottom = distanceFromBottom < NEAR_BOTTOM_THRESHOLD
+    const isNearBottom = distanceFromBottom < getNearBottomThreshold()
     const hasManualIntent = manualScrollIntentRef.current || pointerDownInScrollerRef.current
 
     if (isProgrammaticScrollRef.current) {
@@ -313,6 +330,10 @@ export function useSessionSmartScroll({
   }, [mirrorVersion])
 
   useEffect(() => {
+    isStreamingRef.current = isStreaming
+  }, [isStreaming])
+
+  useEffect(() => {
     const next = getSessionViewState(sessionId, latestMirrorVersionRef.current)
     viewStateRef.current = next
     setViewState(next)
@@ -343,17 +364,38 @@ export function useSessionSmartScroll({
     restoreScrollAnchor()
   }, [contentVersion, ready, restoreScrollAnchor])
 
+  // v2 流式硬贴底 + 闲时自动跟随。
+  //
+  // 流式输出阶段（isStreaming=true）：只要用户没有显式锁定（manualScrollLocked
+  // 为 false），就忽略缓存的 stickyBottom 标记（可能因为渲染节流而落后一帧），
+  // 改用实际距离判断。阈值放宽到 3× 平时阈值——这样即便用户因为新内容跳动
+  // 而短暂偏离 1-2 行，也能继续被"拽"到底部，杜绝"输出跑到 composer 下面"。
+  //
+  // 非流式阶段：恢复旧行为，只有 viewState.stickyBottom=true 时才追随，
+  // 避免用户翻历史时被强制拽回。
+  //
+  // 与 clearScreenActive 解耦：v1 这里有 clearScreenActive 的早退，会导致
+  // 流式输出期间一旦 clearScreenActive=true 就完全停止跟随。新的设计是
+  // 流式状态优先级高于一切 transcript 装饰。详见 §9.2。
   useEffect(() => {
-    if (
-      !ready ||
-      clearScreenActive ||
-      !hasRestoredInitialAnchorRef.current ||
-      !viewStateRef.current.stickyBottom
-    ) {
+    if (!ready || !hasRestoredInitialAnchorRef.current) return
+
+    const element = scrollContainerRef.current
+    if (!element) return
+
+    if (isStreaming) {
+      if (viewStateRef.current.manualScrollLocked) return
+      const distance = getDistanceFromBottom(element, 0)
+      const streamingThreshold = getNearBottomThreshold() * 3
+      if (distance < streamingThreshold) {
+        scrollToBottom('instant')
+      }
       return
     }
+
+    if (!viewStateRef.current.stickyBottom) return
     scrollToBottom()
-  }, [clearScreenActive, contentVersion, mirrorVersion, ready, scrollToBottom])
+  }, [contentVersion, isStreaming, mirrorVersion, ready, scrollToBottom])
 
   // Use useLayoutEffect for the initial sync measurement so the first paint
   // already has the correct padding-bottom — otherwise the first frame leaves
@@ -384,8 +426,15 @@ export function useSessionSmartScroll({
       if (clearScreenActive) return
 
       const distanceFromBottom = getDistanceFromBottom(scrollElement, clearScreenBottomInset)
-      const shouldCompensate =
-        viewStateRef.current.stickyBottom || distanceFromBottom < BOTTOM_AREA_COMPENSATE_THRESHOLD
+      // 流式期间：composer 增高会让 row-1（transcript scroller）缩小，已存在的
+      // 内容会从底部滑出视口，看起来像"输出跑到 composer 下面"。这时只要用户
+      // 没显式锁定滚动，就一律把最后一行拽回底部——与 streaming auto-follow
+      // effect (L373-391) 的判断口径保持一致，避免两条 path 阈值不一致导致
+      // 漏补偿。非流式期间维持原来的 96px 阈值，避免翻历史时被强制拽回。
+      const shouldCompensate = isStreamingRef.current
+        ? !viewStateRef.current.manualScrollLocked
+        : viewStateRef.current.stickyBottom ||
+          distanceFromBottom < BOTTOM_AREA_COMPENSATE_THRESHOLD
 
       if (!shouldCompensate) return
 

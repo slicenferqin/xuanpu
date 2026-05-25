@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import {
+  applySessionTaskToolEvent,
   extractMissionTasks,
   getSessionTaskDisplayTitle,
   sortSessionTasks,
@@ -45,6 +46,91 @@ function userMessage(id: string, content: string): TimelineMessage {
     timestamp: '2026-05-21T00:00:00.000Z'
   }
 }
+
+describe('applySessionTaskToolEvent toolUseId stability', () => {
+  test('stream-time TaskCreate without explicit task id dedupes by toolUseId across replays', () => {
+    // 流式期间 message.part.updated 会针对同一个 tool 触发多次，每次 input 都是不完整的
+    // 累积体。reducer 必须借助 stable 的 toolUseId (callID) 做 upsert，否则旧逻辑
+    // 用 `task-${current.length + 1}` 会每次 +1 重复创建。
+    let tasks: SessionTask[] = []
+
+    tasks = applySessionTaskToolEvent(tasks, 'TaskCreate', { subject: 'Inv' }, 'call-1')
+    tasks = applySessionTaskToolEvent(
+      tasks,
+      'TaskCreate',
+      { subject: 'Investigate duplica' },
+      'call-1'
+    )
+    tasks = applySessionTaskToolEvent(
+      tasks,
+      'TaskCreate',
+      { subject: 'Investigate duplication', description: 'Find the regression' },
+      'call-1'
+    )
+
+    expect(tasks).toEqual([
+      {
+        id: 'call-1',
+        content: 'Investigate duplication',
+        status: 'pending',
+        subject: 'Investigate duplication',
+        description: 'Find the regression'
+      }
+    ])
+  })
+
+  test('TaskUpdate without explicit id can target by toolUseId', () => {
+    // 当 SDK 仅返回 status 增量、callID 与原 TaskCreate 一致时，应能精准更新而不是创建幽灵任务。
+    let tasks: SessionTask[] = []
+    tasks = applySessionTaskToolEvent(
+      tasks,
+      'TaskCreate',
+      { subject: 'Inspect issue' },
+      'call-42'
+    )
+    tasks = applySessionTaskToolEvent(
+      tasks,
+      'TaskUpdate',
+      { status: 'in_progress' },
+      'call-42'
+    )
+
+    expect(tasks).toEqual([
+      {
+        id: 'call-42',
+        content: 'Inspect issue',
+        status: 'in_progress',
+        subject: 'Inspect issue'
+      }
+    ])
+  })
+
+  test('explicit input.taskId always wins over toolUseId fallback', () => {
+    // 一旦 SDK 自己塞了 taskId，就尊重它（保持向后兼容，旧的 timeline 重放路径不变）。
+    let tasks: SessionTask[] = []
+    tasks = applySessionTaskToolEvent(
+      tasks,
+      'TaskCreate',
+      { taskId: 'task-explicit', subject: 'Real task' },
+      'call-99'
+    )
+    tasks = applySessionTaskToolEvent(
+      tasks,
+      'TaskUpdate',
+      { taskId: 'task-explicit', status: 'completed' },
+      'call-100'
+    )
+
+    expect(tasks).toEqual([
+      {
+        id: 'task-explicit',
+        content: 'Real task',
+        status: 'completed',
+        subject: 'Real task'
+      }
+    ])
+  })
+})
 
 describe('extractMissionTasks', () => {
   test('replays mixed task tool events into the latest canonical state', () => {

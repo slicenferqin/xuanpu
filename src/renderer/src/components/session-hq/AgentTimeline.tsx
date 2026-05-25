@@ -168,44 +168,119 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
 }
 
-function smoothStep(value: number): number {
-  const t = clamp(value, 0, 1)
-  return t * t * (3 - 2 * t)
+// ---------------------------------------------------------------------------
+// Fisheye rail — macOS Dock-style local zoom
+// ---------------------------------------------------------------------------
+
+/**
+ * Peak spacing expansion multiplier at the hovered dot.
+ * 3× means the center dot and its immediate neighbors spread to three times
+ * their natural spacing, while dots at the far end compress to compensate —
+ * exactly how the macOS Dock works.
+ */
+const FISHEYE_MAX_EXPANSION = 3.0
+
+/**
+ * Compute fisheye positions for ALL round anchor dots in one pass.
+ *
+ * Each dot's "virtual spacing" is scaled by a cosine bell centred on hoverY.
+ * Positions are then renormalised so the total span always equals railHeight,
+ * producing the neighbour-push effect: hovering near dot i spreads dots
+ * i-1, i, i+1 apart while dots far away compress to make room.
+ *
+ * When hoverY is null (no hover), returns evenly distributed positions.
+ */
+function computeFisheyeLayout(
+  roundCount: number,
+  railHeight: number,
+  hoverY: number | null
+): { topPercents: number[]; expansions: number[] } {
+  if (roundCount <= 0) return { topPercents: [], expansions: [] }
+  if (roundCount === 1) return { topPercents: [50], expansions: [1] }
+
+  const N = roundCount
+  // Natural dot spacing for dots anchored at 0 … railHeight (both ends inclusive)
+  const naturalSpacing = railHeight / (N - 1)
+  // Influence radius ≈ 28% of rail height, clamped so it stays meaningful on both
+  // very short rails (< 240 px) and very tall rails (> 500 px)
+  const R = clamp(railHeight * 0.28, 64, 140)
+
+  // Per-dot expansion factor from cosine bell: 1 at R away, FISHEYE_MAX_EXPANSION at centre
+  const expansions = Array.from({ length: N }, (_, i) => {
+    if (hoverY === null) return 1.0
+    const naturalY = (i / (N - 1)) * railHeight
+    const d = Math.abs(naturalY - hoverY)
+    if (d >= R) return 1.0
+    const bell = 0.5 * (1 + Math.cos((Math.PI * d) / R))
+    return 1.0 + bell * (FISHEYE_MAX_EXPANSION - 1.0)
+  })
+
+  if (hoverY === null) {
+    // Fast path: natural positions, no recomputation needed
+    const topPercents = Array.from({ length: N }, (_, i) => (i / (N - 1)) * 100)
+    return { topPercents, expansions }
+  }
+
+  // Inter-dot spacing = naturalSpacing × mean(adjacent expansion factors).
+  // This is the Dock formula: spacing between two neighbours scales with the
+  // average of their local expansion, so the crowd effect is smooth.
+  const expandedY: number[] = new Array(N).fill(0)
+  for (let i = 1; i < N; i++) {
+    const avgExpansion = (expansions[i - 1] + expansions[i]) / 2
+    expandedY[i] = expandedY[i - 1] + naturalSpacing * avgExpansion
+  }
+  const totalExpanded = expandedY[N - 1] || 1
+
+  // Scale cumulative positions back to [0, 100]% so the rail stays fixed-height
+  const topPercents = expandedY.map((y) => (y / totalExpanded) * 100)
+
+  return { topPercents, expansions }
 }
 
-function getRoundRailDotStyle({
-  roundIndex,
-  roundCount,
-  railHeight,
-  hoverY,
-  active
+/**
+ * Visual style for a single dot, given its precomputed position + expansion.
+ *
+ * Size grows from a tiny pill at rest to a wider capsule at peak hover,
+ * keeping the Dock metaphor: the "icon" under the cursor is prominently
+ * enlarged while distant icons stay small.
+ */
+function getRailDotStyle({
+  topPercent,
+  expansion,
+  active,
+  hovering
 }: {
-  roundIndex: number
-  roundCount: number
-  railHeight: number
-  hoverY: number | null
+  topPercent: number
+  expansion: number
   active: boolean
+  /** Whether the cursor is anywhere on the rail right now. */
+  hovering: boolean
 }): React.CSSProperties {
-  const topPercent = roundCount <= 1 ? 50 : (roundIndex / (roundCount - 1)) * 100
-  const dotY = (topPercent / 100) * railHeight
-  const spacing = roundCount <= 1 ? railHeight : railHeight / Math.max(roundCount - 1, 1)
-  const compactHeight = clamp(spacing * 0.46, 1.5, 4)
-  const compactWidth = roundCount > 24 ? compactHeight * 1.9 : compactHeight
-  const influenceRadius = clamp(railHeight * 0.22, 52, 96)
-  const hoverStrength =
-    hoverY === null ? 0 : smoothStep(1 - Math.abs(dotY - hoverY) / influenceRadius)
-  const activeStrength = active ? 0.38 : 0
-  const strength = Math.max(hoverStrength, activeStrength)
-  const height = compactHeight + strength * 10
-  const width = compactWidth + strength * 18
+  const t = clamp((expansion - 1) / (FISHEYE_MAX_EXPANSION - 1), 0, 1)
+  // Pill: 4 × 4 px at rest → 22 × 12 px at peak hover
+  const w = 4 + t * 18
+  const h = 4 + t * 8
+
+  // Opacity contract for the Floating Shuttle Rail:
+  //   active   → always visible; 0.75 at rest, 1.0 at peak hover expansion
+  //   inactive + hovering → ghost dots materialise, brighter near the cursor
+  //   inactive + not hovering → completely transparent (rail is "empty" at rest)
+  let opacity: number
+  if (active) {
+    opacity = clamp(0.75 + t * 0.25, 0.75, 1)
+  } else if (hovering) {
+    opacity = clamp(0.35 + t * 0.50, 0.35, 0.85)
+  } else {
+    opacity = 0
+  }
 
   return {
     top: `${topPercent}%`,
-    width: `${width}px`,
-    height: `${height}px`,
-    opacity: clamp(0.34 + strength * 0.56 + (active ? 0.16 : 0), 0.34, 1),
+    width: `${w}px`,
+    height: `${h}px`,
+    opacity,
     transform: 'translate(-50%, -50%)',
-    zIndex: Math.round(10 + strength * 30)
+    zIndex: Math.round(10 + t * 30)
   }
 }
 
@@ -761,11 +836,7 @@ function TimelineNodeView({
         ''
       const planStatus = node.toolUse?.status
       const verdict: 'approved' | 'rejected' | undefined =
-        planStatus === 'success'
-          ? 'approved'
-          : planStatus === 'rejected'
-            ? 'rejected'
-            : undefined
+        planStatus === 'success' ? 'approved' : planStatus === 'rejected' ? 'rejected' : undefined
       return (
         <PlanCard
           content={content}
@@ -785,11 +856,10 @@ function TimelineNodeView({
       // depending on which agent runtime produced the request.
       const stillPendingForThisCard =
         !!askToolUseId &&
-        pendingQuestions.some(
-          (q) => q.tool?.callID === askToolUseId || q.id === askToolUseId
-        )
+        pendingQuestions.some((q) => q.tool?.callID === askToolUseId || q.id === askToolUseId)
       const askStatus = node.toolUse?.status
-      const isPending = askStatus === 'pending' || askStatus === 'running' || stillPendingForThisCard
+      const isPending =
+        askStatus === 'pending' || askStatus === 'running' || stillPendingForThisCard
       return (
         <AskUserCard
           question={(node.toolUse?.input?.question as string) ?? ''}
@@ -972,6 +1042,11 @@ export function AgentTimeline({
   onRoundAnchorNavigate
 }: AgentTimelineProps): React.JSX.Element {
   const { t } = useI18n()
+  const internalScrollContainerRef = React.useRef<HTMLDivElement | null>(null)
+  const effectiveScrollContainerRef = scrollContainerRef ?? internalScrollContainerRef
+  const timelineContentRef = React.useRef<HTMLDivElement | null>(null)
+  const [timelineViewportHeight, setTimelineViewportHeight] = React.useState(0)
+  const [timelineContentHeight, setTimelineContentHeight] = React.useState(0)
 
   // Flatten messages into timeline nodes
   const nodes = useMemo(() => {
@@ -1013,21 +1088,11 @@ export function AgentTimeline({
       })
   }, [timelineMessages, suppressTodoCards, isStreaming, activeRunStartedAt])
 
-  // Find where to splice the live `inflightCompaction` row inline by timestamp.
-  // -1 → render before any nodes; >=0 → render AFTER nodes[index]. Once the
-  // compaction lands as a durable message in `timelineMessages`, the parent
-  // stops passing `inflightCompaction` and the durable copy renders via the
-  // normal nodes path instead.
-  const inflightCompactionInsertAfter = useMemo(() => {
-    if (!inflightCompaction) return null
-    const target = inflightCompaction.timestamp
-    for (let i = nodes.length - 1; i >= 0; i--) {
-      const ts = Date.parse(nodes[i].message.timestamp)
-      if (Number.isFinite(ts) && ts <= target) return i
-    }
-    return -1
-  }, [nodes, inflightCompaction])
-
+  // 压缩 marker 始终渲染在已落库的 rounds 末尾、streaming 节点之前——
+  // 时间戳定位（旧的 inflightCompactionInsertAfter）在客户端 Date.now()
+  // 比节点时间戳更早时会落到 -1，把 marker 抛到时间线最上面，反复出现错位。
+  // 当 message.part.type === 'compaction' 已落库时，SessionShell 不再传
+  // inflightCompaction，下一轮自然走 nodes 通路。
   // Dedupe by tool_use id: if a tool_use with the same id is already committed
   // in timelineMessages, skip the streaming copy — otherwise a switch-away-and-back
   // during a turn would render the same tool card twice (once from DB-persisted
@@ -1153,8 +1218,46 @@ export function AgentTimeline({
   const [roundRailHoverY, setRoundRailHoverY] = React.useState<number | null>(null)
   const [roundRailHeight, setRoundRailHeight] = React.useState(336)
 
+  // Precompute fisheye layout once per hover / size / count change instead of
+  // recomputing inside every dot's render call. O(n) per state change, shared.
+  const fisheyeLayout = useMemo(
+    () => computeFisheyeLayout(rounds.length, roundRailHeight, roundRailHoverY),
+    [rounds.length, roundRailHeight, roundRailHoverY]
+  )
+
+  // Scroll-edge gradient masks (Step 4 — visual boundary feedback)
+  const [showTopGradient, setShowTopGradient] = React.useState(false)
+  const [showBottomGradient, setShowBottomGradient] = React.useState(false)
+
+  React.useEffect(() => {
+    const el = effectiveScrollContainerRef.current
+    if (!el) return
+
+    const update = (): void => {
+      setShowTopGradient(el.scrollTop > 16)
+      setShowBottomGradient(el.scrollHeight - el.scrollTop - el.clientHeight > 16)
+    }
+
+    update()
+    el.addEventListener('scroll', update, { passive: true })
+
+    const obs =
+      typeof ResizeObserver !== 'undefined'
+        ? (() => {
+            const o = new ResizeObserver(update)
+            o.observe(el)
+            return o
+          })()
+        : null
+
+    return () => {
+      el.removeEventListener('scroll', update)
+      obs?.disconnect()
+    }
+  }, [effectiveScrollContainerRef])
+
   React.useLayoutEffect(() => {
-    const element = scrollContainerRef?.current
+    const element = effectiveScrollContainerRef.current
     if (!element) return
 
     const updateRailHeight = (): void => {
@@ -1171,7 +1274,62 @@ export function AgentTimeline({
     const observer = new ResizeObserver(updateRailHeight)
     observer.observe(element)
     return () => observer.disconnect()
-  }, [scrollContainerRef])
+  }, [effectiveScrollContainerRef])
+
+  React.useLayoutEffect(() => {
+    const scrollElement = effectiveScrollContainerRef.current
+    const contentElement = timelineContentRef.current
+    if (!scrollElement || !contentElement) return
+
+    let frame: number | null = null
+    const updateTimelineMetrics = (): void => {
+      if (frame !== null) {
+        cancelAnimationFrame(frame)
+      }
+
+      frame = requestAnimationFrame(() => {
+        frame = null
+        const nextViewportHeight = Math.round(scrollElement.clientHeight)
+        const nextContentHeight = Math.round(contentElement.getBoundingClientRect().height)
+
+        setTimelineViewportHeight((current) =>
+          current === nextViewportHeight ? current : nextViewportHeight
+        )
+        setTimelineContentHeight((current) =>
+          current === nextContentHeight ? current : nextContentHeight
+        )
+      })
+    }
+
+    updateTimelineMetrics()
+
+    if (typeof ResizeObserver === 'undefined') {
+      return () => {
+        if (frame !== null) {
+          cancelAnimationFrame(frame)
+        }
+      }
+    }
+
+    const observer = new ResizeObserver(updateTimelineMetrics)
+    observer.observe(scrollElement)
+    observer.observe(contentElement)
+
+    return () => {
+      observer.disconnect()
+      if (frame !== null) {
+        cancelAnimationFrame(frame)
+      }
+    }
+  }, [
+    effectiveScrollContainerRef,
+    nodes.length,
+    streamingNodes.length,
+    ephemeralStatusRows.length,
+    finalTodoTasks?.length,
+    clearScreenBottomInset,
+    isStreaming
+  ])
 
   const handleRoundRailPointerMove = React.useCallback(
     (event: React.PointerEvent<HTMLDivElement> | React.MouseEvent<HTMLDivElement>) => {
@@ -1212,7 +1370,7 @@ export function AgentTimeline({
   }, [activeRoundId, isStreaming, onActiveRoundChange, rounds])
 
   useEffect(() => {
-    const container = scrollContainerRef?.current
+    const container = effectiveScrollContainerRef.current
     if (!container || rounds.length === 0 || !onActiveRoundChange) return
 
     const updateActiveRoundFromScroll = (): void => {
@@ -1243,14 +1401,18 @@ export function AgentTimeline({
     updateActiveRoundFromScroll()
     container.addEventListener('scroll', updateActiveRoundFromScroll, { passive: true })
     return () => container.removeEventListener('scroll', updateActiveRoundFromScroll)
-  }, [onActiveRoundChange, rounds, scrollContainerRef])
+  }, [effectiveScrollContainerRef, onActiveRoundChange, rounds])
 
   const safeBottomPadding = bottomFloatingHeight > 0 ? 24 : 72
+  const shortContentTopSpacer =
+    timelineViewportHeight > 0 && timelineContentHeight > 0
+      ? Math.max(0, timelineViewportHeight - timelineContentHeight - safeBottomPadding - 24)
+      : 0
 
   return (
     <div
-      ref={scrollContainerRef}
-      className="h-full min-h-0 overflow-y-auto"
+      ref={effectiveScrollContainerRef}
+      className="h-full min-h-0 overflow-y-auto overscroll-contain"
       onScroll={onScroll}
       onWheel={onWheel}
       onPointerDown={onPointerDown}
@@ -1258,22 +1420,26 @@ export function AgentTimeline({
       onPointerCancel={onPointerCancel}
       data-testid="hq-agent-timeline-scroll"
     >
+      {/* Top edge mask: visible when content extends above the viewport */}
       <div
-        className="w-[85%] ml-[5%] py-6"
+        aria-hidden="true"
+        className={cn(
+          'pointer-events-none sticky top-0 z-10 h-10 -mb-10 bg-gradient-to-b from-background/65 to-transparent transition-opacity duration-200',
+          showTopGradient ? 'opacity-100' : 'opacity-0'
+        )}
+      />
+      <div
+        className="w-[85%] ml-[5%]"
         style={{
           // SessionShell reserves real layout space for the floating composer.
           // Keep only breathing room here so the final transcript node does not
           // feel glued to that boundary.
+          paddingTop: `${24 + shortContentTopSpacer}px`,
           paddingBottom: `${safeBottomPadding}px`
         }}
       >
         <div className="flex items-start gap-4">
-          <div className="min-w-0 flex-1">
-            {/* Inline compaction marker inserted by timestamp. */}
-            {inflightCompaction && inflightCompactionInsertAfter === -1 && (
-              <ThreadStatusRow key={inflightCompaction.id} status={inflightCompaction} />
-            )}
-
+          <div ref={timelineContentRef} className="min-w-0 flex-1">
             {preludeNodes.map((node, index) => {
               const iconCfg = ICON_MAP[node.cardType]
               const Icon = iconCfg.icon
@@ -1376,95 +1542,36 @@ export function AgentTimeline({
                       node.isLastInMessage &&
                       (!nextNode || nextNode.cardType === 'user-message')
 
-                    const globalNodeIndex = nodes.findIndex(
-                      (candidate) => candidate.key === node.key
-                    )
-                    const compactionSuffix =
-                      inflightCompaction && inflightCompactionInsertAfter === globalNodeIndex ? (
-                        <ThreadStatusRow
-                          key={`${inflightCompaction.id}-after-${globalNodeIndex}`}
-                          status={inflightCompaction}
-                        />
-                      ) : null
-
                     if (node.cardType === 'user-message') {
                       return (
-                        <React.Fragment key={node.key}>
-                          <div className="mb-6">
-                            <TimelineNodeView
-                              node={node}
-                              sessionId={sessionId}
-                              worktreePath={worktreePath}
-                              childPartsMap={childPartsMap}
-                              planContentByToolUseId={planContentByToolUseId}
-                              canEditUserMessage={canEditUserMessage}
-                              editingMessageId={editingMessageId}
-                              editingContent={editingContent}
-                              onEditingContentChange={onEditingContentChange}
-                              onSaveUserMessageEdit={onSaveUserMessageEdit}
-                              onCancelUserMessageEdit={onCancelUserMessageEdit}
-                              onCopyUserMessage={onCopyUserMessage}
-                              onEditUserMessage={onEditUserMessage}
-                              onForkUserMessage={onForkUserMessage}
-                              forkingMessageId={forkingMessageId}
-                            />
-                          </div>
-                          {compactionSuffix}
-                        </React.Fragment>
+                        <div key={node.key} className="mb-6">
+                          <TimelineNodeView
+                            node={node}
+                            sessionId={sessionId}
+                            worktreePath={worktreePath}
+                            childPartsMap={childPartsMap}
+                            planContentByToolUseId={planContentByToolUseId}
+                            canEditUserMessage={canEditUserMessage}
+                            editingMessageId={editingMessageId}
+                            editingContent={editingContent}
+                            onEditingContentChange={onEditingContentChange}
+                            onSaveUserMessageEdit={onSaveUserMessageEdit}
+                            onCancelUserMessageEdit={onCancelUserMessageEdit}
+                            onCopyUserMessage={onCopyUserMessage}
+                            onEditUserMessage={onEditUserMessage}
+                            onForkUserMessage={onForkUserMessage}
+                            forkingMessageId={forkingMessageId}
+                          />
+                        </div>
                       )
                     }
 
                     if (node.cardType === 'text') {
                       return (
-                        <React.Fragment key={node.key}>
-                          <div className="relative pl-10 mb-4">
-                            {renderConnector && (
-                              <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border opacity-60" />
-                            )}
-                            <TimelineNodeView
-                              node={node}
-                              sessionId={sessionId}
-                              worktreePath={worktreePath}
-                              childPartsMap={childPartsMap}
-                              planContentByToolUseId={planContentByToolUseId}
-                              canEditUserMessage={canEditUserMessage}
-                              editingMessageId={editingMessageId}
-                              editingContent={editingContent}
-                              onEditingContentChange={onEditingContentChange}
-                              onSaveUserMessageEdit={onSaveUserMessageEdit}
-                              onCancelUserMessageEdit={onCancelUserMessageEdit}
-                              onCopyUserMessage={onCopyUserMessage}
-                              onEditUserMessage={onEditUserMessage}
-                              onForkUserMessage={onForkUserMessage}
-                              forkingMessageId={forkingMessageId}
-                            />
-                            {showTimestamp && node.message.timestamp && (
-                              <div className="mt-1 text-xs text-muted-foreground">
-                                {formatMessageTime(node.message.timestamp)}
-                              </div>
-                            )}
-                          </div>
-                          {compactionSuffix}
-                        </React.Fragment>
-                      )
-                    }
-
-                    return (
-                      <React.Fragment key={node.key}>
-                        <div className="relative pl-10 mb-4">
+                        <div key={node.key} className="relative pl-10 mb-4">
                           {renderConnector && (
                             <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border opacity-60" />
                           )}
-                          <div
-                            className={cn(
-                              'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
-                              'flex items-center justify-center z-10',
-                              iconCfg.bgClass,
-                              iconCfg.colorClass
-                            )}
-                          >
-                            <Icon className="h-3 w-3" />
-                          </div>
                           <TimelineNodeView
                             node={node}
                             sessionId={sessionId}
@@ -1488,13 +1595,57 @@ export function AgentTimeline({
                             </div>
                           )}
                         </div>
-                        {compactionSuffix}
-                      </React.Fragment>
+                      )
+                    }
+
+                    return (
+                      <div key={node.key} className="relative pl-10 mb-4">
+                        {renderConnector && (
+                          <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border opacity-60" />
+                        )}
+                        <div
+                          className={cn(
+                            'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
+                            'flex items-center justify-center z-10',
+                            iconCfg.bgClass,
+                            iconCfg.colorClass
+                          )}
+                        >
+                          <Icon className="h-3 w-3" />
+                        </div>
+                        <TimelineNodeView
+                          node={node}
+                          sessionId={sessionId}
+                          worktreePath={worktreePath}
+                          childPartsMap={childPartsMap}
+                          planContentByToolUseId={planContentByToolUseId}
+                          canEditUserMessage={canEditUserMessage}
+                          editingMessageId={editingMessageId}
+                          editingContent={editingContent}
+                          onEditingContentChange={onEditingContentChange}
+                          onSaveUserMessageEdit={onSaveUserMessageEdit}
+                          onCancelUserMessageEdit={onCancelUserMessageEdit}
+                          onCopyUserMessage={onCopyUserMessage}
+                          onEditUserMessage={onEditUserMessage}
+                          onForkUserMessage={onForkUserMessage}
+                          forkingMessageId={forkingMessageId}
+                        />
+                        {showTimestamp && node.message.timestamp && (
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {formatMessageTime(node.message.timestamp)}
+                          </div>
+                        )}
+                      </div>
                     )
                   })}
                 </section>
               )
             })}
+
+            {/* Inflight 压缩 marker：永远落在 rounds 之后、streaming 之前。 */}
+            {inflightCompaction && (
+              <ThreadStatusRow key={inflightCompaction.id} status={inflightCompaction} />
+            )}
 
             {/* Final aggregated TodoCard — rendered only when a parent explicitly passes it. */}
             {finalTodoTasks && finalTodoTasks.length > 0 && (
@@ -1625,8 +1776,17 @@ export function AgentTimeline({
               className="sticky top-0 -mt-6 hidden w-8 shrink-0 self-start lg:block"
               data-testid="timeline-round-anchor-rail"
             >
+              {/*
+               * Floating Shuttle Rail — borderless, backgroundless.
+               *
+               * At rest   : only the active dot (a glowing bead) floats in
+               *             empty vertical space. No container, no track line.
+               * On hover  : a faint dashed guide line and ghost dots fade in,
+               *             then distort into the Dock-style fisheye as the
+               *             cursor moves along the axis.
+               */}
               <div
-                className="relative min-h-40 cursor-pointer overflow-visible rounded-full border border-border/30 bg-background/45 shadow-sm backdrop-blur-sm transition-colors hover:border-primary/35 hover:bg-background/70"
+                className="group relative cursor-pointer overflow-visible"
                 data-testid="timeline-round-anchor-rail-items"
                 style={{ height: `${roundRailHeight}px` }}
                 onPointerMove={handleRoundRailPointerMove}
@@ -1635,20 +1795,22 @@ export function AgentTimeline({
                 onMouseLeave={handleRoundRailPointerLeave}
                 onClick={handleRoundRailClick}
               >
+                {/* Dashed guide axis — invisible at rest, fades in on hover */}
                 <div
                   aria-hidden="true"
-                  className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-border/35"
+                  className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 border-l border-dashed border-border/30 opacity-0 transition-opacity duration-200 group-hover:opacity-100"
                 />
                 {rounds.map((round, roundIndex) => {
                   const isActive =
                     activeRoundId === round.id ||
                     (!activeRoundId && roundIndex === rounds.length - 1)
-                  const dotStyle = getRoundRailDotStyle({
-                    roundIndex,
-                    roundCount: rounds.length,
-                    railHeight: roundRailHeight,
-                    hoverY: roundRailHoverY,
-                    active: isActive
+                  const dotStyle = getRailDotStyle({
+                    topPercent:
+                      fisheyeLayout.topPercents[roundIndex] ??
+                      (roundIndex / Math.max(rounds.length - 1, 1)) * 100,
+                    expansion: fisheyeLayout.expansions[roundIndex] ?? 1,
+                    active: isActive,
+                    hovering: roundRailHoverY !== null
                   })
                   return (
                     <button
@@ -1659,10 +1821,12 @@ export function AgentTimeline({
                         onRoundAnchorNavigate?.(round.id)
                       }}
                       className={cn(
-                        'absolute left-1/2 rounded-full border transition-[width,height,opacity,background-color,border-color,box-shadow] duration-150 ease-out',
+                        'absolute left-1/2 rounded-full transition-[width,height,opacity,background-color,box-shadow] duration-150 ease-out',
                         isActive
-                          ? 'border-primary/85 bg-primary/85 shadow-[0_0_12px_rgba(59,130,246,0.42)]'
-                          : 'border-border/45 bg-muted-foreground/25 hover:border-primary/55 hover:bg-primary/45'
+                          ? // Floating bead: soft dual-layer glow, no hard border
+                            'bg-primary/90 shadow-[0_0_8px_rgba(59,130,246,0.55),0_0_3px_rgba(59,130,246,0.25)]'
+                          : // Ghost dot: no border, brightens on individual hover
+                            'bg-muted-foreground/35 hover:bg-primary/55'
                       )}
                       style={dotStyle}
                       title={round.preview}
@@ -1677,6 +1841,14 @@ export function AgentTimeline({
           )}
         </div>
       </div>
+      {/* Bottom edge mask: visible when content extends below the viewport */}
+      <div
+        aria-hidden="true"
+        className={cn(
+          'pointer-events-none sticky bottom-0 z-10 h-10 -mt-10 bg-gradient-to-t from-background/65 to-transparent transition-opacity duration-200',
+          showBottomGradient ? 'opacity-100' : 'opacity-0'
+        )}
+      />
     </div>
   )
 }

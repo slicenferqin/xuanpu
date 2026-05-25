@@ -44,6 +44,7 @@ function toDbSessionMessage(row: SessionMessage): DbSessionMessage {
     opencode_message_json: row.opencode_message_json,
     opencode_parts_json: row.opencode_parts_json,
     opencode_timeline_json: row.opencode_timeline_json,
+    sequence: row.sequence ?? null,
     created_at: row.created_at
   }
 }
@@ -166,10 +167,7 @@ export function getSessionTimeline(sessionId: string): TimelineResult {
       if (session.agent_sdk === 'opencode') {
         const activityRows = db.getSessionActivities(sessionId)
         if (Array.isArray(activityRows) && activityRows.length > 0) {
-          messages = mergeOpenCodePlanActivities(
-            messages,
-            activityRows.map(toDbSessionActivity)
-          )
+          messages = mergeOpenCodePlanActivities(messages, activityRows.map(toDbSessionActivity))
         }
       }
       break

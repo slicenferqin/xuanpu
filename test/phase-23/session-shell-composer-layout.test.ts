@@ -48,7 +48,9 @@ describe('SessionShell composer layout source guard', () => {
     )
 
     expect(timelineSource).toContain('data-testid="hq-agent-timeline-scroll"')
-    expect(timelineSource).toContain('className="h-full min-h-0 overflow-y-auto"')
+    expect(timelineSource).toContain(
+      'className="h-full min-h-0 overflow-y-auto overscroll-contain"'
+    )
+    expect(timelineSource).toContain('shortContentTopSpacer')
   })
-
 })

@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 27
+export const CURRENT_SCHEMA_VERSION = 28
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -183,6 +183,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_session_opencode_unique
   WHERE opencode_message_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_session_activities_session_created
   ON session_activities(session_id, created_at, id);
+CREATE INDEX IF NOT EXISTS idx_session_activities_session_seq
+  ON session_activities(session_id, sequence);
 CREATE INDEX IF NOT EXISTS idx_session_activities_session_turn
   ON session_activities(session_id, turn_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_session_pending_messages_session_status
@@ -367,6 +369,7 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_messages_session_seq;
       DROP INDEX IF EXISTS idx_messages_session;
       DROP INDEX IF EXISTS idx_session_activities_session_turn;
+      DROP INDEX IF EXISTS idx_session_activities_session_seq;
       DROP INDEX IF EXISTS idx_session_activities_session_created;
       DROP INDEX IF EXISTS idx_session_pending_messages_updated;
       DROP INDEX IF EXISTS idx_session_pending_messages_session_status;
@@ -498,11 +501,14 @@ export const MIGRATIONS: Migration[] = [
 
       CREATE INDEX IF NOT EXISTS idx_session_activities_session_created
         ON session_activities(session_id, created_at, id);
+      CREATE INDEX IF NOT EXISTS idx_session_activities_session_seq
+        ON session_activities(session_id, sequence);
       CREATE INDEX IF NOT EXISTS idx_session_activities_session_turn
         ON session_activities(session_id, turn_id, created_at);
     `,
     down: `
       DROP INDEX IF EXISTS idx_session_activities_session_turn;
+      DROP INDEX IF EXISTS idx_session_activities_session_seq;
       DROP INDEX IF EXISTS idx_session_activities_session_created;
       DROP TABLE IF EXISTS session_activities;
     `
@@ -996,5 +1002,11 @@ export const MIGRATIONS: Migration[] = [
     name: 'repair_session_messages_sequence',
     up: `-- handled idempotently by ensureSessionMessageSequenceColumn() in database.ts`,
     down: `-- SQLite cannot DROP COLUMN reliably across versions; this is a no-op for safety`
+  },
+  {
+    version: 28,
+    name: 'repair_session_activities_sequence',
+    up: `-- handled idempotently by ensureSessionActivitySequenceColumn() in database.ts`,
+    down: `DROP INDEX IF EXISTS idx_session_activities_session_seq;`
   }
 ]

@@ -1137,12 +1137,18 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           if (part?.type === 'tool') {
             const toolName = (part.tool as string) || undefined
             const state = (part.state as Record<string, unknown>) || {}
+            // callID 在整个 tool 生命周期内保持不变；fallback 到 part.id。
+            // 这是 stream 期间 reducer 能正确 upsert 同一 task 的关键。
+            const toolUseId =
+              (typeof part.callID === 'string' ? part.callID : undefined) ??
+              (typeof part.id === 'string' ? part.id : undefined)
 
             // --- Mission Control: detect todo/task tools ---
             const nextTasks = applySessionTaskToolEvent(
               missionTasksRef.current,
               toolName,
-              state.input
+              state.input,
+              toolUseId
             )
             if (nextTasks !== missionTasksRef.current) {
               setSharedMissionTasks(nextTasks)

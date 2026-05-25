@@ -60,7 +60,7 @@ export function SessionCostPill({
   const { t } = useI18n()
   const modelSummary = formatModelLabelSummary(getSessionSummaryModelLabels(summary))
   const totalCost = Math.max(summary?.total_cost ?? 0, fallbackCost ?? 0)
-  const resolvedTokens = resolveUsageTokenTotals(summary, fallbackTokens, fallbackCost)
+  const resolvedTokens = resolveUsageTokenTotals(summary, fallbackTokens)
   const totalTokens = resolvedTokens.totalTokens
   const hasAnyTokens = totalTokens > 0
   const inputTokens = resolvedTokens.inputTokens

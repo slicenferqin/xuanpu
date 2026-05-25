@@ -333,7 +333,7 @@ function OverviewPanel({
       const summary = summaryBySession[sessionId]
       const tokens = tokensBySession[sessionId]
       const liveCost = costBySession[sessionId] ?? 0
-      const resolvedTokens = resolveUsageTokenTotals(summary, tokens, liveCost)
+      const resolvedTokens = resolveUsageTokenTotals(summary, tokens)
 
       acc.totalCost += Math.max(summary?.total_cost ?? 0, liveCost)
       acc.totalTokens += resolvedTokens.totalTokens

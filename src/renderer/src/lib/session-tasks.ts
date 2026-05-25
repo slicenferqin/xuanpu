@@ -266,7 +266,8 @@ function patchSessionTask(current: SessionTask[], task: SessionTask): SessionTas
 export function applySessionTaskToolEvent(
   current: SessionTask[],
   toolName: string | undefined,
-  input: unknown
+  input: unknown,
+  toolUseId?: string
 ): SessionTask[] {
   const lowerToolName = toolName?.toLowerCase() ?? ''
 
@@ -276,7 +277,15 @@ export function applySessionTaskToolEvent(
 
   if (lowerToolName === 'taskcreate' || lowerToolName === 'task_create') {
     if (!isRecord(input)) return current
-    const task = taskFromRecord(input, `task-${current.length + 1}`)
+    // toolUseId 是 stable 的（callID 在整个 tool 生命周期里不变），用它当 fallback
+    // 才能保证流式期间多次 message.part.updated 触发 reducer 时 upsert 命中同一行，
+    // 否则会走 `task-${current.length + 1}` 这种位置 fallback，每次 +1 都会被
+    // 当作新任务，导致右侧任务列表重复（且后续 TaskUpdate 找不到 id 没法更新状态）。
+    const fallbackId =
+      typeof toolUseId === 'string' && toolUseId.length > 0
+        ? toolUseId
+        : `task-${current.length + 1}`
+    const task = taskFromRecord(input, fallbackId)
     if (!task) return current
 
     const existing = current.find((candidate) => candidate.id === task.id)
@@ -299,7 +308,7 @@ export function applySessionTaskToolEvent(
 
   if (lowerToolName === 'taskupdate' || lowerToolName === 'task_update') {
     if (!isRecord(input)) return current
-    const taskId = getSessionTaskId(input, '')
+    const taskId = getSessionTaskId(input, toolUseId ?? '')
     if (!taskId) return current
     const existing = current.find((task) => task.id === taskId)
     const content = getSessionTaskContent(input) || existing?.content || existing?.subject || ''
@@ -343,7 +352,12 @@ function extractRoundTasks(messages: TimelineMessage[]): SessionTask[] {
 
     for (const part of msg.parts ?? []) {
       if (part.type !== 'tool_use' || !part.toolUse) continue
-      tasks = applySessionTaskToolEvent(tasks, part.toolUse.name, part.toolUse.input)
+      tasks = applySessionTaskToolEvent(
+        tasks,
+        part.toolUse.name,
+        part.toolUse.input,
+        part.toolUse.id
+      )
     }
   }
 
