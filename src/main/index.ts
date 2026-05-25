@@ -1,3 +1,7 @@
+// MUST be first import: stubs `require('fsevents')` on macOS so chokidar
+// falls back to fs.watch and the fsevents.node native addon is never loaded.
+// Prevents SIGABRT during V8/Node teardown on app quit. See file for details.
+import './fsevents-patch'
 import { loadShellEnv } from './services/shell-env'
 import { app, shell, BrowserWindow, screen, ipcMain, clipboard } from 'electron'
 import { join } from 'path'
@@ -907,82 +911,109 @@ app.on('window-all-closed', () => {
 
 // Cleanup when app is about to quit
 app.on('will-quit', async () => {
-  // Phase 24C: capture session checkpoints BEFORE the sink shuts down, so
-  // generators can still query recent events. Hard 2s timeout per PRD —
-  // shutdown safety > completeness.
-  try {
-    const { recordCheckpointsOnShutdown } = await import('./field/checkpoint-hooks')
-    await Promise.race([
-      recordCheckpointsOnShutdown(),
-      new Promise<void>((resolve) => setTimeout(resolve, 2000))
-    ])
-  } catch (err) {
-    log.warn('checkpoint shutdown failed', {
-      error: err instanceof Error ? err.message : String(err)
-    })
-  }
-  // Phase 22B.1: shut down the episodic memory updater first (before the sink),
-  // so it stops scheduling new compactions that would race with sink flush.
-  try {
-    await getEpisodicMemoryUpdater().shutdown()
-  } catch (err) {
-    log.warn('episodic memory updater shutdown failed', {
-      error: err instanceof Error ? err.message : String(err)
-    })
-  }
-  // Phase 21: ensure the field event sink has flushed before we close the DB.
-  // The sink's own `before-quit` hook normally handles this, but we call
-  // shutdown() defensively here too — it's idempotent.
-  try {
-    await getFieldEventSink().shutdown()
-  } catch (err) {
-    log.warn('field event sink shutdown failed', {
-      error: err instanceof Error ? err.message : String(err)
-    })
-  }
-  // Cleanup updater timers
-  updaterService.cleanup()
-  // Cleanup terminal PTYs
-  cleanupTerminals()
-  // Cleanup running scripts
-  cleanupScripts()
-  // Cleanup file tree watchers
-  await cleanupFileTreeWatchers()
-  // Cleanup worktree watchers (git status monitoring)
-  await cleanupWorktreeWatchers()
-  // Cleanup branch watchers (sidebar branch names)
-  await cleanupBranchWatchers()
-  // Cleanup canonical agent handlers
-  await cleanupAgentHandlers(agentRuntimeManager ?? undefined)
-  // Cleanup voice runtime sessions and the managed local sidecar.
-  await cleanupVoiceRuntime()
-  // Cleanup hub controller (stops server + tunnel)
-  try {
-    const { getHubController } = await import('./services/hub/hub-controller')
-    const ctrl = getHubController()
-    if (ctrl) await ctrl.stop()
-  } catch (err) {
-    log.warn('hub cleanup failed', {
-      error: err instanceof Error ? err.message : String(err)
-    })
-  }
-  // Flush telemetry before closing database
-  telemetryService.track('app_session_ended', {
-    session_duration_ms: Date.now() - appStartTime
-  })
-  await telemetryService.shutdown()
-  // Close database
-  closeDatabase()
-
-  // fsevents (chokidar's macOS backend) racey-aborts during node's natural
-  // teardown — its `napi_release_threadsafe_function` runs after libuv's
-  // mutex has been destroyed, producing SIGABRT inside `fse_instance_destroy`
-  // and surfacing as a "玄圃 意外退出" Apple crash dialog every time the
-  // user quits. All renderer-visible cleanup is done at this point (DB
-  // closed, watchers stopped, telemetry flushed), so a synchronous
-  // process.exit(0) here is the well-trodden Electron+chokidar workaround.
-  // Only do this on macOS (the only platform that uses fsevents).
-  if (process.platform === 'darwin') {
+  // Deadman's switch: force process.exit(0) within 3 seconds no matter what,
+  // in case one of the cleanup awaits below hangs (e.g. a watcher.close() that
+  // never resolves, or a subprocess that ignores SIGTERM). The fsevents
+  // SIGABRT this used to also guard against is now neutralized upstream in
+  // `src/main/fsevents-patch.ts`.
+  const exitTimer = setTimeout(() => {
+    log.warn('will-quit deadman triggered, force-exiting')
     process.exit(0)
+  }, 3000)
+  // Don't keep the event loop alive just for this timer.
+  exitTimer.unref()
+
+  try {
+    // Phase 24C: capture session checkpoints BEFORE the sink shuts down, so
+    // generators can still query recent events. Hard 2s timeout per PRD —
+    // shutdown safety > completeness.
+    try {
+      const { recordCheckpointsOnShutdown } = await import('./field/checkpoint-hooks')
+      await Promise.race([
+        recordCheckpointsOnShutdown(),
+        new Promise<void>((resolve) => setTimeout(resolve, 2000))
+      ])
+    } catch (err) {
+      log.warn('checkpoint shutdown failed', {
+        error: err instanceof Error ? err.message : String(err)
+      })
+    }
+    // Phase 22B.1: shut down the episodic memory updater first (before the sink),
+    // so it stops scheduling new compactions that would race with sink flush.
+    try {
+      await getEpisodicMemoryUpdater().shutdown()
+    } catch (err) {
+      log.warn('episodic memory updater shutdown failed', {
+        error: err instanceof Error ? err.message : String(err)
+      })
+    }
+    // Phase 21: ensure the field event sink has flushed before we close the DB.
+    // The sink's own `before-quit` hook normally handles this, but we call
+    // shutdown() defensively here too — it's idempotent.
+    try {
+      await getFieldEventSink().shutdown()
+    } catch (err) {
+      log.warn('field event sink shutdown failed', {
+        error: err instanceof Error ? err.message : String(err)
+      })
+    }
+    // Cleanup updater timers
+    updaterService.cleanup()
+    // Cleanup terminal PTYs
+    cleanupTerminals()
+    // Cleanup running scripts
+    cleanupScripts()
+    // Cleanup file tree watchers
+    await cleanupFileTreeWatchers()
+    // Cleanup worktree watchers (git status monitoring)
+    await cleanupWorktreeWatchers()
+    // Cleanup branch watchers (sidebar branch names)
+    await cleanupBranchWatchers()
+    // Cleanup canonical agent handlers
+    await cleanupAgentHandlers(agentRuntimeManager ?? undefined)
+    // Cleanup voice runtime sessions and the managed local sidecar.
+    await cleanupVoiceRuntime()
+    // Cleanup hub controller (stops server + tunnel)
+    try {
+      const { getHubController } = await import('./services/hub/hub-controller')
+      const ctrl = getHubController()
+      if (ctrl) await ctrl.stop()
+    } catch (err) {
+      log.warn('hub cleanup failed', {
+        error: err instanceof Error ? err.message : String(err)
+      })
+    }
+    // Flush telemetry before closing database
+    telemetryService.track('app_session_ended', {
+      session_duration_ms: Date.now() - appStartTime
+    })
+    await telemetryService.shutdown()
+    // Close database
+    closeDatabase()
+  } catch (err) {
+    log.error('will-quit cleanup failed', {
+      error: err instanceof Error ? err.message : String(err)
+    })
+  } finally {
+    clearTimeout(exitTimer)
+
+    // Defense-in-depth: skip Electron's default exit path on macOS.
+    //
+    // The real fsevents-on-quit SIGABRT root-cause is fixed by
+    // `src/main/fsevents-patch.ts` (the fsevents.node native addon is no
+    // longer loaded into this process). Before that patch, this `process.exit`
+    // was *intended* to dodge the crash but actually didn't — process.exit
+    // still routes through node::FreeEnvironment → napi cleanup, which is
+    // exactly where the fse_instance_destroy abort was firing. The crash
+    // happened anyway, just with a slightly different stack.
+    //
+    // We keep the early exit only as a guard against any *other* native addon
+    // that might in future register a napi finalizer with a similar
+    // mutex-after-teardown race. All renderer-visible cleanup is done by this
+    // point (DB closed, watchers stopped, telemetry flushed) so an immediate
+    // exit costs nothing.
+    if (process.platform === 'darwin') {
+      process.exit(0)
+    }
   }
 })

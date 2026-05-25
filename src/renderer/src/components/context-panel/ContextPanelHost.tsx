@@ -4,6 +4,7 @@ import {
   BarChart3,
   Files,
   GitPullRequest,
+  HelpCircle,
   ListTodo,
   SquareTerminal,
   Target
@@ -81,9 +82,30 @@ function formatCost(value: number): string {
   return `$${value.toFixed(2)}`
 }
 
-function idsEqual(a: string[], b: string[]): boolean {
+type OverviewSession = {
+  id: string
+  status?: string | null
+}
+
+function overviewSessionsEqual(a: OverviewSession[], b: OverviewSession[]): boolean {
   if (a.length !== b.length) return false
-  return a.every((id, index) => id === b[index])
+  return a.every((session, index) => {
+    const other = b[index]
+    return session.id === other?.id && session.status === other.status
+  })
+}
+
+function encodeOverviewSession(session: OverviewSession): string {
+  return `${session.id}:${session.status ?? ''}`
+}
+
+function decodeOverviewSession(value: string): OverviewSession {
+  const separatorIndex = value.lastIndexOf(':')
+  if (separatorIndex < 0) return { id: value }
+  return {
+    id: value.slice(0, separatorIndex),
+    status: value.slice(separatorIndex + 1) || null
+  }
 }
 
 function EmptyPanel({
@@ -237,16 +259,23 @@ function useSessionTasks(activeSessionId: string | null): SessionTask[] {
 }
 
 function OverviewPanel({
-  sessionIds,
+  sessions,
   worktreePath,
   scopeLabel
 }: {
-  sessionIds: string[]
+  sessions: OverviewSession[]
   worktreePath: string | null
   scopeLabel: string
 }): React.JSX.Element {
   const { t } = useI18n()
+  const sessionIds = useMemo(() => sessions.map((session) => session.id), [sessions])
   const sessionIdsKey = sessionIds.join('|')
+  const activeSessionCount = sessions.filter((session) => session.status === 'active').length
+  const inactiveSessionCount = Math.max(0, sessions.length - activeSessionCount)
+  const sessionBreakdownTitle = [
+    t('contextPanel.overview.activeSessions', { count: activeSessionCount }),
+    t('contextPanel.overview.inactiveSessions', { count: inactiveSessionCount })
+  ].join('\n')
   const [summaryBySession, setSummaryBySession] = useState<
     Record<string, UsageAnalyticsSessionSummary>
   >({})
@@ -366,11 +395,6 @@ function OverviewPanel({
       tone: 'mint' as const
     },
     {
-      label: t('contextPanel.overview.output'),
-      amount: totals.outputTokens,
-      tone: 'lavender' as const
-    },
-    {
       label: t('contextPanel.overview.cacheRead'),
       amount: totals.cacheReadTokens,
       tone: 'muted' as const
@@ -379,6 +403,11 @@ function OverviewPanel({
       label: t('contextPanel.overview.cacheWrite'),
       amount: totals.cacheWriteTokens,
       tone: 'muted' as const
+    },
+    {
+      label: t('contextPanel.overview.output'),
+      amount: totals.outputTokens,
+      tone: 'lavender' as const
     }
   ]
 
@@ -391,12 +420,13 @@ function OverviewPanel({
             <div className="min-w-0">
               <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-steel">
                 {scopeLabel} · {t('contextPanel.tabs.overview')}
-              </div>
-              <div className="mt-1.5 truncate text-[11px] text-muted-foreground">
-                {t('contextPanel.overview.sessionCount', {
-                  count: sessionIds.length,
-                  scope: scopeLabel
-                })}
+                <span
+                  className="ml-1.5 inline-flex h-4 w-4 translate-y-[2px] items-center justify-center rounded-full border border-steel/25 text-steel/75"
+                  aria-label={t('contextPanel.overview.sessionBreakdownLabel')}
+                  title={sessionBreakdownTitle}
+                >
+                  <HelpCircle className="h-3 w-3" />
+                </span>
               </div>
             </div>
           </div>
@@ -437,9 +467,6 @@ function OverviewPanel({
           <div className="flex items-center justify-between gap-2">
             <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               {scopeLabel}
-            </div>
-            <div className="text-[10px] font-medium text-muted-foreground">
-              {t('contextPanel.overview.sessions')}: {formatCompactNumber(sessionIds.length)}
             </div>
           </div>
           <div className="mt-1.5 break-all font-mono text-[11px] leading-relaxed text-steel">
@@ -616,20 +643,32 @@ export function ContextPanelHost({
     isConnectionMode ? s.activeConnectionId : s.activeWorktreeId
   )
   const overviewScopeId = scopeId ?? fallbackOverviewScopeId
-  const cachedOverviewSessionIds = useSessionStore(
+  const cachedOverviewSessionKeys = useSessionStore(
     useShallow((s) => {
       const sessions = overviewScopeId
         ? isConnectionMode
           ? (s.sessionsByConnection.get(overviewScopeId) ?? [])
           : (s.sessionsByWorktree.get(overviewScopeId) ?? [])
         : []
-      const ids = sessions.map((session) => session.id)
-      if (ids.length > 0) return ids
-      return activeSessionId ? [activeSessionId] : []
+      const overviewSessionKeys = sessions.map((session) =>
+        encodeOverviewSession({
+          id: session.id,
+          status: session.status
+        })
+      )
+      if (overviewSessionKeys.length > 0) return overviewSessionKeys
+      return activeSessionId
+        ? [encodeOverviewSession({ id: activeSessionId, status: 'active' })]
+        : []
     })
   )
-  const cachedOverviewSessionIdsKey = cachedOverviewSessionIds.join('|')
-  const [overviewSessionIds, setOverviewSessionIds] = useState<string[]>(cachedOverviewSessionIds)
+  const cachedOverviewSessions = useMemo(
+    () => cachedOverviewSessionKeys.map(decodeOverviewSession),
+    [cachedOverviewSessionKeys]
+  )
+  const cachedOverviewSessionsKey = cachedOverviewSessionKeys.join('|')
+  const [overviewSessions, setOverviewSessions] =
+    useState<OverviewSession[]>(cachedOverviewSessions)
   const tabs = useMemo(
     () => {
       const baseTabs = SHOW_CONTEXT_DIAGNOSTICS ? DEV_CONTEXT_TABS : CONTEXT_TABS
@@ -644,8 +683,8 @@ export function ContextPanelHost({
   useEffect(() => {
     let cancelled = false
 
-    setOverviewSessionIds((current) =>
-      idsEqual(current, cachedOverviewSessionIds) ? current : cachedOverviewSessionIds
+    setOverviewSessions((current) =>
+      overviewSessionsEqual(current, cachedOverviewSessions) ? current : cachedOverviewSessions
     )
 
     if (!overviewScopeId || !window.db?.session) {
@@ -661,21 +700,26 @@ export function ContextPanelHost({
     loadSessions(overviewScopeId)
       .then((sessions) => {
         if (cancelled) return
-        const ids = sessions.map((session) => session.id)
-        const nextIds = ids.length > 0 ? ids : cachedOverviewSessionIds
-        setOverviewSessionIds((current) => (idsEqual(current, nextIds) ? current : nextIds))
+        const loadedSessions = sessions.map((session) => ({
+          id: session.id,
+          status: session.status
+        }))
+        const nextSessions = loadedSessions.length > 0 ? loadedSessions : cachedOverviewSessions
+        setOverviewSessions((current) =>
+          overviewSessionsEqual(current, nextSessions) ? current : nextSessions
+        )
       })
       .catch(() => {
         if (cancelled) return
-        setOverviewSessionIds((current) =>
-          idsEqual(current, cachedOverviewSessionIds) ? current : cachedOverviewSessionIds
+        setOverviewSessions((current) =>
+          overviewSessionsEqual(current, cachedOverviewSessions) ? current : cachedOverviewSessions
         )
       })
 
     return () => {
       cancelled = true
     }
-  }, [cachedOverviewSessionIds, cachedOverviewSessionIdsKey, isConnectionMode, overviewScopeId])
+  }, [cachedOverviewSessions, cachedOverviewSessionsKey, isConnectionMode, overviewScopeId])
 
   useEffect(() => {
     if (activeTab === 'terminal' && !terminalPanel) {
@@ -715,7 +759,7 @@ export function ContextPanelHost({
       case 'overview':
         return (
           <OverviewPanel
-            sessionIds={overviewSessionIds}
+            sessions={overviewSessions}
             worktreePath={worktreePath}
             scopeLabel={overviewScopeLabel}
           />
@@ -759,7 +803,7 @@ export function ContextPanelHost({
     onFileClick,
     overviewScopeLabel,
     overviewScopeId,
-    overviewSessionIds,
+    overviewSessions,
     worktreePath
   ])
 

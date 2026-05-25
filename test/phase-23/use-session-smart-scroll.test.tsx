@@ -109,6 +109,9 @@ function SmartScrollHarness({
       <div data-testid="smart-scroll-fab-visible">{smartScroll.showScrollFab ? 'yes' : 'no'}</div>
       <div data-testid="smart-scroll-fab-count">{smartScroll.scrollFabCount}</div>
       <div data-testid="smart-scroll-fab-offset">{smartScroll.scrollFabBottomOffset}</div>
+      <div data-testid="smart-scroll-bottom-floating-height">
+        {smartScroll.bottomFloatingHeight}
+      </div>
       <div data-testid="smart-scroll-clear-inset">{smartScroll.clearScreenBottomInset}</div>
     </div>
   )
@@ -321,6 +324,7 @@ describe('useSessionSmartScroll', () => {
 
     scrollHeight.current = 1440
     act(() => {
+      getObserverFor(bottomArea).trigger(96)
       getObserverFor(composer).trigger(120)
     })
 
@@ -328,9 +332,10 @@ describe('useSessionSmartScroll', () => {
     expect(
       Number(screen.getByTestId('smart-scroll-fab-offset').textContent)
     ).toBeGreaterThanOrEqual(152)
+    expect(Number(screen.getByTestId('smart-scroll-bottom-floating-height').textContent)).toBe(216)
   })
 
-  it('does not auto-scroll bottom-area resize while clear-screen top lock is active', () => {
+  it('does not auto-scroll bottom-area resize while clear-screen top lock is active and idle', () => {
     setSessionViewState('session-a', {
       scrollTop: 320,
       stickyBottom: false,
@@ -371,6 +376,50 @@ describe('useSessionSmartScroll', () => {
     })
 
     expect(scrollTop.current).toBe(320)
+  })
+
+  it('keeps streaming output anchored when composer height changes during clear-screen mode', () => {
+    setSessionViewState('session-a', {
+      stickyBottom: true,
+      manualScrollLocked: false,
+      lastSeenVersion: 2
+    })
+
+    const { rerender } = render(
+      <SmartScrollHarness
+        sessionId="session-a"
+        mirrorVersion={2}
+        contentVersion={1}
+        ready={false}
+        clearScreenActive
+        isStreaming
+      />
+    )
+
+    const scroller = screen.getByTestId('smart-scroll-scroller')
+    const composer = screen.getByTestId('smart-scroll-composer')
+    const scrollTop = { current: 0 }
+    const scrollHeight = { current: 1200 }
+    attachScrollMetrics(scroller, { scrollTop, scrollHeight, clientHeight: 400 })
+    attachHeight(composer, 80)
+
+    rerender(
+      <SmartScrollHarness
+        sessionId="session-a"
+        mirrorVersion={2}
+        contentVersion={1}
+        ready={true}
+        clearScreenActive
+        isStreaming
+      />
+    )
+
+    scrollHeight.current = 1440
+    act(() => {
+      getObserverFor(composer).trigger(160)
+    })
+
+    expect(scrollTop.current).toBe(1040)
   })
 
   it('scrolls to a programmatic turn-top offset without re-enabling sticky bottom', () => {

@@ -116,6 +116,41 @@ oh-my-pi / pi 负责薄模型运行时。
 OpenClaude / Claude Code harness 可以作为参考和能力来源。  
 但真正的上下文、权限、事件、记忆、worktree 编排，应该归玄圃自己所有。
 
+## 版本范围与不做什么
+
+1.5.0 的范围必须收得住。2026-05-25 复盘"是否要把 xuanpu-agent 做成
+通用 agent（Reasonix 通用形态）"之后的结论是：**1.5.0 只做 Field-bound，
+不做通用化**。通用化是 2.0.0 之后的事。
+
+| 版本 | 形态 | 关键能力 | 不做 |
+|---|---|---|---|
+| 1.5.0 | Field-bound | XFP packet 编译、Context Budget、no-tools runtime 收口、只读 harness、命令压缩、工具调用修复 | MinimalField CLI 入口、跨 provider 适配抽象、sub-agent delegation |
+| 1.6.0 | Field-bound 加固 | 命令压缩 profile 库、错误分类完整闭环、Context Budget 全 runtime 覆盖 | 写入工具 |
+| 1.7.0 | Field-bound + write | 受控写入 harness、Memory Graph、checkpoint/resume | MinimalField CLI |
+| 2.0.0+ | 双形态 | MinimalField CLI standalone、provider 适配器抽象、sub-agent delegation | — |
+
+理由：
+
+- 玄圃的护城河是 **Field-native**，不是"通用 harness"。先把 Field 通路打透，
+  再考虑独立形态。Reasonix 已经证明 byte-level 缓存 + tool-call repair 这种
+  "通用形态"可以单独成立，玄圃不必跟它在同一个赛道上竞争。
+- 提前抽 provider 适配器会让 1.5.0 的 XFP packet 设计被通用化需求拉变形。先
+  让 packet 服务于真实的 codex / openai-compat runtime，再在 2.0.0 抽象。
+- MinimalField subset 已经在 `src/main/services/xuanpu-agent/xfp/types.ts`
+  作为类型留位（`MinimalFieldPacket` + `narrowToMinimal()`），CLI 入口本身延
+  后到 2.0.0；这样 1.5.0 不背 CLI UX / 安装路径 / config 解析的债。
+- 工具调用修复（flatten / scavenge / truncation / storm）作为 M1.5 单独成
+  立，是 1.5.0 范围内的事；详见草案文档。
+
+详见：
+
+- `docs/plans/2026-05-25-reasonix-comparison-and-borrowings.zh-CN.md` —
+  借鉴清单与"不抄什么"
+- `docs/plans/2026-05-25-xuanpu-agent-tool-call-repair-interfaces.md` —
+  M1.5 工具调用修复接口草案
+- `docs/architecture/xfp-packet-v1.md` — XFP v1 字段文档
+- `docs/architecture/xuanpu-agent-invariants.md` — Harness 不变量清单
+
 ## 总体架构
 
 建议把 xuanpu-agent 拆成这些层：
@@ -345,6 +380,29 @@ GBrain 的方向值得参考：记忆不应该是一段巨大 prompt，而应该
 - xuanpu-agent 消费 XFP packet，不再依赖临时拼接 prompt。
 - 每个被纳入的 section 都有理由和来源。
 - 每个被省略的候选上下文都能解释为什么被省略。
+
+### M1.5：工具调用修复
+
+目标：在工具循环正式开张前，把模型常见的"工具调用畸形"问题用 harness 层拦下来。
+
+要做：
+
+- `flatten`：检测工具 schema 中叶子参数 >10 或嵌套深度 >2，编译期降维。
+- `scavenge`：从 `reasoning_content` 用正则扫到内嵌的 tool-call JSON。
+- `truncation`：解析被模型截断的 JSON，能修就修，不能修就标记
+  `MALFORMED_TOOL_CALL` 回灌给模型纠正。
+- `storm`：同一 turn 内相同 `(tool, args)` 重复调用必须聚合或拒绝，对应
+  `REPEATED_TOOL_CALL_GIVE_UP` 错误码。
+- 错误分类对齐 plan-review.md 的 AI-3 表，扩展新增码。
+
+验收：
+
+- 上游模型返回畸形 tool call 时，harness 能产生明确 `HarnessError`，而不是
+  把脏 JSON 推给下一轮模型。
+- 同 turn storm 调用被聚合，timeline 可以看到聚合过程。
+- 单元测试覆盖 flatten / scavenge / truncation / storm 四种路径。
+
+详见：`docs/plans/2026-05-25-xuanpu-agent-tool-call-repair-interfaces.md`
 
 ### M2：只读 Harness
 

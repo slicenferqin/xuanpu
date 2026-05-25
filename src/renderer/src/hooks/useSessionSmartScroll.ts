@@ -17,7 +17,12 @@ interface UseSessionSmartScrollOptions {
   isStreaming: boolean
   bottomAreaRef?: React.RefObject<HTMLElement | null>
   composerRef?: React.RefObject<HTMLElement | null>
-  clearScreenActive?: boolean
+  /**
+   * Ref to the measured clear-screen spacer height (px). When a new round starts
+   * and the spacer pushes content to the viewport top, this value is non-zero.
+   * getDistanceFromBottom subtracts it so FAB detection works correctly.
+   */
+  clearScreenBottomInsetRef?: React.RefObject<number>
 }
 
 interface UseSessionSmartScrollResult {
@@ -70,7 +75,7 @@ export function useSessionSmartScroll({
   isStreaming,
   bottomAreaRef,
   composerRef,
-  clearScreenActive = false
+  clearScreenBottomInsetRef
 }: UseSessionSmartScrollOptions): UseSessionSmartScrollResult {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const programmaticScrollResetRef = useRef<number | null>(null)
@@ -86,23 +91,17 @@ export function useSessionSmartScroll({
   const isStreamingRef = useRef(isStreaming)
   const [dockHeight, setDockHeight] = useState(0)
   const [composerHeight, setComposerHeight] = useState(0)
-  const [viewportHeight, setViewportHeight] = useState(0)
   const [viewState, setViewState] = useState<SessionViewState>(() =>
     getSessionViewState(sessionId, mirrorVersion)
   )
   const viewStateRef = useRef(viewState)
-  // v2 修复：此前 clearScreenActive=true 时会注入"视口高度 - 96px"的底部
-  // 空白（最少 240px），等价于把整屏推到视图外。流式输出落进这片空白后
-  // 就消失在 composer 下面，FAB 也不会亮起来。详见
-  // docs/session-hq-design.md §8.2 / §9.1。
-  //
-  // 现在保留 clearScreenActive 这个 prop 以维持 API 兼容（SessionShell 内
-  // 部仍在 setState），但不再把它翻译成底部 padding。如果将来要重新实现
-  // "Clear Screen"，应通过 transcript 视觉分隔（灰色分割线 / 渐隐遮罩），
-  // 而不是注入物理空白。
-  void clearScreenActive
-  void viewportHeight
-  const clearScreenBottomInset = 0
+  // getClearScreenBottomInset(): measured spacer height (px) from SessionShell. When a new
+  // round starts and the spacer pushes content to the viewport top, this value is
+  // non-zero. The spacer inflates scrollHeight, so getDistanceFromBottom subtracts
+  // it to keep FAB detection accurate. Read from the ref on every call so callers
+  // don't need to re-initialize the hook when the measurement updates.
+  const getClearScreenBottomInset = (): number =>
+    clearScreenBottomInsetRef?.current ?? 0
 
   const writeViewState = useCallback(
     (
@@ -133,7 +132,7 @@ export function useSessionSmartScroll({
 
       const stickyBottom =
         options?.forceStickyBottom ??
-        getDistanceFromBottom(element, clearScreenBottomInset) < getNearBottomThreshold()
+        getDistanceFromBottom(element, getClearScreenBottomInset()) < getNearBottomThreshold()
       const shouldMarkSeen = options?.markSeen ?? stickyBottom
 
       const next = writeViewState(
@@ -149,7 +148,7 @@ export function useSessionSmartScroll({
       lastScrollTopRef.current = element.scrollTop
       return next
     },
-    [clearScreenBottomInset, mirrorVersion, writeViewState]
+    [mirrorVersion, writeViewState]
   )
 
   const markProgrammaticScroll = useCallback(() => {
@@ -186,7 +185,7 @@ export function useSessionSmartScroll({
       if (!element) return
 
       markProgrammaticScroll()
-      scrollElementTo(element, getBottomScrollTop(element, clearScreenBottomInset), behavior)
+      scrollElementTo(element, getBottomScrollTop(element, getClearScreenBottomInset()), behavior)
 
       const current = viewStateRef.current
       const shouldSyncState =
@@ -201,7 +200,7 @@ export function useSessionSmartScroll({
       })
     },
     [
-      clearScreenBottomInset,
+      getClearScreenBottomInset(),
       isStreaming,
       markProgrammaticScroll,
       mirrorVersion,
@@ -266,7 +265,7 @@ export function useSessionSmartScroll({
     }
     viewStateRef.current = current
 
-    const distanceFromBottom = getDistanceFromBottom(element, clearScreenBottomInset)
+    const distanceFromBottom = getDistanceFromBottom(element, getClearScreenBottomInset())
     const isNearBottom = distanceFromBottom < getNearBottomThreshold()
     const hasManualIntent = manualScrollIntentRef.current || pointerDownInScrollerRef.current
 
@@ -300,7 +299,7 @@ export function useSessionSmartScroll({
       { syncState: current.stickyBottom || !current.manualScrollLocked }
     )
     manualScrollIntentRef.current = false
-  }, [clearScreenBottomInset, mirrorVersion, writeViewState])
+  }, [mirrorVersion, writeViewState])
 
   const handleScrollToBottomClick = useCallback(() => {
     resetInteractionState()
@@ -403,8 +402,6 @@ export function useSessionSmartScroll({
   useLayoutEffect(() => {
     const dockElement = bottomAreaRef?.current
     const composerElement = composerRef?.current
-    const scrollElement = scrollContainerRef.current
-    setViewportHeight(scrollElement?.clientHeight ?? 0)
     setDockHeight(dockElement?.getBoundingClientRect().height ?? 0)
     setComposerHeight(composerElement?.getBoundingClientRect().height ?? 0)
   }, [bottomAreaRef, composerRef])
@@ -412,8 +409,6 @@ export function useSessionSmartScroll({
   useEffect(() => {
     const dockElement = bottomAreaRef?.current
     const composerElement = composerRef?.current
-    const scrollElement = scrollContainerRef.current
-    setViewportHeight(scrollElement?.clientHeight ?? 0)
     setDockHeight(dockElement?.getBoundingClientRect().height ?? 0)
     setComposerHeight(composerElement?.getBoundingClientRect().height ?? 0)
 
@@ -423,9 +418,8 @@ export function useSessionSmartScroll({
     const handleResize = () => {
       const scrollElement = scrollContainerRef.current
       if (!scrollElement) return
-      if (clearScreenActive) return
 
-      const distanceFromBottom = getDistanceFromBottom(scrollElement, clearScreenBottomInset)
+      const distanceFromBottom = getDistanceFromBottom(scrollElement, getClearScreenBottomInset())
       // 流式期间：composer 增高会让 row-1（transcript scroller）缩小，已存在的
       // 内容会从底部滑出视口，看起来像"输出跑到 composer 下面"。这时只要用户
       // 没显式锁定滚动，就一律把最后一行拽回底部——与 streaming auto-follow
@@ -452,7 +446,6 @@ export function useSessionSmartScroll({
     const observedTargets: Array<
       readonly [HTMLElement | null | undefined, (height: number) => void]
     > = [
-      [scrollElement, setViewportHeight],
       [dockElement, setDockHeight],
       [composerElement, setComposerHeight]
     ]
@@ -480,8 +473,6 @@ export function useSessionSmartScroll({
     }
   }, [
     bottomAreaRef,
-    clearScreenActive,
-    clearScreenBottomInset,
     composerRef,
     resetInteractionState,
     scrollToBottom,
@@ -514,14 +505,13 @@ export function useSessionSmartScroll({
     showScrollFab,
     scrollFabCount,
     scrollFabBottomOffset,
-    clearScreenBottomInset,
+    clearScreenBottomInset: getClearScreenBottomInset(),
     /**
-     * Measured pixel height of the floating ComposerBar (and any sibling
-     * floating dock). Consumers should use this to size the bottom padding
-     * of their scroll viewport so transcript content doesn't get hidden
-     * behind the composer.
+     * Measured pixel height of the ComposerBar plus any sibling bottom dock.
+     * Consumers should use this to size bottom affordances so transcript
+     * content doesn't get hidden behind expanded attachment previews.
      */
-    bottomFloatingHeight: Math.max(composerHeight, dockHeight),
+    bottomFloatingHeight: composerHeight + dockHeight,
     handleScroll,
     handleScrollWheel,
     handleScrollPointerDown,

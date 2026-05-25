@@ -35,7 +35,9 @@ vi.mock('../../../src/main/db', () => ({
       connection_id: null
     })),
     getWorktree: vi.fn(() => ({ path: '/repo' })),
-    getConnection: vi.fn()
+    getConnection: vi.fn(),
+    getSessionMessages: vi.fn(() => []),
+    getSessionActivities: vi.fn(() => [])
   })
 }))
 
@@ -354,6 +356,78 @@ describe('session:getTimeline Codex fallback', () => {
       'turn-1:assistant:item-3',
       'turn-1:tool:tool-2',
       'turn-1:assistant:item-4'
+    ])
+  })
+
+  it('refreshes Codex timeline when a durable assistant row appears before its user row', async () => {
+    getTimelineMock
+      .mockReturnValueOnce({
+        messages: [
+          {
+            id: 'turn-1:assistant:item-5',
+            role: 'assistant',
+            content: 'final answer',
+            timestamp: '2026-05-25T03:09:04.000Z',
+            parts: [{ type: 'text', text: 'final answer' }]
+          },
+          {
+            id: 'turn-1:user',
+            role: 'user',
+            content: 'question',
+            timestamp: '2026-05-25T03:09:04.559Z'
+          },
+          {
+            id: 'turn-1:assistant',
+            role: 'assistant',
+            content: 'progress',
+            timestamp: '2026-05-25T03:09:17.944Z',
+            parts: [{ type: 'text', text: 'progress' }]
+          }
+        ],
+        compactionMarkers: [],
+        revertBoundary: null
+      })
+      .mockReturnValueOnce({
+        messages: [
+          {
+            id: 'turn-1:user',
+            role: 'user',
+            content: 'question',
+            timestamp: '2026-05-25T03:09:04.559Z'
+          },
+          {
+            id: 'turn-1:assistant',
+            role: 'assistant',
+            content: 'progress',
+            timestamp: '2026-05-25T03:09:17.944Z',
+            parts: [{ type: 'text', text: 'progress' }]
+          },
+          {
+            id: 'turn-1:assistant:item-5',
+            role: 'assistant',
+            content: 'final answer',
+            timestamp: '2026-05-25T03:10:33.849Z',
+            parts: [{ type: 'text', text: 'final answer' }]
+          }
+        ],
+        compactionMarkers: [],
+        revertBoundary: null
+      })
+    getMessagesMock.mockResolvedValue([{ role: 'assistant', content: 'recovered' }])
+
+    registerTimelineHandlers({
+      getImplementer: vi.fn(() => ({ getMessages: getMessagesMock }))
+    } as never)
+
+    const handler = ipcHandlers.get('session:getTimeline')
+    const result = await handler?.({}, 'session-1')
+
+    expect(getMessagesMock).toHaveBeenCalledWith('/repo', 'thread-1', { forceRefresh: true })
+    const messages = (result as { messages: Array<{ id: string }> }).messages
+    expect(messages.map((message) => message.id)).toEqual([
+      'turn-1:user',
+      'turn-1:assistant',
+      'turn-1:assistant:item-5'
     ])
   })
 })

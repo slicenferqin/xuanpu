@@ -521,13 +521,14 @@ describe('ContextPanelHost', () => {
   })
 
   it('shows worktree-wide cumulative usage summary in the overview panel', async () => {
+    const user = userEvent.setup()
     const sessions = ['sess-usage-a', 'sess-usage-b'].map((id, index) => ({
       id,
       worktree_id: 'wt-1',
       project_id: 'proj-1',
       connection_id: null,
       name: `Session ${index + 1}`,
-      status: 'active' as const,
+      status: index === 0 ? ('active' as const) : ('archived' as const),
       opencode_session_id: `runtime-${index + 1}`,
       agent_sdk: 'codex' as const,
       mode: 'build' as const,
@@ -593,8 +594,12 @@ describe('ContextPanelHost', () => {
       expect(screen.getByText('4.1K')).toBeInTheDocument()
       expect(screen.getByText('9.2K')).toBeInTheDocument()
       expect(screen.getByText('3.0K')).toBeInTheDocument()
-      expect(screen.getByText('2 sessions in this Worktree')).toBeInTheDocument()
+      expect(screen.queryByText('2 sessions in this Worktree')).not.toBeInTheDocument()
     })
+
+    const breakdown = screen.getByLabelText('Session breakdown')
+    await user.hover(breakdown)
+    expect(breakdown).toHaveAttribute('title', '1 active sessions\n1 inactive sessions')
   })
 
   it('falls back to live tokens when persisted cost has no token counters yet', async () => {
@@ -661,7 +666,7 @@ describe('ContextPanelHost', () => {
     })
   })
 
-  it('does not use live context tokens as worktree session totals once a summary exists', async () => {
+  it('keeps the larger visible token snapshot without double-counting summary plus live', async () => {
     const sessions = [
       {
         id: 'sess-claude-syncing',
@@ -689,11 +694,11 @@ describe('ContextPanelHost', () => {
       tabOrderByWorktree: new Map([['wt-1', ['sess-claude-syncing']]])
     })
     useContextStore.getState().setSessionTokens('sess-claude-syncing', {
-      input: 3,
-      output: 66,
+      input: 300,
+      output: 200,
       reasoning: 0,
-      cacheRead: 0,
-      cacheWrite: 37_719
+      cacheRead: 100,
+      cacheWrite: 50
     })
     window.db.session.getByWorktree = vi.fn().mockResolvedValue(sessions)
     window.usageAnalyticsOps.fetchSessionSummary = vi.fn().mockResolvedValue({
@@ -702,11 +707,11 @@ describe('ContextPanelHost', () => {
         session_id: 'sess-claude-syncing',
         engine: 'claude-code',
         total_cost: 0,
-        total_tokens: 0,
-        input_tokens: 0,
-        output_tokens: 0,
-        cache_write_tokens: 0,
-        cache_read_tokens: 0,
+        total_tokens: 1_200,
+        input_tokens: 700,
+        output_tokens: 300,
+        cache_write_tokens: 100,
+        cache_read_tokens: 100,
         duration_seconds: 0,
         last_used_at: null,
         model_labels: [],
@@ -721,8 +726,8 @@ describe('ContextPanelHost', () => {
       expect(window.usageAnalyticsOps.fetchSessionSummary).toHaveBeenCalledWith(
         'sess-claude-syncing'
       )
-      expect(screen.queryByText('37.8K')).not.toBeInTheDocument()
-      expect(screen.queryByText('37.7K')).not.toBeInTheDocument()
+      expect(screen.getByText('1.2K')).toBeInTheDocument()
+      expect(screen.queryByText('1.8K')).not.toBeInTheDocument()
     })
   })
 })

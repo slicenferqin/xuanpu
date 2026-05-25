@@ -27,8 +27,7 @@ function fallbackTotal(tokens: UsageTokenSnapshot | null | undefined): number {
     normalizedToken(tokens.input) +
     normalizedToken(tokens.output) +
     normalizedToken(tokens.cacheRead) +
-    normalizedToken(tokens.cacheWrite) +
-    normalizedToken(tokens.reasoning)
+    normalizedToken(tokens.cacheWrite)
   )
 }
 
@@ -44,28 +43,26 @@ function summaryDetailTotal(summary: UsageAnalyticsSessionSummary): number {
 /**
  * Resolve the token totals a UI surface should display.
  *
- * Optionality ladder (do NOT add a "smart" override branch back here):
- *   1. `summary` exists AND has token detail (>0) → use summary. This is the
- *      durable, cross-process truth coming from `usage_entries`.
+ * Optionality ladder:
+ *   1. Compare durable `summary` detail with live `fallbackTokens` and use the
+ *      larger complete snapshot. This keeps active-session counters monotonic
+ *      while `usage_entries` catches up, without adding both sources together.
  *   2. `summary` missing OR summary has zero tokens → use the runtime
- *      `fallbackTokens` snapshot (per-session live cumulative).
+ *      `fallbackTokens` snapshot.
  *   3. Neither has tokens → zeroed `'none'`.
  *
- * 历史回归：之前这里有 "liveTotalTokens > 0 && summary.total_cost > 0 → 用 live"
- * 的分支，对 codex 还额外放宽到 fallbackCost > 0。这会在 codex 会话每次新一轮
- * 对话时把 thread 累计值当作纯增量加到本就已经入库的 summary 上，造成开发版
- * 和打包版统计相差一个数量级。修法就是不要再做这种"两边都有就拿大头"的合并，
- * summary 一旦有 token 明细就以它为准。
+ * 历史回归：不要把 summary 和 live fallback 相加。Codex 的 live snapshot
+ * 是 thread 累计，summary 是 usage_entries 累计；相加会重复计数。这里做的是
+ * 二选一，解决 persisted summary 异步返回 0/旧值时右侧总量回落的问题。
  */
 export function resolveUsageTokenTotals(
   summary: UsageAnalyticsSessionSummary | null | undefined,
   fallbackTokens: UsageTokenSnapshot | null | undefined
 ): ResolvedUsageTokenTotals {
-  const summaryTokens = summary
-    ? Math.max(normalizedToken(summary.total_tokens), summaryDetailTotal(summary))
-    : 0
+  const summaryTokens = summary ? summaryDetailTotal(summary) : 0
+  const liveTotalTokens = fallbackTotal(fallbackTokens)
 
-  if (summary && summaryTokens > 0) {
+  if (summary && summaryTokens > 0 && summaryTokens >= liveTotalTokens) {
     return {
       totalTokens: summaryTokens,
       inputTokens: normalizedToken(summary.input_tokens),
@@ -76,7 +73,6 @@ export function resolveUsageTokenTotals(
     }
   }
 
-  const liveTotalTokens = fallbackTotal(fallbackTokens)
   if (liveTotalTokens > 0) {
     return {
       totalTokens: liveTotalTokens,

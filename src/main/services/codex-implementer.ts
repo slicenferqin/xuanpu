@@ -440,10 +440,21 @@ function shiftMatchingCodexJsonlTextTimestamp(
   entries: CodexJsonlTextTimestamp[],
   text: string
 ): string | null {
-  const target = normalizeCodexTimelineText(text)
+  const target = normalizeCodexTimelineText(stripCodexMemoryCitation(text))
   if (!target) return null
 
-  const index = entries.findIndex((entry) => normalizeCodexTimelineText(entry.text) === target)
+  const index = entries.findIndex((entry) => {
+    const candidate = normalizeCodexTimelineText(stripCodexMemoryCitation(entry.text))
+    if (!candidate) return false
+    if (candidate === target) return true
+
+    // `thread/read` may return assistant text with the trailing memory-citation
+    // block already stripped while JSONL keeps the raw final response. Treat
+    // containment as a match only for substantial text so short status updates
+    // do not accidentally steal a later timestamp.
+    if (candidate.length < 80 || target.length < 80) return false
+    return candidate.startsWith(target) || target.startsWith(candidate)
+  })
   if (index < 0) return null
 
   const [entry] = entries.splice(index, 1)
@@ -1747,6 +1758,11 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         ])
         if (parsed.length > 0 && snapshotMatchesPrompt) {
           session.messages = parsed
+          // Even when the snapshot matches the prompt (happy path), the snapshot
+          // may be eventually consistent: text/reasoning items arrive after
+          // tool calls. Merge the live draft so any streaming content that
+          // hasn't reached the snapshot yet survives the replace.
+          this.materializeLiveAssistantDraft(session)
         } else if (parsed.length > 0) {
           log.warn(
             'prompt: stale or mismatched thread/read snapshot ignored, preserving live draft',
@@ -3930,6 +3946,29 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
             extractCodexJsonlContentText(payload?.content),
             timestamp
           )
+        }
+
+        // Recover reasoning content from JSONL when thread/read hasn't returned it yet.
+        // Same structure as the reasoning items in parseThreadSnapshot.
+        if (
+          entryType === 'response_item' &&
+          asString(payload?.type) === 'reasoning'
+        ) {
+          const summary = Array.isArray(payload?.summary)
+            ? (payload.summary as string[]).filter((s): s is string => typeof s === 'string')
+            : []
+          const content = Array.isArray(payload?.content)
+            ? (payload.content as string[]).filter((s): s is string => typeof s === 'string')
+            : []
+          const reasoningText = [...summary, ...content].join('\n').trim()
+          if (reasoningText) {
+            pushSupplementalMessage(
+              responseMessages,
+              'assistant',
+              reasoningText,
+              timestamp
+            )
+          }
         }
       }
     } catch (error) {

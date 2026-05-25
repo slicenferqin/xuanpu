@@ -571,7 +571,6 @@ export class UsageAnalyticsService {
     )
 
     if (transcript.mtimeMs === null) {
-      this.db.deleteUsageEntriesForSession(session.id, 'claude-transcript')
       this.db.upsertUsageSyncState({
         session_id: session.id,
         agent_sdk: 'claude-code',
@@ -579,14 +578,15 @@ export class UsageAnalyticsService {
         source_ref: transcript.filePath,
         source_mtime_ms: null,
         status: 'partial',
-        entry_count: 0,
+        entry_count: this.db
+          .getUsageEntriesBySession(session.id)
+          .filter((e) => e.source_kind === 'claude-transcript').length,
         last_synced_at: new Date().toISOString(),
         last_error: 'Claude transcript file is missing.'
       })
       return 'partial'
     }
 
-    this.db.deleteUsageEntriesForSession(session.id, 'claude-transcript')
     for (const entry of transcript.entries) {
       this.db.upsertUsageEntry({
         session_id: session.id,

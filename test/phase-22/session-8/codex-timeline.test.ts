@@ -652,4 +652,41 @@ describe('codex timeline derivation', () => {
       'turn-1:assistant'
     ])
   })
+
+  it('orders same-timestamp DB messages by persisted sequence before UUID fallback', () => {
+    const messages: SessionMessage[] = [
+      {
+        id: 'a-lexically-first-assistant',
+        session_id: 'session-1',
+        role: 'assistant',
+        content: 'Answer',
+        opencode_message_id: 'turn-1:assistant',
+        opencode_message_json: null,
+        opencode_parts_json: JSON.stringify([
+          { type: 'text', text: 'Answer', timestamp: '2026-03-14T10:00:00.000Z' }
+        ]),
+        opencode_timeline_json: null,
+        sequence: 2,
+        created_at: '2026-03-14T10:00:00.000Z'
+      },
+      {
+        id: 'z-lexically-last-user',
+        session_id: 'session-1',
+        role: 'user',
+        content: 'Question',
+        opencode_message_id: 'turn-1:user',
+        opencode_message_json: null,
+        opencode_parts_json: JSON.stringify([
+          { type: 'text', text: 'Question', timestamp: '2026-03-14T10:00:00.000Z' }
+        ]),
+        opencode_timeline_json: null,
+        sequence: 1,
+        created_at: '2026-03-14T10:00:00.000Z'
+      }
+    ]
+
+    const timeline = deriveCodexTimelineMessages(messages, [])
+
+    expect(timeline.map((message) => message.id)).toEqual(['turn-1:user', 'turn-1:assistant'])
+  })
 })

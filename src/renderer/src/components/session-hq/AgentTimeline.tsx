@@ -985,6 +985,11 @@ export interface AgentTimelineProps {
   onCancelUserMessageEdit?: () => void
   forkingMessageId?: string | null
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>
+  /**
+   * Optional ref forwarded from SessionShell so it can measure the content div
+   * height for computing the clear-screen spacer height.
+   */
+  contentHeightRef?: React.RefObject<HTMLDivElement | null>
   onScroll?: () => void
   onWheel?: () => void
   onPointerDown?: () => void
@@ -998,6 +1003,11 @@ export interface AgentTimelineProps {
    * causing the last few transcript nodes to render BEHIND the composer.
    */
   bottomFloatingHeight?: number
+  /**
+   * Physical spacer height (px). Used when a new round starts (clear screen) to
+   * push content to the viewport top. Must be passed to useSessionSmartScroll so
+   * getDistanceFromBottom correctly accounts for the inflated scrollHeight.
+   */
   clearScreenBottomInset?: number
   activeRoundId?: string | null
   onActiveRoundChange?: (roundId: string | null) => void
@@ -1030,6 +1040,7 @@ export function AgentTimeline({
   onCancelUserMessageEdit,
   forkingMessageId,
   scrollContainerRef,
+  contentHeightRef,
   onScroll,
   onWheel,
   onPointerDown,
@@ -1044,7 +1055,8 @@ export function AgentTimeline({
   const { t } = useI18n()
   const internalScrollContainerRef = React.useRef<HTMLDivElement | null>(null)
   const effectiveScrollContainerRef = scrollContainerRef ?? internalScrollContainerRef
-  const timelineContentRef = React.useRef<HTMLDivElement | null>(null)
+  const internalTimelineContentRef = React.useRef<HTMLDivElement | null>(null)
+  const timelineContentRef = contentHeightRef ?? internalTimelineContentRef
   const [timelineViewportHeight, setTimelineViewportHeight] = React.useState(0)
   const [timelineContentHeight, setTimelineContentHeight] = React.useState(0)
 
@@ -1276,6 +1288,11 @@ export function AgentTimeline({
     return () => observer.disconnect()
   }, [effectiveScrollContainerRef])
 
+  // Measure viewport and content heights so the clear-screen spacer can be
+  // sized to push content to the viewport top without a fixed spacer height.
+  // This uses requestAnimationFrame batching to avoid layout thrashing on
+  // content changes that cascade (content change → spacer height changes →
+  // scrollHeight changes → ResizeObserver fires again).
   React.useLayoutEffect(() => {
     const scrollElement = effectiveScrollContainerRef.current
     const contentElement = timelineContentRef.current
@@ -1403,7 +1420,32 @@ export function AgentTimeline({
     return () => container.removeEventListener('scroll', updateActiveRoundFromScroll)
   }, [effectiveScrollContainerRef, onActiveRoundChange, rounds])
 
-  const safeBottomPadding = bottomFloatingHeight > 0 ? 24 : 72
+  // SessionShell 通过 CSS Grid 的 row-2 给 ComposerBar 留出了物理空间，
+  // 但 ComposerBar 自身的 `crisp-floating-surface` box-shadow 会向上扩散
+  // ~15px、`crisp-composer-veil` 渐变末段（70-100% 区段）浓度高达 ~82%，
+  // 这一带视觉上仍然在「压」transcript 最后一行。原先 hardcoded 的 24px
+  // 不够 breathing room，流式输出滚到底时最后一行紧贴这条视觉边界，
+  // 直观感受就是「输出跑到了输入框下面」。
+  //
+  // 这里改成跟随测量值 `bottomFloatingHeight`（composerHeight + dockHeight）
+  // 动态计算：保底 56px（容纳阴影 + veil + 一点呼吸），并按 0.3 比例随
+  // composer 扩展（attachments / voice / slash popover / 多行草稿）增长；
+  // 封顶 96px 避免内容很短时拉出过多空白。
+  //
+  // 数值落点示例：
+  //   60px (单行 composer, 无 dock) → 56px
+  //  160px (展开 composer, 无 dock) → 80px
+  //  280px (展开 + InterruptDock)   → 96px
+  const safeBottomPadding =
+    bottomFloatingHeight > 0
+      ? Math.min(96, Math.max(56, Math.round(bottomFloatingHeight * 0.3) + 32))
+      : 72
+
+  // When the last round is a bootstrap (only a user message) and there isn't enough
+  // content to fill the viewport, the spacer pushes it to the top so the user
+  // message appears near the top of the screen (the "clear screen" visual effect).
+  // This spacer height must be passed to useSessionSmartScroll so that
+  // getDistanceFromBottom correctly accounts for the inflated scrollHeight.
   const shortContentTopSpacer =
     timelineViewportHeight > 0 && timelineContentHeight > 0
       ? Math.max(0, timelineViewportHeight - timelineContentHeight - safeBottomPadding - 24)
@@ -1665,13 +1707,15 @@ export function AgentTimeline({
               </div>
             )}
 
-            {/* Live streaming parts — real-time tool/text/reasoning rendering */}
-            {isStreaming &&
-              streamingNodes.length > 0 &&
+            {/* Live streaming parts — real-time tool/text/reasoning rendering.
+                Render from buffer regardless of streaming state so content survives
+                session switches: the buffer holds what thread/read hasn't persisted yet. */}
+            {streamingNodes.length > 0 &&
               streamingNodes.map((node, idx) => {
                 const iconCfg = ICON_MAP[node.cardType]
                 const Icon = iconCfg.icon
                 const isLastStreamNode = idx === streamingNodes.length - 1
+                const showSpinner = isStreaming && isLastStreamNode
 
                 if (node.cardType === 'text') {
                   return (
@@ -1681,18 +1725,18 @@ export function AgentTimeline({
                         className={cn(
                           'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
                           'flex items-center justify-center z-10',
-                          isLastStreamNode
+                          showSpinner
                             ? 'bg-neon-mint-soft text-neon-mint'
                             : iconCfg.bgClass + ' ' + iconCfg.colorClass
                         )}
                       >
-                        {isLastStreamNode ? (
+                        {showSpinner ? (
                           <Loader2 className="h-3 w-3 animate-spin" />
                         ) : (
                           <Icon className="h-3 w-3" />
                         )}
                       </div>
-                      <TextCard content={node.textContent ?? ''} isStreaming={isLastStreamNode} />
+                      <TextCard content={node.textContent ?? ''} isStreaming={showSpinner} />
                     </div>
                   )
                 }
@@ -1753,6 +1797,12 @@ export function AgentTimeline({
               <ThreadStatusRow key={status.id} status={status} />
             ))}
 
+            {/* Clear-screen spacer: renders when a new round starts (bootstrap round)
+                and content doesn't fill the viewport. The spacer pushes content to the
+                top so the user message appears near the viewport top (清屏 effect).
+                Its height is measured by the ResizeObserver above (via shortContentTopSpacer)
+                and passed to useSessionSmartScroll so that getDistanceFromBottom correctly
+                accounts for the inflated scrollHeight. */}
             {clearScreenBottomInset > 0 && nodes.length > 0 && (
               <div
                 aria-hidden="true"

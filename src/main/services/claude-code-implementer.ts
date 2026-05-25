@@ -599,6 +599,36 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
       }
     }
 
+    // After hydrating from DB, check whether the on-disk transcript has more
+    // recent messages that were not yet persisted (e.g. the app was closed
+    // while the session was still running).  When the transcript is richer,
+    // replace the in-memory state and persist the full history to DB.
+    if (!isPending) {
+      try {
+        const transcript = await readClaudeTranscript(worktreePath, agentSessionId)
+        if (Array.isArray(transcript) && transcript.length > 0) {
+          const dbCount = state.messages.length
+          const transcriptCount = transcript.length
+          if (transcriptCount !== dbCount) {
+            state.messages = transcript
+            if (this.dbService) {
+              this.persistMessagesToDB(state)
+            }
+            log.info('Reconnect: transcript differs from DB, using transcript', {
+              hiveSessionId,
+              dbCount,
+              transcriptCount
+            })
+          }
+        }
+      } catch (err) {
+        log.debug('Reconnect: transcript sync skipped', {
+          hiveSessionId,
+          error: err instanceof Error ? err.message : String(err)
+        })
+      }
+    }
+
     log.info('Reconnected (restored from DB)', { worktreePath, agentSessionId, hiveSessionId })
     this.emitClaudeGoalFromTranscript(state).catch((err) => {
       log.debug('Reconnect: goal status sync failed', {

@@ -861,19 +861,92 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     return rows
   }, [lifecycle, runStartedAt, sessionId])
 
+  const liveTimelineContentVersion = useMemo(
+    () =>
+      timelineMessages.length +
+      ephemeralStatusRows.length +
+      streamingParts.length +
+      streamingContent.length +
+      mirrorVersion,
+    [
+      ephemeralStatusRows.length,
+      mirrorVersion,
+      streamingContent.length,
+      streamingParts.length,
+      timelineMessages.length
+    ]
+  )
+
+  // Ref so we can update the measured spacer height and have useSessionSmartScroll
+  // read the latest value without re-initializing the hook.
+  const clearScreenBottomInsetRef = useRef(0)
+
   const smartScroll = useSessionSmartScroll({
     sessionId,
     ready: !loading,
-    contentVersion: timelineMessages.length + ephemeralStatusRows.length,
+    contentVersion: liveTimelineContentVersion,
     mirrorVersion,
     isStreaming,
     bottomAreaRef: timelineBottomAreaRef,
     composerRef: composerBarRef,
-    clearScreenActive
+    clearScreenBottomInsetRef
   })
   const timelineScrollContainerRef = smartScroll.scrollContainerRef
-  const clearScreenBottomInset = smartScroll.clearScreenBottomInset
   const scrollTimelineToOffset = smartScroll.scrollToOffset
+
+  const timelineContentRef = useRef<HTMLDivElement | null>(null)
+  const [timelineViewportHeight, setTimelineViewportHeight] = useState(0)
+  const [timelineContentHeight, setTimelineContentHeight] = useState(0)
+
+  // Measure the timeline scroll container and content heights to compute the
+  // clear-screen spacer height. This must be passed to useSessionSmartScroll so
+  // that getDistanceFromBottom correctly accounts for the inflated scrollHeight.
+  useLayoutEffect(() => {
+    const scrollElement = timelineScrollContainerRef.current
+    const contentElement = timelineContentRef.current
+    if (!scrollElement || !contentElement) return
+
+    let frame: number | null = null
+    const updateMetrics = (): void => {
+      if (frame !== null) {
+        cancelAnimationFrame(frame)
+      }
+      frame = requestAnimationFrame(() => {
+        frame = null
+        setTimelineViewportHeight(Math.round(scrollElement.clientHeight))
+        setTimelineContentHeight(Math.round(contentElement.getBoundingClientRect().height))
+      })
+    }
+
+    updateMetrics()
+    const observer = new ResizeObserver(updateMetrics)
+    observer.observe(scrollElement)
+    observer.observe(contentElement)
+    return () => {
+      observer.disconnect()
+      if (frame !== null) {
+        cancelAnimationFrame(frame)
+      }
+    }
+  }, [timelineScrollContainerRef])
+
+  // safeBottomPadding must match AgentTimeline's computation so the spacer height
+  // formula is consistent on both sides of the prop boundary.
+  const safeBottomPadding =
+    smartScroll.bottomFloatingHeight > 0
+      ? Math.min(96, Math.max(56, Math.round(smartScroll.bottomFloatingHeight * 0.3) + 32))
+      : 72
+
+  const clearScreenBottomInset =
+    timelineViewportHeight > 0 && timelineContentHeight > 0
+      ? Math.max(0, timelineViewportHeight - timelineContentHeight - safeBottomPadding - 24)
+      : 0
+
+  // Sync the measured spacer height into the ref so useSessionSmartScroll reads
+  // the latest value on every scroll calculation without re-initializing.
+  useEffect(() => {
+    clearScreenBottomInsetRef.current = clearScreenBottomInset
+  }, [clearScreenBottomInset])
 
   const scrollFabBottomOffset = useMemo(
     () => Math.max(smartScroll.scrollFabBottomOffset, pendingPlan ? 152 : 16),
@@ -1950,6 +2023,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
             onCopyUserMessage={() => {}}
             forkingMessageId={forkingMessageId}
             scrollContainerRef={smartScroll.scrollContainerRef}
+            contentHeightRef={timelineContentRef}
             onScroll={smartScroll.handleScroll}
             onWheel={smartScroll.handleScrollWheel}
             onPointerDown={smartScroll.handleScrollPointerDown}

@@ -1819,4 +1819,72 @@ describe('CodexImplementer.parseThreadSnapshot()', () => {
       ['turn-1:assistant:item-3', '2026-05-23T10:00:04.000Z']
     ])
   })
+
+  it('matches final assistant JSONL timestamps after memory citation stripping', () => {
+    const impl = new CodexImplementer()
+    const dir = mkdtempSync(join(tmpdir(), 'xuanpu-codex-jsonl-citation-'))
+    const jsonlPath = join(dir, 'rollout.jsonl')
+    const finalText = 'Final answer with enough body text to avoid short fuzzy collisions. '.repeat(3)
+    const finalWithCitation = `${finalText}
+
+<oai-mem-citation>
+<citation_entries>
+MEMORY.md:1-2|note=[test]
+</citation_entries>
+<rollout_ids>
+</rollout_ids>
+</oai-mem-citation>`
+    const entries = [
+      {
+        timestamp: '2026-05-25T03:09:04.000Z',
+        type: 'event_msg',
+        payload: { type: 'task_started', turn_id: 'turn-1' }
+      },
+      {
+        timestamp: '2026-05-25T03:09:04.559Z',
+        type: 'event_msg',
+        payload: { type: 'user_message', message: 'Question' }
+      },
+      {
+        timestamp: '2026-05-25T03:09:17.944Z',
+        type: 'response_item',
+        payload: { type: 'message', role: 'assistant', content: [{ text: 'Progress update' }] }
+      },
+      {
+        timestamp: '2026-05-25T03:10:33.849Z',
+        type: 'response_item',
+        payload: { type: 'message', role: 'assistant', content: [{ text: finalWithCitation }] }
+      }
+    ]
+    writeFileSync(jsonlPath, entries.map((entry) => JSON.stringify(entry)).join('\n'))
+
+    const messages = (impl as any).parseThreadSnapshot(
+      {
+        thread: {
+          path: jsonlPath,
+          turns: [
+            {
+              id: 'turn-1',
+              startedAt: 1779678544,
+              items: [
+                {
+                  type: 'userMessage',
+                  content: [{ type: 'text', text: 'Question' }]
+                },
+                { type: 'agentMessage', id: 'item-2', text: 'Progress update' },
+                { type: 'agentMessage', id: 'item-3', text: finalText }
+              ]
+            }
+          ]
+        }
+      },
+      new Map()
+    )
+
+    expect(messages.map((message: any) => [message.id, message.timestamp])).toEqual([
+      ['turn-1:user', '2026-05-25T03:09:04.559Z'],
+      ['turn-1:assistant', '2026-05-25T03:09:17.944Z'],
+      ['turn-1:assistant:item-3', '2026-05-25T03:10:33.849Z']
+    ])
+  })
 })

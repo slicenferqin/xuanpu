@@ -517,10 +517,10 @@ export const messages: Record<AppLocale, MessageTree> = {
           averageCostPerSession: 'Avg Cost / Session'
         },
         tokens: {
-          input: 'Input Tokens',
+          input: 'Input (uncached)',
           output: 'Output Tokens',
           cacheWrite: 'Cache Write',
-          cacheRead: 'Cache Read'
+          cacheRead: 'Input (cached)'
         },
         tabs: {
           overview: 'Overview',
@@ -1449,10 +1449,10 @@ export const messages: Record<AppLocale, MessageTree> = {
         totalCost: 'Total Cost',
         totalTokens: 'Total Tokens',
         totalsSyncing: 'Session totals are syncing…',
-        input: 'Input',
+        input: 'Input (uncached)',
         output: 'Output',
         cacheWrite: 'Cache Write',
-        cacheRead: 'Cache Read',
+        cacheRead: 'Input (cached)',
         model: 'Model',
         duration: 'Duration',
         partialData: 'Some historical data could not be synchronized yet.'
@@ -1852,12 +1852,15 @@ export const messages: Record<AppLocale, MessageTree> = {
       overview: {
         cost: 'Cost',
         tokens: 'Tokens',
-        input: 'Input',
+        input: 'Input (uncached)',
         output: 'Output',
-        cacheRead: 'Cache Read',
+        cacheRead: 'Input (cached)',
         cacheWrite: 'Cache Write',
         sessions: 'Sessions',
         sessionCount: '{count} sessions in this {scope}',
+        sessionBreakdownLabel: 'Session breakdown',
+        activeSessions: '{count} active sessions',
+        inactiveSessions: '{count} inactive sessions',
         contextLimit: '{used} / {limit}',
         worktree: 'Worktree',
         connection: 'Connection'
@@ -3413,10 +3416,10 @@ export const messages: Record<AppLocale, MessageTree> = {
           averageCostPerSession: '平均成本 / 会话'
         },
         tokens: {
-          input: '输入 Tokens',
-          output: '输出 Tokens',
-          cacheWrite: 'Cache 写入',
-          cacheRead: 'Cache 读取'
+          input: '输入（未命中缓存）',
+          output: '输出',
+          cacheWrite: '缓存写入',
+          cacheRead: '输入（命中缓存）'
         },
         tabs: {
           overview: '概览',
@@ -4333,10 +4336,10 @@ export const messages: Record<AppLocale, MessageTree> = {
         totalCost: '总成本',
         totalTokens: '总 Tokens',
         totalsSyncing: '会话总量正在汇总…',
-        input: '输入',
+        input: '输入（未命中缓存）',
         output: '输出',
-        cacheWrite: 'Cache 写入',
-        cacheRead: 'Cache 读取',
+        cacheWrite: '缓存写入',
+        cacheRead: '输入（命中缓存）',
         model: '模型',
         duration: '时长',
         partialData: '部分历史数据尚未完成同步。'
@@ -4735,12 +4738,15 @@ export const messages: Record<AppLocale, MessageTree> = {
       overview: {
         cost: '花费',
         tokens: 'Tokens',
-        input: '输入',
+        input: '输入（未命中缓存）',
         output: '输出',
-        cacheRead: '缓存读取',
+        cacheRead: '输入（命中缓存）',
         cacheWrite: '缓存写入',
         sessions: '会话数',
         sessionCount: '此{scope}下 {count} 个会话',
+        sessionBreakdownLabel: '会话构成',
+        activeSessions: '{count} 个活跃会话',
+        inactiveSessions: '{count} 个非活跃会话',
         contextLimit: '{used} / {limit}',
         worktree: 'Worktree',
         connection: '连接'

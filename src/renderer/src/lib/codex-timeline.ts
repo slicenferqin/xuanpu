@@ -184,6 +184,13 @@ function normalizeCodexMessageRows(
     const leftTime = Date.parse(left.created_at)
     const rightTime = Date.parse(right.created_at)
     if (leftTime !== rightTime) return leftTime - rightTime
+    const leftSequence = left.sequence
+    const rightSequence = right.sequence
+    if (leftSequence != null && rightSequence != null && leftSequence !== rightSequence) {
+      return leftSequence - rightSequence
+    }
+    if (leftSequence != null && rightSequence == null) return -1
+    if (leftSequence == null && rightSequence != null) return 1
     return left.id.localeCompare(right.id)
   })
 

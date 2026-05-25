@@ -51,6 +51,10 @@ describe('SessionShell composer layout source guard', () => {
     expect(timelineSource).toContain(
       'className="h-full min-h-0 overflow-y-auto overscroll-contain"'
     )
+    // The clear-screen spacer renders when a bootstrap round doesn't fill the
+    // viewport. Its measured height is passed to useSessionSmartScroll so that
+    // getDistanceFromBottom correctly accounts for the inflated scrollHeight.
+    expect(timelineSource).toContain('data-testid="timeline-clear-screen-spacer"')
     expect(timelineSource).toContain('shortContentTopSpacer')
   })
 })

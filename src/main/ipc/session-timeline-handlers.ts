@@ -139,6 +139,34 @@ function hasCodexCollapsedToolOrdering(messages: unknown[]): boolean {
   return false
 }
 
+function hasCodexAssistantBeforeUser(messages: unknown[]): boolean {
+  const seenUserTurns = new Set<string>()
+  const assistantBeforeUserTurns = new Set<string>()
+
+  for (const message of messages) {
+    if (!message || typeof message !== 'object') continue
+    const record = message as Record<string, unknown>
+    const turnId = extractTurnIdFromTimelineId(
+      typeof record.id === 'string' ? record.id : undefined
+    )
+    if (!turnId) continue
+
+    if (record.role === 'user') {
+      if (assistantBeforeUserTurns.has(turnId)) return true
+      seenUserTurns.add(turnId)
+      continue
+    }
+
+    if (record.role === 'assistant' && hasRenderableAssistantMessage([record])) {
+      if (!seenUserTurns.has(turnId)) {
+        assistantBeforeUserTurns.add(turnId)
+      }
+    }
+  }
+
+  return false
+}
+
 export function registerTimelineHandlers(runtimeManager?: AgentRuntimeManager): void {
   log.info('Registering timeline handlers')
 
@@ -155,7 +183,9 @@ export function registerTimelineHandlers(runtimeManager?: AgentRuntimeManager): 
 
       const session = getDatabase().getSession(sessionId)
       const forceCodexTimelineRefresh =
-        session?.agent_sdk === 'codex' && hasCodexCollapsedToolOrdering(result.messages)
+        session?.agent_sdk === 'codex' &&
+        (hasCodexCollapsedToolOrdering(result.messages) ||
+          hasCodexAssistantBeforeUser(result.messages))
       const forceCodexJsonlToolRecovery = (() => {
         if (session?.agent_sdk !== 'codex' || hasTimelineToolUse(result.messages)) return false
 
