@@ -1,3 +1,7 @@
+import type { AppendOnlyLog } from './harness/build-messages'
+import { buildMessages as buildHarnessMessages } from './harness/build-messages'
+import type { XfpFieldPacket } from './xfp/types'
+
 export interface XuanpuAgentContextTurn {
   role: 'user' | 'assistant'
   content: string
@@ -25,6 +29,10 @@ export interface XuanpuPiPromptMessage {
 
 export interface XuanpuAgentContextTransformInput {
   currentUserText: string
+  harnessContext?: {
+    packet: XfpFieldPacket
+    log: AppendOnlyLog
+  }
   fieldContextMarkdown?: string | null
   frozenEpisodes?: XuanpuAgentFrozenEpisode[]
   retrievedEpisodes?: XuanpuAgentFrozenEpisode[]
@@ -50,6 +58,28 @@ export function buildXuanpuAgentPromptMessages(
   input: XuanpuAgentContextTransformInput
 ): XuanpuAgentContextTransformResult {
   const now = input.now ?? Date.now()
+  if (input.harnessContext) {
+    const messages = buildHarnessMessages(
+      input.harnessContext.packet,
+      input.harnessContext.log,
+      input.currentUserText,
+      { now }
+    )
+
+    return {
+      messages,
+      decisions: {
+        contextTransform: 'xfp-harness-build-messages',
+        contextBoundary: 'pi-agent-message-array',
+        visibleTranscriptPolicy: 'persist-user-authored-message-only',
+        semanticCompression: 'disabled',
+        currentUserMessagePosition: 'last',
+        xfpPacketId: input.harnessContext.packet.identity.packetId,
+        promptMessageCount: messages.length
+      }
+    }
+  }
+
   const maxPriorMessages = input.maxPriorMessages ?? DEFAULT_MAX_PRIOR_MESSAGES
   const maxPriorChars = input.maxPriorChars ?? DEFAULT_MAX_PRIOR_CHARS
   const maxFrozenEpisodes = input.maxFrozenEpisodes ?? DEFAULT_MAX_FROZEN_EPISODES
