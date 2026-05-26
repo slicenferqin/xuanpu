@@ -7,6 +7,7 @@ import type {
   XfpFieldPacket,
   XfpFocusSection,
   XfpGitState,
+  XfpRetrievedMemorySection,
   XfpTerminalSummary,
   XfpTestSummary
 } from '../xfp/types'
@@ -26,6 +27,7 @@ export interface CompileOptions {
   terminal?: XfpTerminalSummary | null
   tests?: XfpTestSummary | null
   commandTrace?: XfpCommandTraceSection | null
+  retrievedMemory?: XfpRetrievedMemorySection | null
   anchor?: XfpAnchorSection | null
   includedSections?: readonly string[]
   omittedSections?: readonly CompilerOmission[]
@@ -83,6 +85,7 @@ export class XfpPacketCompiler {
         terminal: options.terminal ?? null,
         tests: options.tests ?? null,
         commandTrace: options.commandTrace ?? null,
+        retrievedMemory: options.retrievedMemory ?? null,
         currentGoal: {
           objective: userMessage.trim(),
           source: 'user-message',
@@ -152,6 +155,7 @@ function defaultIncludedSections(
     options.terminal ? 'terminal' : null,
     options.tests ? 'tests' : null,
     options.commandTrace ? 'commandTrace' : null,
+    options.retrievedMemory ? 'retrievedMemory' : null,
     'currentGoal',
     'budget'
   ].filter((section): section is string => Boolean(section))
@@ -166,6 +170,7 @@ function defaultOmittedSections(
   if (!options.terminal) omitted.push({ name: 'terminal', reason: 'not provided' })
   if (!options.tests) omitted.push({ name: 'tests', reason: 'not provided' })
   if (!options.commandTrace) omitted.push({ name: 'commandTrace', reason: 'not provided' })
+  if (!options.retrievedMemory) omitted.push({ name: 'retrievedMemory', reason: 'not provided' })
   return omitted
 }
 
@@ -189,7 +194,8 @@ function estimateTokens(userMessage: string, options: CompileOptions): number {
       JSON.stringify(options.anchor ?? {}),
       JSON.stringify(options.terminal ?? {}),
       JSON.stringify(options.tests ?? {}),
-      JSON.stringify(options.commandTrace ?? {})
+      JSON.stringify(options.commandTrace ?? {}),
+      JSON.stringify(options.retrievedMemory ?? {})
     ].join('\n').length / 4
   )
 }

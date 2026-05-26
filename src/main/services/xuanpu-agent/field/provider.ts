@@ -38,6 +38,12 @@ export interface FieldEpisode {
   summaryMarkdown: string
   tokenEstimate: number
   createdAt: number
+  sessionId?: string | null
+  keyFacts?: string[]
+  constraints?: string[]
+  files?: string[]
+  commands?: string[]
+  failures?: string[]
 }
 
 export interface FieldContextSnapshot {

@@ -2165,6 +2165,33 @@ const fieldOps = {
     ipcRenderer.invoke('field:listEpisodeBlocks', query) as Promise<
       import('../shared/types/field-context-debug').FieldEpisodeBlockDebugRecord[]
     >,
+  /** M5: list proposed/accepted scoped memory pages for a worktree. */
+  listMemoryPages: (query: import('../shared/types/field-memory').FieldMemoryPageListQuery) =>
+    ipcRenderer.invoke('field:listMemoryPages', query) as Promise<
+      import('../shared/types/field-memory').FieldMemoryPageRecord[]
+    >,
+  /** M5: accept a visible memory proposal. */
+  acceptMemoryPageProposal: (
+    input: { id: string } & import('../shared/types/field-memory').FieldMemoryPageUpdate
+  ) =>
+    ipcRenderer.invoke('field:acceptMemoryPageProposal', input) as Promise<
+      import('../shared/types/field-memory').FieldMemoryPageRecord
+    >,
+  /** M5: reject a visible memory proposal. */
+  rejectMemoryPageProposal: (input: { id: string; reason?: string | null }) =>
+    ipcRenderer.invoke('field:rejectMemoryPageProposal', input) as Promise<
+      import('../shared/types/field-memory').FieldMemoryPageRecord
+    >,
+  /** M5: edit an accepted or proposed memory page. */
+  updateMemoryPage: (
+    input: { id: string } & import('../shared/types/field-memory').FieldMemoryPageUpdate
+  ) =>
+    ipcRenderer.invoke('field:updateMemoryPage', input) as Promise<
+      import('../shared/types/field-memory').FieldMemoryPageRecord
+    >,
+  /** M5: delete a memory page. */
+  deleteMemoryPage: (id: string) =>
+    ipcRenderer.invoke('field:deleteMemoryPage', id) as Promise<{ deleted: boolean }>,
   /** v1.4.1: Pinned Facts — read user-authored permanent facts for a worktree. */
   getPinnedFacts: (worktreeId: string) =>
     ipcRenderer.invoke('field:getPinnedFacts', worktreeId) as Promise<{

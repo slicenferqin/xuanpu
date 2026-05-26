@@ -122,6 +122,21 @@ export function fullXfpPacketExample(): XfpFieldPacket {
       ],
       totalAvailable: 3
     },
+    retrievedMemory: {
+      entries: [
+        {
+          memoryPageId: 'memory-001',
+          scope: 'worktree',
+          scopeId: 'wt-schnauzer',
+          kind: 'constraint',
+          title: 'Use shared XFP types',
+          bodyMarkdown: 'Use shared XFP packet types when adding harness context sections.',
+          retrievalReason: 'path match: src/main/services/xuanpu-agent/runtime.ts',
+          rawRefs: [{ kind: 'memory-page', id: 'memory-001' }]
+        }
+      ],
+      totalAvailable: 1
+    },
     currentGoal: {
       objective: 'Define the XFP v1 packet types and Zod schema so the compiler can land in M1.',
       source: 'user-message',
@@ -133,7 +148,7 @@ export function fullXfpPacketExample(): XfpFieldPacket {
       profile: 'balanced',
       budgetTokens: 80000,
       estimatedTokens: 6420,
-      omittedSectionNames: ['retrievedMemory', 'workingSetTail'],
+      omittedSectionNames: ['workingSetTail'],
       compressionRatio: 0.18
     }
   }
@@ -156,8 +171,7 @@ export function minimalXfpPacketExample(): MinimalFieldPacket {
     cwd: '/Users/example/code/some-repo',
     stdin: {
       path: '/Users/example/code/some-repo/notes.md',
-      excerpt:
-        '# Notes\n\nWe need to summarize the recent commits and propose a release strategy.',
+      excerpt: '# Notes\n\nWe need to summarize the recent commits and propose a release strategy.',
       rawRefs: [{ kind: 'file', id: 'file:/Users/example/code/some-repo/notes.md' }]
     },
     gitState: {

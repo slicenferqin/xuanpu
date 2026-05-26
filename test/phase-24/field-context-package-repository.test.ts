@@ -160,8 +160,8 @@ function createPackage(overrides: Partial<FieldContextPackageCreate> = {}) {
 }
 
 describe('field context package repository', () => {
-  it('migration v24 defines the trace table and query indexes', () => {
-    const migration = MIGRATIONS.find((item) => item.version === 24)
+  it('defines the context package migration and query indexes', () => {
+    const migration = MIGRATIONS.find((item) => item.name === 'add_field_context_packages')
     expect(CURRENT_SCHEMA_VERSION).toBeGreaterThanOrEqual(24)
     expect(migration?.name).toBe('add_field_context_packages')
     expect(migration?.up).toContain('CREATE TABLE IF NOT EXISTS field_context_packages')

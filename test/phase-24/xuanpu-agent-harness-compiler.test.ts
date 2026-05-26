@@ -125,17 +125,20 @@ describe('XfpPacketCompiler', () => {
     expect(packet.terminal).toBeNull()
     expect(packet.tests).toBeNull()
     expect(packet.commandTrace).toBeNull()
+    expect(packet.retrievedMemory).toBeNull()
     expect(packet.budget.omittedSectionNames).toEqual([
       'anchor',
       'terminal',
       'tests',
-      'commandTrace'
+      'commandTrace',
+      'retrievedMemory'
     ])
     expect(decisions.omittedSections).toEqual([
       { name: 'anchor', reason: 'not provided' },
       { name: 'terminal', reason: 'not provided' },
       { name: 'tests', reason: 'not provided' },
-      { name: 'commandTrace', reason: 'not provided' }
+      { name: 'commandTrace', reason: 'not provided' },
+      { name: 'retrievedMemory', reason: 'not provided' }
     ])
   })
 })

@@ -188,6 +188,7 @@ export class DatabaseService {
     this.ensureFieldEventsTable()
     this.ensureEpisodicMemoryTable()
     this.ensureFieldEpisodeBlocksTable()
+    this.ensureFieldMemoryPagesTable()
     this.ensureHubTables()
     this.ensureFieldContextPackagesTable()
     this.ensureDiffCommentsTable()
@@ -636,6 +637,48 @@ export class DatabaseService {
         ON field_episode_blocks(worktree_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_field_episode_blocks_session_created
         ON field_episode_blocks(session_id, created_at DESC)
+        WHERE session_id IS NOT NULL;
+    `)
+  }
+
+  private ensureFieldMemoryPagesTable(): void {
+    const db = this.getDb()
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS field_memory_pages (
+        id TEXT PRIMARY KEY,
+        scope TEXT NOT NULL CHECK (scope IN ('user', 'project', 'worktree', 'session', 'episode', 'command')),
+        scope_id TEXT NOT NULL,
+        project_id TEXT,
+        worktree_id TEXT,
+        session_id TEXT,
+        episode_id TEXT,
+        command_trace_id TEXT,
+        kind TEXT NOT NULL CHECK (kind IN ('fact', 'decision', 'assumption', 'constraint')),
+        status TEXT NOT NULL CHECK (status IN ('proposed', 'accepted', 'rejected', 'archived')),
+        title TEXT NOT NULL,
+        body_markdown TEXT NOT NULL,
+        entities_json TEXT NOT NULL,
+        raw_refs_json TEXT NOT NULL,
+        retrieval_hints_json TEXT NOT NULL,
+        source TEXT NOT NULL,
+        proposed_by TEXT NOT NULL,
+        proposal_reason TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        accepted_at INTEGER,
+        rejected_at INTEGER,
+        archived_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_field_memory_pages_scope_status
+        ON field_memory_pages(scope, scope_id, status, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_memory_pages_project_status
+        ON field_memory_pages(project_id, status, updated_at DESC)
+        WHERE project_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_field_memory_pages_worktree_status
+        ON field_memory_pages(worktree_id, status, updated_at DESC)
+        WHERE worktree_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_field_memory_pages_session_status
+        ON field_memory_pages(session_id, status, updated_at DESC)
         WHERE session_id IS NOT NULL;
     `)
   }

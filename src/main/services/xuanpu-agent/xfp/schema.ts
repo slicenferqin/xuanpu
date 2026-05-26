@@ -14,11 +14,7 @@
 
 import { z } from 'zod'
 
-import type {
-  MinimalFieldPacket,
-  XfpFieldPacket,
-  XfpRawRefKind
-} from './types'
+import type { MinimalFieldPacket, XfpFieldPacket, XfpRawRefKind } from './types'
 
 // ---------------------------------------------------------------------------
 // Raw refs
@@ -40,9 +36,7 @@ export const XfpRawRefSchema = z.object({
   id: z.string().min(1),
   excerpt: z.string().optional(),
   byteRange: z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]).optional(),
-  meta: z
-    .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]))
-    .optional()
+  meta: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])).optional()
 })
 
 const rawRefsArraySchema = z.array(XfpRawRefSchema)
@@ -163,6 +157,26 @@ export const XfpCommandTraceSectionSchema = z.object({
 })
 
 // ---------------------------------------------------------------------------
+// Retrieved memory
+// ---------------------------------------------------------------------------
+
+export const XfpRetrievedMemoryEntrySchema = z.object({
+  memoryPageId: z.string().min(1),
+  scope: z.enum(['user', 'project', 'worktree', 'session', 'episode', 'command']),
+  scopeId: z.string().min(1),
+  kind: z.enum(['fact', 'decision', 'assumption', 'constraint']),
+  title: z.string().min(1),
+  bodyMarkdown: z.string().min(1),
+  retrievalReason: z.string().min(1),
+  rawRefs: rawRefsArraySchema.min(1)
+})
+
+export const XfpRetrievedMemorySectionSchema = z.object({
+  entries: z.array(XfpRetrievedMemoryEntrySchema),
+  totalAvailable: z.number().int().nonnegative()
+})
+
+// ---------------------------------------------------------------------------
 // Task goal
 // ---------------------------------------------------------------------------
 
@@ -211,6 +225,7 @@ export const XfpFieldPacketSchema = z.object({
   terminal: XfpTerminalSummarySchema.nullable(),
   tests: XfpTestSummarySchema.nullable(),
   commandTrace: XfpCommandTraceSectionSchema.nullable(),
+  retrievedMemory: XfpRetrievedMemorySectionSchema.nullable(),
   currentGoal: XfpTaskGoalSchema,
   budget: XfpBudgetSectionSchema
 }) satisfies z.ZodType<XfpFieldPacket>
@@ -249,7 +264,11 @@ export function narrowToMinimal(
   packet: XfpFieldPacket,
   options: {
     cwd: string
-    stdin?: { path: string | null; excerpt: string; rawRefs: XfpFieldPacket['focus']['rawRefs'] } | null
+    stdin?: {
+      path: string | null
+      excerpt: string
+      rawRefs: XfpFieldPacket['focus']['rawRefs']
+    } | null
   }
 ): MinimalFieldPacket {
   return {

@@ -19,16 +19,38 @@ import {
 } from './xuanpu-agent/runtime'
 import { XfpPacketCompiler, type CompilerDecision } from './xuanpu-agent/harness/compiler'
 import { buildMessages, SessionAppendOnlyLog } from './xuanpu-agent/harness/build-messages'
-import type { XfpCommandTraceSection, XfpFieldPacket, XfpGitState } from './xuanpu-agent/xfp/types'
+import type {
+  XfpCommandTraceSection,
+  XfpFieldPacket,
+  XfpGitState,
+  XfpRawRefKind,
+  XfpRetrievedMemorySection
+} from './xuanpu-agent/xfp/types'
 import {
   IdeFieldProvider,
   type FieldContextPackageSection,
-  type FieldProvider
+  type FieldEpisode,
+  type FieldProvider,
+  type FieldTurn,
+  type FieldWorktree
 } from './xuanpu-agent/field'
 import { beginSessionRun, emitAgentEvent } from '@shared/lib/normalize-agent-event'
 import { createCommandProfiler } from './xuanpu-agent/context/profiler'
 import { createCommandCompressor } from './xuanpu-agent/context/compressor-impl'
 import type { ArchivePayload } from './xuanpu-agent/harness/tool-call-repair/truncation'
+import {
+  createMemoryPageProposal,
+  listMemoryPagesForContext
+} from '../field/memory-page-repository'
+import { extractMemoryProposalDrafts } from './xuanpu-agent/memory/memory-extractor'
+import {
+  selectRetrievedMemoryForContext,
+  type XuanpuAgentMemoryRetrievalResult
+} from './xuanpu-agent/memory/memory-retrieval'
+import {
+  detectFrequentTraceCandidates,
+  type TraceMaterializationCandidate
+} from './xuanpu-agent/memory/trace-materialization'
 
 const log = createLogger({ component: 'XuanpuAgentImplementer' })
 
@@ -164,7 +186,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     const priorMessages = field.getPriorTurns(session.hiveSessionId)
 
     beginSessionRun(session.hiveSessionId)
-    field.persistMessage(session.hiveSessionId, 'user', text)
+    const userMessageId = `xuanpu-agent-user-${randomUUID()}`
+    field.persistMessage(session.hiveSessionId, 'user', text, { messageId: userMessageId })
     session.status = 'running'
     session.abortController = new AbortController()
     this.emitStatus(session.hiveSessionId, 'busy')
@@ -174,6 +197,21 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     // ── Build field context via FieldProvider (IDE or CLI) ──
     const gitState = await this.buildGitStateForWorktree(session.worktreePath)
     const commandTrace = this.buildCommandTraceSection(session.hiveSessionId, worktree?.id)
+    const memoryRetrieval = worktree
+      ? this.buildMemoryRetrievalSection(text, worktree, session.hiveSessionId)
+      : null
+    const traceCandidates = commandTrace
+      ? detectFrequentTraceCandidates(
+          commandTrace.entries.map((entry) => ({
+            id: entry.traceId,
+            sessionId: session.hiveSessionId,
+            worktreeId: worktree?.id ?? null,
+            command: entry.command,
+            exitCode: entry.exitCode,
+            createdAt: entry.capturedAt
+          }))
+        )
+      : []
     const priorBudgetState = session.piSession?.getBudgetState()
     const compressionRatio =
       priorBudgetState && priorBudgetState.totalBeforeBytes > 0
@@ -217,6 +255,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         terminal: null,
         tests: null,
         commandTrace,
+        retrievedMemory: memoryRetrieval?.section ?? null,
         anchor: null,
         compressionRatio
       }
@@ -298,22 +337,12 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       // Record context package for audit/debug
       if (worktree) {
         try {
-          field.persistContextPackage({
-            id: compileResult.packet.identity.packetId,
-            sessionId: session.hiveSessionId,
-            worktreeId: worktree.id,
-            runtimeId: this.id,
-            modelProviderId: modelRef.providerID,
-            modelId: modelRef.modelID,
-            budgetProfile: compileResult.packet.budget.profile,
-            approxTokens: compileResult.packet.budget.estimatedTokens,
-            sections: buildContextPackageSections(compileResult.packet, compileResult.decisions),
-            renderedMarkdown: fieldSnapshot.markdown,
-            decisions: {
-              ...(compileResult.decisions as unknown as Record<string, unknown>),
-              providerExecution: 'enabled',
-              visibleTranscriptPolicy: 'persist-user-authored-message-only'
-            }
+          await this.createContextPackage(session, text, modelRef, priorMessages, {
+            packet: compileResult.packet,
+            decisions: compileResult.decisions,
+            fieldSnapshotMarkdown: fieldSnapshot.markdown,
+            memoryRetrieval,
+            traceCandidates
           })
         } catch (err) {
           log.warn('Failed to record context package', {
@@ -322,7 +351,18 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         }
       }
 
-      field.freezeEpisodes(worktree?.id ?? 'unknown', session.hiveSessionId)
+      if (worktree) {
+        this.proposeMemoryFromTurns({
+          worktree,
+          sessionId: session.hiveSessionId,
+          userMessageId,
+          userText: text,
+          assistantMessageId: result.messageId,
+          assistantText: content
+        })
+      }
+
+      this.freezeOldConversationTurns(session)
 
       session.status = 'ready'
       session.abortController = null
@@ -428,6 +468,222 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     const session = this.sessions.get(_agentSessionId)
     if (!session) return
     this.db.updateSession(session.hiveSessionId, { name })
+  }
+
+  private async createContextPackage(
+    session: XuanpuAgentSessionState,
+    userText: string,
+    modelRef: XuanpuAgentModelRef,
+    priorMessages: FieldTurn[],
+    options: {
+      packet?: XfpFieldPacket
+      decisions?: CompilerDecision
+      fieldSnapshotMarkdown?: string | null
+      memoryRetrieval?: {
+        section: XfpRetrievedMemorySection | null
+        result: XuanpuAgentMemoryRetrievalResult
+      } | null
+      traceCandidates?: TraceMaterializationCandidate[]
+    } = {}
+  ): Promise<{
+    contextPackageId: string | null
+    retrievedEpisodes: FieldEpisode[]
+  } | null> {
+    const field = this.requireField()
+    const worktree = field.getWorktree(session.worktreePath)
+    if (!worktree) return null
+
+    const episodeCandidates = field.getEpisodeCandidates(worktree.id, session.hiveSessionId)
+    const episodeRetrieval = field.retrieveEpisodes(
+      userText,
+      episodeCandidates,
+      priorMessages,
+      session.hiveSessionId
+    )
+    const packet = options.packet ?? null
+    const baseSections =
+      packet && options.decisions
+        ? buildContextPackageSections(packet, options.decisions, {
+            episodeCandidates,
+            retrievedEpisodes: episodeRetrieval.included,
+            episodeTriggers: episodeRetrieval.triggers,
+            memoryRetrieval: options.memoryRetrieval ?? null,
+            traceCandidates: options.traceCandidates ?? []
+          })
+        : [
+            ...buildEpisodeContextPackageSections(
+              packet?.identity.packetId ?? 'xuanpu-agent-context',
+              episodeCandidates,
+              episodeRetrieval.included,
+              episodeRetrieval.triggers
+            )
+          ]
+
+    field.persistContextPackage({
+      id: packet?.identity.packetId ?? `xuanpu-agent-context-${Date.now()}`,
+      sessionId: session.hiveSessionId,
+      worktreeId: worktree.id,
+      runtimeId: this.id,
+      modelProviderId: modelRef.providerID,
+      modelId: modelRef.modelID,
+      budgetProfile: packet?.budget.profile ?? 'balanced',
+      approxTokens:
+        packet?.budget.estimatedTokens ??
+        baseSections.reduce((total, section) => total + section.approxTokens, 0),
+      sections: baseSections,
+      renderedMarkdown: options.fieldSnapshotMarkdown ?? null,
+      decisions: {
+        ...(options.decisions as unknown as Record<string, unknown> | undefined),
+        providerExecution: 'enabled',
+        visibleTranscriptPolicy: 'persist-user-authored-message-only',
+        frozenEpisodeCandidateCount: episodeCandidates.length,
+        retrievedEpisodeCount: episodeRetrieval.included.length,
+        retrievedEpisodeTokens: episodeRetrieval.included.reduce(
+          (total, episode) => total + Math.max(0, episode.tokenEstimate),
+          0
+        ),
+        episodeRetrieval: {
+          policy: 'deterministic-gated-episode-retrieval',
+          triggers: episodeRetrieval.triggers,
+          includedIds: episodeRetrieval.included.map((episode) => episode.id),
+          droppedCount: episodeRetrieval.dropped
+        },
+        retrievedMemoryCount: options.memoryRetrieval?.result.included.length ?? 0,
+        retrievedMemoryTokens:
+          options.memoryRetrieval?.result.included.reduce(
+            (total, item) => total + Math.ceil(item.page.bodyMarkdown.length / 3),
+            0
+          ) ?? 0,
+        memoryRetrieval: options.memoryRetrieval?.result.decisions ?? null,
+        traceMaterialization: {
+          policy: 'frequent-command-trace-detection',
+          candidateCount: options.traceCandidates?.length ?? 0,
+          candidates: (options.traceCandidates ?? []).map((candidate) => ({
+            signature: candidate.signature,
+            occurrenceCount: candidate.occurrenceCount,
+            traceIds: candidate.traceIds
+          }))
+        }
+      }
+    })
+
+    return {
+      contextPackageId: packet?.identity.packetId ?? null,
+      retrievedEpisodes: episodeRetrieval.included
+    }
+  }
+
+  private buildMemoryRetrievalSection(
+    userText: string,
+    worktree: FieldWorktree,
+    sessionId: string
+  ): {
+    section: XfpRetrievedMemorySection | null
+    result: XuanpuAgentMemoryRetrievalResult
+  } | null {
+    try {
+      const pages = listMemoryPagesForContext({
+        projectId: worktree.projectId,
+        worktreeId: worktree.id,
+        sessionId,
+        limit: 80
+      })
+      const result = selectRetrievedMemoryForContext({
+        userText,
+        pages,
+        currentSessionId: sessionId
+      })
+      if (result.included.length === 0) {
+        return { section: null, result }
+      }
+      return {
+        section: {
+          entries: result.included.map((item) => ({
+            memoryPageId: item.page.id,
+            scope: item.page.scope,
+            scopeId: item.page.scopeId,
+            kind: item.page.kind,
+            title: item.page.title,
+            bodyMarkdown: item.page.bodyMarkdown,
+            retrievalReason: item.retrievalReason,
+            rawRefs: [
+              { kind: 'memory-page', id: item.page.id, excerpt: item.page.title },
+              ...item.page.rawRefs.map((ref) => ({
+                kind: rawRefKindFromMemoryRef(ref.type),
+                id: ref.id,
+                excerpt: ref.excerpt,
+                meta: sanitizeRawRefMetadata(ref.metadata)
+              }))
+            ]
+          })),
+          totalAvailable: pages.length
+        },
+        result
+      }
+    } catch (error) {
+      log.warn('Failed to retrieve memory pages', {
+        sessionId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return null
+    }
+  }
+
+  private proposeMemoryFromTurns(input: {
+    worktree: FieldWorktree
+    sessionId: string
+    userMessageId: string
+    userText: string
+    assistantMessageId: string
+    assistantText: string
+  }): void {
+    try {
+      const drafts = extractMemoryProposalDrafts({
+        scope: 'worktree',
+        scopeId: input.worktree.id,
+        projectId: input.worktree.projectId,
+        worktreeId: input.worktree.id,
+        sessionId: input.sessionId,
+        turns: [
+          {
+            messageId: input.userMessageId,
+            role: 'user',
+            content: input.userText,
+            createdAt: Date.now()
+          },
+          {
+            messageId: input.assistantMessageId,
+            role: 'assistant',
+            content: input.assistantText,
+            createdAt: Date.now()
+          }
+        ],
+        source: 'xuanpu-agent-turn',
+        proposedBy: 'xuanpu-agent'
+      })
+      for (const draft of drafts) {
+        createMemoryPageProposal(draft)
+      }
+      if (drafts.length > 0) {
+        log.info('Created memory page proposals', {
+          sessionId: input.sessionId,
+          worktreeId: input.worktree.id,
+          count: drafts.length
+        })
+      }
+    } catch (error) {
+      log.warn('Failed to create memory page proposals', {
+        sessionId: input.sessionId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
+  }
+
+  private freezeOldConversationTurns(session: XuanpuAgentSessionState): void {
+    const field = this.requireField()
+    const worktree = field.getWorktree(session.worktreePath)
+    if (!worktree) return
+    field.freezeEpisodes(worktree.id, session.hiveSessionId)
   }
 
   private requireField(): FieldProvider {
@@ -763,9 +1019,57 @@ function summarizeCommandTrace(compressedOutput: string | null): string {
   return firstContentLine.length > 300 ? `${firstContentLine.slice(0, 297)}...` : firstContentLine
 }
 
+function rawRefKindFromMemoryRef(type: string): XfpRawRefKind {
+  switch (type) {
+    case 'file':
+      return 'file'
+    case 'command':
+      return 'command-trace'
+    case 'episode':
+      return 'episode'
+    case 'memory_page':
+      return 'memory-page'
+    case 'field_event':
+    case 'session_message':
+    case 'manual':
+    default:
+      return 'message'
+  }
+}
+
+function sanitizeRawRefMetadata(
+  metadata: Record<string, unknown> | undefined
+): Record<string, string | number | boolean | null> | undefined {
+  if (!metadata) return undefined
+  const entries = Object.entries(metadata)
+    .map(([key, value]) => {
+      if (
+        typeof value === 'string' ||
+        typeof value === 'number' ||
+        typeof value === 'boolean' ||
+        value === null
+      ) {
+        return [key, value] as const
+      }
+      return [key, String(value)] as const
+    })
+    .slice(0, 20)
+  return Object.fromEntries(entries)
+}
+
 function buildContextPackageSections(
   packet: XfpFieldPacket,
-  decisions: CompilerDecision
+  decisions: CompilerDecision,
+  extras: {
+    episodeCandidates?: FieldEpisode[]
+    retrievedEpisodes?: FieldEpisode[]
+    episodeTriggers?: string[]
+    memoryRetrieval?: {
+      section: XfpRetrievedMemorySection | null
+      result: XuanpuAgentMemoryRetrievalResult
+    } | null
+    traceCandidates?: TraceMaterializationCandidate[]
+  } = {}
 ): FieldContextPackageSection[] {
   const omittedReasonByName = new Map(
     decisions.omittedSections.map((section) => [section.name, section.reason])
@@ -776,7 +1080,7 @@ function buildContextPackageSections(
   ]
   const uniqueNames = [...new Set(names)]
 
-  return uniqueNames.map((name) => {
+  const xfpSections = uniqueNames.map((name) => {
     const included = decisions.includedSections.includes(name)
     return {
       id: `${packet.identity.packetId}:${name}`,
@@ -792,6 +1096,118 @@ function buildContextPackageSections(
       }
     }
   })
+
+  return [
+    ...xfpSections,
+    ...buildEpisodeContextPackageSections(
+      packet.identity.packetId,
+      extras.episodeCandidates ?? [],
+      extras.retrievedEpisodes ?? [],
+      extras.episodeTriggers ?? []
+    ),
+    ...buildMemoryContextPackageSections(packet.identity.packetId, extras.memoryRetrieval ?? null),
+    ...buildTraceMaterializationContextPackageSections(
+      packet.identity.packetId,
+      extras.traceCandidates ?? []
+    )
+  ]
+}
+
+function buildEpisodeContextPackageSections(
+  packetId: string,
+  candidates: FieldEpisode[],
+  retrieved: FieldEpisode[],
+  triggers: string[]
+): FieldContextPackageSection[] {
+  const sections: FieldContextPackageSection[] = []
+  if (candidates.length > 0) {
+    sections.push({
+      id: 'frozen-episodes-available',
+      kind: 'frozen_episodes',
+      title: 'Frozen Episodes Available',
+      included: false,
+      approxTokens: 0,
+      source: 'xuanpu-agent-episode-retrieval',
+      reason: 'available for gated retrieval',
+      metadata: { packetId, count: candidates.length, ids: candidates.map((episode) => episode.id) }
+    })
+  }
+  if (retrieved.length > 0) {
+    sections.push({
+      id: 'retrieved-episodes',
+      kind: 'retrieved_episodes',
+      title: 'Retrieved Episodes',
+      included: true,
+      approxTokens: retrieved.reduce((total, episode) => total + episode.tokenEstimate, 0),
+      source: 'xuanpu-agent-episode-retrieval',
+      reason: triggers.length > 0 ? triggers.join(', ') : 'gated retrieval match',
+      metadata: { packetId, ids: retrieved.map((episode) => episode.id), triggers }
+    })
+  }
+  return sections
+}
+
+function buildMemoryContextPackageSections(
+  packetId: string,
+  retrieval: {
+    section: XfpRetrievedMemorySection | null
+    result: XuanpuAgentMemoryRetrievalResult
+  } | null
+): FieldContextPackageSection[] {
+  if (!retrieval) return []
+  const included = retrieval.result.included
+  return [
+    {
+      id: `${packetId}:retrieved-memory`,
+      kind: 'retrieved_memory',
+      title: 'Retrieved Memory',
+      included: included.length > 0,
+      approxTokens: included.reduce(
+        (total, item) => total + Math.ceil(item.page.bodyMarkdown.length / 3),
+        0
+      ),
+      source: 'xuanpu-agent-memory-retrieval',
+      reason:
+        included.length > 0
+          ? included.map((item) => item.retrievalReason).join('; ')
+          : 'no accepted memory matched',
+      metadata: {
+        packetId,
+        candidateCount: retrieval.result.decisions.candidateCount,
+        includedIds: retrieval.result.decisions.includedIds,
+        retrievalReasons: included.map((item) => ({
+          id: item.page.id,
+          reason: item.retrievalReason
+        }))
+      }
+    }
+  ]
+}
+
+function buildTraceMaterializationContextPackageSections(
+  packetId: string,
+  candidates: TraceMaterializationCandidate[]
+): FieldContextPackageSection[] {
+  if (candidates.length === 0) return []
+  return [
+    {
+      id: `${packetId}:trace-materialization`,
+      kind: 'trace_materialization',
+      title: 'Trace Materialization Candidates',
+      included: false,
+      approxTokens: 0,
+      source: 'xuanpu-agent-trace-materialization',
+      reason: 'high-frequency command traces detected',
+      metadata: {
+        packetId,
+        candidates: candidates.map((candidate) => ({
+          signature: candidate.signature,
+          occurrenceCount: candidate.occurrenceCount,
+          traceIds: candidate.traceIds
+        }))
+      }
+    }
+  ]
 }
 
 function estimateSectionTokens(packet: XfpFieldPacket, name: string): number {
@@ -807,6 +1223,9 @@ function countRawRefs(packet: XfpFieldPacket, name: string): number {
   if (Array.isArray(rawRefs)) return rawRefs.length
   if (name === 'commandTrace' && Array.isArray(packet.commandTrace?.entries)) {
     return packet.commandTrace.entries.reduce((total, entry) => total + entry.rawRefs.length, 0)
+  }
+  if (name === 'retrievedMemory' && Array.isArray(packet.retrievedMemory?.entries)) {
+    return packet.retrievedMemory.entries.reduce((total, entry) => total + entry.rawRefs.length, 0)
   }
   return 0
 }
@@ -827,6 +1246,8 @@ function readPacketSection(packet: XfpFieldPacket, name: string): unknown {
       return packet.tests
     case 'commandTrace':
       return packet.commandTrace
+    case 'retrievedMemory':
+      return packet.retrievedMemory
     case 'currentGoal':
       return packet.currentGoal
     case 'budget':

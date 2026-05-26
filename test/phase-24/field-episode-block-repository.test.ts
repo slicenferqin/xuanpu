@@ -162,8 +162,8 @@ function createEpisode(overrides: Partial<FieldEpisodeBlockCreate> = {}) {
 }
 
 describe('field episode block repository', () => {
-  it('migration v25 defines immutable episode blocks and indexes', () => {
-    const migration = MIGRATIONS.find((item) => item.version === 25)
+  it('defines the immutable episode block migration and indexes', () => {
+    const migration = MIGRATIONS.find((item) => item.name === 'add_field_episode_blocks')
     expect(CURRENT_SCHEMA_VERSION).toBeGreaterThanOrEqual(25)
     expect(migration?.name).toBe('add_field_episode_blocks')
     expect(migration?.up).toContain('CREATE TABLE IF NOT EXISTS field_episode_blocks')

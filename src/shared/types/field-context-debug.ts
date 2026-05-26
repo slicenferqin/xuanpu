@@ -4,6 +4,8 @@ export type FieldContextPackageSectionKind =
   | 'anchor'
   | 'frozen_episodes'
   | 'retrieved_episodes'
+  | 'retrieved_memory'
+  | 'trace_materialization'
   | 'working_set'
   | 'current_field'
 

@@ -215,6 +215,30 @@ export interface XfpCommandTraceSection {
 }
 
 // ---------------------------------------------------------------------------
+// Section 5b: Retrieved memory pages
+// @cacheStability mixed
+//
+// Memory retrieval is auditable: every included page carries the reason it was
+// selected plus the raw refs behind the memory page itself.
+// ---------------------------------------------------------------------------
+
+export interface XfpRetrievedMemoryEntry {
+  memoryPageId: string
+  scope: 'user' | 'project' | 'worktree' | 'session' | 'episode' | 'command'
+  scopeId: string
+  kind: 'fact' | 'decision' | 'assumption' | 'constraint'
+  title: string
+  bodyMarkdown: string
+  retrievalReason: string
+  rawRefs: XfpRawRef[]
+}
+
+export interface XfpRetrievedMemorySection {
+  entries: XfpRetrievedMemoryEntry[]
+  totalAvailable: number
+}
+
+// ---------------------------------------------------------------------------
 // Section 6: Current task goal (what the user is actively asking for)
 // @cacheStability volatile
 //
@@ -285,7 +309,7 @@ export interface XfpAnchorSection {
  *
  * @invariant version === 1 for all v1 packets; v2 will set version === 2.
  * @invariant identity, gitState, focus, currentGoal are REQUIRED.
- * @invariant terminal, tests, commandTrace, anchor MAY be null when no
+ * @invariant terminal, tests, commandTrace, retrievedMemory, anchor MAY be null when no
  *            relevant signal exists for this packet.
  */
 export interface XfpFieldPacket {
@@ -297,6 +321,7 @@ export interface XfpFieldPacket {
   terminal: XfpTerminalSummary | null
   tests: XfpTestSummary | null
   commandTrace: XfpCommandTraceSection | null
+  retrievedMemory: XfpRetrievedMemorySection | null
   currentGoal: XfpTaskGoal
   budget: XfpBudgetSection
 }

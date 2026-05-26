@@ -15,9 +15,7 @@ import {
   createRuleBasedEpisodeFromTurns,
   listFieldEpisodeBlocks
 } from '../../../field/episode-block-repository'
-import {
-  createFieldContextPackage
-} from '../../../field/context-package-repository'
+import { createFieldContextPackage } from '../../../field/context-package-repository'
 import { selectRetrievedEpisodesForContext } from '../episode-retrieval'
 import { selectMessagesForEpisodeFreeze } from '../episode-freezer'
 import { createLogger } from '../../logger'
@@ -67,11 +65,12 @@ export class IdeFieldProvider implements FieldProvider {
       .map((msg) => ({
         role: msg.role,
         content: msg.content,
-        createdAt: typeof msg.created_at === 'number'
-          ? msg.created_at
-          : msg.created_at
-            ? Date.parse(msg.created_at)
-            : Date.now()
+        createdAt:
+          typeof msg.created_at === 'number'
+            ? msg.created_at
+            : msg.created_at
+              ? Date.parse(msg.created_at)
+              : Date.now()
       }))
   }
 
@@ -107,7 +106,13 @@ export class IdeFieldProvider implements FieldProvider {
             title: episode.title ?? null,
             summaryMarkdown: episode.summaryMarkdown,
             tokenEstimate: episode.tokenEstimate ?? 0,
-            createdAt: episode.createdAt ?? Date.now()
+            createdAt: episode.createdAt ?? Date.now(),
+            sessionId: episode.sessionId ?? null,
+            keyFacts: episode.keyFacts,
+            constraints: episode.constraints,
+            files: episode.files,
+            commands: episode.commands,
+            failures: episode.failures
           }) as FieldEpisode
       )
     } catch (error) {
@@ -132,7 +137,17 @@ export class IdeFieldProvider implements FieldProvider {
         title: ep.title,
         summaryMarkdown: ep.summaryMarkdown,
         tokenEstimate: ep.tokenEstimate,
-        createdAt: ep.createdAt
+        createdAt: ep.createdAt,
+        sessionId: ep.sessionId ?? null,
+        kind: 'turns',
+        worktreeId: '',
+        keyFacts: ep.keyFacts ?? [],
+        constraints: ep.constraints ?? [],
+        files: ep.files ?? [],
+        commands: ep.commands ?? [],
+        failures: ep.failures ?? [],
+        rawRefs: [],
+        confidence: 'medium'
       })) as unknown as Parameters<typeof selectRetrievedEpisodesForContext>[0]['episodes'],
       priorMessages: priorTurns.map((t) => ({
         role: t.role,
@@ -278,8 +293,5 @@ export class IdeFieldProvider implements FieldProvider {
 function isConversationMessage(
   msg: SessionMessage
 ): msg is SessionMessage & { role: 'user' | 'assistant' } {
-  return (
-    (msg.role === 'user' || msg.role === 'assistant') &&
-    msg.content.trim().length > 0
-  )
+  return (msg.role === 'user' || msg.role === 'assistant') && msg.content.trim().length > 0
 }

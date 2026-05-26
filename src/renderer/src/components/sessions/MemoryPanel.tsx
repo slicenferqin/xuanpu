@@ -28,13 +28,17 @@ import {
   Pin,
   FolderOpen,
   Plus,
-  Loader2
+  Loader2,
+  Check,
+  X,
+  Save
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { toast } from '@/lib/toast'
 import { useI18n } from '@/i18n/useI18n'
 import { PinnedFactsCard } from '@/components/worktrees/PinnedFactsCard'
+import type { FieldMemoryKind, FieldMemoryPageRecord } from '@shared/types/field-memory'
 
 interface EpisodicMemoryEntry {
   worktreeId: string
@@ -66,7 +70,7 @@ interface MemoryPanelProps {
   variant?: 'panel' | 'composer'
 }
 
-type Tab = 'pinned' | 'observed' | 'semantic'
+type Tab = 'pinned' | 'graph' | 'observed' | 'semantic'
 
 export function MemoryPanel({
   worktreeId,
@@ -78,6 +82,7 @@ export function MemoryPanel({
   const [tab, setTab] = useState<Tab>('pinned')
   const [episodic, setEpisodic] = useState<EpisodicMemoryEntry | null>(null)
   const [semantic, setSemantic] = useState<SemanticMemoryEntry | null>(null)
+  const [memoryPages, setMemoryPages] = useState<FieldMemoryPageRecord[]>([])
   const [loading, setLoading] = useState(false)
   const [actionPending, setActionPending] = useState(false)
 
@@ -85,12 +90,18 @@ export function MemoryPanel({
     if (!worktreeId) return
     setLoading(true)
     try {
-      const [ep, sem] = await Promise.all([
+      const [ep, sem, pages] = await Promise.all([
         window.fieldOps.getEpisodicMemory(worktreeId),
-        window.fieldOps.getSemanticMemory(worktreeId)
+        window.fieldOps.getSemanticMemory(worktreeId),
+        window.fieldOps.listMemoryPages({
+          worktreeId,
+          statuses: ['proposed', 'accepted'],
+          limit: 80
+        })
       ])
       setEpisodic(ep)
       setSemantic(sem)
+      setMemoryPages(pages)
     } finally {
       setLoading(false)
     }
@@ -132,16 +143,89 @@ export function MemoryPanel({
     }
   }, [worktreeId, actionPending, t])
 
+  const handleAcceptMemory = useCallback(
+    async (page: FieldMemoryPageRecord, patch?: { title: string; bodyMarkdown: string }) => {
+      if (actionPending) return
+      setActionPending(true)
+      try {
+        const updated = await window.fieldOps.acceptMemoryPageProposal({ id: page.id, ...patch })
+        setMemoryPages((pages) => upsertMemoryPage(pages, updated))
+        toast.success(t('memory.toasts.memoryAccepted'))
+      } catch {
+        toast.error(t('memory.toasts.memoryActionError'))
+      } finally {
+        setActionPending(false)
+      }
+    },
+    [actionPending, t]
+  )
+
+  const handleRejectMemory = useCallback(
+    async (page: FieldMemoryPageRecord) => {
+      if (actionPending) return
+      setActionPending(true)
+      try {
+        const updated = await window.fieldOps.rejectMemoryPageProposal({ id: page.id })
+        setMemoryPages((pages) => pages.filter((item) => item.id !== updated.id))
+        toast.success(t('memory.toasts.memoryRejected'))
+      } catch {
+        toast.error(t('memory.toasts.memoryActionError'))
+      } finally {
+        setActionPending(false)
+      }
+    },
+    [actionPending, t]
+  )
+
+  const handleSaveMemory = useCallback(
+    async (page: FieldMemoryPageRecord, patch: { title: string; bodyMarkdown: string }) => {
+      if (actionPending) return
+      setActionPending(true)
+      try {
+        const updated = await window.fieldOps.updateMemoryPage({ id: page.id, ...patch })
+        setMemoryPages((pages) => upsertMemoryPage(pages, updated))
+        toast.success(t('memory.toasts.memorySaved'))
+      } catch {
+        toast.error(t('memory.toasts.memoryActionError'))
+      } finally {
+        setActionPending(false)
+      }
+    },
+    [actionPending, t]
+  )
+
+  const handleDeleteMemory = useCallback(
+    async (page: FieldMemoryPageRecord) => {
+      if (actionPending) return
+      setActionPending(true)
+      try {
+        await window.fieldOps.deleteMemoryPage(page.id)
+        setMemoryPages((pages) => pages.filter((item) => item.id !== page.id))
+        toast.success(t('memory.toasts.memoryDeleted'))
+      } catch {
+        toast.error(t('memory.toasts.memoryActionError'))
+      } finally {
+        setActionPending(false)
+      }
+    },
+    [actionPending, t]
+  )
+
   if (!worktreeId) return null
 
   const headerLabel =
     tab === 'pinned'
       ? t('memory.pinnedSection')
-      : tab === 'observed'
-        ? episodic
-          ? formatCompactorBadge(episodic, t)
-          : t('memory.empty.observed')
-        : t('memory.semanticSection')
+      : tab === 'graph'
+        ? t('memory.graphStatus', {
+            proposed: String(memoryPages.filter((page) => page.status === 'proposed').length),
+            accepted: String(memoryPages.filter((page) => page.status === 'accepted').length)
+          })
+        : tab === 'observed'
+          ? episodic
+            ? formatCompactorBadge(episodic, t)
+            : t('memory.empty.observed')
+          : t('memory.semanticSection')
 
   const body = (
     <>
@@ -158,6 +242,12 @@ export function MemoryPanel({
           onClick={() => setTab('observed')}
           icon={<Brain size={11} />}
           label={t('memory.observedSection')}
+        />
+        <TabButton
+          active={tab === 'graph'}
+          onClick={() => setTab('graph')}
+          icon={<Brain size={11} />}
+          label={t('memory.graphSection')}
         />
         <TabButton
           active={tab === 'semantic'}
@@ -180,6 +270,18 @@ export function MemoryPanel({
           actionPending={actionPending}
           onRegenerate={handleRegenerate}
           onClear={handleClear}
+        />
+      )}
+
+      {tab === 'graph' && (
+        <MemoryPagesSection
+          pages={memoryPages}
+          loading={loading}
+          actionPending={actionPending}
+          onAccept={handleAcceptMemory}
+          onReject={handleRejectMemory}
+          onSave={handleSaveMemory}
+          onDelete={handleDeleteMemory}
         />
       )}
 
@@ -370,6 +472,192 @@ function ObservedSection({
   )
 }
 
+interface MemoryPagesSectionProps {
+  pages: FieldMemoryPageRecord[]
+  loading: boolean
+  actionPending: boolean
+  onAccept: (page: FieldMemoryPageRecord, patch?: { title: string; bodyMarkdown: string }) => void
+  onReject: (page: FieldMemoryPageRecord) => void
+  onSave: (page: FieldMemoryPageRecord, patch: { title: string; bodyMarkdown: string }) => void
+  onDelete: (page: FieldMemoryPageRecord) => void
+}
+
+function MemoryPagesSection({
+  pages,
+  loading,
+  actionPending,
+  onAccept,
+  onReject,
+  onSave,
+  onDelete
+}: MemoryPagesSectionProps): React.JSX.Element {
+  const { t } = useI18n()
+  const proposed = pages.filter((page) => page.status === 'proposed')
+  const accepted = pages.filter((page) => page.status === 'accepted')
+
+  if (loading && pages.length === 0) {
+    return <div className="text-muted-foreground/60">Loading…</div>
+  }
+
+  if (pages.length === 0) {
+    return <div className="text-muted-foreground/60 italic">{t('memory.empty.graph')}</div>
+  }
+
+  return (
+    <div className="space-y-3">
+      {proposed.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-[11px] font-semibold text-muted-foreground">
+            {t('memory.memoryProposals')}
+          </div>
+          {proposed.map((page) => (
+            <MemoryPageRow
+              key={page.id}
+              page={page}
+              actionPending={actionPending}
+              onAccept={onAccept}
+              onReject={onReject}
+              onSave={onSave}
+              onDelete={onDelete}
+            />
+          ))}
+        </div>
+      )}
+      {accepted.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-[11px] font-semibold text-muted-foreground">
+            {t('memory.acceptedMemory')}
+          </div>
+          {accepted.map((page) => (
+            <MemoryPageRow
+              key={page.id}
+              page={page}
+              actionPending={actionPending}
+              onAccept={onAccept}
+              onReject={onReject}
+              onSave={onSave}
+              onDelete={onDelete}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+interface MemoryPageRowProps {
+  page: FieldMemoryPageRecord
+  actionPending: boolean
+  onAccept: (page: FieldMemoryPageRecord, patch?: { title: string; bodyMarkdown: string }) => void
+  onReject: (page: FieldMemoryPageRecord) => void
+  onSave: (page: FieldMemoryPageRecord, patch: { title: string; bodyMarkdown: string }) => void
+  onDelete: (page: FieldMemoryPageRecord) => void
+}
+
+function MemoryPageRow({
+  page,
+  actionPending,
+  onAccept,
+  onReject,
+  onSave,
+  onDelete
+}: MemoryPageRowProps): React.JSX.Element {
+  const { t } = useI18n()
+  const [title, setTitle] = useState(page.title)
+  const [bodyMarkdown, setBodyMarkdown] = useState(page.bodyMarkdown)
+
+  useEffect(() => {
+    setTitle(page.title)
+    setBodyMarkdown(page.bodyMarkdown)
+  }, [page.id, page.title, page.bodyMarkdown])
+
+  const changed = title !== page.title || bodyMarkdown !== page.bodyMarkdown
+  const patch = { title, bodyMarkdown }
+
+  return (
+    <div className="space-y-2 rounded border border-border/60 bg-background/40 p-2">
+      <div className="flex items-center gap-2">
+        <span
+          className={cn(
+            'rounded px-1.5 py-0.5 text-[10px] font-medium',
+            page.status === 'proposed'
+              ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+              : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+          )}
+        >
+          {page.status === 'proposed' ? t('memory.proposed') : t('memory.accepted')}
+        </span>
+        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+          {kindLabel(page.kind)}
+        </span>
+        <span className="truncate text-[10px] text-muted-foreground">
+          {page.scope}:{page.scopeId}
+        </span>
+        <div className="flex-1" />
+        {page.status === 'proposed' && (
+          <>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-2 text-[11px] gap-1"
+              disabled={actionPending || !title.trim() || !bodyMarkdown.trim()}
+              onClick={() => onAccept(page, changed ? patch : undefined)}
+            >
+              <Check className="h-3 w-3" />
+              {t('memory.accept')}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-2 text-[11px] gap-1"
+              disabled={actionPending}
+              onClick={() => onReject(page)}
+            >
+              <X className="h-3 w-3" />
+              {t('memory.reject')}
+            </Button>
+          </>
+        )}
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 px-2 text-[11px] gap-1"
+          disabled={actionPending || !changed || !title.trim() || !bodyMarkdown.trim()}
+          onClick={() => onSave(page, patch)}
+        >
+          <Save className="h-3 w-3" />
+          {t('memory.save')}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 px-2 text-[11px] gap-1 text-destructive"
+          disabled={actionPending}
+          onClick={() => onDelete(page)}
+        >
+          <Trash2 className="h-3 w-3" />
+        </Button>
+      </div>
+      <input
+        value={title}
+        onChange={(event) => setTitle(event.target.value)}
+        className="h-7 w-full rounded border border-border/60 bg-background px-2 text-[11px] text-foreground outline-none focus:border-ring"
+      />
+      <textarea
+        value={bodyMarkdown}
+        onChange={(event) => setBodyMarkdown(event.target.value)}
+        rows={3}
+        className="w-full resize-y rounded border border-border/60 bg-background px-2 py-1.5 text-[11px] leading-relaxed text-foreground outline-none focus:border-ring"
+      />
+      {page.rawRefs.length > 0 && (
+        <div className="truncate text-[10px] text-muted-foreground">
+          {t('memory.rawRefs', { count: String(page.rawRefs.length) })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 interface SemanticSectionProps {
   semantic: SemanticMemoryEntry | null
   loading: boolean
@@ -474,6 +762,30 @@ function formatCompactorBadge(
     id: entry.compactorId,
     version: String(entry.version)
   })} • ${t('memory.compactedAt', { ago })}`
+}
+
+function upsertMemoryPage(
+  pages: FieldMemoryPageRecord[],
+  updated: FieldMemoryPageRecord
+): FieldMemoryPageRecord[] {
+  const next = pages.filter((page) => page.id !== updated.id)
+  if (updated.status === 'proposed' || updated.status === 'accepted') {
+    next.unshift(updated)
+  }
+  return next.sort((left, right) => right.updatedAt - left.updatedAt)
+}
+
+function kindLabel(kind: FieldMemoryKind): string {
+  switch (kind) {
+    case 'fact':
+      return 'Fact'
+    case 'decision':
+      return 'Decision'
+    case 'assumption':
+      return 'Assumption'
+    case 'constraint':
+      return 'Constraint'
+  }
 }
 
 function humanElapsed(ms: number): string {

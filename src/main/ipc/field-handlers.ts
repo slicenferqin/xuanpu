@@ -25,6 +25,15 @@ import {
   upsertPinnedFacts,
   PINNED_FACTS_MAX_CHARS
 } from '../field/pinned-facts-repository'
+import {
+  acceptMemoryPageProposal,
+  deleteMemoryPage,
+  listMemoryPages,
+  rejectMemoryPageProposal,
+  updateMemoryPage,
+  type FieldMemoryKind,
+  type FieldMemoryStatus
+} from '../field/memory-page-repository'
 import type { WorktreeSwitchTrigger } from '../../shared/types'
 import type { FieldEpisodeBlockKind } from '../../shared/types/field-context-debug'
 
@@ -46,6 +55,18 @@ const VALID_EPISODE_KINDS = new Set<FieldEpisodeBlockKind>([
   'events',
   'checkpoint',
   'manual'
+])
+const VALID_MEMORY_STATUSES = new Set<FieldMemoryStatus>([
+  'proposed',
+  'accepted',
+  'rejected',
+  'archived'
+])
+const VALID_MEMORY_KINDS = new Set<FieldMemoryKind>([
+  'fact',
+  'decision',
+  'assumption',
+  'constraint'
 ])
 const VALID_TRIGGERS: ReadonlySet<string> = new Set<WorktreeSwitchTrigger>([
   'user-click',
@@ -105,6 +126,15 @@ function hasProvidedValue(value: unknown): boolean {
 function optionalLimit(value: unknown): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
   return Math.min(Math.max(Math.trunc(value), 1), 50)
+}
+
+function readMemoryStatuses(value: unknown): FieldMemoryStatus[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const statuses = value.filter(
+    (item): item is FieldMemoryStatus =>
+      typeof item === 'string' && VALID_MEMORY_STATUSES.has(item as FieldMemoryStatus)
+  )
+  return statuses.length > 0 ? statuses : undefined
 }
 
 export function registerFieldHandlers(): void {
@@ -318,6 +348,65 @@ export function registerFieldHandlers(): void {
       kind: kind as FieldEpisodeBlockKind | undefined,
       limit: optionalLimit(input.limit)
     })
+  })
+
+  // -------------------------------------------------------------------------
+  // M5: Memory pages — visible proposal queue + accepted scoped memory.
+  // Worktree scoping is required for renderer listing so this cannot dump all
+  // project/user memory from one accidental call.
+  // -------------------------------------------------------------------------
+  ipcMain.handle('field:listMemoryPages', (_event, input: unknown) => {
+    if (!isPlainObject(input)) return []
+    const worktreeId = optionalShortString(input.worktreeId, MAX_ID_LEN)
+    if (!worktreeId) return []
+    const worktree = getDatabase().getWorktree(worktreeId)
+    if (!worktree) return []
+    return listMemoryPages({
+      worktreeId,
+      statuses: readMemoryStatuses(input.statuses) ?? ['proposed', 'accepted'],
+      limit: optionalLimit(input.limit)
+    })
+  })
+
+  ipcMain.handle('field:acceptMemoryPageProposal', (_event, input: unknown) => {
+    if (!isPlainObject(input) || !isShortString(input.id, MAX_ID_LEN)) {
+      throw new Error('acceptMemoryPageProposal: id is required')
+    }
+    const patch: Parameters<typeof acceptMemoryPageProposal>[1] = {}
+    if (typeof input.title === 'string') patch.title = input.title
+    if (typeof input.bodyMarkdown === 'string') patch.bodyMarkdown = input.bodyMarkdown
+    if (typeof input.kind === 'string' && VALID_MEMORY_KINDS.has(input.kind as FieldMemoryKind)) {
+      patch.kind = input.kind as FieldMemoryKind
+    }
+    return acceptMemoryPageProposal(input.id, patch)
+  })
+
+  ipcMain.handle('field:rejectMemoryPageProposal', (_event, input: unknown) => {
+    if (!isPlainObject(input) || !isShortString(input.id, MAX_ID_LEN)) {
+      throw new Error('rejectMemoryPageProposal: id is required')
+    }
+    const reason = typeof input.reason === 'string' ? input.reason : null
+    return rejectMemoryPageProposal(input.id, reason)
+  })
+
+  ipcMain.handle('field:updateMemoryPage', (_event, input: unknown) => {
+    if (!isPlainObject(input) || !isShortString(input.id, MAX_ID_LEN)) {
+      throw new Error('updateMemoryPage: id is required')
+    }
+    const patch: Parameters<typeof updateMemoryPage>[1] = {}
+    if (typeof input.title === 'string') patch.title = input.title
+    if (typeof input.bodyMarkdown === 'string') patch.bodyMarkdown = input.bodyMarkdown
+    if (typeof input.kind === 'string' && VALID_MEMORY_KINDS.has(input.kind as FieldMemoryKind)) {
+      patch.kind = input.kind as FieldMemoryKind
+    }
+    return updateMemoryPage(input.id, patch)
+  })
+
+  ipcMain.handle('field:deleteMemoryPage', (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.length === 0 || id.length > MAX_ID_LEN) {
+      throw new Error('deleteMemoryPage: id is required')
+    }
+    return { deleted: deleteMemoryPage(id) }
   })
 
   // -------------------------------------------------------------------------
