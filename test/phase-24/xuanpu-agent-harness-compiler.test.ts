@@ -24,6 +24,8 @@ describe('XfpPacketCompiler', () => {
         terminal: fixture.terminal,
         tests: fixture.tests,
         commandTrace: fixture.commandTrace,
+        multiWorktree: fixture.multiWorktree,
+        reviewContext: fixture.reviewContext,
         budgetProfile: 'balanced',
         budgetTokens: 80000,
         estimatedTokens: 1234,
@@ -45,6 +47,8 @@ describe('XfpPacketCompiler', () => {
       source: 'user-message',
       successCriteria: null
     })
+    expect(result.packet.multiWorktree?.entries).toHaveLength(2)
+    expect(result.packet.reviewContext?.attachedPullRequest?.number).toBe(42)
     expect(result.packet.anchor?.worktreeNotesMarkdown).toBe('Worktree context note')
     expect(result.packet.budget).toEqual({
       profile: 'balanced',
@@ -127,13 +131,17 @@ describe('XfpPacketCompiler', () => {
     expect(packet.commandTrace).toBeNull()
     expect(packet.retrievedMemory).toBeNull()
     expect(packet.retrievedWorkflows).toBeNull()
+    expect(packet.multiWorktree).toBeNull()
+    expect(packet.reviewContext).toBeNull()
     expect(packet.budget.omittedSectionNames).toEqual([
       'anchor',
       'terminal',
       'tests',
       'commandTrace',
       'retrievedMemory',
-      'retrievedWorkflows'
+      'retrievedWorkflows',
+      'multiWorktree',
+      'reviewContext'
     ])
     expect(decisions.omittedSections).toEqual([
       { name: 'anchor', reason: 'not provided' },
@@ -141,7 +149,9 @@ describe('XfpPacketCompiler', () => {
       { name: 'tests', reason: 'not provided' },
       { name: 'commandTrace', reason: 'not provided' },
       { name: 'retrievedMemory', reason: 'not provided' },
-      { name: 'retrievedWorkflows', reason: 'not provided' }
+      { name: 'retrievedWorkflows', reason: 'not provided' },
+      { name: 'multiWorktree', reason: 'not provided' },
+      { name: 'reviewContext', reason: 'not provided' }
     ])
   })
 })

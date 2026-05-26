@@ -157,6 +157,46 @@ export function fullXfpPacketExample(): XfpFieldPacket {
       ],
       totalAvailable: 1
     },
+    multiWorktree: {
+      entries: [
+        {
+          worktreeId: 'wt-schnauzer',
+          name: 'xuanpu--schnauzer',
+          path: '/Users/slicenfer/.xuanpu-worktrees/xuanpu/xuanpu--schnauzer',
+          branchName: 'feat/xuanpu-agent-oh-my-pi',
+          isCurrent: true,
+          lastMessageAt: 1748186300000,
+          attachedPrNumber: 42,
+          attachedPrUrl: 'https://github.com/slicenferqin/xuanpu/pull/42',
+          rawRefs: [{ kind: 'git-object', id: 'worktree:wt-schnauzer' }]
+        },
+        {
+          worktreeId: 'wt-main',
+          name: 'xuanpu--main',
+          path: '/Users/slicenfer/.xuanpu-worktrees/xuanpu/xuanpu--main',
+          branchName: 'main',
+          isCurrent: false,
+          lastMessageAt: null,
+          attachedPrNumber: null,
+          attachedPrUrl: null,
+          rawRefs: [{ kind: 'git-object', id: 'worktree:wt-main' }]
+        }
+      ],
+      totalAvailable: 2
+    },
+    reviewContext: {
+      currentBranch: 'feat/xuanpu-agent-oh-my-pi',
+      compareTarget: 'origin/main',
+      attachedPullRequest: {
+        number: 42,
+        url: 'https://github.com/slicenferqin/xuanpu/pull/42'
+      },
+      dirtyFileCount: 1,
+      rawRefs: [
+        { kind: 'git-object', id: 'git:branch:feat/xuanpu-agent-oh-my-pi' },
+        { kind: 'message', id: 'github-pr:42' }
+      ]
+    },
     currentGoal: {
       objective: 'Define the XFP v1 packet types and Zod schema so the compiler can land in M1.',
       source: 'user-message',

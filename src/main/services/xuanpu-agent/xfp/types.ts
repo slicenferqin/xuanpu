@@ -273,6 +273,48 @@ export interface XfpRetrievedWorkflowSection {
 }
 
 // ---------------------------------------------------------------------------
+// Section 5d: Multi-worktree awareness
+// @cacheStability mixed
+//
+// M6 gives the runtime a bounded view of sibling worktrees in the same project
+// so review, PR, and branch-comparison tasks do not assume the current
+// worktree is the whole project surface.
+// ---------------------------------------------------------------------------
+
+export interface XfpPeerWorktreeEntry {
+  worktreeId: string
+  name: string
+  path: string
+  branchName: string
+  isCurrent: boolean
+  lastMessageAt: number | null
+  attachedPrNumber: number | null
+  attachedPrUrl: string | null
+  rawRefs: XfpRawRef[]
+}
+
+export interface XfpMultiWorktreeSection {
+  entries: XfpPeerWorktreeEntry[]
+  totalAvailable: number
+}
+
+// ---------------------------------------------------------------------------
+// Section 5e: Review / PR workflow context
+// @cacheStability volatile
+// ---------------------------------------------------------------------------
+
+export interface XfpReviewContextSection {
+  currentBranch: string
+  compareTarget: string | null
+  attachedPullRequest: {
+    number: number
+    url: string
+  } | null
+  dirtyFileCount: number
+  rawRefs: XfpRawRef[]
+}
+
+// ---------------------------------------------------------------------------
 // Section 6: Current task goal (what the user is actively asking for)
 // @cacheStability volatile
 //
@@ -343,8 +385,8 @@ export interface XfpAnchorSection {
  *
  * @invariant version === 1 for all v1 packets; v2 will set version === 2.
  * @invariant identity, gitState, focus, currentGoal are REQUIRED.
- * @invariant terminal, tests, commandTrace, retrievedMemory, retrievedWorkflows, anchor MAY be
- *            null when no relevant signal exists for this packet.
+ * @invariant terminal, tests, commandTrace, retrievedMemory, retrievedWorkflows, multiWorktree,
+ *            reviewContext, anchor MAY be null when no relevant signal exists for this packet.
  */
 export interface XfpFieldPacket {
   version: 1
@@ -357,6 +399,8 @@ export interface XfpFieldPacket {
   commandTrace: XfpCommandTraceSection | null
   retrievedMemory: XfpRetrievedMemorySection | null
   retrievedWorkflows: XfpRetrievedWorkflowSection | null
+  multiWorktree: XfpMultiWorktreeSection | null
+  reviewContext: XfpReviewContextSection | null
   currentGoal: XfpTaskGoal
   budget: XfpBudgetSection
 }

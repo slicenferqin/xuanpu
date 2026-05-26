@@ -7,8 +7,10 @@ import type {
   XfpFieldPacket,
   XfpFocusSection,
   XfpGitState,
+  XfpMultiWorktreeSection,
   XfpRetrievedMemorySection,
   XfpRetrievedWorkflowSection,
+  XfpReviewContextSection,
   XfpTaskGoal,
   XfpTerminalSummary,
   XfpTestSummary
@@ -31,6 +33,8 @@ export interface CompileOptions {
   commandTrace?: XfpCommandTraceSection | null
   retrievedMemory?: XfpRetrievedMemorySection | null
   retrievedWorkflows?: XfpRetrievedWorkflowSection | null
+  multiWorktree?: XfpMultiWorktreeSection | null
+  reviewContext?: XfpReviewContextSection | null
   anchor?: XfpAnchorSection | null
   currentGoal?: XfpTaskGoal
   includedSections?: readonly string[]
@@ -91,6 +95,8 @@ export class XfpPacketCompiler {
         commandTrace: options.commandTrace ?? null,
         retrievedMemory: options.retrievedMemory ?? null,
         retrievedWorkflows: options.retrievedWorkflows ?? null,
+        multiWorktree: options.multiWorktree ?? null,
+        reviewContext: options.reviewContext ?? null,
         currentGoal: options.currentGoal ?? {
           objective: userMessage.trim(),
           source: 'user-message',
@@ -162,6 +168,8 @@ function defaultIncludedSections(
     options.commandTrace ? 'commandTrace' : null,
     options.retrievedMemory ? 'retrievedMemory' : null,
     options.retrievedWorkflows ? 'retrievedWorkflows' : null,
+    options.multiWorktree ? 'multiWorktree' : null,
+    options.reviewContext ? 'reviewContext' : null,
     'currentGoal',
     'budget'
   ].filter((section): section is string => Boolean(section))
@@ -180,6 +188,8 @@ function defaultOmittedSections(
   if (!options.retrievedWorkflows) {
     omitted.push({ name: 'retrievedWorkflows', reason: 'not provided' })
   }
+  if (!options.multiWorktree) omitted.push({ name: 'multiWorktree', reason: 'not provided' })
+  if (!options.reviewContext) omitted.push({ name: 'reviewContext', reason: 'not provided' })
   return omitted
 }
 
@@ -205,7 +215,9 @@ function estimateTokens(userMessage: string, options: CompileOptions): number {
       JSON.stringify(options.tests ?? {}),
       JSON.stringify(options.commandTrace ?? {}),
       JSON.stringify(options.retrievedMemory ?? {}),
-      JSON.stringify(options.retrievedWorkflows ?? {})
+      JSON.stringify(options.retrievedWorkflows ?? {}),
+      JSON.stringify(options.multiWorktree ?? {}),
+      JSON.stringify(options.reviewContext ?? {})
     ].join('\n').length / 4
   )
 }

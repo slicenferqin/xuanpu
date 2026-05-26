@@ -19,6 +19,10 @@ export interface FieldWorktree {
   path: string
   context: string | null
   projectId: string
+  branchName?: string | null
+  lastMessageAt?: number | null
+  githubPrNumber?: number | null
+  githubPrUrl?: string | null
 }
 
 export interface FieldSession {

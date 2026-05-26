@@ -99,6 +99,7 @@ export function getXuanpuAgentSystemPromptLines(): string[] {
     'Write tools default to preview-only. To apply a write, call the same tool with confirm=true and the returned previewToken. Do not invent preview tokens.',
     'Dangerous paths (.git, node_modules, build outputs, secrets files, and worktree escapes) are blocked.',
     'Every generated patch must be tied to observed source context: prefer sourceContextRefs from read_file/rg_search/git_diff and inspect the diff before confirming.',
+    'When XFP includes multiWorktree or reviewContext sections, use them to distinguish the current branch, sibling worktrees, and attached PR before making review claims.',
     'You CANNOT run arbitrary shell commands, access external tools (MCP), or use native process control.',
     'When answering, cite file paths and line numbers from tool results and summarize the final diff plus any focused test result.'
   ]

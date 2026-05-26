@@ -29,9 +29,11 @@ import type {
   XfpCommandTraceSection,
   XfpFieldPacket,
   XfpGitState,
+  XfpMultiWorktreeSection,
   XfpRawRefKind,
   XfpRetrievedMemorySection,
   XfpRetrievedWorkflowSection,
+  XfpReviewContextSection,
   XfpTaskGoal
 } from './xuanpu-agent/xfp/types'
 import {
@@ -242,6 +244,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
           this.retrieveTraceWorkflows(text, session.worktreePath, materializedWorkflows)
         )
       : null
+    const multiWorktree = worktree ? this.buildMultiWorktreeSection(worktree) : null
     const priorBudgetState = session.piSession?.getBudgetState()
     const compressionRatio =
       priorBudgetState && priorBudgetState.totalBeforeBytes > 0
@@ -287,12 +290,10 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         commandTrace,
         retrievedMemory: memoryRetrieval?.section ?? null,
         retrievedWorkflows,
+        multiWorktree,
+        reviewContext: worktree ? buildReviewContextSection(worktree, gitState) : null,
         anchor: worktree ? buildAnchorSection(worktree, resumedCheckpoint) : null,
-        currentGoal: buildCurrentGoalFromCheckpoint(
-          text,
-          session.hiveSessionId,
-          resumedCheckpoint
-        ),
+        currentGoal: buildCurrentGoalFromCheckpoint(text, session.hiveSessionId, resumedCheckpoint),
         compressionRatio
       }
     )
@@ -856,6 +857,53 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     }
   }
 
+  private buildMultiWorktreeSection(worktree: FieldWorktree): XfpMultiWorktreeSection | null {
+    if (!this.db || typeof this.db.getWorktreesByProject !== 'function') return null
+
+    try {
+      const rows =
+        typeof this.db.getActiveWorktreesByProject === 'function'
+          ? this.db.getActiveWorktreesByProject(worktree.projectId)
+          : this.db.getWorktreesByProject(worktree.projectId)
+      if (rows.length <= 1) return null
+      const boundedRows = [
+        ...rows.filter((row) => row.id === worktree.id),
+        ...rows.filter((row) => row.id !== worktree.id)
+      ].slice(0, 12)
+      const entries = boundedRows.map((row) => ({
+        worktreeId: row.id,
+        name: row.name,
+        path: row.path,
+        branchName: row.branch_name || 'unknown',
+        isCurrent: row.id === worktree.id,
+        lastMessageAt: normalizeNullableTimestamp(row.last_message_at),
+        attachedPrNumber: row.github_pr_number ?? null,
+        attachedPrUrl: row.github_pr_url ?? null,
+        rawRefs: [
+          {
+            kind: 'git-object' as const,
+            id: `worktree:${row.id}`,
+            meta: {
+              branch: row.branch_name || null,
+              current: row.id === worktree.id
+            }
+          }
+        ]
+      }))
+
+      return {
+        entries,
+        totalAvailable: rows.length
+      }
+    } catch (error) {
+      log.warn('Failed to build multi-worktree context', {
+        worktreeId: worktree.id,
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return null
+    }
+  }
+
   private proposeMemoryFromTurns(input: {
     worktree: FieldWorktree
     sessionId: string
@@ -1248,6 +1296,58 @@ function buildAnchorSection(
   }
 }
 
+function buildReviewContextSection(
+  worktree: FieldWorktree,
+  gitState: XfpGitState
+): XfpReviewContextSection | null {
+  const attachedPullRequest =
+    worktree.githubPrNumber && worktree.githubPrUrl
+      ? {
+          number: worktree.githubPrNumber,
+          url: worktree.githubPrUrl
+        }
+      : null
+  const compareTarget = gitState.upstream ?? null
+  const shouldInclude = Boolean(attachedPullRequest || compareTarget || gitState.dirty)
+  if (!shouldInclude) return null
+
+  return {
+    currentBranch: gitState.branchName,
+    compareTarget,
+    attachedPullRequest,
+    dirtyFileCount: gitState.dirtyFiles.length,
+    rawRefs: [
+      {
+        kind: 'git-object',
+        id: `git:branch:${gitState.branchName}`,
+        meta: {
+          upstream: gitState.upstream,
+          ahead: gitState.ahead,
+          behind: gitState.behind
+        }
+      },
+      ...(attachedPullRequest
+        ? [
+            {
+              kind: 'message' as const,
+              id: `github-pr:${attachedPullRequest.number}`,
+              excerpt: attachedPullRequest.url
+            }
+          ]
+        : [])
+    ]
+  }
+}
+
+function normalizeNullableTimestamp(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Date.parse(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
 function buildCurrentGoalFromCheckpoint(
   userText: string,
   sessionId: string,
@@ -1317,7 +1417,10 @@ function collectObservedToolPaths(
 }
 
 function addObservedPath(worktreePath: string, value: string, observed: Set<string>): void {
-  const trimmed = value.trim().replace(/^\.\/+/, '').replace(/\\/g, '/')
+  const trimmed = value
+    .trim()
+    .replace(/^\.\/+/, '')
+    .replace(/\\/g, '/')
   if (!trimmed || trimmed.includes('\0')) return
   try {
     const root = pathResolve(worktreePath)
@@ -1458,7 +1561,10 @@ function buildContextPackageSections(
       packet.retrievedWorkflows,
       extras.retrievedWorkflows ?? []
     ),
-    ...buildCheckpointContextPackageSections(packet.identity.packetId, extras.resumedCheckpoint ?? null),
+    ...buildCheckpointContextPackageSections(
+      packet.identity.packetId,
+      extras.resumedCheckpoint ?? null
+    ),
     ...buildClaimVerifierContextPackageSections(
       packet.identity.packetId,
       extras.claimVerification ?? null
@@ -1582,7 +1688,10 @@ function buildWorkflowRetrievalContextPackageSections(
       kind: 'retrieved_workflows',
       title: 'Retrieved Workflows',
       included: entries.length > 0,
-      approxTokens: entries.reduce((total, entry) => total + Math.ceil(JSON.stringify(entry).length / 4), 0),
+      approxTokens: entries.reduce(
+        (total, entry) => total + Math.ceil(JSON.stringify(entry).length / 4),
+        0
+      ),
       source: 'xuanpu-agent-trace-workflow-retrieval',
       reason:
         entries.length > 0
@@ -1672,6 +1781,9 @@ function countRawRefs(packet: XfpFieldPacket, name: string): number {
       0
     )
   }
+  if (name === 'multiWorktree' && Array.isArray(packet.multiWorktree?.entries)) {
+    return packet.multiWorktree.entries.reduce((total, entry) => total + entry.rawRefs.length, 0)
+  }
   return 0
 }
 
@@ -1695,6 +1807,10 @@ function readPacketSection(packet: XfpFieldPacket, name: string): unknown {
       return packet.retrievedMemory
     case 'retrievedWorkflows':
       return packet.retrievedWorkflows
+    case 'multiWorktree':
+      return packet.multiWorktree
+    case 'reviewContext':
+      return packet.reviewContext
     case 'currentGoal':
       return packet.currentGoal
     case 'budget':

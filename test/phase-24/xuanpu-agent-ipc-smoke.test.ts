@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BrowserWindow } from 'electron'
 import type { DatabaseService } from '../../src/main/db/database'
-import type { SessionMessage } from '../../src/main/db/types'
+import type { SessionMessage, Worktree } from '../../src/main/db/types'
 import type { FieldContextPackageCreate } from '../../src/main/field/context-package-repository'
 
 type IpcCallback = (event: unknown, ...args: unknown[]) => unknown
@@ -200,7 +200,12 @@ import { XuanpuAgentImplementer } from '../../src/main/services/xuanpu-agent-imp
 
 class FakeDatabaseService {
   readonly messages: SessionMessage[] = []
+  readonly worktrees: Worktree[]
   runtimeSessionId: string | null = null
+
+  constructor(options: { worktrees?: Worktree[] } = {}) {
+    this.worktrees = options.worktrees ?? [createFakeWorktree()]
+  }
 
   getSession(id: string): { id: string; agent_sdk: 'xuanpu-agent' } | null {
     return id === 'hive-session-1' ? { id, agent_sdk: 'xuanpu-agent' } : null
@@ -222,8 +227,21 @@ class FakeDatabaseService {
       : null
   }
 
-  getWorktreeByPath(path: string): { id: string; project_id: string; path: string } | null {
-    return path === '/repo' ? { id: 'worktree-1', project_id: 'project-1', path } : null
+  getWorktreeByPath(path: string): Worktree | null {
+    return (
+      this.worktrees.find((worktree) => worktree.path === path && worktree.status === 'active') ??
+      null
+    )
+  }
+
+  getWorktreesByProject(projectId: string): Worktree[] {
+    return this.worktrees.filter((worktree) => worktree.project_id === projectId)
+  }
+
+  getActiveWorktreesByProject(projectId: string): Worktree[] {
+    return this.worktrees.filter(
+      (worktree) => worktree.project_id === projectId && worktree.status === 'active'
+    )
   }
 
   getSessionMessages(sessionId: string): SessionMessage[] {
@@ -253,6 +271,33 @@ class FakeDatabaseService {
     } as SessionMessage
     this.messages.push(record)
     return record
+  }
+}
+
+function createFakeWorktree(overrides: Partial<Worktree> = {}): Worktree {
+  return {
+    id: 'worktree-1',
+    project_id: 'project-1',
+    name: 'xuanpu--siberian-husky',
+    branch_name: 'feat/xuanpu-agent-oh-my-pi',
+    path: '/repo',
+    status: 'active',
+    is_default: false,
+    branch_renamed: 1,
+    last_message_at: null,
+    session_titles: '[]',
+    last_model_provider_id: null,
+    last_model_id: null,
+    last_model_variant: null,
+    last_agent_sdk: 'xuanpu-agent',
+    attachments: '[]',
+    pinned: 0,
+    context: null,
+    github_pr_number: null,
+    github_pr_url: null,
+    created_at: '2026-05-27T00:00:00.000Z',
+    last_accessed_at: '2026-05-27T00:00:00.000Z',
+    ...overrides
   }
 }
 
@@ -371,6 +416,71 @@ describe('xuanpu-agent IPC smoke', () => {
     ])
   })
 
+  it('injects multi-worktree and PR review context into the compiled XFP packet', async () => {
+    const dbService = new FakeDatabaseService({
+      worktrees: [
+        createFakeWorktree({
+          branch_name: 'feat/pr-review-context',
+          last_message_at: 1760000000000,
+          github_pr_number: 77,
+          github_pr_url: 'https://github.com/acme/xuanpu/pull/77'
+        }),
+        createFakeWorktree({
+          id: 'worktree-peer',
+          name: 'xuanpu--main',
+          branch_name: 'main',
+          path: '/repo-main',
+          last_message_at: 1759990000000,
+          github_pr_number: null,
+          github_pr_url: null
+        })
+      ]
+    })
+    const implementer = new XuanpuAgentImplementer()
+    implementer.setDatabaseService(dbService as unknown as DatabaseService)
+    const runtimeManager = new AgentRuntimeManager([implementer])
+    const mainWindow = {
+      isDestroyed: () => false,
+      webContents: { send: vi.fn() }
+    } as unknown as BrowserWindow
+
+    registerAgentHandlers(mainWindow, runtimeManager, dbService as unknown as DatabaseService)
+
+    const connect = handlers.get('agent:connect')!
+    await connect({}, '/repo', 'hive-session-1')
+
+    const prompt = handlers.get('agent:prompt')!
+    await prompt({}, '/repo', dbService.runtimeSessionId, 'review this PR', {
+      providerID: 'openai',
+      modelID: 'gpt-4.1'
+    })
+
+    const piPrompt = fakeRuntime.prompts[0] as Array<{ content: FakeTextPart[] }>
+    const packetText = piPrompt[0].content[0].text
+    expect(packetText).toContain('"multiWorktree"')
+    expect(packetText).toContain('"worktreeId": "worktree-peer"')
+    expect(packetText).toContain('"reviewContext"')
+    expect(packetText).toContain('"attachedPullRequest"')
+    expect(packetText).toContain('"number": 77')
+    expect(packetText).toContain('"url": "https://github.com/acme/xuanpu/pull/77"')
+    expect(repositoryMocks.createFieldContextPackage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sections: expect.arrayContaining([
+          expect.objectContaining({
+            title: 'multiWorktree',
+            included: true,
+            metadata: expect.objectContaining({ rawRefCount: 2 })
+          }),
+          expect.objectContaining({
+            title: 'reviewContext',
+            included: true,
+            metadata: expect.objectContaining({ rawRefCount: 2 })
+          })
+        ])
+      })
+    )
+  })
+
   it('injects a correction turn for unverifiable assistant file-path claims', async () => {
     const dbService = new FakeDatabaseService()
     const implementer = new XuanpuAgentImplementer()
@@ -399,7 +509,9 @@ describe('xuanpu-agent IPC smoke', () => {
       ['assistant', 'Updated src/missing/file.ts.'],
       [
         'assistant',
-        expect.stringContaining('Post-response claim verifier detected unverified file-path claims.')
+        expect.stringContaining(
+          'Post-response claim verifier detected unverified file-path claims.'
+        )
       ]
     ])
     expect(repositoryMocks.createFieldContextPackage).toHaveBeenCalledWith(

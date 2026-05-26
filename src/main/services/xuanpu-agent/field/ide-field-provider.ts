@@ -45,7 +45,11 @@ export class IdeFieldProvider implements FieldProvider {
       name: row.name,
       path: row.path,
       context: row.context ?? null,
-      projectId: row.project_id
+      projectId: row.project_id,
+      branchName: row.branch_name ?? null,
+      lastMessageAt: row.last_message_at ?? null,
+      githubPrNumber: row.github_pr_number ?? null,
+      githubPrUrl: row.github_pr_url ?? null
     }
   }
 

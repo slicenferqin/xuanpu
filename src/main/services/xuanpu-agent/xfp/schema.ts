@@ -210,6 +210,44 @@ export const XfpRetrievedWorkflowSectionSchema = z.object({
 })
 
 // ---------------------------------------------------------------------------
+// Multi-worktree awareness
+// ---------------------------------------------------------------------------
+
+export const XfpPeerWorktreeEntrySchema = z.object({
+  worktreeId: z.string().min(1),
+  name: z.string().min(1),
+  path: z.string().min(1),
+  branchName: z.string().min(1),
+  isCurrent: z.boolean(),
+  lastMessageAt: z.number().int().nonnegative().nullable(),
+  attachedPrNumber: z.number().int().positive().nullable(),
+  attachedPrUrl: z.string().nullable(),
+  rawRefs: rawRefsArraySchema
+})
+
+export const XfpMultiWorktreeSectionSchema = z.object({
+  entries: z.array(XfpPeerWorktreeEntrySchema),
+  totalAvailable: z.number().int().nonnegative()
+})
+
+// ---------------------------------------------------------------------------
+// Review / PR workflow context
+// ---------------------------------------------------------------------------
+
+export const XfpReviewContextSectionSchema = z.object({
+  currentBranch: z.string().min(1),
+  compareTarget: z.string().nullable(),
+  attachedPullRequest: z
+    .object({
+      number: z.number().int().positive(),
+      url: z.string().min(1)
+    })
+    .nullable(),
+  dirtyFileCount: z.number().int().nonnegative(),
+  rawRefs: rawRefsArraySchema
+})
+
+// ---------------------------------------------------------------------------
 // Task goal
 // ---------------------------------------------------------------------------
 
@@ -260,6 +298,8 @@ export const XfpFieldPacketSchema = z.object({
   commandTrace: XfpCommandTraceSectionSchema.nullable(),
   retrievedMemory: XfpRetrievedMemorySectionSchema.nullable(),
   retrievedWorkflows: XfpRetrievedWorkflowSectionSchema.nullable(),
+  multiWorktree: XfpMultiWorktreeSectionSchema.nullable(),
+  reviewContext: XfpReviewContextSectionSchema.nullable(),
   currentGoal: XfpTaskGoalSchema,
   budget: XfpBudgetSectionSchema
 }) satisfies z.ZodType<XfpFieldPacket>
