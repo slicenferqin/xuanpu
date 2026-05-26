@@ -52,7 +52,8 @@ import {
   Users,
   MessageSquare,
   User,
-  Loader2
+  Loader2,
+  ChevronDown
 } from 'lucide-react'
 
 // Stable module-level empty array so the useQuestionStore selector never
@@ -269,7 +270,7 @@ function getRailDotStyle({
   if (active) {
     opacity = clamp(0.75 + t * 0.25, 0.75, 1)
   } else if (hovering) {
-    opacity = clamp(0.35 + t * 0.50, 0.35, 0.85)
+    opacity = clamp(0.35 + t * 0.5, 0.35, 0.85)
   } else {
     opacity = 0
   }
@@ -634,7 +635,7 @@ function TimelineNodeView({
 
       return (
         <div className="group/user-message flex justify-end">
-          <div className="max-w-[82%]">
+          <div className="flex max-w-[82%] flex-col items-end">
             <div
               className="rounded-2xl border border-primary/20 bg-primary/10 px-4 py-3 text-foreground shadow-sm transition-colors hover:border-primary/30 hover:bg-primary/14"
               data-testid={`timeline-user-bubble-${node.message.id}`}
@@ -1012,6 +1013,13 @@ export interface AgentTimelineProps {
   activeRoundId?: string | null
   onActiveRoundChange?: (roundId: string | null) => void
   onRoundAnchorNavigate?: (roundId: string) => void
+  /**
+   * When true, shows a Telegram-style scroll-down indicator at the bottom of the
+   * timeline when streaming output extends beyond the viewport (indicated by
+   * showBottomGradient). Clicking it scrolls to the latest content.
+   */
+  showScrollIndicator?: boolean
+  onScrollIndicatorClick?: () => void
 }
 
 export function AgentTimeline({
@@ -1047,10 +1055,11 @@ export function AgentTimeline({
   onPointerUp,
   onPointerCancel,
   bottomFloatingHeight = 0,
-  clearScreenBottomInset = 0,
   activeRoundId = null,
   onActiveRoundChange,
-  onRoundAnchorNavigate
+  onRoundAnchorNavigate,
+  showScrollIndicator = false,
+  onScrollIndicatorClick
 }: AgentTimelineProps): React.JSX.Element {
   const { t } = useI18n()
   const internalScrollContainerRef = React.useRef<HTMLDivElement | null>(null)
@@ -1222,9 +1231,16 @@ export function AgentTimeline({
     }
     return result.filter((node) => {
       if (suppressTodoCards && node.cardType === 'todo') return false
+      // Turn 结束后 durable timeline 已经包含 text / reasoning（且无 part-id
+      // 可去重），让 streaming overlay 继续渲染会变成「同一句话出现两次」。
+      // 结构化节点（tool / sub-agent）有 callID，会被 committedToolUseIds
+      // 拦掉，可以安全保留以备 session 切换回来时仍能看到。
+      if (!isStreaming && (node.cardType === 'text' || node.cardType === 'thinking')) {
+        return false
+      }
       return true
     })
-  }, [streamingParts, suppressTodoCards, committedToolUseIds])
+  }, [streamingParts, suppressTodoCards, committedToolUseIds, isStreaming])
 
   const { preludeNodes, rounds } = useMemo(() => groupNodesIntoRounds(nodes), [nodes])
   const [roundRailHoverY, setRoundRailHoverY] = React.useState<number | null>(null)
@@ -1340,11 +1356,12 @@ export function AgentTimeline({
     }
   }, [
     effectiveScrollContainerRef,
+    timelineContentRef,
+    // Re-set ResizeObserver when content length changes so measurements are fresh
     nodes.length,
     streamingNodes.length,
     ephemeralStatusRows.length,
     finalTodoTasks?.length,
-    clearScreenBottomInset,
     isStreaming
   ])
 
@@ -1454,7 +1471,7 @@ export function AgentTimeline({
   return (
     <div
       ref={effectiveScrollContainerRef}
-      className="h-full min-h-0 overflow-y-auto overscroll-contain"
+      className="relative h-full min-h-0 overflow-y-auto overscroll-contain"
       onScroll={onScroll}
       onWheel={onWheel}
       onPointerDown={onPointerDown}
@@ -1800,14 +1817,14 @@ export function AgentTimeline({
             {/* Clear-screen spacer: renders when a new round starts (bootstrap round)
                 and content doesn't fill the viewport. The spacer pushes content to the
                 top so the user message appears near the viewport top (清屏 effect).
-                Its height is measured by the ResizeObserver above (via shortContentTopSpacer)
-                and passed to useSessionSmartScroll so that getDistanceFromBottom correctly
-                accounts for the inflated scrollHeight. */}
-            {clearScreenBottomInset > 0 && nodes.length > 0 && (
+                Its height is computed locally from timelineViewportHeight / timelineContentHeight
+                (updated by the ResizeObserver), and is also passed to useSessionSmartScroll
+                so that getDistanceFromBottom correctly accounts for the inflated scrollHeight. */}
+            {shortContentTopSpacer > 0 && nodes.length > 0 && (
               <div
                 aria-hidden="true"
                 data-testid="timeline-clear-screen-spacer"
-                style={{ height: `${clearScreenBottomInset}px` }}
+                style={{ height: `${shortContentTopSpacer}px` }}
               />
             )}
 
@@ -1899,6 +1916,21 @@ export function AgentTimeline({
           showBottomGradient ? 'opacity-100' : 'opacity-0'
         )}
       />
+      {/* Telegram-style scroll indicator: shown during streaming when content extends below.
+          Appears above the bottom gradient, pointing downward to indicate more content. */}
+      {isStreaming && showScrollIndicator && showBottomGradient && (
+        <button
+          type="button"
+          onClick={onScrollIndicatorClick}
+          className="absolute bottom-8 left-1/2 z-20 -translate-x-1/2 cursor-pointer rounded-full bg-primary/90 px-4 py-2 shadow-lg transition-all duration-200 hover:bg-primary hover:scale-105 active:scale-95"
+          data-testid="scroll-to-bottom-indicator"
+        >
+          <div className="flex items-center gap-1.5 text-xs font-medium text-primary-foreground">
+            <span>{t('sessionHq.timeline.scrollIndicatorText')}</span>
+            <ChevronDown className="h-3.5 w-3.5 animate-bounce" />
+          </div>
+        </button>
+      )}
     </div>
   )
 }

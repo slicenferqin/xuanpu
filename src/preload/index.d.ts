@@ -659,6 +659,10 @@ declare global {
         options?: { cwd?: string }
       ) => Promise<{ success: boolean; error?: string }>
       quitApp: () => Promise<void>
+      openDevTools: () => Promise<void>
+      writeDebugLog: (
+        message: string
+      ) => Promise<{ success: boolean; path?: string; error?: string }>
       openInApp: (appName: string, path: string) => Promise<{ success: boolean; error?: string }>
       openInChrome: (
         url: string,

@@ -1571,6 +1571,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         emptyTitle: 'No messages yet',
         emptySubtitle: 'Send a message to start the conversation',
         steered: 'STEERED',
+        scrollIndicatorText: 'New messages',
         genericToolStatus: {
           running: 'Running...',
           error: 'Error',
@@ -4457,6 +4458,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         emptyTitle: '暂无消息',
         emptySubtitle: '发送一条消息以开始对话',
         steered: '已引导',
+        scrollIndicatorText: '新消息',
         genericToolStatus: {
           running: '运行中...',
           error: '错误',

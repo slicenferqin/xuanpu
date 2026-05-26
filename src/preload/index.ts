@@ -578,6 +578,13 @@ const systemOps = {
   // Quit the app (needed for macOS where window.close() doesn't quit)
   quitApp: (): Promise<void> => ipcRenderer.invoke('system:quitApp'),
 
+  // Open DevTools for debugging
+  openDevTools: (): Promise<void> => ipcRenderer.invoke('system:openDevTools'),
+
+  // Write debug log to file
+  writeDebugLog: (message: string): Promise<{ success: boolean; path?: string; error?: string }> =>
+    ipcRenderer.invoke('system:writeDebugLog', message),
+
   // Open a path in an external app (Cursor, Ghostty) or copy to clipboard
   openInApp: (appName: string, path: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('system:openInApp', appName, path),

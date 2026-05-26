@@ -928,7 +928,13 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         cancelAnimationFrame(frame)
       }
     }
-  }, [timelineScrollContainerRef])
+  }, [
+    timelineScrollContainerRef,
+    timelineContentRef,
+    // Re-set ResizeObserver when content length changes so measurements are fresh
+    timelineMessages.length,
+    isStreaming
+  ])
 
   // safeBottomPadding must match AgentTimeline's computation so the spacer height
   // formula is consistent on both sides of the prop boundary.
@@ -948,20 +954,21 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     clearScreenBottomInsetRef.current = clearScreenBottomInset
   }, [clearScreenBottomInset])
 
-  const scrollFabBottomOffset = useMemo(
-    () => Math.max(smartScroll.scrollFabBottomOffset, pendingPlan ? 152 : 16),
-    [pendingPlan, smartScroll.scrollFabBottomOffset]
-  )
-
+  // 清屏滚动效果：当新 round 开始时，将新 round 的顶部对齐到当前视口顶部。
+  // 使用 useLayoutEffect 确保在 DOM 更新后立即执行，避免闪烁。
   useLayoutEffect(() => {
     const roundId = pendingTurnTopScrollRef.current
     const container = timelineScrollContainerRef.current
     if (!roundId || !container) return
 
-    const section = findRoundSection(container, roundId)
-    if (!section) return
+    const roundElement = container.querySelector(`[data-round-id="${roundId}"]`)
+    if (!roundElement) return
 
-    const targetTop = Math.max(getContainerRelativeTop(container, section) - 24, 0)
+    // 计算元素相对于容器的位置，使新 round 对齐当前视口顶部
+    const containerRect = container.getBoundingClientRect()
+    const roundRect = roundElement.getBoundingClientRect()
+    const targetTop = container.scrollTop + (roundRect.top - containerRect.top)
+
     scrollTimelineToOffset(targetTop, 'instant')
     pendingTurnTopScrollRef.current = null
   }, [
@@ -972,6 +979,11 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     timelineScrollContainerRef,
     timelineMessages.length
   ])
+
+  const scrollFabBottomOffset = useMemo(
+    () => Math.max(smartScroll.scrollFabBottomOffset, pendingPlan ? 152 : 16),
+    [pendingPlan, smartScroll.scrollFabBottomOffset]
+  )
 
   useEffect(() => {
     if (hasDurableCompactionMessage && compactionState?.phase === 'completed') {
@@ -1940,7 +1952,14 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         console.warn('[SessionShell] codex plan reject persistence failed:', err)
       }
     }
-  }, [pendingPlan, sessionRecord?.agent_sdk, sessionId, worktreePath, refresh, transitionToolStatus])
+  }, [
+    pendingPlan,
+    sessionRecord?.agent_sdk,
+    sessionId,
+    worktreePath,
+    refresh,
+    transitionToolStatus
+  ])
 
   const handleRoundAnchorNavigate = useCallback(
     (roundId: string) => {
@@ -2034,6 +2053,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
             activeRoundId={activeRoundId}
             onActiveRoundChange={setActiveRoundId}
             onRoundAnchorNavigate={handleRoundAnchorNavigate}
+            showScrollIndicator={smartScroll.showScrollFab}
+            onScrollIndicatorClick={smartScroll.handleScrollToBottomClick}
           />
         </div>
 
@@ -2072,10 +2093,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
             )}
           </div>
 
-          <div
-            className="relative z-20 min-h-0 pb-4 pt-2"
-            data-testid="session-composer-dock"
-          >
+          <div className="relative z-20 min-h-0 pb-4 pt-2" data-testid="session-composer-dock">
             <div
               className="crisp-composer-veil pointer-events-none absolute inset-x-0 bottom-0 z-0"
               style={{ height: `${composerVeilHeight}px` }}

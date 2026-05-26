@@ -7,7 +7,7 @@ import { app, shell, BrowserWindow, screen, ipcMain, clipboard } from 'electron'
 import { join } from 'path'
 import { spawn, exec } from 'child_process'
 import { promisify } from 'util'
-import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs'
+import { appendFileSync, existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs'
 import { electronApp, is } from '@electron-toolkit/utils'
 import { getDatabase, closeDatabase } from './db'
 import {
@@ -281,6 +281,19 @@ function createWindow(): void {
 
   // Intercept Cmd+T (macOS) / Ctrl+T (Windows/Linux) before Chromium consumes it
   mainWindow.webContents.on('before-input-event', (event, input) => {
+    // Cmd+Shift+I / Ctrl+Shift+I — open DevTools
+    if (
+      input.key.toLowerCase() === 'i' &&
+      (input.meta || input.control) &&
+      input.shift &&
+      !input.alt &&
+      input.type === 'keyDown'
+    ) {
+      event.preventDefault()
+      mainWindow!.webContents.toggleDevTools()
+      return
+    }
+
     if (
       input.key.toLowerCase() === 't' &&
       (input.meta || input.control) &&
@@ -527,6 +540,26 @@ function registerSystemHandlers(): void {
   // Quit the app (needed for macOS where window.close() doesn't quit)
   ipcMain.handle('system:quitApp', () => {
     app.quit()
+  })
+
+  // Open DevTools for debugging
+  ipcMain.handle('system:openDevTools', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.toggleDevTools()
+    }
+  })
+
+  // Write debug log to file
+  ipcMain.handle('system:writeDebugLog', (_event, message: string) => {
+    const logDir = getLogDir()
+    const logFile = join(logDir, 'debug-scroll.log')
+    const logLine = `[${new Date().toISOString()}] ${message}\n`
+    try {
+      appendFileSync(logFile, logLine)
+      return { success: true, path: logFile }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
   })
 
   // Check if the app is running in packaged mode (not dev)
