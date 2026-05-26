@@ -12,7 +12,11 @@ import type {
 import { XUANPU_AGENT_CAPABILITIES } from './agent-runtime-types'
 import { createLogger } from './logger'
 import { resolveXuanpuAgentModelRef, type XuanpuAgentModelRef } from './xuanpu-agent/model-config'
-import { XuanpuPiAgentSession } from './xuanpu-agent/runtime'
+import {
+  XuanpuPiAgentSession,
+  type XuanpuAgentToolEndEvent,
+  type XuanpuAgentToolStartEvent
+} from './xuanpu-agent/runtime'
 import { XfpPacketCompiler, type CompilerDecision } from './xuanpu-agent/harness/compiler'
 import { buildMessages, SessionAppendOnlyLog } from './xuanpu-agent/harness/build-messages'
 import type { XfpCommandTraceSection, XfpFieldPacket, XfpGitState } from './xuanpu-agent/xfp/types'
@@ -270,7 +274,9 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       const harnessMessages = buildMessages(compileResult.packet, appendOnlyLog, text)
 
       const result = await piSession.prompt(harnessMessages, modelRef, {
-        onTextDelta: (delta) => this.emitTextDelta(session.hiveSessionId, delta)
+        onTextDelta: (delta) => this.emitTextDelta(session.hiveSessionId, delta),
+        onToolStart: (event) => this.emitToolStart(session.hiveSessionId, event),
+        onToolEnd: (event) => this.emitToolEnd(session.hiveSessionId, event)
       })
 
       const assistantText = result.text.trim()
@@ -303,7 +309,11 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             approxTokens: compileResult.packet.budget.estimatedTokens,
             sections: buildContextPackageSections(compileResult.packet, compileResult.decisions),
             renderedMarkdown: fieldSnapshot.markdown,
-            decisions: compileResult.decisions as unknown as Record<string, unknown>
+            decisions: {
+              ...(compileResult.decisions as unknown as Record<string, unknown>),
+              providerExecution: 'enabled',
+              visibleTranscriptPolicy: 'persist-user-authored-message-only'
+            }
           })
         } catch (err) {
           log.warn('Failed to record context package', {
@@ -449,6 +459,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     worktreeId: string | undefined
   ): XfpCommandTraceSection | null {
     if (!this.db) return null
+    if (typeof this.db.listRecentCommandTraces !== 'function') return null
 
     const traces = this.db.listRecentCommandTraces({
       sessionId,
@@ -614,6 +625,129 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       data: { error: message }
     })
   }
+
+  private emitToolStart(hiveSessionId: string, event: XuanpuAgentToolStartEvent): void {
+    emitAgentEvent(this.mainWindow, {
+      type: 'message.part.updated',
+      sessionId: hiveSessionId,
+      data: {
+        part: {
+          type: 'tool',
+          callID: event.toolCallId,
+          tool: canonicalToolName(event.toolName),
+          toolDisplay: event.toolName,
+          state: {
+            status: 'running',
+            input: normalizeToolInput(event.toolName, event.args),
+            time: { start: event.startedAt }
+          }
+        }
+      }
+    })
+  }
+
+  private emitToolEnd(hiveSessionId: string, event: XuanpuAgentToolEndEvent): void {
+    const result = event.result && typeof event.result === 'object' ? event.result : null
+    const details =
+      result && 'details' in result && typeof (result as { details?: unknown }).details === 'object'
+        ? ((result as { details?: Record<string, unknown> }).details ?? {})
+        : {}
+    const text = extractToolResultText(event.result)
+    const status = event.isError ? 'error' : 'completed'
+    const input = normalizeToolInput(event.toolName, {
+      ...event.args,
+      diff: typeof details.diff === 'string' ? details.diff : undefined,
+      reverseDiff: typeof details.reverseDiff === 'string' ? details.reverseDiff : undefined,
+      filesAffected: Array.isArray(details.filesAffected) ? details.filesAffected : undefined
+    })
+
+    emitAgentEvent(this.mainWindow, {
+      type: 'message.part.updated',
+      sessionId: hiveSessionId,
+      data: {
+        part: {
+          type: 'tool',
+          callID: event.toolCallId,
+          tool: canonicalToolName(event.toolName),
+          toolDisplay: event.toolName,
+          state: {
+            status,
+            input,
+            output: event.isError ? undefined : text,
+            error: event.isError ? text : undefined,
+            result: details,
+            metadata: {
+              exitCode: typeof details.exitCode === 'number' ? details.exitCode : undefined,
+              durationMs: event.endedAt - event.startedAt,
+              filesAffected: Array.isArray(details.filesAffected)
+                ? details.filesAffected
+                : undefined
+            },
+            time: { start: event.startedAt, end: event.endedAt }
+          }
+        }
+      }
+    })
+  }
+}
+
+function canonicalToolName(toolName: string): string {
+  switch (toolName) {
+    case 'read_file':
+      return 'Read'
+    case 'rg_search':
+      return 'Grep'
+    case 'list_files':
+      return 'Glob'
+    case 'write_file':
+      return 'Write'
+    case 'edit_file':
+    case 'apply_patch':
+    case 'format_file':
+      return 'Edit'
+    case 'run_test':
+      return 'Bash'
+    default:
+      return toolName
+  }
+}
+
+function normalizeToolInput(
+  toolName: string,
+  input: Record<string, unknown>
+): Record<string, unknown> {
+  if (toolName === 'write_file' && typeof input.path === 'string') {
+    return { ...input, file_path: input.path }
+  }
+  if ((toolName === 'edit_file' || toolName === 'format_file') && typeof input.path === 'string') {
+    return { ...input, file_path: input.path }
+  }
+  if (toolName === 'run_test') {
+    return {
+      ...input,
+      command:
+        typeof input.command === 'string'
+          ? input.command
+          : Array.isArray(input.args)
+            ? input.args.join(' ')
+            : 'run_test'
+    }
+  }
+  return input
+}
+
+function extractToolResultText(result: unknown): string {
+  if (!result || typeof result !== 'object') return ''
+  const content = (result as { content?: unknown }).content
+  if (!Array.isArray(content)) return ''
+  return content
+    .map((part) => {
+      if (!part || typeof part !== 'object') return ''
+      const record = part as Record<string, unknown>
+      return record.type === 'text' && typeof record.text === 'string' ? record.text : ''
+    })
+    .filter(Boolean)
+    .join('\n')
 }
 
 function summarizeCommandTrace(compressedOutput: string | null): string {

@@ -43,6 +43,11 @@ interface PiAgentEvent {
   type?: string
   message?: PiAssistantMessage
   messages?: PiAssistantMessage[]
+  toolCallId?: string
+  toolName?: string
+  args?: Record<string, unknown>
+  result?: unknown
+  isError?: boolean
 }
 
 interface PiAgentState {
@@ -64,6 +69,25 @@ type PiAgentConstructor = new (options?: Record<string, unknown>) => PiAgentLike
 
 export interface XuanpuAgentPromptEventHandlers {
   onTextDelta?: (delta: string) => void
+  onToolStart?: (event: XuanpuAgentToolStartEvent) => void
+  onToolEnd?: (event: XuanpuAgentToolEndEvent) => void
+}
+
+export interface XuanpuAgentToolStartEvent {
+  toolCallId: string
+  toolName: string
+  args: Record<string, unknown>
+  startedAt: number
+}
+
+export interface XuanpuAgentToolEndEvent {
+  toolCallId: string
+  toolName: string
+  args: Record<string, unknown>
+  result: unknown
+  isError: boolean
+  startedAt: number
+  endedAt: number
 }
 
 export interface XuanpuAgentPromptResult {
@@ -146,6 +170,10 @@ export class XuanpuPiAgentSession {
     let streamedText = ''
     const stateMessageCountBeforePrompt = agent.state.messages?.length ?? 0
     const pendingAssistantMessages: PiAssistantMessage[] = []
+    const toolStarts = new Map<
+      string,
+      { toolName: string; args: Record<string, unknown>; startedAt: number }
+    >()
 
     this.unsubscribe?.()
     this.unsubscribe = agent.subscribe((event) => {
@@ -173,6 +201,35 @@ export class XuanpuPiAgentSession {
         pendingAssistantMessages.push(
           ...turnMessages.filter((message) => message?.role === 'assistant')
         )
+      }
+
+      if (event.type === 'tool_execution_start' && event.toolCallId && event.toolName) {
+        const args = event.args && typeof event.args === 'object' ? event.args : {}
+        const startedAt = Date.now()
+        toolStarts.set(event.toolCallId, { toolName: event.toolName, args, startedAt })
+        handlers.onToolStart?.({
+          toolCallId: event.toolCallId,
+          toolName: event.toolName,
+          args,
+          startedAt
+        })
+      }
+
+      if (event.type === 'tool_execution_end' && event.toolCallId && event.toolName) {
+        const previous = toolStarts.get(event.toolCallId)
+        const args = previous?.args ?? {}
+        const startedAt = previous?.startedAt ?? Date.now()
+        const endedAt = Date.now()
+        handlers.onToolEnd?.({
+          toolCallId: event.toolCallId,
+          toolName: event.toolName,
+          args,
+          result: event.result,
+          isError: event.isError === true,
+          startedAt,
+          endedAt
+        })
+        toolStarts.delete(event.toolCallId)
       }
     })
 

@@ -331,6 +331,35 @@ describe('xuanpu-agent IPC smoke', () => {
     expect(piMessages.map((message) => message.content[0]?.text).join('\n')).not.toContain(
       '[User Message]'
     )
-    expect(fakeRuntime.setToolsCalls).toEqual([[], []])
+    expect(
+      fakeRuntime.setToolsCalls.map((tools) => tools.map((tool) => (tool as { name: string }).name))
+    ).toEqual([
+      [
+        'git_status',
+        'read_file',
+        'rg_search',
+        'list_files',
+        'git_log',
+        'git_diff',
+        'apply_patch',
+        'write_file',
+        'edit_file',
+        'run_test',
+        'format_file'
+      ],
+      [
+        'git_status',
+        'read_file',
+        'rg_search',
+        'list_files',
+        'git_log',
+        'git_diff',
+        'apply_patch',
+        'write_file',
+        'edit_file',
+        'run_test',
+        'format_file'
+      ]
+    ])
   })
 })

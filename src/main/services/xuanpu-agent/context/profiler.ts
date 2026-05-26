@@ -22,7 +22,7 @@ const PROFILES: Record<CommandCategory, CommandProfile | undefined> = {
     name: 'git',
     category: 'git',
     description: 'Git commands — extract structured summary',
-    targetCompressionRatio: 0.70,
+    targetCompressionRatio: 0.7,
     enabled: true
   },
   test: {
@@ -43,21 +43,21 @@ const PROFILES: Record<CommandCategory, CommandProfile | undefined> = {
     name: 'build',
     category: 'build',
     description: 'Build tools — keep errors/warnings only',
-    targetCompressionRatio: 0.80,
+    targetCompressionRatio: 0.8,
     enabled: true
   },
   file: {
     name: 'file',
     category: 'file',
     description: 'File operations — head/tail truncation',
-    targetCompressionRatio: 0.50,
+    targetCompressionRatio: 0.5,
     enabled: true
   },
   search: {
     name: 'search',
     category: 'search',
     description: 'Search tools — dedup, group-by-file, cap results',
-    targetCompressionRatio: 0.60,
+    targetCompressionRatio: 0.6,
     enabled: true
   },
   package: {
@@ -71,28 +71,28 @@ const PROFILES: Record<CommandCategory, CommandProfile | undefined> = {
     name: 'container',
     category: 'container',
     description: 'Container tools — keep status/errors, drop pull progress',
-    targetCompressionRatio: 0.80,
+    targetCompressionRatio: 0.8,
     enabled: true
   },
   aws: {
     name: 'aws',
     category: 'aws',
     description: 'AWS CLI — deferred to M3 (profile only)',
-    targetCompressionRatio: 0.50,
+    targetCompressionRatio: 0.5,
     enabled: false
   },
   db: {
     name: 'db',
     category: 'db',
     description: 'Database tools — keep errors, summarize migrations/generation',
-    targetCompressionRatio: 0.70,
+    targetCompressionRatio: 0.7,
     enabled: true
   },
   curl: {
     name: 'curl',
     category: 'curl',
     description: 'HTTP clients — keep status/headers, truncate bodies',
-    targetCompressionRatio: 0.60,
+    targetCompressionRatio: 0.6,
     enabled: true
   },
   proxy: {
@@ -106,7 +106,7 @@ const PROFILES: Record<CommandCategory, CommandProfile | undefined> = {
     name: 'unknown',
     category: 'unknown',
     description: 'Fallback — head/tail truncation',
-    targetCompressionRatio: 0.50,
+    targetCompressionRatio: 0.5,
     enabled: true
   }
 }
@@ -129,6 +129,12 @@ const MATCHERS: Matcher[] = [
   { bins: ['vitest'], category: 'test' },
   { bins: ['jest'], category: 'test' },
   { bins: ['pytest'], category: 'test' },
+  {
+    bins: ['pnpm'],
+    subPatterns: [/^vitest\s+run\b/, /^exec\s+vitest\s+run\b/, /^test\b/, /^run\s+test(?::|$|\s)/],
+    category: 'test'
+  },
+  { bins: ['npm', 'yarn'], subPatterns: [/^test\b/, /^run\s+test(?::|$|\s)/], category: 'test' },
   { bins: ['go'], subPatterns: [/^test\b/], category: 'test' },
   { bins: ['cargo'], subPatterns: [/^test\b/], category: 'test' },
 
@@ -159,13 +165,29 @@ const MATCHERS: Matcher[] = [
   { bins: ['cat', 'ls', 'head', 'tail', 'read', 'wc', 'sort', 'uniq', 'cut'], category: 'file' },
 
   // Container — add docker-compose, kubectl variants, podman
-  { bins: ['docker', 'docker-compose', 'kubectl', 'kubectl.exe', 'podman', 'helm'], category: 'container' },
+  {
+    bins: ['docker', 'docker-compose', 'kubectl', 'kubectl.exe', 'podman', 'helm'],
+    category: 'container'
+  },
 
   // AWS — add aws, sam, cdk
   { bins: ['aws', 'sam', 'cdk'], category: 'aws' },
 
   // DB — add drizzle-kit, prisma variants, pg, mongosh
-  { bins: ['prisma', 'drizzle-kit', 'drizzle', 'sqlite3', 'psql', 'mysql', 'pg', 'mongosh', 'redis-cli'], category: 'db' },
+  {
+    bins: [
+      'prisma',
+      'drizzle-kit',
+      'drizzle',
+      'sqlite3',
+      'psql',
+      'mysql',
+      'pg',
+      'mongosh',
+      'redis-cli'
+    ],
+    category: 'db'
+  },
 
   // HTTP — add httpie
   { bins: ['curl', 'wget', 'http', 'httpx'], category: 'curl' },

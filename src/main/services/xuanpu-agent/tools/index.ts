@@ -1,20 +1,26 @@
 /**
- * Read-only tools for xuanpu-agent M2.
+ * Tools for xuanpu-agent.
  *
- * These tools are registered via agent.setTools() and provide the model with
- * read-only access to the worktree: git history, file contents, and search.
- *
- * All tools are concurrency: 'shared' (parallelSafe) — the oh-my-pi agent
- * loop respects this and runs them via Promise.allSettled when multiple tool
- * calls arrive in one turn.
+ * M2 ships read-only git/file/search tools. M4 adds controlled write tools
+ * that are exclusive and require diff-preview confirmation unless the session
+ * is explicitly trusted.
  */
 export { gitStatusTool, gitLogTool, gitDiffTool } from './git-tools'
 export { readFileTool, listFilesTool } from './file-tools'
 export { rgSearchTool } from './search-tools'
+export {
+  applyPatchTool,
+  writeFileTool,
+  editFileTool,
+  runTestTool,
+  formatFileTool,
+  CONTROLLED_WRITE_TOOLS
+} from './write-tools'
 
 import { gitStatusTool, gitLogTool, gitDiffTool } from './git-tools'
 import { readFileTool, listFilesTool } from './file-tools'
 import { rgSearchTool } from './search-tools'
+import { CONTROLLED_WRITE_TOOLS } from './write-tools'
 
 import type { AgentTool } from '@oh-my-pi/pi-agent-core'
 
@@ -31,3 +37,5 @@ export const READ_ONLY_TOOLS: AgentTool[] = [
   gitLogTool,
   gitDiffTool
 ]
+
+export const XUANPU_AGENT_TOOLS: AgentTool[] = [...READ_ONLY_TOOLS, ...CONTROLLED_WRITE_TOOLS]

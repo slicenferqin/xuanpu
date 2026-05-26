@@ -69,12 +69,13 @@ describe('xuanpu-agent runtime status', () => {
       }
     })
     expect(status.toolSurface).toMatchObject({
-      status: 'read-only',
+      status: 'controlled-write',
       toolsEnabled: true,
       nativeProcessControlEnabled: false
     })
     expect(status.toolSurface.unmetGateIds).not.toContain('permission-policy')
-    expect(status.toolSurface.unmetGateIds).toContain('checkpoint-policy')
+    expect(status.toolSurface.unmetGateIds).not.toContain('checkpoint-policy')
+    expect(status.toolSurface.unmetGateIds).toContain('native-packaging')
   })
 
   it('treats mock mode as provider-ready without real credentials', async () => {

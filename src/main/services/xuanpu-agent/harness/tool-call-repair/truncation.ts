@@ -118,6 +118,10 @@ export class ToolOutputTruncator {
       const traceId = createCommandTraceId()
       const command = extractCommand(ctx.result) || inferCommand(toolName, ctx.args)
       const cwd = extractCwd(ctx.result)
+      const exitCode = extractNumberDetail(ctx.result, 'exitCode') ?? (ctx.isError ? 1 : 0)
+      const durationMs = extractNumberDetail(ctx.result, 'durationMs') ?? 0
+      const timedOut = extractBooleanDetail(ctx.result, 'timedOut') ?? false
+      const aborted = extractBooleanDetail(ctx.result, 'aborted') ?? false
 
       if (text.length <= this.charThreshold) {
         this.archive({
@@ -125,10 +129,10 @@ export class ToolOutputTruncator {
           toolName,
           command,
           cwd,
-          exitCode: ctx.isError ? 1 : 0,
-          durationMs: 0,
-          timedOut: false,
-          aborted: false,
+          exitCode,
+          durationMs,
+          timedOut,
+          aborted,
           rawOutput: text,
           compressedOutput: text,
           compressionRatio: 0,
@@ -147,11 +151,11 @@ export class ToolOutputTruncator {
             const metadata: CompressionMetadata = {
               traceId,
               command,
-              exitCode: ctx.isError ? 1 : 0,
-              durationMs: 0,
+              exitCode,
+              durationMs,
               cwd,
-              timedOut: false,
-              aborted: false
+              timedOut,
+              aborted
             }
             const result = this.compressor.compress(text, profile, metadata)
 
@@ -163,8 +167,8 @@ export class ToolOutputTruncator {
                 cwd,
                 exitCode: metadata.exitCode,
                 durationMs: metadata.durationMs,
-                timedOut: false,
-                aborted: false,
+                timedOut,
+                aborted,
                 rawOutput: text,
                 compressedOutput: result.text,
                 compressionRatio: result.compressionRatio,
@@ -195,10 +199,10 @@ export class ToolOutputTruncator {
         toolName,
         command,
         cwd,
-        exitCode: ctx.isError ? 1 : 0,
-        durationMs: 0,
-        timedOut: false,
-        aborted: false,
+        exitCode,
+        durationMs,
+        timedOut,
+        aborted,
         rawOutput: text,
         compressedOutput: compressed,
         compressionRatio,
@@ -289,6 +293,22 @@ function extractCommand(result: unknown): string | null {
   return typeof command === 'string' && command.trim() ? command : null
 }
 
+function extractNumberDetail(result: unknown, key: string): number | null {
+  if (!result || typeof result !== 'object') return null
+  const details = (result as { details?: unknown }).details
+  if (!details || typeof details !== 'object') return null
+  const value = (details as Record<string, unknown>)[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function extractBooleanDetail(result: unknown, key: string): boolean | null {
+  if (!result || typeof result !== 'object') return null
+  const details = (result as { details?: unknown }).details
+  if (!details || typeof details !== 'object') return null
+  const value = (details as Record<string, unknown>)[key]
+  return typeof value === 'boolean' ? value : null
+}
+
 function inferCommand(toolName: string, args: Record<string, unknown>): string {
   switch (toolName) {
     case 'git_status':
@@ -316,6 +336,20 @@ function inferCommand(toolName: string, args: Record<string, unknown>): string {
       return typeof args.path === 'string' ? `cat ${args.path}` : 'cat'
     case 'list_files':
       return typeof args.path === 'string' ? `ls ${args.path}` : 'ls'
+    case 'apply_patch':
+      return args.reverse ? 'git apply --reverse' : 'git apply'
+    case 'write_file':
+      return typeof args.path === 'string' ? `write_file ${args.path}` : 'write_file'
+    case 'edit_file':
+      return typeof args.path === 'string' ? `edit_file ${args.path}` : 'edit_file'
+    case 'run_test':
+      if (typeof args.command === 'string') return args.command
+      if (Array.isArray(args.args)) return args.args.map(String).join(' ')
+      return 'run_test'
+    case 'format_file':
+      return typeof args.path === 'string'
+        ? `pnpm exec prettier --stdin-filepath ${args.path}`
+        : 'pnpm exec prettier'
     default:
       return toolName
   }

@@ -14,9 +14,19 @@ interface FakeAssistantMessage {
 }
 
 interface FakeAgentEvent {
-  type: 'message_update' | 'message_end' | 'agent_end'
+  type:
+    | 'message_update'
+    | 'message_end'
+    | 'agent_end'
+    | 'tool_execution_start'
+    | 'tool_execution_end'
   message?: FakeAssistantMessage
   messages?: FakeAssistantMessage[]
+  toolCallId?: string
+  toolName?: string
+  args?: Record<string, unknown>
+  result?: unknown
+  isError?: boolean
 }
 
 type FakeAgentListener = (event: FakeAgentEvent) => void
@@ -74,6 +84,24 @@ const fakeRuntime = vi.hoisted(() => {
         type: 'message_update',
         message: { ...message, content: [{ type: 'text', text: firstChunk }] }
       })
+      if (eventMode === 'tool-events') {
+        this.emit({
+          type: 'tool_execution_start',
+          toolCallId: 'tool-1',
+          toolName: 'write_file',
+          args: { path: 'src/example.ts' }
+        })
+        this.emit({
+          type: 'tool_execution_end',
+          toolCallId: 'tool-1',
+          toolName: 'write_file',
+          result: {
+            content: [{ type: 'text', text: 'Applied write_file to src/example.ts.' }],
+            details: { path: 'src/example.ts', applied: true }
+          },
+          isError: false
+        })
+      }
       this.emit({ type: 'message_update', message })
       if (eventMode === 'stale-agent-end-before-state-push') {
         this.emit({ type: 'agent_end', messages: this.state.messages })
@@ -131,13 +159,18 @@ vi.mock('../../src/main/services/xuanpu-agent/pi-agent-core-loader', () => ({
   }))
 }))
 
-const EXPECTED_READ_ONLY_TOOL_NAMES = [
+const EXPECTED_TOOL_NAMES = [
   'git_status',
   'read_file',
   'rg_search',
   'list_files',
   'git_log',
-  'git_diff'
+  'git_diff',
+  'apply_patch',
+  'write_file',
+  'edit_file',
+  'run_test',
+  'format_file'
 ]
 
 function recordedToolNames(): string[][] {
@@ -183,7 +216,7 @@ describe('XuanpuPiAgentSession', () => {
     vi.resetModules()
   })
 
-  it('runs a read-only-tools prompt through the wrapped pi Agent', async () => {
+  it('runs a controlled-tools prompt through the wrapped pi Agent', async () => {
     process.env.XUANPU_AGENT_MOCK_RESPONSE = 'mock ok'
 
     const { XuanpuPiAgentSession } = await import('../../src/main/services/xuanpu-agent/runtime')
@@ -204,11 +237,8 @@ describe('XuanpuPiAgentSession', () => {
     expect(result.usage).toEqual({ input: 1, output: 2 })
     expect(deltas.join('')).toBe('mock ok')
     expect(fakeRuntime.prompts).toEqual(['hello'])
-    expect(recordedToolNames()).toEqual([
-      EXPECTED_READ_ONLY_TOOL_NAMES,
-      EXPECTED_READ_ONLY_TOOL_NAMES
-    ])
-    expect(fakeRuntime.systemPrompts.at(-1)?.join('\n')).toContain('read-only access')
+    expect(recordedToolNames()).toEqual([EXPECTED_TOOL_NAMES, EXPECTED_TOOL_NAMES])
+    expect(fakeRuntime.systemPrompts.at(-1)?.join('\n')).toContain('controlled access')
 
     session.dispose()
     expect(fakeRuntime.aborts).toEqual(['abort'])
@@ -248,10 +278,44 @@ describe('XuanpuPiAgentSession', () => {
     expect((fakeRuntime.prompts[0] as FakePromptMessage[]).at(-1)?.content[0]?.text).toBe(
       'current request'
     )
-    expect(recordedToolNames()).toEqual([
-      EXPECTED_READ_ONLY_TOOL_NAMES,
-      EXPECTED_READ_ONLY_TOOL_NAMES
+    expect(recordedToolNames()).toEqual([EXPECTED_TOOL_NAMES, EXPECTED_TOOL_NAMES])
+  })
+
+  it('forwards pi tool lifecycle events to prompt handlers for timeline rendering', async () => {
+    process.env.XUANPU_AGENT_MOCK_RESPONSE = 'tool ok'
+    process.env.XUANPU_AGENT_FAKE_EVENT_MODE = 'tool-events'
+
+    const { XuanpuPiAgentSession } = await import('../../src/main/services/xuanpu-agent/runtime')
+    const session = new XuanpuPiAgentSession('test-session')
+    const starts: unknown[] = []
+    const ends: unknown[] = []
+
+    const result = await session.prompt(
+      'touch file',
+      { providerID: 'anthropic', modelID: 'claude-haiku-4-5' },
+      {
+        onToolStart: (event) => starts.push(event),
+        onToolEnd: (event) => ends.push(event)
+      }
+    )
+
+    expect(result.text).toBe('tool ok')
+    expect(starts).toMatchObject([
+      {
+        toolCallId: 'tool-1',
+        toolName: 'write_file',
+        args: { path: 'src/example.ts' }
+      }
     ])
+    expect(ends).toMatchObject([
+      {
+        toolCallId: 'tool-1',
+        toolName: 'write_file',
+        args: { path: 'src/example.ts' },
+        isError: false
+      }
+    ])
+    session.dispose()
   })
 
   it('uses the latest assistant message from reused pi Agent state', async () => {

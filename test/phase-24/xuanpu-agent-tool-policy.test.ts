@@ -12,13 +12,13 @@ import { Process } from '../../src/main/services/xuanpu-agent/pi-natives-compat'
 import { Database } from '../../src/main/services/xuanpu-agent/bun-sqlite-compat'
 
 describe('xuanpu-agent native and tool policy', () => {
-  it('keeps agent runtime capabilities aligned with the read-only tool policy', () => {
+  it('keeps agent runtime capabilities aligned with the controlled write tool policy', () => {
     expect(XUANPU_AGENT_TOOL_POLICY).toMatchObject({
       toolsEnabled: true,
       nativeProcessControlEnabled: false,
-      strategy: 'read-only-harness',
+      strategy: 'controlled-write-harness',
       nativePackaging: 'compat-alias-inert',
-      toolSurfaceStatus: 'read-only'
+      toolSurfaceStatus: 'controlled-write'
     })
     expect(XUANPU_AGENT_CAPABILITIES.supportsCommands).toBe(false)
     expect(XUANPU_AGENT_CAPABILITIES.supportsPermissionRequests).toBe(false)
@@ -27,7 +27,7 @@ describe('xuanpu-agent native and tool policy', () => {
     expect(XUANPU_AGENT_CAPABILITIES.supportsRedo).toBe(false)
   })
 
-  it('allows only the read-only oh-my-pi tool list', () => {
+  it('allows only the M4 controlled harness tool list', () => {
     const tools = getXuanpuAgentAllowedTools()
     expect(tools.map((tool) => (tool as { name: string }).name)).toEqual([
       'git_status',
@@ -35,15 +35,20 @@ describe('xuanpu-agent native and tool policy', () => {
       'rg_search',
       'list_files',
       'git_log',
-      'git_diff'
+      'git_diff',
+      'apply_patch',
+      'write_file',
+      'edit_file',
+      'run_test',
+      'format_file'
     ])
     expect(() => assertXuanpuAgentAllowedTools(tools)).not.toThrow()
     expect(() => assertXuanpuAgentAllowedTools([{ name: 'shell' }])).toThrow(
-      /can only expose read-only M2 tools/
+      /can only expose the M4 controlled harness tools/
     )
   })
 
-  it('requires explicit safety gates before shell/file/MCP tools can be exposed', () => {
+  it('keeps native process and MCP gates closed after controlled writes are enabled', () => {
     const gates = getXuanpuAgentToolSurfaceGates()
     expect(gates.map((gate) => gate.id)).toEqual([
       'permission-policy',
@@ -54,30 +59,35 @@ describe('xuanpu-agent native and tool policy', () => {
       'mcp-boundary'
     ])
     expect(gates.find((gate) => gate.id === 'permission-policy')?.satisfied).toBe(true)
+    expect(gates.find((gate) => gate.id === 'checkpoint-policy')?.satisfied).toBe(true)
+    expect(gates.find((gate) => gate.id === 'tool-audit')?.satisfied).toBe(true)
     expect(
       gates
-        .filter((gate) => gate.id !== 'permission-policy')
+        .filter(
+          (gate) => !['permission-policy', 'checkpoint-policy', 'tool-audit'].includes(gate.id)
+        )
         .every((gate) => gate.required && !gate.satisfied)
     ).toBe(true)
 
     expect(() => assertXuanpuAgentToolSurfaceReady()).toThrow(
       [
         `xuanpu-agent tools are disabled: ${XUANPU_AGENT_TOOL_POLICY.reason}`,
-        'Unmet gates: checkpoint-policy, tool-audit, native-packaging, ui-capability-gate, mcp-boundary'
+        'Unmet gates: native-packaging, ui-capability-gate, mcp-boundary'
       ].join('\n')
     )
-    expect(() => assertXuanpuAgentAllowedTools([{ name: 'write' }])).toThrow(
-      /Disallowed tools: write/
+    expect(() => assertXuanpuAgentAllowedTools([{ name: 'Bash' }])).toThrow(
+      /Disallowed tools: Bash/
     )
   })
 
-  it('keeps the system prompt explicit about read-only tools and unavailable writes', () => {
+  it('keeps the system prompt explicit about preview-gated writes and unavailable arbitrary shell', () => {
     const prompt = getXuanpuAgentSystemPromptLines().join('\n')
-    expect(prompt).toContain('read-only access')
+    expect(prompt).toContain('controlled access')
     expect(prompt).toContain('git_status')
     expect(prompt).toContain('rg_search')
-    expect(prompt).toContain('run shell commands')
-    expect(prompt).toContain('edit files')
+    expect(prompt).toContain('write_file')
+    expect(prompt).toContain('previewToken')
+    expect(prompt).toContain('arbitrary shell commands')
     expect(prompt).toContain('MCP')
   })
 
