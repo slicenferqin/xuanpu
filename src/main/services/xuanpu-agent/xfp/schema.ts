@@ -177,7 +177,7 @@ export const XfpTaskGoalSchema = z.object({
 // Budget
 // ---------------------------------------------------------------------------
 
-const xfpBudgetProfileSchema = z.enum(['focused', 'balanced', 'extended', 'max'])
+const xfpBudgetProfileSchema = z.enum(['focused', 'balanced', 'extended'])
 
 export const XfpBudgetSectionSchema = z.object({
   profile: xfpBudgetProfileSchema,

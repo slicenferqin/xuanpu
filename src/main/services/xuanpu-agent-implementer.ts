@@ -1,8 +1,9 @@
 import type { BrowserWindow } from 'electron'
 import { randomUUID } from 'node:crypto'
+import simpleGit from 'simple-git'
 
 import type { DatabaseService } from '../db/database'
-import type { SessionMessage } from '../db/types'
+import type { Worktree, Session } from '../db/types'
 import type {
   AgentRuntimeAdapter,
   AgentSdkCapabilities,
@@ -10,26 +11,18 @@ import type {
 } from './agent-runtime-types'
 import { XUANPU_AGENT_CAPABILITIES } from './agent-runtime-types'
 import { createLogger } from './logger'
-import { buildFieldContextSnapshot } from '../field/context-builder'
-import { formatFieldContext } from '../field/context-formatter'
-import {
-  createRuleBasedEpisodeFromTurns,
-  listFieldEpisodeBlocks,
-  type FieldEpisodeBlockRecord
-} from '../field/episode-block-repository'
-import {
-  createFieldContextPackage,
-  type FieldContextPackageRecord,
-  type FieldContextPackageSection
-} from '../field/context-package-repository'
-import {
-  buildXuanpuAgentPromptMessages,
-  type XuanpuAgentContextTurn
-} from './xuanpu-agent/context-transform'
-import { selectMessagesForEpisodeFreeze } from './xuanpu-agent/episode-freezer'
-import { selectRetrievedEpisodesForContext } from './xuanpu-agent/episode-retrieval'
 import { resolveXuanpuAgentModelRef, type XuanpuAgentModelRef } from './xuanpu-agent/model-config'
 import { XuanpuPiAgentSession } from './xuanpu-agent/runtime'
+import { XfpPacketCompiler } from './xuanpu-agent/harness/compiler'
+import {
+  buildMessages,
+  SessionAppendOnlyLog
+} from './xuanpu-agent/harness/build-messages'
+import type { XfpGitState } from './xuanpu-agent/xfp/types'
+import {
+  IdeFieldProvider,
+  type FieldProvider
+} from './xuanpu-agent/field'
 import { beginSessionRun, emitAgentEvent } from '@shared/lib/normalize-agent-event'
 
 const log = createLogger({ component: 'XuanpuAgentImplementer' })
@@ -41,12 +34,6 @@ interface XuanpuAgentSessionState {
   status: 'ready' | 'running' | 'closed' | 'error'
   abortController: AbortController | null
   piSession: XuanpuPiAgentSession | null
-}
-
-interface XuanpuAgentContextPackageResult {
-  record: FieldContextPackageRecord
-  fieldContextMarkdown: string | null
-  retrievedEpisodes: FieldEpisodeBlockRecord[]
 }
 
 function extractPromptText(
@@ -67,16 +54,13 @@ function extractPromptText(
     .join('\n')
 }
 
-function shouldStoreRenderedContextMarkdown(): boolean {
-  return process.env.XUANPU_AGENT_STORE_CONTEXT_MARKDOWN === '1'
-}
-
 export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
   readonly id = 'xuanpu-agent' as const
   readonly capabilities: AgentSdkCapabilities = XUANPU_AGENT_CAPABILITIES
 
   private mainWindow: BrowserWindow | null = null
-  private dbService: DatabaseService | null = null
+  private db: DatabaseService | null = null
+  private field: FieldProvider | null = null
   private sessions = new Map<string, XuanpuAgentSessionState>()
   private selectedModelRef: { providerID: string; modelID: string; variant?: string } | null = null
 
@@ -85,7 +69,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
   }
 
   setDatabaseService(db: DatabaseService): void {
-    this.dbService = db
+    this.db = db
+    this.field = new IdeFieldProvider(db)
   }
 
   async connect(worktreePath: string, hiveSessionId: string): Promise<{ sessionId: string }> {
@@ -152,44 +137,84 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     const text = extractPromptText(message).trim()
     if (!text) return
 
-    const priorMessages = this.getPriorConversationTurns(session.hiveSessionId)
+    const field = this.requireField()
+    const worktree = field.getWorktree(session.worktreePath)
+    const priorMessages = field.getPriorTurns(session.hiveSessionId)
+
     beginSessionRun(session.hiveSessionId)
-    this.persistMessage(session.hiveSessionId, 'user', text)
+    field.persistMessage(session.hiveSessionId, 'user', text)
     session.status = 'running'
     session.abortController = new AbortController()
     this.emitStatus(session.hiveSessionId, 'busy')
 
     const modelRef = resolveXuanpuAgentModelRef(modelOverride, this.selectedModelRef)
-    const contextPackage = await this.createContextPackage(
-      session,
+
+    // ── Build field context via FieldProvider (IDE or CLI) ──
+    const gitState = await this.buildGitStateForWorktree(session.worktreePath)
+    const fieldSnapshot = worktree
+      ? await field.buildFieldSnapshot(worktree).catch(() => ({
+          markdown: null,
+          approxTokens: 0,
+          wasTruncated: false,
+          capturedAt: Date.now()
+        }))
+      : { markdown: null, approxTokens: 0, wasTruncated: false, capturedAt: Date.now() }
+
+    // ── Compile XFP packet ──
+    const compiler = new XfpPacketCompiler()
+    const compileResult = compiler.compile(
+      (worktree
+        ? { id: worktree.id, context: worktree.context, project_id: worktree.projectId }
+        : { id: 'unknown', context: null, project_id: 'unknown' }) as unknown as Worktree,
+      { id: session.hiveSessionId, project_id: worktree?.projectId ?? 'unknown' } as unknown as Session,
       text,
-      modelRef,
-      priorMessages
-    ).catch((error) => {
-      log.warn('Failed to record xuanpu-agent context package', {
-        hiveSessionId: session.hiveSessionId,
-        error: error instanceof Error ? error.message : String(error)
-      })
-      return null
-    })
+      {
+        gitState,
+        focus: fieldSnapshot.markdown
+          ? {
+              file: null,
+              selection: null,
+              rawRefs: [
+                {
+                  kind: 'message',
+                  id: `field:${session.hiveSessionId}`,
+                  excerpt: fieldSnapshot.markdown.slice(0, 200)
+                }
+              ]
+            }
+          : undefined,
+        terminal: null,
+        tests: null,
+        commandTrace: null,
+        anchor: null
+      }
+    )
+
+    // ── Assemble messages via harness buildMessages ──
+    const appendOnlyLog = new SessionAppendOnlyLog(
+      priorMessages,
+      compileResult.packet.identity.packetId
+    )
 
     try {
       const piSession = this.getOrCreatePiSession(session)
-      const promptContext = buildXuanpuAgentPromptMessages({
-        currentUserText: text,
-        fieldContextMarkdown: contextPackage?.fieldContextMarkdown ?? null,
-        retrievedEpisodes: contextPackage?.retrievedEpisodes ?? [],
-        priorMessages
-      })
-      const result = await piSession.prompt(promptContext.messages, modelRef, {
+
+      const harnessMessages = buildMessages(
+        compileResult.packet,
+        appendOnlyLog,
+        text
+      )
+
+      const result = await piSession.prompt(harnessMessages, modelRef, {
         onTextDelta: (delta) => this.emitTextDelta(session.hiveSessionId, delta)
       })
 
       const assistantText = result.text.trim()
       const content = assistantText || '(empty response)'
-      this.persistMessage(session.hiveSessionId, 'assistant', content, {
+      field.persistMessage(session.hiveSessionId, 'assistant', content, {
         messageId: result.messageId,
-        modelRef: result.modelRef,
+        modelProviderId: result.modelRef.providerID,
+        modelId: result.modelRef.modelID,
         usage: result.usage,
         rawMessage: result.rawMessage
       })
@@ -197,9 +222,36 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         messageId: result.messageId,
         modelRef: result.modelRef,
         usage: result.usage,
-        contextPackageId: contextPackage?.record.id ?? null
+        contextPackageId: compileResult.packet.identity.packetId
       })
-      this.freezeOldConversationTurns(session)
+
+      // Record context package for audit/debug
+      if (worktree) {
+        try {
+          field.persistContextPackage({
+            id: compileResult.packet.identity.packetId,
+            sessionId: session.hiveSessionId,
+            worktreeId: worktree.id,
+            runtimeId: this.id,
+            modelProviderId: modelRef.providerID,
+            modelId: modelRef.modelID,
+            budgetProfile: compileResult.packet.budget.profile,
+            approxTokens: compileResult.packet.budget.estimatedTokens,
+            sections: [],
+            renderedMarkdown: fieldSnapshot.markdown,
+            decisions: compileResult.decisions as unknown as Record<string, unknown>
+          })
+        } catch (err) {
+          log.warn('Failed to record context package', {
+            error: err instanceof Error ? err.message : String(err)
+          })
+        }
+      }
+
+      field.freezeEpisodes(
+        worktree?.id ?? 'unknown',
+        session.hiveSessionId
+      )
 
       session.status = 'ready'
       session.abortController = null
@@ -208,11 +260,11 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       const errorMessage = [
         'xuanpu-agent no-tools provider call failed.',
         error instanceof Error ? error.message : String(error),
-        contextPackage?.record.id ? `Context package: ${contextPackage.record.id}` : null
+        `Packet: ${compileResult.packet.identity.packetId}`
       ]
         .filter(Boolean)
         .join('\n')
-      this.persistMessage(session.hiveSessionId, 'assistant', errorMessage)
+      field.persistMessage(session.hiveSessionId, 'assistant', errorMessage)
       session.status = 'error'
       session.abortController = null
       this.emitError(session.hiveSessionId, errorMessage)
@@ -234,8 +286,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
 
   async getMessages(_worktreePath: string, agentSessionId: string): Promise<unknown[]> {
     const session = this.sessions.get(agentSessionId)
-    if (!session || !this.dbService) return []
-    return this.dbService.getSessionMessages(session.hiveSessionId)
+    if (!session || !this.db) return []
+    return this.db.getSessionMessages(session.hiveSessionId)
   }
 
   async getAvailableModels(): Promise<unknown> {
@@ -301,162 +353,17 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
   }
 
   async renameSession(_worktreePath: string, _agentSessionId: string, name: string): Promise<void> {
-    if (!this.dbService) return
+    if (!this.db) return
     const session = this.sessions.get(_agentSessionId)
     if (!session) return
-    this.dbService.updateSession(session.hiveSessionId, { name })
+    this.db.updateSession(session.hiveSessionId, { name })
   }
 
-  private async createContextPackage(
-    session: XuanpuAgentSessionState,
-    userText: string,
-    modelRef: XuanpuAgentModelRef,
-    priorMessages: XuanpuAgentContextTurn[]
-  ): Promise<XuanpuAgentContextPackageResult | null> {
-    if (!this.dbService) return null
-
-    const worktree = this.dbService.getWorktreeByPath(session.worktreePath)
-    if (!worktree) return null
-
-    const sections: FieldContextPackageSection[] = []
-    const storeRenderedMarkdown = shouldStoreRenderedContextMarkdown()
-    let fieldContextMarkdown: string | null = null
-    let renderedMarkdown: string | null = null
-    let approxTokens = estimateTokens(userText)
-    let fieldContextTokens = 0
-    let fieldContextAvailable = false
-    let fieldContextTruncated = false
-    const episodeCandidates = this.getEpisodeCandidatesForContext(worktree.id)
-    const episodeRetrieval = selectRetrievedEpisodesForContext({
-      userText,
-      episodes: episodeCandidates,
-      priorMessages,
-      currentSessionId: session.hiveSessionId
-    })
-    const retrievedEpisodes = episodeRetrieval.included
-    const retrievedEpisodeTokens = retrievedEpisodes.reduce(
-      (total, episode) => total + episode.tokenEstimate,
-      0
-    )
-    approxTokens += retrievedEpisodeTokens
-
-    const snapshot = await buildFieldContextSnapshot({ worktreeId: worktree.id })
-    if (snapshot) {
-      const formatted = formatFieldContext(snapshot, { tokenBudget: 1500 })
-      fieldContextMarkdown = formatted.markdown
-      renderedMarkdown = storeRenderedMarkdown ? formatted.markdown : null
-      fieldContextTokens = formatted.approxTokens
-      fieldContextAvailable = true
-      fieldContextTruncated = formatted.wasTruncated
-      approxTokens += formatted.approxTokens
-      sections.push({
-        id: 'current-field',
-        kind: 'current_field',
-        title: 'Current Field',
-        included: true,
-        approxTokens: formatted.approxTokens,
-        source: 'field-context',
-        metadata: {
-          wasTruncated: formatted.wasTruncated,
-          windowMs: snapshot.windowMs,
-          asOf: snapshot.asOf
-        }
-      })
-    } else {
-      sections.push({
-        id: 'current-field',
-        kind: 'current_field',
-        title: 'Current Field',
-        included: false,
-        approxTokens: 0,
-        source: 'field-context',
-        reason: 'Field collection disabled or no snapshot available'
-      })
+  private requireField(): FieldProvider {
+    if (!this.field) {
+      throw new Error('XuanpuAgentImplementer: DatabaseService not set. Call setDatabaseService() first.')
     }
-
-    sections.push({
-      id: 'frozen-episodes-available',
-      kind: 'frozen_episodes',
-      title: 'Available Frozen Episodes',
-      included: false,
-      approxTokens: 0,
-      source: 'field_episode_blocks',
-      reason:
-        episodeCandidates.length > 0
-          ? 'Episode blocks are stored and considered by gated retrieval'
-          : 'No frozen episodes available',
-      metadata: {
-        count: episodeCandidates.length,
-        ids: episodeCandidates.map((episode) => episode.id)
-      }
-    })
-
-    sections.push({
-      id: 'retrieved-episodes',
-      kind: 'retrieved_episodes',
-      title: 'Retrieved Episodes',
-      included: retrievedEpisodes.length > 0,
-      approxTokens: retrievedEpisodeTokens,
-      source: 'field_episode_blocks',
-      reason:
-        retrievedEpisodes.length > 0
-          ? `Gated retrieval matched: ${episodeRetrieval.decisions.triggers.join(', ') || 'score'}`
-          : 'Gated retrieval did not match this turn',
-      metadata: {
-        count: retrievedEpisodes.length,
-        ids: retrievedEpisodes.map((episode) => episode.id),
-        triggers: episodeRetrieval.decisions.triggers,
-        scores: episodeRetrieval.decisions.scores
-      }
-    })
-
-    sections.push({
-      id: 'working-set-current-user',
-      kind: 'working_set',
-      title: 'Current User Message',
-      included: true,
-      approxTokens: estimateTokens(userText),
-      source: 'prompt'
-    })
-
-    const promptContext = buildXuanpuAgentPromptMessages({
-      currentUserText: userText,
-      fieldContextMarkdown,
-      retrievedEpisodes,
-      priorMessages
-    })
-
-    const record = createFieldContextPackage({
-      sessionId: session.hiveSessionId,
-      worktreeId: worktree.id,
-      runtimeId: this.id,
-      modelProviderId: modelRef?.providerID ?? null,
-      modelId: modelRef?.modelID ?? null,
-      budgetProfile: 'balanced',
-      approxTokens,
-      sections,
-      renderedMarkdown,
-      decisions: {
-        phase: 'phase-1-no-tools-provider',
-        providerExecution: 'enabled',
-        fieldContextAvailable,
-        fieldContextTokens,
-        fieldContextTruncated,
-        frozenEpisodeCandidateCount: episodeCandidates.length,
-        retrievedEpisodeCount: retrievedEpisodes.length,
-        retrievedEpisodeTokens,
-        episodeRetrieval: episodeRetrieval.decisions,
-        renderedMarkdownPolicy: storeRenderedMarkdown
-          ? 'stored-by-explicit-env'
-          : 'omitted-by-default',
-        renderedMarkdownEnv: 'XUANPU_AGENT_STORE_CONTEXT_MARKDOWN',
-        ...promptContext.decisions,
-        userMessageChars: userText.length,
-        visibleTranscriptPolicy: 'persist-user-authored-message-only'
-      }
-    })
-
-    return { record, fieldContextMarkdown, retrievedEpisodes }
+    return this.field
   }
 
   private requireSession(agentSessionId: string, worktreePath: string): XuanpuAgentSessionState {
@@ -474,122 +381,66 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     return session
   }
 
+  private async buildGitStateForWorktree(worktreePath: string): Promise<XfpGitState> {
+    try {
+      const git = simpleGit(worktreePath)
+      const status = await git.status(['--untracked-files=normal'])
+      const branchName = status.current || 'HEAD'
+      const headShort = (await git.revparse(['HEAD'])).trim().slice(0, 7)
+      const upstream = status.tracking || null
+      const ahead = status.ahead
+      const behind = status.behind
+      const dirty = !status.isClean()
+
+      const dirtyFiles = status.files.slice(0, 20).map((fileStatus) => {
+        const code = fileStatus.index.trim()
+        const validCodes = new Set(['M', 'A', 'D', '?', 'C'])
+        const statusCode = validCodes.has(code) ? (code as 'M' | 'A' | 'D' | '?' | 'C' | '') : ('' as const)
+        return {
+          path: fileStatus.path,
+          relativePath: fileStatus.path,
+          status: statusCode,
+          staged: code !== '?' && code !== ''
+        }
+      })
+
+      return {
+        branchName,
+        headShort,
+        upstream,
+        ahead,
+        behind,
+        dirty,
+        dirtyFiles,
+        dirtyTruncated: status.files.length > 20,
+        rawRefs: [
+          {
+            kind: 'git-object',
+            id: `git:${worktreePath}:status`,
+            meta: { sha: headShort, branch: branchName }
+          }
+        ]
+      }
+    } catch {
+      return {
+        branchName: 'unknown',
+        headShort: 'unknown',
+        upstream: null,
+        ahead: 0,
+        behind: 0,
+        dirty: false,
+        dirtyFiles: [],
+        dirtyTruncated: false,
+        rawRefs: []
+      }
+    }
+  }
+
   private getOrCreatePiSession(session: XuanpuAgentSessionState): XuanpuPiAgentSession {
     if (!session.piSession) {
       session.piSession = new XuanpuPiAgentSession(session.sessionId)
     }
     return session.piSession
-  }
-
-  private getPriorConversationTurns(hiveSessionId: string): XuanpuAgentContextTurn[] {
-    if (!this.dbService) return []
-
-    return this.dbService
-      .getSessionMessages(hiveSessionId)
-      .filter(isConversationMessage)
-      .map((message) => ({
-        role: message.role,
-        content: message.content,
-        createdAt: message.created_at
-      }))
-  }
-
-  private getEpisodeCandidatesForContext(worktreeId: string): FieldEpisodeBlockRecord[] {
-    try {
-      return listFieldEpisodeBlocks({ worktreeId, limit: 25 })
-    } catch (error) {
-      log.warn('Failed to load xuanpu-agent frozen episodes', {
-        worktreeId,
-        error: error instanceof Error ? error.message : String(error)
-      })
-      return []
-    }
-  }
-
-  private freezeOldConversationTurns(session: XuanpuAgentSessionState): void {
-    if (!this.dbService) return
-
-    try {
-      const worktree = this.dbService.getWorktreeByPath(session.worktreePath)
-      if (!worktree) return
-
-      const existingEpisodes = listFieldEpisodeBlocks({
-        worktreeId: worktree.id,
-        sessionId: session.hiveSessionId,
-        limit: 200
-      })
-      const selected = selectMessagesForEpisodeFreeze(
-        this.dbService.getSessionMessages(session.hiveSessionId).map((message) => ({
-          id: message.opencode_message_id ?? message.id,
-          role: message.role,
-          content: message.content,
-          createdAt: message.created_at
-        })),
-        existingEpisodes
-      )
-
-      if (selected.length === 0) return
-
-      const episode = createRuleBasedEpisodeFromTurns({
-        worktreeId: worktree.id,
-        sessionId: session.hiveSessionId,
-        title: 'Frozen Conversation Turns',
-        turns: selected.map((message) => ({
-          messageId: message.id ?? '',
-          role: message.role,
-          content: message.content,
-          createdAt: message.createdAt
-        }))
-      })
-
-      log.info('Frozen xuanpu-agent conversation episode', {
-        hiveSessionId: session.hiveSessionId,
-        worktreeId: worktree.id,
-        episodeId: episode.id,
-        messageCount: selected.length
-      })
-    } catch (error) {
-      log.warn('Failed to freeze xuanpu-agent conversation episode', {
-        hiveSessionId: session.hiveSessionId,
-        error: error instanceof Error ? error.message : String(error)
-      })
-    }
-  }
-
-  private persistMessage(
-    hiveSessionId: string,
-    role: 'user' | 'assistant' | 'system',
-    content: string,
-    options?: {
-      messageId?: string
-      modelRef?: XuanpuAgentModelRef
-      usage?: Record<string, unknown>
-      rawMessage?: unknown
-    }
-  ): void {
-    const messageId = options?.messageId ?? `xuanpu-agent-${randomUUID()}`
-    const timestamp = new Date().toISOString()
-    const parts = [{ type: 'text', text: content, timestamp }]
-    const payload = {
-      id: messageId,
-      role,
-      content,
-      parts,
-      providerID: options?.modelRef?.providerID,
-      modelID: options?.modelRef?.modelID,
-      usage: options?.usage,
-      raw: options?.rawMessage
-    }
-
-    this.dbService?.createSessionMessage({
-      session_id: hiveSessionId,
-      role,
-      content,
-      opencode_message_id: messageId,
-      opencode_message_json: JSON.stringify(payload),
-      opencode_parts_json: JSON.stringify(parts),
-      created_at: timestamp
-    })
   }
 
   private emitTextDelta(hiveSessionId: string, delta: string): void {
@@ -655,16 +506,4 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       data: { error: message }
     })
   }
-}
-
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 3)
-}
-
-function isConversationMessage(
-  message: SessionMessage
-): message is SessionMessage & { role: 'user' | 'assistant' } {
-  return (
-    (message.role === 'user' || message.role === 'assistant') && message.content.trim().length > 0
-  )
 }

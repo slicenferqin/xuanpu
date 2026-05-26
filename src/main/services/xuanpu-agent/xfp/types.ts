@@ -240,7 +240,7 @@ export interface XfpTaskGoal {
 // NOT record per-section "why" — that's a v2 deliverable (plan-review AI-4).
 // ---------------------------------------------------------------------------
 
-export type XfpBudgetProfile = 'focused' | 'balanced' | 'extended' | 'max'
+export type XfpBudgetProfile = 'focused' | 'balanced' | 'extended'
 
 export interface XfpBudgetSection {
   profile: XfpBudgetProfile

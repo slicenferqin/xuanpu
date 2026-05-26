@@ -1,4 +1,4 @@
-import type { XuanpuPiPromptMessage } from '../context-transform'
+import type { XuanpuPiPromptMessage, XuanpuAgentContextTurn } from '../context-transform'
 import type { XfpFieldPacket } from '../xfp/types'
 import { HarnessErrorCode, createHarnessError } from './error-taxonomy'
 
@@ -62,6 +62,58 @@ function createUserMessage(text: string, timestamp: number): XuanpuPiPromptMessa
     role: 'user',
     content: [{ type: 'text', text }],
     timestamp
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// SessionAppendOnlyLog — AppendOnlyLog backed by session conversation turns
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * A lightweight in-memory {@link AppendOnlyLog} that wraps prior conversation
+ * turns from a session. It satisfies the harness contract so that
+ * `buildMessages` can assemble the prompt from XFP packet + log + current
+ * request.
+ *
+ * Persistence of new messages is handled by the caller (the implementer's
+ * `persistMessage`); `appendAndPersist` here only updates the in-memory
+ * array so `toMessages` reflects the latest state.
+ */
+export class SessionAppendOnlyLog implements AppendOnlyLog {
+  private _entries: LogEntry[]
+
+  constructor(
+    priorTurns: ReadonlyArray<XuanpuAgentContextTurn>,
+    packetId: string
+  ) {
+    this._entries = priorTurns
+      .filter((turn) => turn.content.trim().length > 0)
+      .map((turn, index) => ({
+        id: `${packetId}-log-${index}`,
+        packetId,
+        message: {
+          role: turn.role,
+          content: [{ type: 'text' as const, text: turn.content }],
+          timestamp:
+            typeof turn.createdAt === 'number'
+              ? turn.createdAt
+              : turn.createdAt
+                ? Date.parse(turn.createdAt)
+                : Date.now()
+        }
+      }))
+  }
+
+  get entries(): ReadonlyArray<LogEntry> {
+    return this._entries
+  }
+
+  appendAndPersist(entry: LogEntry): void {
+    this._entries = [...this._entries, entry]
+  }
+
+  toMessages(): XuanpuPiPromptMessage[] {
+    return this._entries.map((entry) => entry.message)
   }
 }
 

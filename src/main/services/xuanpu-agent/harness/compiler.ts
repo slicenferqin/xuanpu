@@ -172,13 +172,11 @@ function defaultOmittedSections(
 function defaultBudgetTokens(profile: XfpBudgetProfile): number {
   switch (profile) {
     case 'focused':
-      return 20000
+      return 150000
     case 'balanced':
-      return 80000
-    case 'extended':
-      return 160000
-    case 'max':
       return 300000
+    case 'extended':
+      return 500000
   }
 }
 

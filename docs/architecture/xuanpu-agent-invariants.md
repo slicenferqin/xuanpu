@@ -126,6 +126,31 @@
 - INV-BUDGET-5：工具修复（flatten / scavenge / truncation / storm）消耗的 token 必须进 Context Budget；不能因为「这是修复，不算业务」就漏记。
 - INV-BUDGET-6：cache hit ratio / prefix invariant 命中数 / context budget 使用率三项必须在 Session HQ 顶栏暴露给用户。
 
+### 成本地形不变量（INV-COST-*）
+
+对应架构文档 §7「成本地形设计」四层机制（Layer A–D）。这些不变量确保 agent 面对
+的"成本地形"偏向调工具而非偷懒，偏向精确而非猜测。
+
+- INV-COST-1（Layer A）：工具输出进入模型前必须经过压缩。裸字符串长输出是 P0 问题。
+  CommandProfiler 识别命令类型 → CommandCompressor 按 profile 压缩 → 压缩摘要进
+  context，raw output 进 command_traces 表。与 INV-TOOL-2 共轭。
+- INV-COST-2（Layer A）：压缩失败必须 fallback 到 head/tail truncation（前 500 行 +
+  后 500 行），不允许把原始大输出塞给模型。上报 COMPRESSION_FAILURE + traceId。
+- INV-COST-3（Layer A）：工具输出必须结构化返回（exit code / duration / 关键错误 /
+  涉及文件 / 压缩比例 / raw ref），不能只返回裸字符串。结构化字段即使为空也必须
+  显式 null。
+- INV-COST-4（Layer A）：工具注册时必须附带高可发现性描述（tool description），
+  让模型能一眼判断"这个工具能解决我当前的问题"。description 字段是必填项，不能
+  留空或写 "Executes a command" 级别占位文本。
+- INV-COST-5（Layer B）：Post-response claim verifier 检测到的未验证事实声明必须
+  注入纠正 turn（M6 实现）。Verifier 不能静默忽略——要么 pass、要么 inject correction。
+- INV-COST-6（Layer C）：高风险问答（涉及具体仓库名、库名、API 名）必须路由到
+  结构化 sub-agent，其输出 schema 要求 `evidence` 字段非空。evidence 为空 → reject。
+  M5-M6 实现。
+- INV-COST-7（Layer D）：System prompt 必须用自利框架写约束（"偷懒会污染你自己的
+  reasoning context"），不能写道德说教式约束（"你必须严谨、必须搜索"）。代码
+  `tool-policy.ts` 的 `getXuanpuAgentSystemPromptLines()` 是单一出口。
+
 ## 非不变量（我们不承诺什么）
 
 显式声明这些「看起来像不变量但其实不是」的边界，避免 code review 误用。
@@ -178,20 +203,22 @@
 处理：code review 必须引用本文档 INV-* ID 拒绝。reviewer 在 PR 评论里写
 `违反 INV-LOG-2`，作者据此整改或显式申请例外（例外必须更新本文档）。
 
-## 与 10 条原则的映射
+## 与 12 条原则的映射
 
-| 原则                                            | 落地不变量                                                |
-| ----------------------------------------------- | --------------------------------------------------------- |
-| 1. 玄圃拥有现场                                 | INV-XFP-3、INV-PERM-1、INV-PERM-4                           |
-| 2. xuanpu-agent 优先实现 XFP                    | INV-XFP-1、INV-XFP-5、INV-XFP-9                           |
-| 3. 上下文是编译出来的，不是追加出来的           | INV-XFP-3、INV-CACHE-3、INV-LOG-2                         |
-| 4. 旧工作要卸载，不是遗忘                       | INV-LOG-1、INV-LOG-6、INV-ERR-4                           |
-| 5. 没有 raw refs 的总结不能叫记忆               | INV-XFP-2、INV-XFP-7、INV-MEM-1                           |
-| 6. 命令输出进入模型前必须被压缩和结构化         | INV-TOOL-2、INV-TOOL-3、INV-ERR-3                         |
-| 7. 记忆必须分 scope、可编辑、可追溯             | INV-MEM-2、INV-MEM-3、INV-MEM-4                           |
-| 8. 大上下文窗口是 fallback，不是目标            | INV-BUDGET-1、INV-BUDGET-2、INV-BUDGET-4                  |
-| 9. 模型可替换，harness 才是产品                 | INV-CACHE-5、INV-TOOL-7、INV-BUDGET-4                     |
-| 10. 我们优化用户工作，不优化模型厂商 token 消耗 | INV-CACHE-4、INV-CACHE-6、INV-TOOL-2                      |
+| 原则                                                     | 落地不变量                                                |
+| -------------------------------------------------------- | --------------------------------------------------------- |
+| 1. 玄圃拥有现场                                          | INV-XFP-3、INV-PERM-1、INV-PERM-4                           |
+| 2. xuanpu-agent 优先实现 XFP                             | INV-XFP-1、INV-XFP-5、INV-XFP-9                           |
+| 3. 上下文是编译出来的，不是追加出来的                    | INV-XFP-3、INV-CACHE-3、INV-LOG-2                         |
+| 4. 旧工作要卸载，不是遗忘                                | INV-LOG-1、INV-LOG-6、INV-ERR-4                           |
+| 5. 没有 raw refs 的总结不能叫记忆                        | INV-XFP-2、INV-XFP-7、INV-MEM-1                           |
+| 6. 命令输出进入模型前必须被压缩和结构化                  | INV-TOOL-2、INV-TOOL-3、INV-ERR-3、INV-COST-1             |
+| 7. 记忆必须分 scope、可编辑、可追溯                      | INV-MEM-2、INV-MEM-3、INV-MEM-4                           |
+| 8. 大上下文窗口是 fallback，不是目标                     | INV-BUDGET-1、INV-BUDGET-2、INV-BUDGET-4                  |
+| 9. 模型可替换，harness 才是产品                          | INV-CACHE-5、INV-TOOL-7、INV-BUDGET-4                     |
+| 10. 我们优化用户工作，不优化模型厂商 token 消耗          | INV-CACHE-4、INV-CACHE-6、INV-TOOL-2                      |
+| 11. 约束 LLM 靠改造成本地形，不靠 prompt 说教            | INV-COST-1、INV-COST-2、INV-COST-3、INV-COST-4、INV-COST-7 |
+| 12. Trace 是资产，不是废热                               | INV-MEM-5、INV-LOG-1、INV-ERR-4                           |
 
 ## 后续
 

@@ -10,6 +10,8 @@ import {
   getXuanpuAgentAllowedTools,
   getXuanpuAgentSystemPromptLines
 } from './tool-policy'
+import { StormDetector } from './harness/tool-call-repair/storm'
+import { ToolOutputTruncator } from './harness/tool-call-repair/truncation'
 
 interface PiTextContent {
   type: 'text'
@@ -70,6 +72,12 @@ export class XuanpuPiAgentSession {
   private agent: PiAgentLike | null = null
   private unsubscribe: (() => void) | null = null
   private lastModelKey: string | null = null
+
+  /** M1.5: 工具调用去重检测。挂载为 beforeToolCall 钩子。 */
+  readonly stormDetector = new StormDetector({ windowSize: 5, threshold: 3 })
+
+  /** M1.5: 命令输出截断（head/tail MVP）。挂载为 afterToolCall 钩子。 */
+  readonly toolTruncator = new ToolOutputTruncator({ charThreshold: 12_000, headLines: 500, tailLines: 500 })
 
   constructor(private readonly sessionId: string) {}
 
@@ -169,6 +177,8 @@ export class XuanpuPiAgentSession {
 
       this.agent = new Agent({
         sessionId: this.sessionId,
+        beforeToolCall: this.stormDetector.hook,
+        afterToolCall: this.toolTruncator.hook,
         ...(typeof streamFn === 'function' ? { streamFn } : {})
       })
       const tools = getXuanpuAgentAllowedTools()
