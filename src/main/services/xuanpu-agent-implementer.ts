@@ -13,17 +13,18 @@ import { XUANPU_AGENT_CAPABILITIES } from './agent-runtime-types'
 import { createLogger } from './logger'
 import { resolveXuanpuAgentModelRef, type XuanpuAgentModelRef } from './xuanpu-agent/model-config'
 import { XuanpuPiAgentSession } from './xuanpu-agent/runtime'
-import { XfpPacketCompiler } from './xuanpu-agent/harness/compiler'
-import {
-  buildMessages,
-  SessionAppendOnlyLog
-} from './xuanpu-agent/harness/build-messages'
-import type { XfpGitState } from './xuanpu-agent/xfp/types'
+import { XfpPacketCompiler, type CompilerDecision } from './xuanpu-agent/harness/compiler'
+import { buildMessages, SessionAppendOnlyLog } from './xuanpu-agent/harness/build-messages'
+import type { XfpCommandTraceSection, XfpFieldPacket, XfpGitState } from './xuanpu-agent/xfp/types'
 import {
   IdeFieldProvider,
+  type FieldContextPackageSection,
   type FieldProvider
 } from './xuanpu-agent/field'
 import { beginSessionRun, emitAgentEvent } from '@shared/lib/normalize-agent-event'
+import { createCommandProfiler } from './xuanpu-agent/context/profiler'
+import { createCommandCompressor } from './xuanpu-agent/context/compressor-impl'
+import type { ArchivePayload } from './xuanpu-agent/harness/tool-call-repair/truncation'
 
 const log = createLogger({ component: 'XuanpuAgentImplementer' })
 
@@ -113,6 +114,23 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     this.sessions.delete(agentSessionId)
   }
 
+  /** M3: Return budget state for the given session (looks up by agentSessionId or hiveSessionId). */
+  getBudgetState(sessionId: string): Record<string, unknown> | null {
+    // Try direct lookup by agent session ID first
+    let session = this.sessions.get(sessionId)
+    // Fallback: search by hive session ID
+    if (!session) {
+      for (const s of this.sessions.values()) {
+        if (s.hiveSessionId === sessionId) {
+          session = s
+          break
+        }
+      }
+    }
+    if (!session?.piSession) return null
+    return session.piSession.getBudgetState() as unknown as Record<string, unknown>
+  }
+
   async cleanup(): Promise<void> {
     for (const session of this.sessions.values()) {
       session.abortController?.abort()
@@ -151,6 +169,12 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
 
     // ── Build field context via FieldProvider (IDE or CLI) ──
     const gitState = await this.buildGitStateForWorktree(session.worktreePath)
+    const commandTrace = this.buildCommandTraceSection(session.hiveSessionId, worktree?.id)
+    const priorBudgetState = session.piSession?.getBudgetState()
+    const compressionRatio =
+      priorBudgetState && priorBudgetState.totalBeforeBytes > 0
+        ? 1 - priorBudgetState.totalAfterBytes / priorBudgetState.totalBeforeBytes
+        : null
     const fieldSnapshot = worktree
       ? await field.buildFieldSnapshot(worktree).catch(() => ({
           markdown: null,
@@ -166,7 +190,10 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       (worktree
         ? { id: worktree.id, context: worktree.context, project_id: worktree.projectId }
         : { id: 'unknown', context: null, project_id: 'unknown' }) as unknown as Worktree,
-      { id: session.hiveSessionId, project_id: worktree?.projectId ?? 'unknown' } as unknown as Session,
+      {
+        id: session.hiveSessionId,
+        project_id: worktree?.projectId ?? 'unknown'
+      } as unknown as Session,
       text,
       {
         gitState,
@@ -185,8 +212,9 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
           : undefined,
         terminal: null,
         tests: null,
-        commandTrace: null,
-        anchor: null
+        commandTrace,
+        anchor: null,
+        compressionRatio
       }
     )
 
@@ -198,12 +226,48 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
 
     try {
       const piSession = this.getOrCreatePiSession(session)
+      piSession.setWorktreePath(session.worktreePath)
 
-      const harnessMessages = buildMessages(
-        compileResult.packet,
-        appendOnlyLog,
-        text
+      // M3: sync budget profile from XFP compiler decision
+      piSession.setBudgetProfile(compileResult.packet.budget.profile)
+      piSession.recordBudgetSections(
+        compileResult.decisions.includedSections.length,
+        compileResult.decisions.omittedSections.length
       )
+
+      // M2: configure compression (profiler + compressor + archive to command_traces)
+      if (this.db) {
+        piSession.configureCompression(
+          createCommandProfiler(),
+          createCommandCompressor(),
+          (payload: ArchivePayload) => {
+            try {
+              this.db!.createCommandTrace({
+                traceId: payload.traceId,
+                sessionId: session.hiveSessionId,
+                worktreeId: worktree?.id,
+                command: payload.command,
+                cwd: payload.cwd || undefined,
+                exitCode: payload.exitCode,
+                durationMs: payload.durationMs,
+                timedOut: payload.timedOut,
+                aborted: payload.aborted,
+                rawOutput: payload.rawOutput,
+                compressedOutput: payload.compressedOutput,
+                compressionRatio: payload.compressionRatio,
+                category: payload.category,
+                ruleHits: payload.ruleHits.join(',')
+              })
+            } catch (err) {
+              log.warn('Failed to archive command trace', {
+                error: err instanceof Error ? err.message : String(err)
+              })
+            }
+          }
+        )
+      }
+
+      const harnessMessages = buildMessages(compileResult.packet, appendOnlyLog, text)
 
       const result = await piSession.prompt(harnessMessages, modelRef, {
         onTextDelta: (delta) => this.emitTextDelta(session.hiveSessionId, delta)
@@ -237,7 +301,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             modelId: modelRef.modelID,
             budgetProfile: compileResult.packet.budget.profile,
             approxTokens: compileResult.packet.budget.estimatedTokens,
-            sections: [],
+            sections: buildContextPackageSections(compileResult.packet, compileResult.decisions),
             renderedMarkdown: fieldSnapshot.markdown,
             decisions: compileResult.decisions as unknown as Record<string, unknown>
           })
@@ -248,17 +312,14 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         }
       }
 
-      field.freezeEpisodes(
-        worktree?.id ?? 'unknown',
-        session.hiveSessionId
-      )
+      field.freezeEpisodes(worktree?.id ?? 'unknown', session.hiveSessionId)
 
       session.status = 'ready'
       session.abortController = null
       this.emitStatus(session.hiveSessionId, 'idle')
     } catch (error) {
       const errorMessage = [
-        'xuanpu-agent no-tools provider call failed.',
+        'xuanpu-agent provider call failed.',
         error instanceof Error ? error.message : String(error),
         `Packet: ${compileResult.packet.identity.packetId}`
       ]
@@ -361,7 +422,9 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
 
   private requireField(): FieldProvider {
     if (!this.field) {
-      throw new Error('XuanpuAgentImplementer: DatabaseService not set. Call setDatabaseService() first.')
+      throw new Error(
+        'XuanpuAgentImplementer: DatabaseService not set. Call setDatabaseService() first.'
+      )
     }
     return this.field
   }
@@ -381,6 +444,49 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     return session
   }
 
+  private buildCommandTraceSection(
+    sessionId: string,
+    worktreeId: string | undefined
+  ): XfpCommandTraceSection | null {
+    if (!this.db) return null
+
+    const traces = this.db.listRecentCommandTraces({
+      sessionId,
+      worktreeId,
+      limit: 8
+    })
+    if (traces.entries.length === 0) return null
+
+    return {
+      entries: traces.entries.map((trace) => {
+        const summary = summarizeCommandTrace(trace.compressedOutput)
+        return {
+          traceId: trace.id,
+          command: trace.command,
+          capturedAt: Date.parse(trace.createdAt) || Date.now(),
+          exitCode: trace.exitCode,
+          durationMs: trace.durationMs,
+          compressionRatio: trace.compressionRatio,
+          summary,
+          rawRefs: [
+            {
+              kind: 'command-trace',
+              id: trace.id,
+              excerpt: summary.slice(0, 200),
+              meta: {
+                rawOutputRef: trace.rawOutputRef,
+                rawOutputBytes: trace.rawOutputBytes,
+                category: trace.category,
+                ruleHits: trace.ruleHits
+              }
+            }
+          ]
+        }
+      }),
+      totalAvailable: traces.totalAvailable
+    }
+  }
+
   private async buildGitStateForWorktree(worktreePath: string): Promise<XfpGitState> {
     try {
       const git = simpleGit(worktreePath)
@@ -395,7 +501,9 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       const dirtyFiles = status.files.slice(0, 20).map((fileStatus) => {
         const code = fileStatus.index.trim()
         const validCodes = new Set(['M', 'A', 'D', '?', 'C'])
-        const statusCode = validCodes.has(code) ? (code as 'M' | 'A' | 'D' | '?' | 'C' | '') : ('' as const)
+        const statusCode = validCodes.has(code)
+          ? (code as 'M' | 'A' | 'D' | '?' | 'C' | '')
+          : ('' as const)
         return {
           path: fileStatus.path,
           relativePath: fileStatus.path,
@@ -505,5 +613,91 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       sessionId: hiveSessionId,
       data: { error: message }
     })
+  }
+}
+
+function summarizeCommandTrace(compressedOutput: string | null): string {
+  const text = compressedOutput?.trim()
+  if (!text) return '(raw command output archived)'
+
+  const firstContentLine = text
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line.length > 0)
+
+  if (!firstContentLine) return '(raw command output archived)'
+  return firstContentLine.length > 300 ? `${firstContentLine.slice(0, 297)}...` : firstContentLine
+}
+
+function buildContextPackageSections(
+  packet: XfpFieldPacket,
+  decisions: CompilerDecision
+): FieldContextPackageSection[] {
+  const omittedReasonByName = new Map(
+    decisions.omittedSections.map((section) => [section.name, section.reason])
+  )
+  const names = [
+    ...decisions.includedSections,
+    ...decisions.omittedSections.map((section) => section.name)
+  ]
+  const uniqueNames = [...new Set(names)]
+
+  return uniqueNames.map((name) => {
+    const included = decisions.includedSections.includes(name)
+    return {
+      id: `${packet.identity.packetId}:${name}`,
+      kind: 'xfp-section',
+      title: name,
+      included,
+      approxTokens: included ? estimateSectionTokens(packet, name) : 0,
+      source: 'xuanpu-agent-xfp-compiler',
+      reason: included ? 'included by compiler' : omittedReasonByName.get(name),
+      metadata: {
+        packetId: packet.identity.packetId,
+        rawRefCount: countRawRefs(packet, name)
+      }
+    }
+  })
+}
+
+function estimateSectionTokens(packet: XfpFieldPacket, name: string): number {
+  const section = readPacketSection(packet, name)
+  if (section === undefined || section === null) return 0
+  return Math.ceil(JSON.stringify(section).length / 4)
+}
+
+function countRawRefs(packet: XfpFieldPacket, name: string): number {
+  const section = readPacketSection(packet, name)
+  if (!section || typeof section !== 'object') return 0
+  const rawRefs = (section as { rawRefs?: unknown }).rawRefs
+  if (Array.isArray(rawRefs)) return rawRefs.length
+  if (name === 'commandTrace' && Array.isArray(packet.commandTrace?.entries)) {
+    return packet.commandTrace.entries.reduce((total, entry) => total + entry.rawRefs.length, 0)
+  }
+  return 0
+}
+
+function readPacketSection(packet: XfpFieldPacket, name: string): unknown {
+  switch (name) {
+    case 'identity':
+      return packet.identity
+    case 'anchor':
+      return packet.anchor
+    case 'gitState':
+      return packet.gitState
+    case 'focus':
+      return packet.focus
+    case 'terminal':
+      return packet.terminal
+    case 'tests':
+      return packet.tests
+    case 'commandTrace':
+      return packet.commandTrace
+    case 'currentGoal':
+      return packet.currentGoal
+    case 'budget':
+      return packet.budget
+    default:
+      return undefined
   }
 }

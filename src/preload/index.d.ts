@@ -1525,6 +1525,21 @@ declare global {
       setEnabled: (enabled: boolean) => Promise<void>
       isEnabled: () => Promise<boolean>
     }
+    budgetOps: {
+      /** M3: Get Context Budget state for a xuanpu-agent session. */
+      getBudgetState: (sessionId: string) => Promise<{
+        profile: string
+        estimatedTokens: number
+        maxTokens: number
+        fillRatio: number
+        lastShrinkAt: number
+        emergencyShrunk: boolean
+        shrinkCount: number
+        totalBeforeBytes: number
+        totalAfterBytes: number
+        sectionStats: { included: number; omitted: number }
+      } | null>
+    }
     fieldOps: {
       reportWorktreeSwitch: (
         input: import('../shared/types/field-event').WorktreeSwitchInput

@@ -15,6 +15,7 @@
  *   - Every compression must be observable (Context Budget + Session HQ timeline)
  */
 import type { HarnessError } from '../harness/error-taxonomy'
+import { createHarnessError, HarnessErrorCode } from '../harness/error-taxonomy'
 
 // ───────────────────────────────────────────────────────────────────────────
 // Command types
@@ -27,19 +28,19 @@ import type { HarnessError } from '../harness/error-taxonomy'
  * Phase 2 (M3): package, container, aws, db, curl, proxy (30+ total)
  */
 export type CommandCategory =
-  | 'test'       // vitest / jest / pytest / cargo test / go test
-  | 'lint'       // tsc / eslint / ruff / clippy / biome
-  | 'git'        // git status / log / diff / add / commit / push / pull
-  | 'build'      // tsc --build / cargo build / next build / webpack
-  | 'file'       // cat / ls / head / tail / read
-  | 'search'     // rg / grep / find / fd
-  | 'package'    // pnpm / npm / yarn / pip / cargo add
-  | 'container'  // docker / kubectl
-  | 'aws'        // aws cli
-  | 'db'         // prisma / drizzle / sql
-  | 'curl'       // curl / wget
-  | 'proxy'      // pass-through, no compression (tracking only)
-  | 'unknown'    // fallback — apply head/tail truncation
+  | 'test' // vitest / jest / pytest / cargo test / go test
+  | 'lint' // tsc / eslint / ruff / clippy / biome
+  | 'git' // git status / log / diff / add / commit / push / pull
+  | 'build' // tsc --build / cargo build / next build / webpack
+  | 'file' // cat / ls / head / tail / read
+  | 'search' // rg / grep / find / fd
+  | 'package' // pnpm / npm / yarn / pip / cargo add
+  | 'container' // docker / kubectl
+  | 'aws' // aws cli
+  | 'db' // prisma / drizzle / sql
+  | 'curl' // curl / wget
+  | 'proxy' // pass-through, no compression (tracking only)
+  | 'unknown' // fallback — apply head/tail truncation
 
 // ───────────────────────────────────────────────────────────────────────────
 // Compression profile
@@ -166,6 +167,8 @@ export interface CommandCompressor {
  * Context about the command execution, used by compression strategies.
  */
 export interface CompressionMetadata {
+  /** Stable trace id for the command_traces row. */
+  readonly traceId?: string
   /** The original command string. */
   readonly command: string
   /** Exit code; non-zero biases towards FailureFocus strategies. */
@@ -193,13 +196,13 @@ export function compressionFailed(
   category: CommandCategory,
   traceId: string
 ): HarnessError {
-  const message =
-    originalError instanceof Error ? originalError.message : String(originalError)
-  // Dynamic import to avoid circular dependency between harness modules
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { createHarnessError, HarnessErrorCode } = require('../harness/error-taxonomy')
-  return createHarnessError(HarnessErrorCode.COMPRESSION_FAILURE, `compression failed for ${category}: ${message}`, {
-    traceId,
-    context: { category, cause: message }
-  })
+  const message = originalError instanceof Error ? originalError.message : String(originalError)
+  return createHarnessError(
+    HarnessErrorCode.COMPRESSION_FAILURE,
+    `compression failed for ${category}: ${message}`,
+    {
+      traceId,
+      context: { category, cause: message }
+    }
+  )
 }

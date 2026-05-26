@@ -11,6 +11,10 @@ import type {
   VoiceTranscriptionSessionOptions
 } from '@shared/types/voice'
 
+type PreloadMessagePart =
+  | { type: 'text'; text: string }
+  | { type: 'file'; mime: string; url: string; filename?: string }
+
 // Apply persisted UI zoom level from localStorage before first paint to avoid flash.
 // Ghostty's getContainerRect() has visualViewport.scale compensation for non-100% zoom.
 try {
@@ -521,7 +525,7 @@ const systemOps = {
       modelID: string
       variant?: string
     } | null
-  ): Promise<XuanpuAgentRuntimeStatus> =>
+  ): Promise<unknown> =>
     ipcRenderer.invoke('system:getXuanpuAgentRuntimeStatus', modelOverride ?? null),
 
   setKeepAwakeEnabled: (enabled: boolean): Promise<{ success: boolean }> =>
@@ -531,8 +535,7 @@ const systemOps = {
     ipcRenderer.invoke('system:setSessionQueuedState', sessionId, queued),
 
   // Run the first-launch onboarding doctor
-  runOnboardingDoctor: (): Promise<OnboardingDoctorResult> =>
-    ipcRenderer.invoke('system:runOnboardingDoctor'),
+  runOnboardingDoctor: (): Promise<unknown> => ipcRenderer.invoke('system:runOnboardingDoctor'),
 
   // Detect available VS Code / Cursor keybindings.json files for import
   detectKeybindingImportSources: (): Promise<
@@ -1373,7 +1376,7 @@ const agentOps = {
   steer: (
     worktreePath: string,
     sessionId: string,
-    messageOrParts: string | MessagePart[],
+    messageOrParts: string | PreloadMessagePart[],
     model?: { providerID: string; modelID: string; variant?: string },
     options?: { codexFastMode?: boolean }
   ): Promise<{ success: boolean; error?: string; errorCode?: string }> =>
@@ -2199,6 +2202,15 @@ const fieldOps = {
     ipcRenderer.invoke('field:clearEpisodic', worktreeId) as Promise<{ deleted: boolean }>
 }
 
+// M3 xuanpu-agent: Context Budget runtime state
+const budgetOps = {
+  getBudgetState: (sessionId: string) =>
+    ipcRenderer.invoke('xuanpu-agent:getBudgetState', sessionId) as Promise<Record<
+      string,
+      unknown
+    > | null>
+}
+
 // Hub mode (#34): mobile / remote-control over Claude Code sessions.
 // All channels prefix `hub:`; events are pushed via webContents.send.
 const hubOps = {
@@ -2251,6 +2263,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('analyticsOps', analyticsOps)
     contextBridge.exposeInMainWorld('skillOps', skillOps)
     contextBridge.exposeInMainWorld('fieldOps', fieldOps)
+    contextBridge.exposeInMainWorld('budgetOps', budgetOps)
     contextBridge.exposeInMainWorld('hubOps', hubOps)
     contextBridge.exposeInMainWorld('voiceOps', voiceOps)
   } catch (error) {
@@ -2295,6 +2308,8 @@ if (process.contextIsolated) {
   window.skillOps = skillOps
   // @ts-expect-error (define in dts)
   window.fieldOps = fieldOps
+  // @ts-expect-error (define in dts)
+  window.budgetOps = budgetOps
   // @ts-expect-error (define in dts)
   window.voiceOps = voiceOps
   // @ts-expect-error (define in dts)

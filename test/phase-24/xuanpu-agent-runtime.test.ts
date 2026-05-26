@@ -131,6 +131,21 @@ vi.mock('../../src/main/services/xuanpu-agent/pi-agent-core-loader', () => ({
   }))
 }))
 
+const EXPECTED_READ_ONLY_TOOL_NAMES = [
+  'git_status',
+  'read_file',
+  'rg_search',
+  'list_files',
+  'git_log',
+  'git_diff'
+]
+
+function recordedToolNames(): string[][] {
+  return fakeRuntime.setToolsCalls.map((tools) =>
+    tools.map((tool) => (tool as { name: string }).name)
+  )
+}
+
 describe('XuanpuPiAgentSession', () => {
   const previousMockResponse = process.env.XUANPU_AGENT_MOCK_RESPONSE
   const previousFakeEventMode = process.env.XUANPU_AGENT_FAKE_EVENT_MODE
@@ -168,7 +183,7 @@ describe('XuanpuPiAgentSession', () => {
     vi.resetModules()
   })
 
-  it('runs a no-tools prompt through the wrapped pi Agent', async () => {
+  it('runs a read-only-tools prompt through the wrapped pi Agent', async () => {
     process.env.XUANPU_AGENT_MOCK_RESPONSE = 'mock ok'
 
     const { XuanpuPiAgentSession } = await import('../../src/main/services/xuanpu-agent/runtime')
@@ -189,8 +204,11 @@ describe('XuanpuPiAgentSession', () => {
     expect(result.usage).toEqual({ input: 1, output: 2 })
     expect(deltas.join('')).toBe('mock ok')
     expect(fakeRuntime.prompts).toEqual(['hello'])
-    expect(fakeRuntime.setToolsCalls).toEqual([[], []])
-    expect(fakeRuntime.systemPrompts.at(-1)?.join('\n')).toContain('no-tools')
+    expect(recordedToolNames()).toEqual([
+      EXPECTED_READ_ONLY_TOOL_NAMES,
+      EXPECTED_READ_ONLY_TOOL_NAMES
+    ])
+    expect(fakeRuntime.systemPrompts.at(-1)?.join('\n')).toContain('read-only access')
 
     session.dispose()
     expect(fakeRuntime.aborts).toEqual(['abort'])
@@ -230,7 +248,10 @@ describe('XuanpuPiAgentSession', () => {
     expect((fakeRuntime.prompts[0] as FakePromptMessage[]).at(-1)?.content[0]?.text).toBe(
       'current request'
     )
-    expect(fakeRuntime.setToolsCalls).toEqual([[], []])
+    expect(recordedToolNames()).toEqual([
+      EXPECTED_READ_ONLY_TOOL_NAMES,
+      EXPECTED_READ_ONLY_TOOL_NAMES
+    ])
   })
 
   it('uses the latest assistant message from reused pi Agent state', async () => {

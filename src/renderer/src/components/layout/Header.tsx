@@ -26,6 +26,7 @@ import { useContextStore } from '@/stores/useContextStore'
 import { useSessionRuntimeStore, type SessionLifecycle } from '@/stores/useSessionRuntimeStore'
 import { ModelSelector } from '@/components/sessions/ModelSelector'
 import { SessionTabs } from '@/components/sessions/SessionTabs'
+import { BudgetBar } from '@/components/sessions/budget-bar'
 import { ErrorBoundary } from '@/components/error'
 
 import { usePRDetection } from '@/hooks/usePRDetection'
@@ -197,6 +198,7 @@ function HeaderSessionGlance({
           </span>
         </div>
       )}
+      {session.agent_sdk === 'xuanpu-agent' && <BudgetBar sessionId={session.id} />}
       {costLabel && (
         <span
           className="shrink-0 rounded-full border border-neon-pink/20 bg-neon-pink-soft px-1.5 py-0.5 font-mono text-[10px] text-neon-pink dark:bg-neon-pink-soft/40"
@@ -515,9 +517,7 @@ export function Header(): React.JSX.Element {
         size="icon"
         className="h-7 w-7 shrink-0 rounded-md text-muted-foreground hover:bg-muted/55 hover:text-foreground"
         title={
-          leftSidebarCollapsed
-            ? t('header.controls.showSidebar')
-            : t('header.controls.hideSidebar')
+          leftSidebarCollapsed ? t('header.controls.showSidebar') : t('header.controls.hideSidebar')
         }
         data-testid="left-sidebar-toggle"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}

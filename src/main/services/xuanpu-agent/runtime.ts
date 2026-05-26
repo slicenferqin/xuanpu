@@ -11,7 +11,13 @@ import {
   getXuanpuAgentSystemPromptLines
 } from './tool-policy'
 import { StormDetector } from './harness/tool-call-repair/storm'
-import { ToolOutputTruncator } from './harness/tool-call-repair/truncation'
+import { ToolOutputTruncator, type ArchivePayload } from './harness/tool-call-repair/truncation'
+import type { CommandProfiler, CommandCompressor } from './context/compressor'
+import {
+  ContextBudgetManager,
+  type BudgetProfile,
+  type BudgetState
+} from './context/budget-manager'
 
 interface PiTextContent {
   type: 'text'
@@ -72,14 +78,60 @@ export class XuanpuPiAgentSession {
   private agent: PiAgentLike | null = null
   private unsubscribe: (() => void) | null = null
   private lastModelKey: string | null = null
+  private _worktreePath: string | null = null
 
   /** M1.5: 工具调用去重检测。挂载为 beforeToolCall 钩子。 */
   readonly stormDetector = new StormDetector({ windowSize: 5, threshold: 3 })
 
   /** M1.5: 命令输出截断（head/tail MVP）。挂载为 afterToolCall 钩子。 */
-  readonly toolTruncator = new ToolOutputTruncator({ charThreshold: 12_000, headLines: 500, tailLines: 500 })
+  readonly toolTruncator = new ToolOutputTruncator({
+    charThreshold: 12_000,
+    headLines: 500,
+    tailLines: 500
+  })
+
+  /** M3: 上下文自动收缩管理器。挂载为 transformContext 钩子。 */
+  readonly budgetManager = new ContextBudgetManager()
 
   constructor(private readonly sessionId: string) {}
+
+  /** Set the current worktree path for tool context resolution. */
+  setWorktreePath(worktreePath: string): void {
+    this._worktreePath = worktreePath
+  }
+
+  /** M2: Configure compression (profiler + compressor + archive). */
+  configureCompression(
+    profiler: CommandProfiler,
+    compressor: CommandCompressor,
+    onArchive: (payload: ArchivePayload) => void
+  ): void {
+    this.toolTruncator.setProfiler(profiler)
+    this.toolTruncator.setCompressor(compressor)
+    this.toolTruncator.setOnArchive((payload) => {
+      // Track compression stats for budget UI
+      this.budgetManager.recordCompression(
+        Buffer.byteLength(payload.rawOutput, 'utf-8'),
+        Buffer.byteLength(payload.compressedOutput, 'utf-8')
+      )
+      onArchive(payload)
+    })
+  }
+
+  /** M3: Get budget state for IPC / UI. */
+  getBudgetState(): BudgetState {
+    return { ...this.budgetManager.state }
+  }
+
+  /** M3: Set budget profile from XFP compiler decision. */
+  setBudgetProfile(profile: BudgetProfile): void {
+    this.budgetManager.setProfile(profile)
+  }
+
+  /** M3: Record XFP compiler section decisions for Context Budget UI. */
+  recordBudgetSections(included: number, omitted: number): void {
+    this.budgetManager.recordSections(included, omitted)
+  }
 
   async prompt(
     input: string | XuanpuPiPromptMessage[],
@@ -179,6 +231,11 @@ export class XuanpuPiAgentSession {
         sessionId: this.sessionId,
         beforeToolCall: this.stormDetector.hook,
         afterToolCall: this.toolTruncator.hook,
+        transformContext: this.budgetManager.transformContext,
+        getToolContext: () => ({
+          worktreePath: this._worktreePath ?? undefined,
+          sessionId: this.sessionId
+        }),
         ...(typeof streamFn === 'function' ? { streamFn } : {})
       })
       const tools = getXuanpuAgentAllowedTools()

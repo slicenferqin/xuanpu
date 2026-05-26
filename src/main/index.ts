@@ -34,6 +34,7 @@ import {
   registerSkillHandlers,
   registerHubHandlers,
   registerFieldHandlers,
+  registerXuanpuAgentHandlers,
   registerVoiceHandlers,
   cleanupVoiceRuntime
 } from './ipc'
@@ -814,6 +815,7 @@ app.whenReady().then(async () => {
   // getSemanticMemory / getCheckpoint + the renderer-side reportXxx events
   // that the FieldContextDebug panel and others depend on.
   registerFieldHandlers()
+  registerXuanpuAgentHandlers()
 
   // Telemetry IPC
   ipcMain.handle(
@@ -865,6 +867,11 @@ app.whenReady().then(async () => {
         const xuanpuAgentImpl = new XuanpuAgentImplementer()
         xuanpuAgentImpl.setDatabaseService(getDatabase())
         runtimeImplementers.push(xuanpuAgentImpl)
+
+        // Register for IPC (Context Budget, etc.)
+        const { setXuanpuAgentRuntime } = await import('./ipc/xuanpu-agent-handlers')
+        setXuanpuAgentRuntime(xuanpuAgentImpl)
+
         log.info('Experimental xuanpu-agent runtime enabled')
       } catch (error) {
         log.error(

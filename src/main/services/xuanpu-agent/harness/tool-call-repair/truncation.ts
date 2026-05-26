@@ -3,17 +3,40 @@
  *
  * 挂在 pi-agent-core 的 `afterToolCall` 钩子上。
  * M1.5 阶段只做 head/tail 截断（前 500 行 + 后 500 行），
- * M2-M3 扩展到按命令类型差异化压缩（CommandProfiler profile）。
+ * M2 扩展到按命令类型差异化压缩（CommandProfiler + CommandCompressor）。
  *
  * 对应架构文档 §5.4 命令输出压缩（第一道防线）。
  */
 import type { AgentLoopConfig } from '@oh-my-pi/pi-agent-core'
+import { randomUUID } from 'node:crypto'
+import type {
+  CommandProfiler,
+  CommandCompressor,
+  CompressionMetadata
+} from '../../context/compressor'
 
 type AfterToolCallFn = NonNullable<AgentLoopConfig['afterToolCall']>
 
 // ───────────────────────────────────────────────────────────────────────────
 // Options
 // ───────────────────────────────────────────────────────────────────────────
+
+/** Payload passed to the archive callback after successful compression. */
+export interface ArchivePayload {
+  traceId: string
+  toolName: string
+  command: string
+  cwd: string
+  exitCode: number
+  durationMs: number
+  timedOut: boolean
+  aborted: boolean
+  rawOutput: string
+  compressedOutput: string
+  compressionRatio: number
+  category: string
+  ruleHits: string[]
+}
 
 interface TruncatorOptions {
   /** 字符数阈值：超过此值才触发截断。默认 12000（≈3000 token）。 */
@@ -24,6 +47,12 @@ interface TruncatorOptions {
   tailLines?: number
   /** 是否启用。可用于临时关闭。 */
   enabled?: boolean
+  /** M2: 命令分类器。设置后启用差异化压缩。 */
+  profiler?: CommandProfiler
+  /** M2: 命令压缩器。设置后启用差异化压缩。 */
+  compressor?: CommandCompressor
+  /** M2: 归档回调。每次压缩后调用，用于将原始输出写入 command_traces 表。 */
+  onArchive?: (payload: ArchivePayload) => void
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -35,12 +64,18 @@ export class ToolOutputTruncator {
   private readonly headLines: number
   private readonly tailLines: number
   private _enabled: boolean
+  private profiler?: CommandProfiler
+  private compressor?: CommandCompressor
+  private onArchive?: (payload: ArchivePayload) => void
 
   constructor(options: TruncatorOptions = {}) {
     this.charThreshold = options.charThreshold ?? 12_000
     this.headLines = options.headLines ?? 500
     this.tailLines = options.tailLines ?? 500
     this._enabled = options.enabled ?? true
+    this.profiler = options.profiler
+    this.compressor = options.compressor
+    this.onArchive = options.onArchive
   }
 
   get enabled(): boolean {
@@ -51,22 +86,128 @@ export class ToolOutputTruncator {
     this._enabled = value
   }
 
+  /** M2: Set the command profiler for differential compression. */
+  setProfiler(profiler: CommandProfiler): void {
+    this.profiler = profiler
+  }
+
+  /** M2: Set the command compressor for differential compression. */
+  setCompressor(compressor: CommandCompressor): void {
+    this.compressor = compressor
+  }
+
+  /** M2: Set the archive callback for writing raw output to command_traces. */
+  setOnArchive(callback: (payload: ArchivePayload) => void): void {
+    this.onArchive = callback
+  }
+
   /**
    * 返回一个 `afterToolCall` 钩子函数，可直接赋值给 `agent.afterToolCall`。
+   *
+   * M2 流程：profiler 分类 → compressor 压缩 → archive 回调
+   * 压缩失败时 fallback 到 head/tail 截断。
    */
   get hook(): AfterToolCallFn {
-    // eslint-disable-next-line @typescript-eslint/require-await
     return async (ctx) => {
       if (!this._enabled) return undefined
-      if (ctx.isError) return undefined // 错误结果不截断，让模型看到完整错误
 
       const text = extractText(ctx.result)
-      if (!text || text.length <= this.charThreshold) return undefined
+      if (!text) return undefined
 
+      const toolName = ctx.toolCall?.name ?? 'unknown'
+      const traceId = createCommandTraceId()
+      const command = extractCommand(ctx.result) || inferCommand(toolName, ctx.args)
+      const cwd = extractCwd(ctx.result)
+
+      if (text.length <= this.charThreshold) {
+        this.archive({
+          traceId,
+          toolName,
+          command,
+          cwd,
+          exitCode: ctx.isError ? 1 : 0,
+          durationMs: 0,
+          timedOut: false,
+          aborted: false,
+          rawOutput: text,
+          compressedOutput: text,
+          compressionRatio: 0,
+          category: this.profiler?.identify(command, cwd) ?? 'unknown',
+          ruleHits: ['trace:raw-small']
+        })
+        return undefined
+      }
+
+      // M2/M3: try profile compression first, including error outputs.
+      if (this.profiler && this.compressor) {
+        try {
+          const category = this.profiler.identify(command, cwd)
+          const profile = this.profiler.getProfile(category)
+          if (profile?.enabled) {
+            const metadata: CompressionMetadata = {
+              traceId,
+              command,
+              exitCode: ctx.isError ? 1 : 0,
+              durationMs: 0,
+              cwd,
+              timedOut: false,
+              aborted: false
+            }
+            const result = this.compressor.compress(text, profile, metadata)
+
+            if (result.compressionRatio > 0) {
+              this.archive({
+                traceId,
+                toolName,
+                command,
+                cwd,
+                exitCode: metadata.exitCode,
+                durationMs: metadata.durationMs,
+                timedOut: false,
+                aborted: false,
+                rawOutput: text,
+                compressedOutput: result.text,
+                compressionRatio: result.compressionRatio,
+                category,
+                ruleHits: [...result.ruleHits]
+              })
+
+              const note = [
+                `[Tool output compressed: ${result.beforeBytes} → ${result.afterBytes} bytes ` +
+                  `(${(result.compressionRatio * 100).toFixed(0)}% reduction, rules: ${result.ruleHits.join(', ')})]`,
+                `Raw output archived at command-trace:${traceId}.`
+              ].join(' ')
+              return {
+                content: [{ type: 'text', text: `${result.text}\n\n---\n${note}` }]
+              }
+            }
+          }
+        } catch {
+          // Compression failed — fall through to head/tail truncation
+        }
+      }
+
+      // Fallback: head/tail truncation
       const compressed = this.truncate(text)
+      const compressionRatio = text.length > 0 ? 1 - compressed.length / text.length : 0
+      this.archive({
+        traceId,
+        toolName,
+        command,
+        cwd,
+        exitCode: ctx.isError ? 1 : 0,
+        durationMs: 0,
+        timedOut: false,
+        aborted: false,
+        rawOutput: text,
+        compressedOutput: compressed,
+        compressionRatio,
+        category: this.profiler?.identify(command, cwd) ?? 'unknown',
+        ruleHits: ['fallback:head-tail']
+      })
       const note = [
         `[Tool output compressed: ${text.length} → ${compressed.length} chars (head ${this.headLines} + tail ${this.tailLines} lines)]`,
-        `Raw output available via tool result reference.`
+        `Raw output archived at command-trace:${traceId}.`
       ].join(' ')
 
       return {
@@ -90,6 +231,16 @@ export class ToolOutputTruncator {
       tail
     ].join('\n')
   }
+
+  private archive(payload: ArchivePayload): void {
+    if (!this.onArchive) return
+
+    try {
+      this.onArchive(payload)
+    } catch {
+      // Archive failure is non-fatal. The model still receives compressed output.
+    }
+  }
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -107,7 +258,9 @@ function extractText(result: unknown): string | null {
     return r.content
       .filter(
         (part: unknown): part is { type: 'text'; text: string } =>
-          typeof part === 'object' && part !== null && (part as Record<string, string>).type === 'text'
+          typeof part === 'object' &&
+          part !== null &&
+          (part as Record<string, string>).type === 'text'
       )
       .map((part) => part.text)
       .join('\n')
@@ -118,4 +271,56 @@ function extractText(result: unknown): string | null {
   if (typeof r.output === 'string') return r.output
 
   return null
+}
+
+function extractCwd(result: unknown): string {
+  if (!result || typeof result !== 'object') return ''
+  const details = (result as { details?: unknown }).details
+  if (!details || typeof details !== 'object') return ''
+  const cwd = (details as Record<string, unknown>).cwd
+  return typeof cwd === 'string' ? cwd : ''
+}
+
+function extractCommand(result: unknown): string | null {
+  if (!result || typeof result !== 'object') return null
+  const details = (result as { details?: unknown }).details
+  if (!details || typeof details !== 'object') return null
+  const command = (details as Record<string, unknown>).command
+  return typeof command === 'string' && command.trim() ? command : null
+}
+
+function inferCommand(toolName: string, args: Record<string, unknown>): string {
+  switch (toolName) {
+    case 'git_status':
+      return args.path ? `git status -- ${String(args.path)}` : 'git status'
+    case 'git_log': {
+      const n = typeof args.n === 'number' ? args.n : 10
+      const branch = typeof args.branch === 'string' ? ` ${args.branch}` : ''
+      const targetPath = typeof args.path === 'string' ? ` -- ${args.path}` : ''
+      return `git log -${n}${branch}${targetPath}`
+    }
+    case 'git_diff': {
+      const flags = [
+        args.staged ? '--staged' : null,
+        typeof args.branch === 'string' ? args.branch : null,
+        typeof args.path === 'string' ? `-- ${args.path}` : null
+      ].filter((part): part is string => Boolean(part))
+      return ['git diff', ...flags].join(' ')
+    }
+    case 'rg_search': {
+      const pattern = typeof args.pattern === 'string' ? args.pattern : ''
+      const targetPath = typeof args.path === 'string' ? ` ${args.path}` : ''
+      return `rg ${pattern}${targetPath}`.trim()
+    }
+    case 'read_file':
+      return typeof args.path === 'string' ? `cat ${args.path}` : 'cat'
+    case 'list_files':
+      return typeof args.path === 'string' ? `ls ${args.path}` : 'ls'
+    default:
+      return toolName
+  }
+}
+
+function createCommandTraceId(): string {
+  return `cmd-${randomUUID()}`
 }

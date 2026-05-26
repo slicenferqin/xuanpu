@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3'
 import { app } from 'electron'
-import { dirname } from 'path'
-import { existsSync, mkdirSync } from 'fs'
+import { dirname, join } from 'path'
+import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { randomUUID } from 'crypto'
 import { MIGRATIONS } from './schema'
 import { getActiveAppDatabasePath } from '@shared/app-identity'
@@ -43,6 +43,25 @@ import type {
   ConnectionWithMembers
 } from './types'
 import type { DiffComment, DiffCommentCreate, DiffCommentUpdate } from '@shared/types/git'
+
+export interface CommandTraceSummary {
+  id: string
+  sessionId: string | null
+  worktreeId: string | null
+  command: string
+  cwd: string | null
+  exitCode: number | null
+  durationMs: number | null
+  timedOut: boolean
+  aborted: boolean
+  rawOutputRef: string | null
+  rawOutputBytes: number | null
+  compressedOutput: string | null
+  compressionRatio: number | null
+  category: string | null
+  ruleHits: string | null
+  createdAt: string
+}
 
 export class DatabaseService {
   private db: Database.Database | null = null
@@ -173,6 +192,38 @@ export class DatabaseService {
     this.ensureFieldContextPackagesTable()
     this.ensureDiffCommentsTable()
     this.ensureSessionPendingMessagesTable()
+    this.ensureCommandTracesTable()
+  }
+
+  private ensureCommandTracesTable(): void {
+    const db = this.getDb()
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS command_traces (
+        id TEXT PRIMARY KEY,
+        session_id TEXT,
+        worktree_id TEXT,
+        command TEXT NOT NULL,
+        cwd TEXT,
+        exit_code INTEGER,
+        duration_ms INTEGER,
+        timed_out INTEGER NOT NULL DEFAULT 0,
+        aborted INTEGER NOT NULL DEFAULT 0,
+        raw_output_ref TEXT NOT NULL,
+        raw_output_bytes INTEGER NOT NULL DEFAULT 0,
+        compressed_output TEXT,
+        compression_ratio REAL,
+        category TEXT,
+        rule_hits TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_command_traces_session
+        ON command_traces(session_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_command_traces_worktree
+        ON command_traces(worktree_id, created_at DESC);
+    `)
+
+    this.safeAddColumn('command_traces', 'raw_output_ref', 'TEXT')
+    this.safeAddColumn('command_traces', 'raw_output_bytes', 'INTEGER')
   }
 
   private ensureFieldContextPackagesTable(): void {
@@ -678,6 +729,141 @@ export class DatabaseService {
    */
   getDbHandle(): Database.Database {
     return this.getDb()
+  }
+
+  // ── Command traces (M2 xuanpu-agent) ──────────────────────────────────
+
+  createCommandTrace(entry: {
+    traceId: string
+    sessionId?: string
+    worktreeId?: string
+    command: string
+    cwd?: string
+    exitCode?: number
+    durationMs?: number
+    timedOut?: boolean
+    aborted?: boolean
+    rawOutput: string
+    compressedOutput?: string
+    compressionRatio?: number
+    category?: string
+    ruleHits?: string
+  }): void {
+    const db = this.getDb()
+    const rawOutputRef = this.writeCommandTraceArtifact(entry.traceId, entry.rawOutput, {
+      sessionId: entry.sessionId,
+      worktreeId: entry.worktreeId
+    })
+    const rawOutputBytes = Buffer.byteLength(entry.rawOutput, 'utf-8')
+    const columns = this.getTableColumns('command_traces')
+    const values: Array<[string, unknown]> = [
+      ['id', entry.traceId],
+      ['session_id', entry.sessionId ?? null],
+      ['worktree_id', entry.worktreeId ?? null],
+      ['command', entry.command],
+      ['cwd', entry.cwd ?? null],
+      ['exit_code', entry.exitCode ?? null],
+      ['duration_ms', entry.durationMs ?? null],
+      ['timed_out', entry.timedOut ? 1 : 0],
+      ['aborted', entry.aborted ? 1 : 0],
+      ['compressed_output', entry.compressedOutput ?? null],
+      ['compression_ratio', entry.compressionRatio ?? null],
+      ['category', entry.category ?? null],
+      ['rule_hits', entry.ruleHits ?? null],
+      ['created_at', new Date().toISOString()]
+    ]
+
+    if (columns.has('raw_output_ref')) values.push(['raw_output_ref', rawOutputRef])
+    if (columns.has('raw_output_bytes')) values.push(['raw_output_bytes', rawOutputBytes])
+    if (columns.has('raw_output')) values.push(['raw_output', ''])
+
+    const columnNames = values.map(([column]) => column).join(', ')
+    const placeholders = values.map(() => '?').join(', ')
+    db.prepare(`INSERT INTO command_traces (${columnNames}) VALUES (${placeholders})`).run(
+      ...values.map(([, value]) => value)
+    )
+  }
+
+  listRecentCommandTraces(input: { sessionId?: string; worktreeId?: string; limit?: number }): {
+    entries: CommandTraceSummary[]
+    totalAvailable: number
+  } {
+    const db = this.getDb()
+    if (!this.tableExists('command_traces')) {
+      return { entries: [], totalAvailable: 0 }
+    }
+
+    const where: string[] = []
+    const params: unknown[] = []
+    if (input.sessionId) {
+      where.push('session_id = ?')
+      params.push(input.sessionId)
+    }
+    if (input.worktreeId) {
+      where.push('worktree_id = ?')
+      params.push(input.worktreeId)
+    }
+    if (where.length === 0) return { entries: [], totalAvailable: 0 }
+
+    const whereSql = where.map((clause) => `(${clause})`).join(' OR ')
+    const totalRow = db
+      .prepare(`SELECT COUNT(*) AS count FROM command_traces WHERE ${whereSql}`)
+      .get(...params) as { count: number } | undefined
+    const limit = Math.max(1, Math.min(input.limit ?? 8, 50))
+    const rows = db
+      .prepare(
+        `SELECT
+           id, session_id, worktree_id, command, cwd, exit_code, duration_ms,
+           timed_out, aborted, raw_output_ref, raw_output_bytes, compressed_output,
+           compression_ratio, category, rule_hits, created_at
+         FROM command_traces
+         WHERE ${whereSql}
+         ORDER BY datetime(created_at) DESC
+         LIMIT ?`
+      )
+      .all(...params, limit) as Array<Record<string, unknown>>
+
+    return {
+      entries: rows.map((row) => ({
+        id: row.id as string,
+        sessionId: (row.session_id as string | null) ?? null,
+        worktreeId: (row.worktree_id as string | null) ?? null,
+        command: row.command as string,
+        cwd: (row.cwd as string | null) ?? null,
+        exitCode: (row.exit_code as number | null) ?? null,
+        durationMs: (row.duration_ms as number | null) ?? null,
+        timedOut: ((row.timed_out as number | null) ?? 0) === 1,
+        aborted: ((row.aborted as number | null) ?? 0) === 1,
+        rawOutputRef: (row.raw_output_ref as string | null) ?? null,
+        rawOutputBytes: (row.raw_output_bytes as number | null) ?? null,
+        compressedOutput: (row.compressed_output as string | null) ?? null,
+        compressionRatio: (row.compression_ratio as number | null) ?? null,
+        category: (row.category as string | null) ?? null,
+        ruleHits: (row.rule_hits as string | null) ?? null,
+        createdAt: row.created_at as string
+      })),
+      totalAvailable: totalRow?.count ?? 0
+    }
+  }
+
+  private writeCommandTraceArtifact(
+    traceId: string,
+    rawOutput: string,
+    scope: { sessionId?: string; worktreeId?: string }
+  ): string {
+    const scopeId = sanitizePathSegment(scope.sessionId ?? scope.worktreeId ?? 'global')
+    const fileName = `${sanitizePathSegment(traceId)}.log`
+    const dir = join(dirname(this.dbPath), 'command-traces', scopeId)
+    mkdirSync(dir, { recursive: true })
+    const filePath = join(dir, fileName)
+    writeFileSync(filePath, rawOutput, 'utf-8')
+    return filePath
+  }
+
+  private getTableColumns(table: string): Set<string> {
+    const db = this.getDb()
+    const columns = db.pragma(`table_info(${table})`) as { name: string }[]
+    return new Set(columns.map((column) => column.name))
   }
 
   // Settings operations
@@ -2721,4 +2907,8 @@ export function closeDatabase(): void {
     dbService.close()
     dbService = null
   }
+}
+
+function sanitizePathSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120) || 'unknown'
 }

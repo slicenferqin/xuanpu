@@ -12,13 +12,13 @@ import { Process } from '../../src/main/services/xuanpu-agent/pi-natives-compat'
 import { Database } from '../../src/main/services/xuanpu-agent/bun-sqlite-compat'
 
 describe('xuanpu-agent native and tool policy', () => {
-  it('keeps agent runtime capabilities aligned with the no-tools policy', () => {
+  it('keeps agent runtime capabilities aligned with the read-only tool policy', () => {
     expect(XUANPU_AGENT_TOOL_POLICY).toMatchObject({
-      toolsEnabled: false,
+      toolsEnabled: true,
       nativeProcessControlEnabled: false,
-      strategy: 'no-tools-compat-native',
+      strategy: 'read-only-harness',
       nativePackaging: 'compat-alias-inert',
-      toolSurfaceStatus: 'blocked'
+      toolSurfaceStatus: 'read-only'
     })
     expect(XUANPU_AGENT_CAPABILITIES.supportsCommands).toBe(false)
     expect(XUANPU_AGENT_CAPABILITIES.supportsPermissionRequests).toBe(false)
@@ -27,12 +27,19 @@ describe('xuanpu-agent native and tool policy', () => {
     expect(XUANPU_AGENT_CAPABILITIES.supportsRedo).toBe(false)
   })
 
-  it('allows only an empty oh-my-pi tool list', () => {
+  it('allows only the read-only oh-my-pi tool list', () => {
     const tools = getXuanpuAgentAllowedTools()
-    expect(tools).toEqual([])
+    expect(tools.map((tool) => (tool as { name: string }).name)).toEqual([
+      'git_status',
+      'read_file',
+      'rg_search',
+      'list_files',
+      'git_log',
+      'git_diff'
+    ])
     expect(() => assertXuanpuAgentAllowedTools(tools)).not.toThrow()
     expect(() => assertXuanpuAgentAllowedTools([{ name: 'shell' }])).toThrow(
-      /xuanpu-agent tools are disabled/
+      /can only expose read-only M2 tools/
     )
   })
 
@@ -46,25 +53,32 @@ describe('xuanpu-agent native and tool policy', () => {
       'ui-capability-gate',
       'mcp-boundary'
     ])
-    expect(gates.every((gate) => gate.required && !gate.satisfied)).toBe(true)
+    expect(gates.find((gate) => gate.id === 'permission-policy')?.satisfied).toBe(true)
+    expect(
+      gates
+        .filter((gate) => gate.id !== 'permission-policy')
+        .every((gate) => gate.required && !gate.satisfied)
+    ).toBe(true)
 
     expect(() => assertXuanpuAgentToolSurfaceReady()).toThrow(
       [
         `xuanpu-agent tools are disabled: ${XUANPU_AGENT_TOOL_POLICY.reason}`,
-        'Unmet gates: permission-policy, checkpoint-policy, tool-audit, native-packaging, ui-capability-gate, mcp-boundary'
+        'Unmet gates: checkpoint-policy, tool-audit, native-packaging, ui-capability-gate, mcp-boundary'
       ].join('\n')
     )
     expect(() => assertXuanpuAgentAllowedTools([{ name: 'write' }])).toThrow(
-      /Unmet gates: permission-policy, checkpoint-policy, tool-audit, native-packaging, ui-capability-gate, mcp-boundary/
+      /Disallowed tools: write/
     )
   })
 
-  it('keeps the system prompt explicit about unavailable tools', () => {
+  it('keeps the system prompt explicit about read-only tools and unavailable writes', () => {
     const prompt = getXuanpuAgentSystemPromptLines().join('\n')
-    expect(prompt).toContain('no-tools')
-    expect(prompt).toContain('Shell')
-    expect(prompt).toContain('file editing')
-    expect(prompt).toContain('native process tools are disabled')
+    expect(prompt).toContain('read-only access')
+    expect(prompt).toContain('git_status')
+    expect(prompt).toContain('rg_search')
+    expect(prompt).toContain('run shell commands')
+    expect(prompt).toContain('edit files')
+    expect(prompt).toContain('MCP')
   })
 
   it('keeps pi-natives process control inert in the compatibility alias', async () => {

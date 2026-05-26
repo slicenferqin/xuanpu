@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 28
+export const CURRENT_SCHEMA_VERSION = 30
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -1008,5 +1008,44 @@ export const MIGRATIONS: Migration[] = [
     name: 'repair_session_activities_sequence',
     up: `-- handled idempotently by ensureSessionActivitySequenceColumn() in database.ts`,
     down: `DROP INDEX IF EXISTS idx_session_activities_session_seq;`
+  },
+  {
+    version: 29,
+    name: 'add_command_traces_table',
+    up: `
+      CREATE TABLE IF NOT EXISTS command_traces (
+        id TEXT PRIMARY KEY,
+        session_id TEXT,
+        worktree_id TEXT,
+        command TEXT NOT NULL,
+        cwd TEXT,
+        exit_code INTEGER,
+        duration_ms INTEGER,
+        timed_out INTEGER NOT NULL DEFAULT 0,
+        aborted INTEGER NOT NULL DEFAULT 0,
+        raw_output_ref TEXT NOT NULL,
+        raw_output_bytes INTEGER NOT NULL DEFAULT 0,
+        compressed_output TEXT,
+        compression_ratio REAL,
+        category TEXT,
+        rule_hits TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_command_traces_session
+        ON command_traces(session_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_command_traces_worktree
+        ON command_traces(worktree_id, created_at DESC);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_command_traces_worktree;
+      DROP INDEX IF EXISTS idx_command_traces_session;
+      DROP TABLE IF EXISTS command_traces;
+    `
+  },
+  {
+    version: 30,
+    name: 'repair_command_traces_raw_refs',
+    up: `-- handled idempotently by ensureCommandTracesTable() in database.ts`,
+    down: `-- SQLite cannot DROP COLUMN reliably across versions; this is a no-op for safety`
   }
 ]
