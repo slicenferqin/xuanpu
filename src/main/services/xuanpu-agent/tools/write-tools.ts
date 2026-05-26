@@ -35,6 +35,11 @@ interface ToolDetails {
   durationMs?: number
   timedOut?: boolean
   aborted?: boolean
+  longRunning?: boolean
+  supervision?: {
+    longRunningThresholdMs: number
+    notifiedAtMs: number | null
+  }
 }
 
 interface XuanpuToolContext extends AgentToolContext {
@@ -331,8 +336,10 @@ async function runProcess(
   options: {
     cwd: string
     timeoutMs: number
+    longRunningMs?: number
     input?: string
     signal?: AbortSignal
+    onLongRunning?: (elapsedMs: number) => void
   }
 ): Promise<ProcessResult> {
   const startedAt = Date.now()
@@ -352,6 +359,7 @@ async function runProcess(
       if (settled) return
       settled = true
       clearTimeout(timer)
+      clearTimeout(longRunningTimer)
       options.signal?.removeEventListener('abort', abortHandler)
       const output = [stdout, stderr].filter((part) => part.length > 0).join('\n')
       resolve({
@@ -372,6 +380,10 @@ async function runProcess(
         if (!settled) child.kill('SIGKILL')
       }, 2_000).unref()
     }, options.timeoutMs)
+    const longRunningTimer = setTimeout(() => {
+      if (!settled) options.onLongRunning?.(Date.now() - startedAt)
+    }, options.longRunningMs ?? 5_000)
+    longRunningTimer.unref()
 
     const abortHandler = (): void => {
       aborted = true
@@ -856,6 +868,7 @@ interface RunTestParams {
   command?: string
   args?: string[]
   timeoutMs?: number
+  longRunningMs?: number
 }
 
 const runTestParams = {
@@ -871,7 +884,14 @@ const runTestParams = {
       items: { type: 'string' },
       description: 'Command argv tokens. Prefer this when paths contain spaces.'
     },
-    timeoutMs: { type: 'integer', minimum: 1000, maximum: 120000, default: 60000 }
+    timeoutMs: { type: 'integer', minimum: 1000, maximum: 120000, default: 60000 },
+    longRunningMs: {
+      type: 'integer',
+      minimum: 100,
+      maximum: 60000,
+      default: 5000,
+      description: 'Emit a supervision update when the command runs longer than this threshold.'
+    }
   }
 } as unknown as JsonSchema<RunTestParams>
 
@@ -884,20 +904,48 @@ export const runTestTool: AgentTool<typeof runTestParams> = {
   concurrency: 'exclusive',
   loadMode: 'essential',
   summary: 'Run a focused vitest/pnpm test command with compressed output',
-  async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+  async execute(_toolCallId, params, signal, onUpdate, ctx) {
     const worktreePath = resolveWorktreePath(ctx)
     try {
       const { command, args } = resolveTestCommand(params)
       const displayCommand = formatCommand(command, args)
+      const longRunningThresholdMs = Math.max(
+        100,
+        Math.min(params.longRunningMs ?? 5_000, 60_000)
+      )
       const details: ToolDetails = {
         command: displayCommand,
         cwd: worktreePath,
-        operation: 'test'
+        operation: 'test',
+        supervision: {
+          longRunningThresholdMs,
+          notifiedAtMs: null
+        }
       }
       const result = await runProcess(command, args, {
         cwd: worktreePath,
         timeoutMs: Math.max(1000, Math.min(params.timeoutMs ?? 60_000, 120_000)),
-        signal
+        longRunningMs: longRunningThresholdMs,
+        signal,
+        onLongRunning: (elapsedMs) => {
+          details.longRunning = true
+          details.supervision = {
+            longRunningThresholdMs,
+            notifiedAtMs: elapsedMs
+          }
+          onUpdate?.({
+            content: [
+              {
+                type: 'text',
+                text: `Command still running after ${elapsedMs}ms: ${displayCommand}`
+              }
+            ],
+            details: {
+              ...details,
+              durationMs: elapsedMs
+            }
+          })
+        }
       })
       Object.assign(details, {
         exitCode: result.exitCode,

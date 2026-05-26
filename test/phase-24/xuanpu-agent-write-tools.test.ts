@@ -1,7 +1,7 @@
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   applyPatchTool,
   editFileTool,
@@ -18,6 +18,11 @@ interface ToolDetails {
   reverseDiff?: string
   filesAffected?: string[]
   sourceContextRefs?: string[]
+  longRunning?: boolean
+  supervision?: {
+    longRunningThresholdMs: number
+    notifiedAtMs: number | null
+  }
 }
 
 const tempDirs: string[] = []
@@ -216,16 +221,34 @@ describe('xuanpu-agent M4 controlled write tools', () => {
     expect(blocked.isError).toBe(true)
     expect(textOf(blocked)).toContain('only allows focused test commands')
 
+    const updates = vi.fn()
     const allowed = await runTestTool.execute(
       'tool-2',
-      { args: ['pnpm', 'vitest', 'run', 'test/phase-24/xuanpu-agent-tool-policy.test.ts'] },
+      {
+        args: ['pnpm', 'vitest', 'run', 'test/phase-24/xuanpu-agent-tool-policy.test.ts'],
+        longRunningMs: 100
+      },
       undefined,
-      undefined,
+      updates,
       { worktreePath: process.cwd(), sessionId: 'session-test' }
     )
     expect(allowed.details).toMatchObject({
-      command: 'pnpm vitest run test/phase-24/xuanpu-agent-tool-policy.test.ts'
+      command: 'pnpm vitest run test/phase-24/xuanpu-agent-tool-policy.test.ts',
+      supervision: expect.objectContaining({ longRunningThresholdMs: 100 })
     })
+    expect(updates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: [
+          expect.objectContaining({
+            text: expect.stringContaining('Command still running after')
+          })
+        ],
+        details: expect.objectContaining({
+          command: 'pnpm vitest run test/phase-24/xuanpu-agent-tool-policy.test.ts',
+          longRunning: true
+        })
+      })
+    )
   })
 
   it('registers format_file as a preview-gated write tool', () => {

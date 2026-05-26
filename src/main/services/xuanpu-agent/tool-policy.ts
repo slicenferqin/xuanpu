@@ -94,7 +94,7 @@ export function getXuanpuAgentSystemPromptLines(): string[] {
     '  apply_patch — preview and apply a unified patch after git apply --check',
     '  write_file  — preview and create/replace a file',
     '  edit_file   — preview and replace exact text in a file',
-    '  run_test    — run an allowlisted focused test command; output is compressed/archived',
+    '  run_test    — run an allowlisted focused test command with timeout and long-running supervision; output is compressed/archived',
     '  format_file — preview and format one file with project prettier',
     'Write tools default to preview-only. To apply a write, call the same tool with confirm=true and the returned previewToken. Do not invent preview tokens.',
     'Dangerous paths (.git, node_modules, build outputs, secrets files, and worktree escapes) are blocked.',
