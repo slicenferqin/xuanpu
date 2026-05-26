@@ -14,7 +14,12 @@
 
 import { z } from 'zod'
 
-import type { MinimalFieldPacket, XfpFieldPacket, XfpRawRefKind } from './types'
+import type {
+  MinimalFieldPacket,
+  XfpFieldPacket,
+  XfpRawRefKind,
+  XfpWorkflowParameter
+} from './types'
 
 // ---------------------------------------------------------------------------
 // Raw refs
@@ -177,6 +182,34 @@ export const XfpRetrievedMemorySectionSchema = z.object({
 })
 
 // ---------------------------------------------------------------------------
+// Retrieved workflow templates
+// ---------------------------------------------------------------------------
+
+export const XfpWorkflowParameterSchema = z.object({
+  name: z.string().min(1),
+  kind: z.enum(['path', 'number', 'sha', 'value']),
+  example: z.string().nullable()
+}) satisfies z.ZodType<XfpWorkflowParameter>
+
+export const XfpRetrievedWorkflowEntrySchema = z.object({
+  workflowId: z.string().min(1),
+  title: z.string().min(1),
+  signature: z.string().min(1),
+  commandTemplate: z.string().min(1),
+  parameters: z.array(XfpWorkflowParameterSchema),
+  path: z.string().min(1),
+  retrievalReason: z.string().min(1),
+  occurrenceCount: z.number().int().positive(),
+  successRate: z.number().min(0).max(1).nullable(),
+  rawRefs: rawRefsArraySchema.min(1)
+})
+
+export const XfpRetrievedWorkflowSectionSchema = z.object({
+  entries: z.array(XfpRetrievedWorkflowEntrySchema),
+  totalAvailable: z.number().int().nonnegative()
+})
+
+// ---------------------------------------------------------------------------
 // Task goal
 // ---------------------------------------------------------------------------
 
@@ -226,6 +259,7 @@ export const XfpFieldPacketSchema = z.object({
   tests: XfpTestSummarySchema.nullable(),
   commandTrace: XfpCommandTraceSectionSchema.nullable(),
   retrievedMemory: XfpRetrievedMemorySectionSchema.nullable(),
+  retrievedWorkflows: XfpRetrievedWorkflowSectionSchema.nullable(),
   currentGoal: XfpTaskGoalSchema,
   budget: XfpBudgetSectionSchema
 }) satisfies z.ZodType<XfpFieldPacket>

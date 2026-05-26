@@ -239,6 +239,40 @@ export interface XfpRetrievedMemorySection {
 }
 
 // ---------------------------------------------------------------------------
+// Section 5c: Retrieved workflow templates
+// @cacheStability mixed
+//
+// M6 trace materialization turns frequent command traces into parameterized
+// workflow templates under `.agent/workflows/`. The packet includes only the
+// compact reusable shape; raw trace ids and the on-disk template stay behind
+// raw refs so the model can reuse the path without receiving raw command logs.
+// ---------------------------------------------------------------------------
+
+export interface XfpWorkflowParameter {
+  name: string
+  kind: 'path' | 'number' | 'sha' | 'value'
+  example: string | null
+}
+
+export interface XfpRetrievedWorkflowEntry {
+  workflowId: string
+  title: string
+  signature: string
+  commandTemplate: string
+  parameters: XfpWorkflowParameter[]
+  path: string
+  retrievalReason: string
+  occurrenceCount: number
+  successRate: number | null
+  rawRefs: XfpRawRef[]
+}
+
+export interface XfpRetrievedWorkflowSection {
+  entries: XfpRetrievedWorkflowEntry[]
+  totalAvailable: number
+}
+
+// ---------------------------------------------------------------------------
 // Section 6: Current task goal (what the user is actively asking for)
 // @cacheStability volatile
 //
@@ -309,8 +343,8 @@ export interface XfpAnchorSection {
  *
  * @invariant version === 1 for all v1 packets; v2 will set version === 2.
  * @invariant identity, gitState, focus, currentGoal are REQUIRED.
- * @invariant terminal, tests, commandTrace, retrievedMemory, anchor MAY be null when no
- *            relevant signal exists for this packet.
+ * @invariant terminal, tests, commandTrace, retrievedMemory, retrievedWorkflows, anchor MAY be
+ *            null when no relevant signal exists for this packet.
  */
 export interface XfpFieldPacket {
   version: 1
@@ -322,6 +356,7 @@ export interface XfpFieldPacket {
   tests: XfpTestSummary | null
   commandTrace: XfpCommandTraceSection | null
   retrievedMemory: XfpRetrievedMemorySection | null
+  retrievedWorkflows: XfpRetrievedWorkflowSection | null
   currentGoal: XfpTaskGoal
   budget: XfpBudgetSection
 }

@@ -137,6 +137,26 @@ export function fullXfpPacketExample(): XfpFieldPacket {
       ],
       totalAvailable: 1
     },
+    retrievedWorkflows: {
+      entries: [
+        {
+          workflowId: 'workflow-vitest-focused',
+          title: 'Focused vitest run',
+          signature: 'pnpm vitest run {path}',
+          commandTemplate: 'pnpm vitest run {{path1}}',
+          parameters: [{ name: 'path1', kind: 'path', example: 'test/xfp/xfp-packet.test.ts' }],
+          path: '.agent/workflows/focused-vitest-run.json',
+          retrievalReason: 'command keyword match: vitest',
+          occurrenceCount: 4,
+          successRate: 0.75,
+          rawRefs: [
+            { kind: 'file', id: '.agent/workflows/focused-vitest-run.json' },
+            { kind: 'command-trace', id: 'trace-001' }
+          ]
+        }
+      ],
+      totalAvailable: 1
+    },
     currentGoal: {
       objective: 'Define the XFP v1 packet types and Zod schema so the compiler can land in M1.',
       source: 'user-message',

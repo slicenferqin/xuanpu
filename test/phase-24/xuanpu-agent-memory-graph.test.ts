@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { extractMemoryProposalDrafts } from '../../src/main/services/xuanpu-agent/memory/memory-extractor'
 import { selectRetrievedMemoryForContext } from '../../src/main/services/xuanpu-agent/memory/memory-retrieval'
-import { detectFrequentTraceCandidates } from '../../src/main/services/xuanpu-agent/memory/trace-materialization'
+import {
+  detectFrequentTraceCandidates,
+  loadTraceWorkflowTemplates,
+  materializeTraceWorkflowTemplates,
+  retrieveTraceWorkflowsForContext
+} from '../../src/main/services/xuanpu-agent/memory/trace-materialization'
 import type { FieldMemoryPageRecord } from '../../src/shared/types/field-memory'
 
 describe('xuanpu-agent M5 memory graph', () => {
@@ -77,6 +85,50 @@ describe('xuanpu-agent M5 memory graph', () => {
       })
     ])
     expect(candidates[0].signature).toContain('{path}')
+  })
+
+  it('materializes frequent command traces into reusable workflow templates', () => {
+    const worktreePath = mkdtempSync(join(tmpdir(), 'xuanpu-agent-workflows-'))
+    try {
+      const candidates = detectFrequentTraceCandidates([
+        trace('trace-1', 'pnpm vitest run test/phase-24/a.test.ts'),
+        trace('trace-2', 'pnpm vitest run test/phase-24/b.test.ts'),
+        trace('trace-3', 'pnpm vitest run test/phase-24/c.test.ts')
+      ])
+
+      const materialized = materializeTraceWorkflowTemplates({
+        worktreePath,
+        projectId: 'project-1',
+        worktreeId: 'worktree-1',
+        candidates,
+        now: new Date('2026-05-27T00:00:00.000Z')
+      })
+
+      expect(materialized).toHaveLength(1)
+      expect(materialized[0].relativePath).toMatch(/^\.agent\/workflows\/.+\.json$/)
+      expect(existsSync(materialized[0].filePath)).toBe(true)
+
+      const template = JSON.parse(readFileSync(materialized[0].filePath, 'utf-8')) as {
+        signature: string
+        steps: Array<{ commandTemplate: string; parameters: Array<{ name: string }> }>
+      }
+      expect(template.signature).toContain('{path}')
+      expect(template.steps[0].commandTemplate).toContain('{{path1}}')
+      expect(template.steps[0].parameters).toEqual([
+        expect.objectContaining({ name: 'path1', kind: 'path' })
+      ])
+
+      const retrieved = retrieveTraceWorkflowsForContext({
+        userText: '继续跑 vitest 测试',
+        workflows: loadTraceWorkflowTemplates(worktreePath)
+      })
+      expect(retrieved[0]).toMatchObject({
+        relativePath: materialized[0].relativePath,
+        retrievalReason: expect.stringContaining('matched workflow hints')
+      })
+    } finally {
+      rmSync(worktreePath, { recursive: true, force: true })
+    }
   })
 })
 

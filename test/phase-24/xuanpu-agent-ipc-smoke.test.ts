@@ -41,6 +41,9 @@ const repositoryMocks = vi.hoisted(() => ({
 const fieldEventMocks = vi.hoisted(() => ({
   emitFieldEvent: vi.fn()
 }))
+const checkpointMocks = vi.hoisted(() => ({
+  verifyCheckpoint: vi.fn(async () => null)
+}))
 const fakeRuntime = vi.hoisted(() => {
   const prompts: unknown[] = []
   const setToolsCalls: unknown[][] = []
@@ -158,6 +161,10 @@ vi.mock('../../src/main/field/checkpoint-hooks', () => ({
   recordCheckpointOnAbort: vi.fn()
 }))
 
+vi.mock('../../src/main/field/checkpoint-verifier', () => ({
+  verifyCheckpoint: checkpointMocks.verifyCheckpoint
+}))
+
 vi.mock('../../src/main/field/emit', () => ({
   emitFieldEvent: fieldEventMocks.emitFieldEvent
 }))
@@ -257,6 +264,7 @@ describe('xuanpu-agent IPC smoke', () => {
     fakeRuntime.reset()
     vi.clearAllMocks()
     repositoryMocks.listFieldEpisodeBlocks.mockReturnValue([])
+    checkpointMocks.verifyCheckpoint.mockResolvedValue(null)
     process.env.XUANPU_AGENT_MOCK_RESPONSE = 'ipc mock response'
   })
 
@@ -361,5 +369,102 @@ describe('xuanpu-agent IPC smoke', () => {
         'format_file'
       ]
     ])
+  })
+
+  it('injects a correction turn for unverifiable assistant file-path claims', async () => {
+    const dbService = new FakeDatabaseService()
+    const implementer = new XuanpuAgentImplementer()
+    implementer.setDatabaseService(dbService as unknown as DatabaseService)
+    const runtimeManager = new AgentRuntimeManager([implementer])
+    const mainWindow = {
+      isDestroyed: () => false,
+      webContents: { send: vi.fn() }
+    } as unknown as BrowserWindow
+
+    process.env.XUANPU_AGENT_MOCK_RESPONSE = 'Updated src/missing/file.ts.'
+    registerAgentHandlers(mainWindow, runtimeManager, dbService as unknown as DatabaseService)
+
+    const connect = handlers.get('agent:connect')!
+    await connect({}, '/repo', 'hive-session-1')
+
+    const prompt = handlers.get('agent:prompt')!
+    await prompt({}, '/repo', dbService.runtimeSessionId, 'claim check', {
+      providerID: 'openai',
+      modelID: 'gpt-4.1'
+    })
+
+    const persisted = dbService.getSessionMessages('hive-session-1')
+    expect(persisted.map((message) => [message.role, message.content])).toEqual([
+      ['user', 'claim check'],
+      ['assistant', 'Updated src/missing/file.ts.'],
+      [
+        'assistant',
+        expect.stringContaining('Post-response claim verifier detected unverified file-path claims.')
+      ]
+    ])
+    expect(repositoryMocks.createFieldContextPackage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        decisions: expect.objectContaining({
+          postResponseClaimVerification: expect.objectContaining({
+            passed: false,
+            unverifiedClaims: [
+              expect.objectContaining({
+                kind: 'file-path',
+                value: 'src/missing/file.ts'
+              })
+            ]
+          })
+        })
+      })
+    )
+  })
+
+  it('injects a verified checkpoint into the compiled XFP packet on resume turns', async () => {
+    const dbService = new FakeDatabaseService()
+    const implementer = new XuanpuAgentImplementer()
+    implementer.setDatabaseService(dbService as unknown as DatabaseService)
+    const runtimeManager = new AgentRuntimeManager([implementer])
+    const mainWindow = {
+      isDestroyed: () => false,
+      webContents: { send: vi.fn() }
+    } as unknown as BrowserWindow
+
+    checkpointMocks.verifyCheckpoint.mockResolvedValue({
+      createdAt: 1760000000000,
+      ageMinutes: 5,
+      source: 'abort',
+      summary: 'Stopped while editing runtime.',
+      currentGoal: 'Finish checkpoint-aware prompt compile.',
+      nextAction: 'Run the focused M6 tests.',
+      blockingReason: null,
+      hotFiles: ['src/main/services/xuanpu-agent-implementer.ts'],
+      warnings: []
+    })
+
+    registerAgentHandlers(mainWindow, runtimeManager, dbService as unknown as DatabaseService)
+    const connect = handlers.get('agent:connect')!
+    await connect({}, '/repo', 'hive-session-1')
+
+    const prompt = handlers.get('agent:prompt')!
+    await prompt({}, '/repo', dbService.runtimeSessionId, '继续', {
+      providerID: 'openai',
+      modelID: 'gpt-4.1'
+    })
+
+    const piPrompt = fakeRuntime.prompts[0] as Array<{ content: FakeTextPart[] }>
+    const packetText = piPrompt[0].content[0].text
+    expect(packetText).toContain('Resumed Checkpoint')
+    expect(packetText).toContain('"source": "checkpoint"')
+    expect(packetText).toContain('Finish checkpoint-aware prompt compile.')
+    expect(repositoryMocks.createFieldContextPackage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        decisions: expect.objectContaining({
+          checkpointResume: expect.objectContaining({
+            source: 'abort',
+            hotFiles: ['src/main/services/xuanpu-agent-implementer.ts']
+          })
+        })
+      })
+    )
   })
 })

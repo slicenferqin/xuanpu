@@ -8,6 +8,8 @@ import type {
   XfpFocusSection,
   XfpGitState,
   XfpRetrievedMemorySection,
+  XfpRetrievedWorkflowSection,
+  XfpTaskGoal,
   XfpTerminalSummary,
   XfpTestSummary
 } from '../xfp/types'
@@ -28,7 +30,9 @@ export interface CompileOptions {
   tests?: XfpTestSummary | null
   commandTrace?: XfpCommandTraceSection | null
   retrievedMemory?: XfpRetrievedMemorySection | null
+  retrievedWorkflows?: XfpRetrievedWorkflowSection | null
   anchor?: XfpAnchorSection | null
+  currentGoal?: XfpTaskGoal
   includedSections?: readonly string[]
   omittedSections?: readonly CompilerOmission[]
   successCriteria?: string | null
@@ -86,7 +90,8 @@ export class XfpPacketCompiler {
         tests: options.tests ?? null,
         commandTrace: options.commandTrace ?? null,
         retrievedMemory: options.retrievedMemory ?? null,
-        currentGoal: {
+        retrievedWorkflows: options.retrievedWorkflows ?? null,
+        currentGoal: options.currentGoal ?? {
           objective: userMessage.trim(),
           source: 'user-message',
           successCriteria: options.successCriteria ?? null,
@@ -156,6 +161,7 @@ function defaultIncludedSections(
     options.tests ? 'tests' : null,
     options.commandTrace ? 'commandTrace' : null,
     options.retrievedMemory ? 'retrievedMemory' : null,
+    options.retrievedWorkflows ? 'retrievedWorkflows' : null,
     'currentGoal',
     'budget'
   ].filter((section): section is string => Boolean(section))
@@ -171,6 +177,9 @@ function defaultOmittedSections(
   if (!options.tests) omitted.push({ name: 'tests', reason: 'not provided' })
   if (!options.commandTrace) omitted.push({ name: 'commandTrace', reason: 'not provided' })
   if (!options.retrievedMemory) omitted.push({ name: 'retrievedMemory', reason: 'not provided' })
+  if (!options.retrievedWorkflows) {
+    omitted.push({ name: 'retrievedWorkflows', reason: 'not provided' })
+  }
   return omitted
 }
 
@@ -195,7 +204,8 @@ function estimateTokens(userMessage: string, options: CompileOptions): number {
       JSON.stringify(options.terminal ?? {}),
       JSON.stringify(options.tests ?? {}),
       JSON.stringify(options.commandTrace ?? {}),
-      JSON.stringify(options.retrievedMemory ?? {})
+      JSON.stringify(options.retrievedMemory ?? {}),
+      JSON.stringify(options.retrievedWorkflows ?? {})
     ].join('\n').length / 4
   )
 }

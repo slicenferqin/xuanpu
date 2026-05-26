@@ -1,5 +1,10 @@
 import type { BrowserWindow } from 'electron'
 import { randomUUID } from 'node:crypto'
+import {
+  isAbsolute as pathIsAbsolute,
+  relative as pathRelative,
+  resolve as pathResolve
+} from 'node:path'
 import simpleGit from 'simple-git'
 
 import type { DatabaseService } from '../db/database'
@@ -20,11 +25,14 @@ import {
 import { XfpPacketCompiler, type CompilerDecision } from './xuanpu-agent/harness/compiler'
 import { buildMessages, SessionAppendOnlyLog } from './xuanpu-agent/harness/build-messages'
 import type {
+  XfpAnchorSection,
   XfpCommandTraceSection,
   XfpFieldPacket,
   XfpGitState,
   XfpRawRefKind,
-  XfpRetrievedMemorySection
+  XfpRetrievedMemorySection,
+  XfpRetrievedWorkflowSection,
+  XfpTaskGoal
 } from './xuanpu-agent/xfp/types'
 import {
   IdeFieldProvider,
@@ -49,8 +57,18 @@ import {
 } from './xuanpu-agent/memory/memory-retrieval'
 import {
   detectFrequentTraceCandidates,
+  loadTraceWorkflowTemplates,
+  materializeTraceWorkflowTemplates,
+  retrieveTraceWorkflowsForContext,
+  type MaterializedTraceWorkflow,
+  type RetrievedTraceWorkflow,
   type TraceMaterializationCandidate
 } from './xuanpu-agent/memory/trace-materialization'
+import {
+  verifyPostResponseClaims,
+  type PostResponseClaimVerification
+} from './xuanpu-agent/harness/post-response-claim-verifier'
+import { verifyCheckpoint, type ResumedCheckpointBlock } from '../field/checkpoint-verifier'
 
 const log = createLogger({ component: 'XuanpuAgentImplementer' })
 
@@ -200,6 +218,9 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     const memoryRetrieval = worktree
       ? this.buildMemoryRetrievalSection(text, worktree, session.hiveSessionId)
       : null
+    const resumedCheckpoint = worktree
+      ? await this.verifyCheckpointForContext(worktree, session.worktreePath)
+      : null
     const traceCandidates = commandTrace
       ? detectFrequentTraceCandidates(
           commandTrace.entries.map((entry) => ({
@@ -212,6 +233,15 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
           }))
         )
       : []
+    const materializedWorkflows =
+      worktree && traceCandidates.length > 0
+        ? this.materializeTraceWorkflows(session.worktreePath, worktree, traceCandidates)
+        : []
+    const retrievedWorkflows = worktree
+      ? this.buildRetrievedWorkflowSection(
+          this.retrieveTraceWorkflows(text, session.worktreePath, materializedWorkflows)
+        )
+      : null
     const priorBudgetState = session.piSession?.getBudgetState()
     const compressionRatio =
       priorBudgetState && priorBudgetState.totalBeforeBytes > 0
@@ -256,7 +286,13 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         tests: null,
         commandTrace,
         retrievedMemory: memoryRetrieval?.section ?? null,
-        anchor: null,
+        retrievedWorkflows,
+        anchor: worktree ? buildAnchorSection(worktree, resumedCheckpoint) : null,
+        currentGoal: buildCurrentGoalFromCheckpoint(
+          text,
+          session.hiveSessionId,
+          resumedCheckpoint
+        ),
         compressionRatio
       }
     )
@@ -312,14 +348,38 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
 
       const harnessMessages = buildMessages(compileResult.packet, appendOnlyLog, text)
 
+      const observedPaths = new Set<string>()
       const result = await piSession.prompt(harnessMessages, modelRef, {
         onTextDelta: (delta) => this.emitTextDelta(session.hiveSessionId, delta),
-        onToolStart: (event) => this.emitToolStart(session.hiveSessionId, event),
-        onToolEnd: (event) => this.emitToolEnd(session.hiveSessionId, event)
+        onToolStart: (event) => {
+          collectObservedToolPaths(
+            session.worktreePath,
+            event.toolName,
+            event.args,
+            null,
+            observedPaths
+          )
+          this.emitToolStart(session.hiveSessionId, event)
+        },
+        onToolEnd: (event) => {
+          collectObservedToolPaths(
+            session.worktreePath,
+            event.toolName,
+            event.args,
+            event.result,
+            observedPaths
+          )
+          this.emitToolEnd(session.hiveSessionId, event)
+        }
       })
 
       const assistantText = result.text.trim()
       const content = assistantText || '(empty response)'
+      const claimVerification = verifyPostResponseClaims({
+        text: content,
+        worktreePath: session.worktreePath,
+        observedPaths
+      })
       field.persistMessage(session.hiveSessionId, 'assistant', content, {
         messageId: result.messageId,
         modelProviderId: result.modelRef.providerID,
@@ -334,6 +394,24 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         contextPackageId: compileResult.packet.identity.packetId
       })
 
+      if (!claimVerification.passed && claimVerification.correctionText) {
+        const verifierMessageId = `xuanpu-agent-claim-verifier-${randomUUID()}`
+        field.persistMessage(session.hiveSessionId, 'assistant', claimVerification.correctionText, {
+          messageId: verifierMessageId,
+          modelProviderId: result.modelRef.providerID,
+          modelId: result.modelRef.modelID,
+          rawMessage: {
+            verifier: 'post-response-claim-verifier',
+            unverifiedClaims: claimVerification.unverifiedClaims
+          }
+        })
+        this.emitMessageUpdated(session.hiveSessionId, claimVerification.correctionText, {
+          messageId: verifierMessageId,
+          modelRef: result.modelRef,
+          contextPackageId: compileResult.packet.identity.packetId
+        })
+      }
+
       // Record context package for audit/debug
       if (worktree) {
         try {
@@ -342,7 +420,15 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             decisions: compileResult.decisions,
             fieldSnapshotMarkdown: fieldSnapshot.markdown,
             memoryRetrieval,
-            traceCandidates
+            traceCandidates,
+            materializedWorkflows,
+            retrievedWorkflows:
+              retrievedWorkflows?.entries.map((entry) => ({
+                workflowId: entry.workflowId,
+                retrievalReason: entry.retrievalReason
+              })) ?? [],
+            resumedCheckpoint,
+            claimVerification
           })
         } catch (err) {
           log.warn('Failed to record context package', {
@@ -484,6 +570,10 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         result: XuanpuAgentMemoryRetrievalResult
       } | null
       traceCandidates?: TraceMaterializationCandidate[]
+      materializedWorkflows?: MaterializedTraceWorkflow[]
+      retrievedWorkflows?: Array<{ workflowId: string; retrievalReason: string }>
+      resumedCheckpoint?: ResumedCheckpointBlock | null
+      claimVerification?: PostResponseClaimVerification
     } = {}
   ): Promise<{
     contextPackageId: string | null
@@ -508,7 +598,11 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             retrievedEpisodes: episodeRetrieval.included,
             episodeTriggers: episodeRetrieval.triggers,
             memoryRetrieval: options.memoryRetrieval ?? null,
-            traceCandidates: options.traceCandidates ?? []
+            traceCandidates: options.traceCandidates ?? [],
+            materializedWorkflows: options.materializedWorkflows ?? [],
+            retrievedWorkflows: options.retrievedWorkflows ?? [],
+            resumedCheckpoint: options.resumedCheckpoint ?? null,
+            claimVerification: options.claimVerification
           })
         : [
             ...buildEpisodeContextPackageSections(
@@ -558,12 +652,41 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         traceMaterialization: {
           policy: 'frequent-command-trace-detection',
           candidateCount: options.traceCandidates?.length ?? 0,
+          materializedCount: options.materializedWorkflows?.length ?? 0,
           candidates: (options.traceCandidates ?? []).map((candidate) => ({
             signature: candidate.signature,
             occurrenceCount: candidate.occurrenceCount,
             traceIds: candidate.traceIds
+          })),
+          workflows: (options.materializedWorkflows ?? []).map((workflow) => ({
+            workflowId: workflow.template.id,
+            relativePath: workflow.relativePath,
+            status: workflow.status,
+            signature: workflow.template.signature
           }))
-        }
+        },
+        workflowRetrieval: {
+          policy: 'materialized-trace-workflow-retrieval',
+          included: options.retrievedWorkflows ?? []
+        },
+        checkpointResume: options.resumedCheckpoint
+          ? {
+              source: options.resumedCheckpoint.source,
+              createdAt: options.resumedCheckpoint.createdAt,
+              warningCount: options.resumedCheckpoint.warnings.length,
+              hotFiles: options.resumedCheckpoint.hotFiles
+            }
+          : null,
+        postResponseClaimVerification: options.claimVerification
+          ? {
+              passed: options.claimVerification.passed,
+              claimCount: options.claimVerification.claims.length,
+              unverifiedClaims: options.claimVerification.unverifiedClaims.map((claim) => ({
+                kind: claim.kind,
+                value: claim.value
+              }))
+            }
+          : null
       }
     })
 
@@ -626,6 +749,110 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         error: error instanceof Error ? error.message : String(error)
       })
       return null
+    }
+  }
+
+  private async verifyCheckpointForContext(
+    worktree: FieldWorktree,
+    worktreePath: string
+  ): Promise<ResumedCheckpointBlock | null> {
+    try {
+      return await verifyCheckpoint({
+        worktreeId: worktree.id,
+        worktreePath
+      })
+    } catch (error) {
+      log.warn('Failed to verify checkpoint for xuanpu-agent context', {
+        worktreeId: worktree.id,
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return null
+    }
+  }
+
+  private materializeTraceWorkflows(
+    worktreePath: string,
+    worktree: FieldWorktree,
+    candidates: TraceMaterializationCandidate[]
+  ): MaterializedTraceWorkflow[] {
+    try {
+      return materializeTraceWorkflowTemplates({
+        worktreePath,
+        projectId: worktree.projectId,
+        worktreeId: worktree.id,
+        candidates
+      })
+    } catch (error) {
+      log.warn('Failed to materialize trace workflows', {
+        worktreeId: worktree.id,
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return []
+    }
+  }
+
+  private retrieveTraceWorkflows(
+    userText: string,
+    worktreePath: string,
+    materialized: MaterializedTraceWorkflow[]
+  ): RetrievedTraceWorkflow[] {
+    try {
+      const loaded = loadTraceWorkflowTemplates(worktreePath)
+      const byId = new Map(loaded.map((workflow) => [workflow.template.id, workflow]))
+      for (const item of materialized) {
+        byId.set(item.template.id, {
+          template: item.template,
+          filePath: item.filePath,
+          relativePath: item.relativePath,
+          retrievalReason: 'materialized from frequent command traces',
+          score: 0
+        })
+      }
+      return retrieveTraceWorkflowsForContext({
+        userText,
+        workflows: [...byId.values()]
+      })
+    } catch (error) {
+      log.warn('Failed to retrieve trace workflows', {
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return []
+    }
+  }
+
+  private buildRetrievedWorkflowSection(
+    workflows: RetrievedTraceWorkflow[]
+  ): XfpRetrievedWorkflowSection | null {
+    if (workflows.length === 0) return null
+
+    return {
+      entries: workflows.map((workflow) => {
+        const step = workflow.template.steps[0]
+        return {
+          workflowId: workflow.template.id,
+          title: workflow.template.title,
+          signature: workflow.template.signature,
+          commandTemplate: step?.commandTemplate ?? workflow.template.signature,
+          parameters: step?.parameters ?? [],
+          path: workflow.relativePath,
+          retrievalReason: workflow.retrievalReason,
+          occurrenceCount: workflow.template.occurrenceCount,
+          successRate: workflow.template.successRate,
+          rawRefs: [
+            {
+              kind: 'file',
+              id: workflow.relativePath,
+              excerpt: workflow.template.title,
+              meta: { absPath: workflow.filePath }
+            },
+            ...workflow.template.sourceTraceIds.slice(0, 5).map((traceId) => ({
+              kind: 'command-trace' as const,
+              id: traceId
+            }))
+          ]
+        }
+      }),
+      totalAvailable: workflows.length
     }
   }
 
@@ -992,6 +1219,117 @@ function normalizeToolInput(
   return input
 }
 
+function buildAnchorSection(
+  worktree: FieldWorktree,
+  checkpoint: ResumedCheckpointBlock | null
+): XfpAnchorSection | null {
+  const worktreeNotes = worktree.context?.trim() || null
+  const checkpointMarkdown = checkpoint ? renderCheckpointResumeMarkdown(checkpoint) : null
+  if (!worktreeNotes && !checkpointMarkdown) return null
+
+  return {
+    pinnedFactsMarkdown: null,
+    worktreeNotesMarkdown: [worktreeNotes, checkpointMarkdown].filter(Boolean).join('\n\n'),
+    updatedAt: checkpoint?.createdAt ?? Date.now(),
+    rawRefs: [
+      ...(worktreeNotes
+        ? [{ kind: 'memory-page' as const, id: `worktree:${worktree.id}:context` }]
+        : []),
+      ...(checkpoint
+        ? [
+            {
+              kind: 'checkpoint' as const,
+              id: `checkpoint:${worktree.id}:${checkpoint.createdAt}`,
+              excerpt: checkpoint.summary.slice(0, 200)
+            }
+          ]
+        : [])
+    ]
+  }
+}
+
+function buildCurrentGoalFromCheckpoint(
+  userText: string,
+  sessionId: string,
+  checkpoint: ResumedCheckpointBlock | null
+): XfpTaskGoal | undefined {
+  if (!checkpoint?.currentGoal || !isResumeIntent(userText)) return undefined
+  return {
+    objective: checkpoint.currentGoal,
+    source: 'checkpoint',
+    successCriteria: checkpoint.nextAction ? `Resume next action: ${checkpoint.nextAction}` : null,
+    rawRefs: [
+      { kind: 'message', id: `session:${sessionId}:current-user-message`, excerpt: userText },
+      {
+        kind: 'checkpoint',
+        id: `checkpoint:${sessionId}:${checkpoint.createdAt}`,
+        excerpt: checkpoint.summary.slice(0, 200)
+      }
+    ]
+  }
+}
+
+function isResumeIntent(text: string): boolean {
+  return /^(?:继续|接着|继续做|继续修)(?:\s|$)|^(?:resume|continue|keep going|go on)\b/i.test(
+    text.trim()
+  )
+}
+
+function renderCheckpointResumeMarkdown(checkpoint: ResumedCheckpointBlock): string {
+  return [
+    '## Resumed Checkpoint',
+    checkpoint.summary,
+    checkpoint.currentGoal ? `- Current goal (heuristic): ${checkpoint.currentGoal}` : null,
+    checkpoint.nextAction ? `- Next action (heuristic): ${checkpoint.nextAction}` : null,
+    checkpoint.blockingReason ? `- Blocking reason: ${checkpoint.blockingReason}` : null,
+    checkpoint.hotFiles.length > 0 ? `- Hot files: ${checkpoint.hotFiles.join(', ')}` : null,
+    checkpoint.warnings.length > 0 ? `- Warnings: ${checkpoint.warnings.join('; ')}` : null
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n')
+}
+
+function collectObservedToolPaths(
+  worktreePath: string,
+  toolName: string,
+  args: Record<string, unknown>,
+  result: unknown,
+  observed: Set<string>
+): void {
+  const candidates: unknown[] = [args.path, args.filePath, args.file_path]
+  if (Array.isArray(args.paths)) candidates.push(...args.paths)
+
+  const details =
+    result && typeof result === 'object' && 'details' in result
+      ? (result as { details?: Record<string, unknown> }).details
+      : null
+  if (details) {
+    candidates.push(details.path)
+    if (Array.isArray(details.paths)) candidates.push(...details.paths)
+    if (Array.isArray(details.filesAffected)) candidates.push(...details.filesAffected)
+  }
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string') addObservedPath(worktreePath, candidate, observed)
+  }
+
+  if (toolName === 'git_diff') observed.add('.git')
+}
+
+function addObservedPath(worktreePath: string, value: string, observed: Set<string>): void {
+  const trimmed = value.trim().replace(/^\.\/+/, '').replace(/\\/g, '/')
+  if (!trimmed || trimmed.includes('\0')) return
+  try {
+    const root = pathResolve(worktreePath)
+    const abs = pathIsAbsolute(trimmed) ? pathResolve(trimmed) : pathResolve(root, trimmed)
+    const relative = pathRelative(root, abs).replace(/\\/g, '/')
+    if (!relative || relative.startsWith('..') || pathIsAbsolute(relative)) return
+    observed.add(relative)
+  } catch {
+    if (!trimmed.startsWith('..')) observed.add(trimmed)
+  }
+}
+
 function extractToolResultText(result: unknown): string {
   if (!result || typeof result !== 'object') return ''
   const content = (result as { content?: unknown }).content
@@ -1069,6 +1407,10 @@ function buildContextPackageSections(
       result: XuanpuAgentMemoryRetrievalResult
     } | null
     traceCandidates?: TraceMaterializationCandidate[]
+    materializedWorkflows?: MaterializedTraceWorkflow[]
+    retrievedWorkflows?: Array<{ workflowId: string; retrievalReason: string }>
+    resumedCheckpoint?: ResumedCheckpointBlock | null
+    claimVerification?: PostResponseClaimVerification
   } = {}
 ): FieldContextPackageSection[] {
   const omittedReasonByName = new Map(
@@ -1108,7 +1450,18 @@ function buildContextPackageSections(
     ...buildMemoryContextPackageSections(packet.identity.packetId, extras.memoryRetrieval ?? null),
     ...buildTraceMaterializationContextPackageSections(
       packet.identity.packetId,
-      extras.traceCandidates ?? []
+      extras.traceCandidates ?? [],
+      extras.materializedWorkflows ?? []
+    ),
+    ...buildWorkflowRetrievalContextPackageSections(
+      packet.identity.packetId,
+      packet.retrievedWorkflows,
+      extras.retrievedWorkflows ?? []
+    ),
+    ...buildCheckpointContextPackageSections(packet.identity.packetId, extras.resumedCheckpoint ?? null),
+    ...buildClaimVerifierContextPackageSections(
+      packet.identity.packetId,
+      extras.claimVerification ?? null
     )
   ]
 }
@@ -1186,9 +1539,10 @@ function buildMemoryContextPackageSections(
 
 function buildTraceMaterializationContextPackageSections(
   packetId: string,
-  candidates: TraceMaterializationCandidate[]
+  candidates: TraceMaterializationCandidate[],
+  workflows: MaterializedTraceWorkflow[]
 ): FieldContextPackageSection[] {
-  if (candidates.length === 0) return []
+  if (candidates.length === 0 && workflows.length === 0) return []
   return [
     {
       id: `${packetId}:trace-materialization`,
@@ -1204,6 +1558,91 @@ function buildTraceMaterializationContextPackageSections(
           signature: candidate.signature,
           occurrenceCount: candidate.occurrenceCount,
           traceIds: candidate.traceIds
+        })),
+        workflows: workflows.map((workflow) => ({
+          workflowId: workflow.template.id,
+          relativePath: workflow.relativePath,
+          status: workflow.status
+        }))
+      }
+    }
+  ]
+}
+
+function buildWorkflowRetrievalContextPackageSections(
+  packetId: string,
+  section: XfpRetrievedWorkflowSection | null,
+  retrievalDecisions: Array<{ workflowId: string; retrievalReason: string }>
+): FieldContextPackageSection[] {
+  if (!section && retrievalDecisions.length === 0) return []
+  const entries = section?.entries ?? []
+  return [
+    {
+      id: `${packetId}:retrieved-workflows`,
+      kind: 'retrieved_workflows',
+      title: 'Retrieved Workflows',
+      included: entries.length > 0,
+      approxTokens: entries.reduce((total, entry) => total + Math.ceil(JSON.stringify(entry).length / 4), 0),
+      source: 'xuanpu-agent-trace-workflow-retrieval',
+      reason:
+        entries.length > 0
+          ? entries.map((entry) => entry.retrievalReason).join('; ')
+          : 'no materialized workflow matched',
+      metadata: {
+        packetId,
+        includedIds: entries.map((entry) => entry.workflowId),
+        retrievalDecisions
+      }
+    }
+  ]
+}
+
+function buildCheckpointContextPackageSections(
+  packetId: string,
+  checkpoint: ResumedCheckpointBlock | null
+): FieldContextPackageSection[] {
+  if (!checkpoint) return []
+  return [
+    {
+      id: `${packetId}:checkpoint-resume`,
+      kind: 'checkpoint_resume',
+      title: 'Checkpoint Resume',
+      included: true,
+      approxTokens: Math.ceil(renderCheckpointResumeMarkdown(checkpoint).length / 4),
+      source: 'xuanpu-agent-checkpoint-verifier',
+      reason: 'verified checkpoint is fresh enough for resume context',
+      metadata: {
+        packetId,
+        source: checkpoint.source,
+        createdAt: checkpoint.createdAt,
+        warnings: checkpoint.warnings,
+        hotFiles: checkpoint.hotFiles
+      }
+    }
+  ]
+}
+
+function buildClaimVerifierContextPackageSections(
+  packetId: string,
+  verification: PostResponseClaimVerification | null
+): FieldContextPackageSection[] {
+  if (!verification) return []
+  return [
+    {
+      id: `${packetId}:post-response-claim-verifier`,
+      kind: 'claim_verifier',
+      title: 'Post-response Claim Verifier',
+      included: true,
+      approxTokens: 0,
+      source: 'xuanpu-agent-post-response-claim-verifier',
+      reason: verification.passed ? 'all file-path claims verified' : 'correction turn injected',
+      metadata: {
+        packetId,
+        passed: verification.passed,
+        claimCount: verification.claims.length,
+        unverifiedClaims: verification.unverifiedClaims.map((claim) => ({
+          kind: claim.kind,
+          value: claim.value
         }))
       }
     }
@@ -1227,6 +1666,12 @@ function countRawRefs(packet: XfpFieldPacket, name: string): number {
   if (name === 'retrievedMemory' && Array.isArray(packet.retrievedMemory?.entries)) {
     return packet.retrievedMemory.entries.reduce((total, entry) => total + entry.rawRefs.length, 0)
   }
+  if (name === 'retrievedWorkflows' && Array.isArray(packet.retrievedWorkflows?.entries)) {
+    return packet.retrievedWorkflows.entries.reduce(
+      (total, entry) => total + entry.rawRefs.length,
+      0
+    )
+  }
   return 0
 }
 
@@ -1248,6 +1693,8 @@ function readPacketSection(packet: XfpFieldPacket, name: string): unknown {
       return packet.commandTrace
     case 'retrievedMemory':
       return packet.retrievedMemory
+    case 'retrievedWorkflows':
+      return packet.retrievedWorkflows
     case 'currentGoal':
       return packet.currentGoal
     case 'budget':
