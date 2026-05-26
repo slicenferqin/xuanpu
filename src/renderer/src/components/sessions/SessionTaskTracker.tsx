@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/i18n/useI18n'
-import { getTodoCounts, type TodoItem, type TodoToolStatus } from './tools/todo-utils'
+import { getTodoCounts, type TodoItem, type TodoToolStatus } from '@/lib/todo-utils'
 import { sortSessionTaskLikeItems } from '@/lib/session-tasks'
 
 interface SessionTaskTrackerProps {

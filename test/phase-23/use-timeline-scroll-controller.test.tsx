@@ -1,0 +1,214 @@
+import React from 'react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useTimelineScrollController } from '../../src/renderer/src/hooks/useTimelineScrollController'
+import { resetSessionViewRegistryForTests } from '../../src/renderer/src/lib/session-view-registry'
+
+interface HarnessProps {
+  contentVersion?: number
+  metricsVersion?: number | string
+  isStreaming?: boolean
+}
+
+function TimelineScrollHarness({
+  contentVersion = 1,
+  metricsVersion = 1,
+  isStreaming = false
+}: HarnessProps): React.JSX.Element {
+  const controller = useTimelineScrollController({
+    sessionId: 'timeline-controller-test',
+    ready: false,
+    contentVersion,
+    metricsVersion,
+    mirrorVersion: 1,
+    isStreaming
+  })
+
+  return (
+    <div>
+      <div ref={controller.scrollContainerRef} data-testid="timeline-scroller">
+        <div ref={controller.timelineContentRef} data-testid="timeline-content">
+          <section data-round-anchor="true" data-round-id="round-a" data-testid="round-a" />
+          <section data-round-anchor="true" data-round-id="round-b" data-testid="round-b" />
+          <div data-clear-screen-spacer="true" data-testid="clear-screen-spacer" />
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={() => controller.requestClearScreenScroll('round-b')}
+        data-testid="request-clear-screen"
+      >
+        Request
+      </button>
+      <button
+        type="button"
+        onClick={() => controller.scrollToRound('round-b', { behavior: 'instant' })}
+        data-testid="scroll-to-round"
+      >
+        Round
+      </button>
+      <div data-testid="clear-screen-inset">{controller.clearScreenBottomInset}</div>
+      <div data-testid="active-round-id">{controller.activeRoundId ?? ''}</div>
+    </div>
+  )
+}
+
+function attachScrollMetrics(
+  element: HTMLElement,
+  metrics: {
+    scrollTop: { current: number }
+    scrollHeight: { current: number }
+    clientHeight: number
+  }
+): void {
+  Object.defineProperties(element, {
+    scrollTop: {
+      configurable: true,
+      get: () => metrics.scrollTop.current,
+      set: (value: number) => {
+        metrics.scrollTop.current = value
+      }
+    },
+    scrollHeight: {
+      configurable: true,
+      get: () => metrics.scrollHeight.current
+    },
+    clientHeight: {
+      configurable: true,
+      get: () => metrics.clientHeight
+    }
+  })
+}
+
+function mockRect(element: HTMLElement, top: number, height: number): void {
+  vi.spyOn(element, 'getBoundingClientRect').mockReturnValue({
+    x: 0,
+    y: top,
+    top,
+    bottom: top + height,
+    left: 0,
+    right: 100,
+    width: 100,
+    height,
+    toJSON: () => ({})
+  } as DOMRect)
+}
+
+describe('useTimelineScrollController', () => {
+  beforeEach(() => {
+    resetSessionViewRegistryForTests()
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('owns clear-screen pending scroll and aligns the requested round to the viewport top', async () => {
+    const { rerender } = render(<TimelineScrollHarness />)
+
+    const scroller = screen.getByTestId('timeline-scroller')
+    const content = screen.getByTestId('timeline-content')
+    const roundA = screen.getByTestId('round-a')
+    const roundB = screen.getByTestId('round-b')
+    const spacer = screen.getByTestId('clear-screen-spacer')
+    const scrollTop = { current: 0 }
+    const scrollHeight = { current: 1300 }
+
+    attachScrollMetrics(scroller, { scrollTop, scrollHeight, clientHeight: 500 })
+    mockRect(scroller, 0, 500)
+    mockRect(content, 0, 900)
+    mockRect(roundA, 0, 300)
+    mockRect(roundB, 720, 60)
+    mockRect(spacer, 820, 80)
+
+    fireEvent.click(screen.getByTestId('request-clear-screen'))
+    rerender(<TimelineScrollHarness contentVersion={2} metricsVersion={2} />)
+
+    expect(scrollTop.current).toBe(720)
+    await waitFor(() =>
+      expect(screen.getByTestId('clear-screen-inset').textContent).toBe('304')
+    )
+    expect(screen.getByTestId('active-round-id').textContent).toBe('round-b')
+  })
+
+  it('keeps round anchor navigation inside the controller', () => {
+    render(<TimelineScrollHarness />)
+
+    const scroller = screen.getByTestId('timeline-scroller')
+    const content = screen.getByTestId('timeline-content')
+    const roundA = screen.getByTestId('round-a')
+    const roundB = screen.getByTestId('round-b')
+    const spacer = screen.getByTestId('clear-screen-spacer')
+    const scrollTop = { current: 20 }
+    const scrollHeight = { current: 1300 }
+
+    attachScrollMetrics(scroller, { scrollTop, scrollHeight, clientHeight: 500 })
+    mockRect(scroller, 0, 500)
+    mockRect(content, 0, 900)
+    mockRect(roundA, 0, 300)
+    mockRect(roundB, 420, 60)
+    mockRect(spacer, 820, 80)
+
+    fireEvent.click(screen.getByTestId('scroll-to-round'))
+
+    expect(scrollTop.current).toBe(416)
+    expect(screen.getByTestId('active-round-id').textContent).toBe('round-b')
+  })
+
+  it('derives the active round from the scroll position', () => {
+    const { rerender } = render(<TimelineScrollHarness metricsVersion={1} />)
+
+    const scroller = screen.getByTestId('timeline-scroller')
+    const content = screen.getByTestId('timeline-content')
+    const roundA = screen.getByTestId('round-a')
+    const roundB = screen.getByTestId('round-b')
+    const spacer = screen.getByTestId('clear-screen-spacer')
+    const scrollTop = { current: 0 }
+    const scrollHeight = { current: 1300 }
+
+    attachScrollMetrics(scroller, { scrollTop, scrollHeight, clientHeight: 500 })
+    mockRect(scroller, 0, 500)
+    mockRect(content, 0, 900)
+    mockRect(roundA, 20, 300)
+    mockRect(roundB, 420, 60)
+    mockRect(spacer, 820, 80)
+
+    rerender(<TimelineScrollHarness metricsVersion={2} />)
+    expect(screen.getByTestId('active-round-id').textContent).toBe('round-a')
+
+    mockRect(roundA, -520, 300)
+    mockRect(roundB, 80, 60)
+    fireEvent.scroll(scroller)
+
+    expect(screen.getByTestId('active-round-id').textContent).toBe('round-b')
+  })
+
+  it('keeps the latest round active while streaming', () => {
+    const { rerender } = render(<TimelineScrollHarness metricsVersion={1} isStreaming />)
+
+    const scroller = screen.getByTestId('timeline-scroller')
+    const content = screen.getByTestId('timeline-content')
+    const roundA = screen.getByTestId('round-a')
+    const roundB = screen.getByTestId('round-b')
+    const spacer = screen.getByTestId('clear-screen-spacer')
+    const scrollTop = { current: 0 }
+    const scrollHeight = { current: 1300 }
+
+    attachScrollMetrics(scroller, { scrollTop, scrollHeight, clientHeight: 500 })
+    mockRect(scroller, 0, 500)
+    mockRect(content, 0, 900)
+    mockRect(roundA, 20, 300)
+    mockRect(roundB, 420, 60)
+    mockRect(spacer, 820, 80)
+
+    rerender(<TimelineScrollHarness metricsVersion={2} isStreaming />)
+
+    expect(screen.getByTestId('active-round-id').textContent).toBe('round-b')
+  })
+})

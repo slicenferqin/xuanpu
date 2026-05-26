@@ -11,7 +11,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/i18n/useI18n'
 import type { ToolViewProps } from './types'
-import { parseTodoItems, type TodoItem } from './todo-utils'
+import { parseTodoItems, type TodoItem } from '@/lib/todo-utils'
 
 function StatusIcon({ status }: { status: TodoItem['status'] }) {
   switch (status) {

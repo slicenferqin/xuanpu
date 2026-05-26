@@ -71,7 +71,7 @@ import {
   shouldShowTodoTracker,
   type TodoToolStatus,
   type TodoTrackerSnapshot
-} from './tools/todo-utils'
+} from '@/lib/todo-utils'
 
 // Stable empty array to avoid creating new references in selectors
 const EMPTY_FILE_INDEX: FlatFile[] = []

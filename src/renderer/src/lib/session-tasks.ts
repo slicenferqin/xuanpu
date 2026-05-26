@@ -1,5 +1,4 @@
-import { isTodoWriteTool } from '@/components/sessions/tools/todo-utils'
-import type { TodoItem } from '@/components/sessions/tools/todo-utils'
+import { isTodoWriteTool, type TodoItem } from '@/lib/todo-utils'
 import type { TimelineMessage } from '@shared/lib/timeline-types'
 
 export type SessionTaskStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled' | 'error'
@@ -79,9 +78,7 @@ function humanizeEnglishTaskTarget(value: string): string {
 function chooseChineseTaskVerb(value: string): string {
   const lowered = compactWhitespace(value).toLowerCase()
 
-  if (
-    /(inspect|read|review|check|look\s+through|look\s+at|audit|scan|browse)/.test(lowered)
-  ) {
+  if (/(inspect|read|review|check|look\s+through|look\s+at|audit|scan|browse)/.test(lowered)) {
     return '查看'
   }
   if (/(update|change|adjust|refactor|move|rename|rewrite)/.test(lowered)) {
@@ -109,13 +106,12 @@ function chooseChineseTaskVerb(value: string): string {
 }
 
 function getTaskSourceText(task: SessionTaskSource): string {
-  return compactWhitespace(task.subject || task.content || task.activeForm || task.description || '')
+  return compactWhitespace(
+    task.subject || task.content || task.activeForm || task.description || ''
+  )
 }
 
-export function getSessionTaskDisplayTitle(
-  task: SessionTaskSource,
-  index?: number
-): string {
+export function getSessionTaskDisplayTitle(task: SessionTaskSource, index?: number): string {
   const source = getTaskSourceText(task)
   if (!source) {
     return typeof index === 'number' ? `任务 ${index + 1}` : '任务'
@@ -130,9 +126,14 @@ export function getSessionTaskDisplayTitle(
   return `${verb}${target}`
 }
 
-export function getSessionTaskRawDetail(task: SessionTaskSource, displayTitle?: string): string | undefined {
+export function getSessionTaskRawDetail(
+  task: SessionTaskSource,
+  displayTitle?: string
+): string | undefined {
   const detailCandidates = [task.description, task.content, task.subject, task.activeForm]
-    .filter((value): value is string => typeof value === 'string' && compactWhitespace(value).length > 0)
+    .filter(
+      (value): value is string => typeof value === 'string' && compactWhitespace(value).length > 0
+    )
     .map((value) => compactWhitespace(value))
 
   const normalizedDisplayTitle = displayTitle ? compactWhitespace(displayTitle) : ''
@@ -199,13 +200,16 @@ function getSessionTaskId(input: Record<string, unknown>, fallback: string): str
 function taskFromRecord(input: Record<string, unknown>, fallbackId: string): SessionTask | null {
   const content = getSessionTaskContent(input)
   const status = normalizeSessionTaskStatus(input.status)
-  const subject = typeof input.subject === 'string' && input.subject.trim() ? input.subject.trim() : undefined
+  const subject =
+    typeof input.subject === 'string' && input.subject.trim() ? input.subject.trim() : undefined
   const description =
     typeof input.description === 'string' && input.description.trim()
       ? input.description.trim()
       : undefined
   const activeForm =
-    typeof input.activeForm === 'string' && input.activeForm.trim() ? input.activeForm.trim() : undefined
+    typeof input.activeForm === 'string' && input.activeForm.trim()
+      ? input.activeForm.trim()
+      : undefined
 
   if (!content && !subject && !description && !activeForm) {
     return null
@@ -331,7 +335,7 @@ export function applySessionTaskToolEvent(
         : existing?.activeForm
           ? { activeForm: existing.activeForm }
           : {}),
-      ...(normalizeSessionTaskPriority(input.priority) ?? existing?.priority
+      ...((normalizeSessionTaskPriority(input.priority) ?? existing?.priority)
         ? { priority: normalizeSessionTaskPriority(input.priority) ?? existing?.priority }
         : {})
     }

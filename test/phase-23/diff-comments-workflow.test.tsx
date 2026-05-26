@@ -178,6 +178,10 @@ describe('diff comments workflow', () => {
       path.resolve(__dirname, '../../src/renderer/src/components/session-hq/SessionShell.tsx'),
       'utf-8'
     )
+    const sessionComposerActionsSource = fs.readFileSync(
+      path.resolve(__dirname, '../../src/renderer/src/hooks/useSessionComposerActions.ts'),
+      'utf-8'
+    )
     const sidebarSource = fs.readFileSync(
       path.resolve(__dirname, '../../src/renderer/src/components/file-tree/FileSidebar.tsx'),
       'utf-8'
@@ -187,8 +191,8 @@ describe('diff comments workflow', () => {
     expect(monacoSource).toContain('onAddComment={canUseDiffComments')
     expect(sessionSource).toContain('<diff-comment file=')
     expect(sessionSource).toContain('<DiffCommentAttachments />')
-    expect(sessionShellSource).toContain('buildLocalDiffCommentContext')
-    expect(sessionShellSource).toContain('const contentToSend = diffCommentContext + content')
+    expect(sessionComposerActionsSource).toContain('buildLocalDiffCommentContext')
+    expect(sessionComposerActionsSource).toContain('const contentToSend = diffCommentContext + content')
     expect(sessionShellSource).toContain('<DiffCommentAttachments />')
     expect(sessionShellSource).toContain('contextAttachmentSlot={<DiffCommentAttachments />}')
     expect(sidebarSource).toContain('<DiffCommentsViewer')

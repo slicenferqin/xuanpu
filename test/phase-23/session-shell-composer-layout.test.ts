@@ -51,10 +51,38 @@ describe('SessionShell composer layout source guard', () => {
     expect(timelineSource).toContain(
       'className="relative h-full min-h-0 overflow-y-auto overscroll-contain"'
     )
-    // The clear-screen spacer renders when a bootstrap round doesn't fill the
-    // viewport. Its measured height is passed to useSessionSmartScroll so that
-    // getDistanceFromBottom correctly accounts for the inflated scrollHeight.
+    // The clear-screen spacer renders with the height supplied by the scroll controller.
     expect(timelineSource).toContain('data-testid="timeline-clear-screen-spacer"')
     expect(timelineSource).toContain('shortContentTopSpacer')
+  })
+
+  test('keeps clear-screen spacer geometry in the scroll controller', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const shellSource = fs.readFileSync(
+      path.resolve(__dirname, '../../src/renderer/src/components/session-hq/SessionShell.tsx'),
+      'utf-8'
+    )
+    const timelineSource = fs.readFileSync(
+      path.resolve(__dirname, '../../src/renderer/src/components/session-hq/AgentTimeline.tsx'),
+      'utf-8'
+    )
+    const controllerSource = fs.readFileSync(
+      path.resolve(__dirname, '../../src/renderer/src/hooks/useTimelineScrollController.ts'),
+      'utf-8'
+    )
+
+    expect(shellSource).toContain(
+      'clearScreenSpacerHeight={timelineScroll.clearScreenBottomInset}'
+    )
+    expect(shellSource).toContain('timelineContentRef={timelineScroll.timelineContentRef}')
+    expect(timelineSource).toContain('clearScreenSpacerHeight')
+    expect(timelineSource).toContain('timelineContentRef')
+    expect(timelineSource).not.toContain('contentHeightRef')
+    expect(timelineSource).not.toContain('getClearScreenBottomInset')
+    expect(timelineSource).not.toContain('CLEAR_SCREEN_SPACER_SELECTOR')
+    expect(controllerSource).toContain('getClearScreenBottomInset')
+    expect(controllerSource).toContain('CLEAR_SCREEN_SPACER_SELECTOR')
+    expect(controllerSource).toContain('timelineContentRef')
   })
 })
