@@ -410,6 +410,12 @@ function OverviewPanel({
       tone: 'lavender' as const
     }
   ]
+  const cacheHitRate =
+    totals.cacheReadTokens > 0 || totals.inputTokens > 0
+      ? Math.round(
+          (totals.cacheReadTokens / (totals.cacheReadTokens + totals.inputTokens)) * 100
+        )
+      : null
 
   return (
     <div className="min-h-0 flex-1 overflow-auto px-2.5 py-3" data-testid="context-panel-overview">
@@ -446,8 +452,16 @@ function OverviewPanel({
         </section>
 
         <section className="crisp-panel-surface rounded-xl p-3">
-          <div className="mb-2.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-            {t('contextPanel.overview.tokens')}
+          <div className="mb-2.5 flex items-center justify-between">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              {t('contextPanel.overview.tokens')}
+            </div>
+            {cacheHitRate !== null && (
+              <div className="text-[10px] text-muted-foreground">
+                {t('contextPanel.overview.cacheHitRate')}{' '}
+                <span className="font-mono font-medium text-foreground">{cacheHitRate}%</span>
+              </div>
+            )}
           </div>
           <div className="space-y-2.5">
             {tokenRows.map((row) => (

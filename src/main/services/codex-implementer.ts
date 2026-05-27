@@ -1441,6 +1441,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     // Inject synthetic user message so getMessages() returns it
     const syntheticTimestamp = new Date().toISOString()
     session.messages.push({
+      id: `client:${session.runId ?? Date.now()}:user`,
       role: 'user',
       parts: displayParts.map((part) => withCodexPartTimestamp(part, syntheticTimestamp)),
       timestamp: syntheticTimestamp
@@ -1758,11 +1759,11 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         ])
         if (parsed.length > 0 && snapshotMatchesPrompt) {
           session.messages = parsed
-          // Even when the snapshot matches the prompt (happy path), the snapshot
-          // may be eventually consistent: text/reasoning items arrive after
-          // tool calls. Merge the live draft so any streaming content that
-          // hasn't reached the snapshot yet survives the replace.
-          this.materializeLiveAssistantDraft(session)
+          // The snapshot is the canonical source once it matches the prompt.
+          // Clear the live draft instead of materializing it — keeping both
+          // would duplicate messages (live draft has id `codex-live-*` while
+          // snapshot items have `${turnId}:assistant:item-*`).
+          session.liveAssistantDraft = null
         } else if (parsed.length > 0) {
           log.warn(
             'prompt: stale or mismatched thread/read snapshot ignored, preserving live draft',

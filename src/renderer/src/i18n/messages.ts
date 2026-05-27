@@ -1453,6 +1453,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         output: 'Output',
         cacheWrite: 'Cache Write',
         cacheRead: 'Input (cached)',
+        cacheHitRate: 'Cache Hit Rate',
         model: 'Model',
         duration: 'Duration',
         partialData: 'Some historical data could not be synchronized yet.'
@@ -1857,6 +1858,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         output: 'Output',
         cacheRead: 'Input (cached)',
         cacheWrite: 'Cache Write',
+        cacheHitRate: 'Cache Hit Rate',
         sessions: 'Sessions',
         sessionCount: '{count} sessions in this {scope}',
         sessionBreakdownLabel: 'Session breakdown',
@@ -4357,6 +4359,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         output: '输出',
         cacheWrite: '缓存写入',
         cacheRead: '输入（命中缓存）',
+        cacheHitRate: '缓存命中率',
         model: '模型',
         duration: '时长',
         partialData: '部分历史数据尚未完成同步。'
@@ -4760,6 +4763,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         output: '输出',
         cacheRead: '输入（命中缓存）',
         cacheWrite: '缓存写入',
+        cacheHitRate: '缓存命中率',
         sessions: '会话数',
         sessionCount: '此{scope}下 {count} 个会话',
         sessionBreakdownLabel: '会话构成',

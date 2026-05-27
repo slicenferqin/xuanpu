@@ -23,6 +23,12 @@ interface UseSessionSmartScrollOptions {
    * getDistanceFromBottom subtracts it so FAB detection works correctly.
    */
   clearScreenBottomInsetRef?: React.RefObject<number>
+  /**
+   * When this ref is true, suppress the sticky-bottom auto-scroll effect.
+   * Used by clear-screen scroll to prevent the sticky-bottom from overriding
+   * the scroll-to-round position.
+   */
+  suppressStickyBottomRef?: React.RefObject<boolean>
 }
 
 interface UseSessionSmartScrollResult {
@@ -47,6 +53,13 @@ function getDistanceFromBottom(element: HTMLDivElement, bottomInset = 0): number
 
 function getBottomScrollTop(element: HTMLDivElement, bottomInset = 0): number {
   return Math.max(0, element.scrollHeight - element.clientHeight - bottomInset)
+}
+
+// Real bottom distance — no inset subtraction. Used for FAB detection,
+// sticky-bottom decisions, and ResizeObserver compensation during normal
+// browsing. The spacer should not affect these calculations.
+function getRealDistanceFromBottom(element: HTMLDivElement): number {
+  return element.scrollHeight - element.scrollTop - element.clientHeight
 }
 
 function getNearBottomThreshold(): number {
@@ -75,7 +88,8 @@ export function useSessionSmartScroll({
   isStreaming,
   bottomAreaRef,
   composerRef,
-  clearScreenBottomInsetRef
+  clearScreenBottomInsetRef,
+  suppressStickyBottomRef
 }: UseSessionSmartScrollOptions): UseSessionSmartScrollResult {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const programmaticScrollResetRef = useRef<number | null>(null)
@@ -132,7 +146,7 @@ export function useSessionSmartScroll({
 
       const stickyBottom =
         options?.forceStickyBottom ??
-        getDistanceFromBottom(element, getClearScreenBottomInset()) < getNearBottomThreshold()
+        getRealDistanceFromBottom(element) < getNearBottomThreshold()
       const shouldMarkSeen = options?.markSeen ?? stickyBottom
 
       const next = writeViewState(
@@ -227,6 +241,8 @@ export function useSessionSmartScroll({
     [markProgrammaticScroll, mirrorVersion, writeViewState]
   )
 
+  const restoreScrollRafRef = useRef<number | null>(null)
+
   const restoreScrollAnchor = useCallback(() => {
     if (hasRestoredInitialAnchorRef.current || !ready) return
 
@@ -236,7 +252,11 @@ export function useSessionSmartScroll({
     const current = viewStateRef.current
     hasRestoredInitialAnchorRef.current = true
 
-    requestAnimationFrame(() => {
+    if (restoreScrollRafRef.current !== null) {
+      cancelAnimationFrame(restoreScrollRafRef.current)
+    }
+    restoreScrollRafRef.current = requestAnimationFrame(() => {
+      restoreScrollRafRef.current = null
       if (current.stickyBottom) {
         scrollToBottom('instant')
         return
@@ -265,7 +285,7 @@ export function useSessionSmartScroll({
     }
     viewStateRef.current = current
 
-    const distanceFromBottom = getDistanceFromBottom(element, getClearScreenBottomInset())
+    const distanceFromBottom = getRealDistanceFromBottom(element)
     const isNearBottom = distanceFromBottom < getNearBottomThreshold()
     const hasManualIntent = manualScrollIntentRef.current || pointerDownInScrollerRef.current
 
@@ -324,6 +344,20 @@ export function useSessionSmartScroll({
     manualScrollIntentRef.current = false
   }, [])
 
+  const cancelPendingScrollToBottom = useCallback(() => {
+    if (bottomAreaScrollRafRef.current !== null) {
+      cancelAnimationFrame(bottomAreaScrollRafRef.current)
+      bottomAreaScrollRafRef.current = null
+    }
+  }, [])
+
+  const cancelPendingRestoreScroll = useCallback(() => {
+    if (restoreScrollRafRef.current !== null) {
+      cancelAnimationFrame(restoreScrollRafRef.current)
+      restoreScrollRafRef.current = null
+    }
+  }, [])
+
   useEffect(() => {
     latestMirrorVersionRef.current = mirrorVersion
   }, [mirrorVersion])
@@ -378,6 +412,7 @@ export function useSessionSmartScroll({
   // 流式状态优先级高于一切 transcript 装饰。详见 §9.2。
   useEffect(() => {
     if (!ready || !hasRestoredInitialAnchorRef.current) return
+    if (suppressStickyBottomRef?.current) return
 
     const element = scrollContainerRef.current
     if (!element) return
@@ -419,7 +454,7 @@ export function useSessionSmartScroll({
       const scrollElement = scrollContainerRef.current
       if (!scrollElement) return
 
-      const distanceFromBottom = getDistanceFromBottom(scrollElement, getClearScreenBottomInset())
+      const distanceFromBottom = getRealDistanceFromBottom(scrollElement)
       // 流式期间：composer 增高会让 row-1（transcript scroller）缩小，已存在的
       // 内容会从底部滑出视口，看起来像"输出跑到 composer 下面"。这时只要用户
       // 没显式锁定滚动，就一律把最后一行拽回底部——与 streaming auto-follow
@@ -489,6 +524,10 @@ export function useSessionSmartScroll({
         cancelAnimationFrame(bottomAreaScrollRafRef.current)
         bottomAreaScrollRafRef.current = null
       }
+      if (restoreScrollRafRef.current !== null) {
+        cancelAnimationFrame(restoreScrollRafRef.current)
+        restoreScrollRafRef.current = null
+      }
     }
   }, [persistCurrentAnchor, resetInteractionState])
 
@@ -518,6 +557,8 @@ export function useSessionSmartScroll({
     handleScrollPointerUp,
     handleScrollPointerCancel,
     handleScrollToBottomClick,
-    scrollToOffset
+    scrollToOffset,
+    cancelPendingScrollToBottom,
+    cancelPendingRestoreScroll
   }
 }

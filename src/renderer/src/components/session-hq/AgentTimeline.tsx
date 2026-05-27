@@ -290,6 +290,10 @@ export function AgentTimeline({
 
   const shortContentTopSpacer = clearScreenSpacerHeight
 
+  // Only add extra paddingTop during active clear-screen alignment.
+  // During normal browsing, paddingTop stays at the fixed 24px breathing room.
+  const dynamicTopPadding = shortContentTopSpacer > 0 ? shortContentTopSpacer : 0
+
   const renderNodeContent = (node: TimelineNode): React.JSX.Element | null => (
     <TimelineNodeRenderer
       node={node}
@@ -391,7 +395,7 @@ export function AgentTimeline({
           // SessionShell reserves real layout space for the floating composer.
           // Keep only breathing room here so the final transcript node does not
           // feel glued to that boundary.
-          paddingTop: `${24 + shortContentTopSpacer}px`,
+          paddingTop: `${24 + dynamicTopPadding}px`,
           paddingBottom: `${safeBottomPadding}px`
         }}
       >

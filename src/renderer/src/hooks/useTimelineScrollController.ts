@@ -83,11 +83,17 @@ export function useTimelineScrollController({
   const pendingRoundScrollRef = useRef<PendingRoundScroll | null>(null)
   const activeRoundIdRef = useRef<string | null>(null)
   const suppressActiveRoundFromScrollRef = useRef(false)
+  const suppressStickyBottomRef = useRef(false)
+  const suppressStickyBottomResetRef = useRef<number | null>(null)
+  // Independent ref for clear-screen spacer calculation. Only set by
+  // requestClearScreenScroll, cleared on any manual scroll intent.
+  const clearScreenTargetRoundIdRef = useRef<string | null>(null)
   const [timelineViewportHeight, setTimelineViewportHeight] = useState(0)
   const [timelineContentHeight, setTimelineContentHeight] = useState(0)
   const [activeRoundOffsetTop, setActiveRoundOffsetTop] = useState(0)
   const [activeRoundId, setActiveRoundIdState] = useState<string | null>(null)
   const [clearScreenRequestVersion, setClearScreenRequestVersion] = useState(0)
+  const [clearScreenTargetVersion, setClearScreenTargetVersion] = useState(0)
 
   const smartScroll = useSessionSmartScroll({
     sessionId,
@@ -97,8 +103,27 @@ export function useTimelineScrollController({
     isStreaming,
     bottomAreaRef,
     composerRef,
-    clearScreenBottomInsetRef
+    clearScreenBottomInsetRef,
+    suppressStickyBottomRef
   })
+  // Clear clear-screen target on any manual scroll intent.
+  const clearScreenTarget = useCallback(() => {
+    if (clearScreenTargetRoundIdRef.current) {
+      clearScreenTargetRoundIdRef.current = null
+      setClearScreenTargetVersion((v) => v + 1)
+    }
+  }, [])
+
+  const handleScrollWheel = useCallback(() => {
+    smartScroll.handleScrollWheel()
+    clearScreenTarget()
+  }, [smartScroll, clearScreenTarget])
+
+  const handleScrollPointerDown = useCallback(() => {
+    smartScroll.handleScrollPointerDown()
+    clearScreenTarget()
+  }, [smartScroll, clearScreenTarget])
+
   const {
     scrollContainerRef,
     showScrollFab,
@@ -106,12 +131,12 @@ export function useTimelineScrollController({
     scrollFabBottomOffset,
     bottomFloatingHeight,
     handleScroll,
-    handleScrollWheel,
-    handleScrollPointerDown,
     handleScrollPointerUp,
     handleScrollPointerCancel,
     handleScrollToBottomClick,
-    scrollToOffset
+    scrollToOffset,
+    cancelPendingScrollToBottom,
+    cancelPendingRestoreScroll
   } = smartScroll
 
   const setActiveRoundId = useCallback((roundId: string | null) => {
@@ -122,9 +147,24 @@ export function useTimelineScrollController({
   const requestClearScreenScroll = useCallback((roundId: string) => {
     pendingRoundScrollRef.current = { type: 'clear-screen', roundId }
     suppressActiveRoundFromScrollRef.current = true
+    suppressStickyBottomRef.current = true
+    clearScreenTargetRoundIdRef.current = roundId
+    setClearScreenTargetVersion((v) => v + 1)
+    cancelPendingScrollToBottom()
+    cancelPendingRestoreScroll()
+    // Re-enable sticky-bottom after the current layout + paint settles.
+    if (suppressStickyBottomResetRef.current !== null) {
+      cancelAnimationFrame(suppressStickyBottomResetRef.current)
+    }
+    suppressStickyBottomResetRef.current = requestAnimationFrame(() => {
+      suppressStickyBottomResetRef.current = requestAnimationFrame(() => {
+        suppressStickyBottomRef.current = false
+        suppressStickyBottomResetRef.current = null
+      })
+    })
     setActiveRoundId(roundId)
     setClearScreenRequestVersion((current) => current + 1)
-  }, [setActiveRoundId])
+  }, [cancelPendingRestoreScroll, cancelPendingScrollToBottom, setActiveRoundId])
 
   const scrollToRound = useCallback(
     (roundId: string, options?: { behavior?: ScrollBehavior; topPadding?: number }) => {
@@ -147,6 +187,12 @@ export function useTimelineScrollController({
 
   useEffect(() => {
     pendingRoundScrollRef.current = null
+    suppressStickyBottomRef.current = false
+    clearScreenTargetRoundIdRef.current = null
+    if (suppressStickyBottomResetRef.current !== null) {
+      cancelAnimationFrame(suppressStickyBottomResetRef.current)
+      suppressStickyBottomResetRef.current = null
+    }
     setActiveRoundId(null)
   }, [sessionId, setActiveRoundId])
 
@@ -212,6 +258,8 @@ export function useTimelineScrollController({
     return () => container.removeEventListener('scroll', updateActiveRoundFromScroll)
   }, [isStreaming, metricsVersion, scrollContainerRef, setActiveRoundId])
 
+  const [clearScreenTargetOffsetTop, setClearScreenTargetOffsetTop] = useState(0)
+
   useLayoutEffect(() => {
     const scrollElement = scrollContainerRef.current
     const contentElement = timelineContentRef.current
@@ -233,6 +281,10 @@ export function useTimelineScrollController({
           ? Math.round(spacerElement.getBoundingClientRect().height)
           : 0
         const activeRoundElement = findRoundSection(contentElement, activeRoundId ?? '')
+        const targetRoundId = clearScreenTargetRoundIdRef.current
+        const targetRoundElement = targetRoundId
+          ? findRoundSection(contentElement, targetRoundId)
+          : null
 
         setTimelineViewportHeight(Math.round(scrollElement.clientHeight))
         setTimelineContentHeight(Math.max(0, Math.round(contentRect.height) - spacerHeight))
@@ -241,6 +293,14 @@ export function useTimelineScrollController({
             ? Math.max(
                 0,
                 Math.round(activeRoundElement.getBoundingClientRect().top - contentRect.top)
+              )
+            : 0
+        )
+        setClearScreenTargetOffsetTop(
+          targetRoundElement
+            ? Math.max(
+                0,
+                Math.round(targetRoundElement.getBoundingClientRect().top - contentRect.top)
               )
             : 0
         )
@@ -266,15 +326,18 @@ export function useTimelineScrollController({
         cancelAnimationFrame(frame)
       }
     }
-  }, [activeRoundId, metricsVersion, scrollContainerRef])
+  }, [activeRoundId, clearScreenTargetVersion, metricsVersion, scrollContainerRef])
 
   const safeBottomPadding = getTimelineSafeBottomPadding(bottomFloatingHeight)
+  // Only compute inset when a clear-screen target is active.
+  // During normal scrolling, inset is 0 — the spacer should not affect
+  // scroll geometry or "virtual bottom" calculations.
   const clearScreenBottomInset =
-    timelineViewportHeight > 0 && timelineContentHeight > 0
+    clearScreenTargetRoundIdRef.current && timelineViewportHeight > 0 && timelineContentHeight > 0
       ? getClearScreenBottomInset({
           viewportHeight: timelineViewportHeight,
           contentHeight: timelineContentHeight,
-          activeRoundOffsetTop,
+          activeRoundOffsetTop: clearScreenTargetOffsetTop,
           safeBottomPadding
         })
       : 0
@@ -283,28 +346,64 @@ export function useTimelineScrollController({
     clearScreenBottomInsetRef.current = clearScreenBottomInset
   }, [clearScreenBottomInset])
 
-  useLayoutEffect(() => {
+  // Attempt the pending clear-screen scroll. Returns true if the scroll was
+  // executed and the pending state cleared.
+  const attemptPendingClearScreenScroll = useCallback((): boolean => {
     const pendingScroll = pendingRoundScrollRef.current
     const container = scrollContainerRef.current
-    if (pendingScroll?.type !== 'clear-screen' || !container) return
+    if (pendingScroll?.type !== 'clear-screen' || !container) return false
 
     const roundElement = findRoundSection(container, pendingScroll.roundId)
-    if (!roundElement) return
+    if (!roundElement) return false
 
     const targetTop = getContainerRelativeTop(container, roundElement)
     const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight)
-    if (targetTop > maxScrollTop && clearScreenBottomInset <= 0) return
+    if (targetTop > maxScrollTop && clearScreenBottomInset <= 0) return false
 
     scrollToOffset(targetTop, 'instant')
     pendingRoundScrollRef.current = null
+    // Note: clearScreenTargetRoundIdRef is NOT cleared here.
+    // It remains active so the spacer stays in place until the user
+    // starts scrolling manually (wheel/pointerDown) or switches sessions.
+    return true
+  }, [clearScreenBottomInset, scrollContainerRef, scrollToOffset])
+
+  useLayoutEffect(() => {
+    attemptPendingClearScreenScroll()
   }, [
     activeRoundId,
-    clearScreenBottomInset,
+    attemptPendingClearScreenScroll,
     clearScreenRequestVersion,
-    contentVersion,
-    scrollContainerRef,
-    scrollToOffset
+    contentVersion
   ])
+
+  // When the inset finishes computing (async), retry the pending scroll.
+  // If the round element still doesn't exist in the DOM (e.g. React hasn't
+  // committed the optimistic message yet), schedule a rAF retry so we catch
+  // the next paint. Cap retries to avoid infinite loops.
+  useEffect(() => {
+    if (pendingRoundScrollRef.current?.type !== 'clear-screen') return
+
+    if (clearScreenBottomInset > 0) {
+      attemptPendingClearScreenScroll()
+      return
+    }
+
+    let frame: number | null = null
+    let retries = 0
+    const maxRetries = 10
+    const retry = (): void => {
+      frame = null
+      if (!attemptPendingClearScreenScroll() && retries < maxRetries) {
+        retries++
+        frame = requestAnimationFrame(retry)
+      }
+    }
+    frame = requestAnimationFrame(retry)
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame)
+    }
+  }, [attemptPendingClearScreenScroll, clearScreenBottomInset, clearScreenRequestVersion])
 
   return {
     scrollContainerRef,
