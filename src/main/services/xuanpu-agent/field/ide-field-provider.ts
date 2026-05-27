@@ -12,12 +12,13 @@ import type { SessionMessage } from '../../../db/types'
 import { buildFieldContextSnapshot } from '../../../field/context-builder'
 import { formatFieldContext } from '../../../field/context-formatter'
 import {
-  createRuleBasedEpisodeFromTurns,
   listFieldEpisodeBlocks
 } from '../../../field/episode-block-repository'
 import { createFieldContextPackage } from '../../../field/context-package-repository'
 import { selectRetrievedEpisodesForContext } from '../episode-retrieval'
 import { selectMessagesForEpisodeFreeze } from '../episode-freezer'
+import { summarizeEpisode } from '../context/episode-summarizer'
+import type { XuanpuAgentModelRef } from '../model-config'
 import { createLogger } from '../../logger'
 import type {
   FieldProvider,
@@ -67,6 +68,7 @@ export class IdeFieldProvider implements FieldProvider {
       .getSessionMessages(sessionId)
       .filter(isConversationMessage)
       .map((msg) => ({
+        messageId: msg.opencode_message_id ?? msg.id,
         role: msg.role,
         content: msg.content,
         createdAt:
@@ -237,7 +239,7 @@ export class IdeFieldProvider implements FieldProvider {
     })
   }
 
-  freezeEpisodes(worktreeId: string, sessionId: string): void {
+  async freezeEpisodes(worktreeId: string, sessionId: string): Promise<void> {
     try {
       const messages = this.db.getSessionMessages(sessionId)
       const existingEpisodes = listFieldEpisodeBlocks({
@@ -257,23 +259,33 @@ export class IdeFieldProvider implements FieldProvider {
 
       if (selected.length === 0) return
 
-      const episode = createRuleBasedEpisodeFromTurns({
+      const turns = selected.map((msg) => ({
+        messageId: msg.id ?? '',
+        role: msg.role as 'user' | 'assistant',
+        content: msg.content,
+        createdAt: msg.createdAt
+      }))
+
+      // Resolve compaction model from settings
+      const resolution = await this.resolveCompactionResolution()
+
+      const episode = await summarizeEpisode({
         worktreeId,
         sessionId,
         title: 'Frozen Conversation Turns',
-        turns: selected.map((msg) => ({
-          messageId: msg.id ?? '',
-          role: msg.role,
-          content: msg.content,
-          createdAt: msg.createdAt
-        }))
+        turns,
+        resolution
       })
+
+      // summarizeEpisode returns FieldEpisodeBlockCreate; persist it
+      const { createFieldEpisodeBlock } = await import('../../../field/episode-block-repository')
+      createFieldEpisodeBlock(episode)
 
       log.info('Frozen conversation episode', {
         sessionId,
         worktreeId,
-        episodeId: episode.id,
-        messageCount: selected.length
+        messageCount: selected.length,
+        modelSource: resolution.source
       })
     } catch (error) {
       log.warn('Failed to freeze episodes', {
@@ -287,6 +299,39 @@ export class IdeFieldProvider implements FieldProvider {
     // beginSessionRun is called by the implementer via @shared/lib/normalize-agent-event
     // No-op here — field provider doesn't own event emission
     void sessionId
+  }
+
+  private async resolveCompactionResolution() {
+    const { APP_SETTINGS_DB_KEY } = await import('../../../../shared/types/settings')
+    const { resolveCompactionModel } = await import('../context/compaction-model')
+
+    let compactionModel: XuanpuAgentModelRef | null = null
+    let mainModel: XuanpuAgentModelRef | null = null
+
+    try {
+      const raw = this.db.getSetting(APP_SETTINGS_DB_KEY)
+      if (raw) {
+        const settings = JSON.parse(raw) as Record<string, unknown>
+        const cm = settings.xuanpuAgentCompactionModel as
+          | { providerID?: string; modelID?: string }
+          | null
+          | undefined
+        if (cm?.providerID && cm?.modelID) {
+          compactionModel = { providerID: cm.providerID, modelID: cm.modelID }
+        }
+        const sm = settings.selectedModel as
+          | { providerID?: string; modelID?: string }
+          | null
+          | undefined
+        if (sm?.providerID && sm?.modelID) {
+          mainModel = { providerID: sm.providerID, modelID: sm.modelID }
+        }
+      }
+    } catch {
+      // Settings read failure — proceed with nulls (will fall back to rule-based)
+    }
+
+    return resolveCompactionModel(compactionModel, mainModel ?? undefined)
   }
 }
 

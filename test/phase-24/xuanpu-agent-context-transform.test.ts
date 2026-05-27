@@ -43,7 +43,7 @@ describe('xuanpu-agent context transform', () => {
     expect(textAt(result.messages, 1)).toBe('prior harness answer')
     expect(textAt(result.messages, 2)).toBe('current harness request')
     expect(result.decisions).toMatchObject({
-      contextTransform: 'xfp-harness-build-messages',
+      contextTransform: 'xfp-harness-context-packer',
       contextBoundary: 'pi-agent-message-array',
       currentUserMessagePosition: 'last',
       xfpPacketId: packet.identity.packetId,
@@ -86,7 +86,7 @@ describe('xuanpu-agent context transform', () => {
     expect(textAt(result.messages, 4)).toBe('previous answer')
     expect(textAt(result.messages, 5)).toBe('current request')
     expect(result.decisions).toMatchObject({
-      contextTransform: 'minimal-anchor-field-recent-current',
+      contextTransform: 'legacy-minimal-anchor',
       contextBoundary: 'pi-agent-message-array',
       currentUserMessagePosition: 'last',
       fieldContextInjected: true,

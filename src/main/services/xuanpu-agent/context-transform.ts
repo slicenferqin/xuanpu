@@ -1,6 +1,8 @@
 import type { AppendOnlyLog } from './harness/build-messages'
-import { buildMessages as buildHarnessMessages } from './harness/build-messages'
 import type { XfpFieldPacket } from './xfp/types'
+import type { FieldTurn } from './field/provider'
+import type { FieldEpisodeBlockRecord } from '../../field/episode-block-repository'
+import { packContext } from './context/context-packer'
 
 export interface XuanpuAgentContextTurn {
   role: 'user' | 'assistant'
@@ -37,6 +39,10 @@ export interface XuanpuAgentContextTransformInput {
   frozenEpisodes?: XuanpuAgentFrozenEpisode[]
   retrievedEpisodes?: XuanpuAgentFrozenEpisode[]
   priorMessages?: XuanpuAgentContextTurn[]
+  /** Full episode records for context packer (M7). */
+  episodeRecords?: FieldEpisodeBlockRecord[]
+  /** Working set turns with messageId for dedup (M7). */
+  workingSet?: FieldTurn[]
   maxFrozenEpisodes?: number
   maxFrozenEpisodeChars?: number
   maxPriorMessages?: number
@@ -54,32 +60,91 @@ const DEFAULT_MAX_PRIOR_CHARS = 12_000
 const DEFAULT_MAX_FROZEN_EPISODES = 3
 const DEFAULT_MAX_FROZEN_EPISODE_CHARS = 6_000
 
+const CONTEXT_ANCHOR_TEXT = [
+  '<xuanpu-context-anchor>',
+  'The following messages are assembled by Xuanpu for this hidden experimental runtime.',
+  'They are context for the model, not visible chat transcript text.',
+  'Use the final user message as the active request.',
+  'Do not claim shell, file editing, or project tools are available.',
+  '</xuanpu-context-anchor>'
+].join('\n')
+
 export function buildXuanpuAgentPromptMessages(
   input: XuanpuAgentContextTransformInput
 ): XuanpuAgentContextTransformResult {
   const now = input.now ?? Date.now()
+
+  // Harness path — XFP packet as anchor, log as working set, via Context Packer
   if (input.harnessContext) {
-    const messages = buildHarnessMessages(
-      input.harnessContext.packet,
-      input.harnessContext.log,
-      input.currentUserText,
-      { now }
-    )
+    const { packet, log } = input.harnessContext
+    const packetAnchor = [
+      `<xuanpu-xfp-packet version="${packet.version}" packet-id="${packet.identity.packetId}">`,
+      'The following JSON is a structured Xuanpu Field Protocol packet.',
+      'Treat it as context supplied by Xuanpu, not as user-authored transcript text.',
+      JSON.stringify(packet, null, 2),
+      '</xuanpu-xfp-packet>'
+    ].join('\n')
+
+    // Convert log entries to FieldTurn[] for packer working set
+    const workingSet: FieldTurn[] = log.entries.map((entry) => ({
+      messageId: entry.id,
+      role: entry.message.role as 'user' | 'assistant',
+      content: entry.message.content.map((p) => p.text).join(''),
+      createdAt: entry.message.timestamp
+    }))
+
+    const result = packContext({
+      anchor: packetAnchor,
+      fieldContextMarkdown: null, // Packet already contains field context
+      frozenEpisodes: input.episodeRecords ?? [],
+      workingSet,
+      currentRequest: input.currentUserText,
+      now
+    })
 
     return {
-      messages,
+      messages: result.messages,
       decisions: {
-        contextTransform: 'xfp-harness-build-messages',
+        contextTransform: 'xfp-harness-context-packer',
         contextBoundary: 'pi-agent-message-array',
         visibleTranscriptPolicy: 'persist-user-authored-message-only',
         semanticCompression: 'disabled',
         currentUserMessagePosition: 'last',
-        xfpPacketId: input.harnessContext.packet.identity.packetId,
-        promptMessageCount: messages.length
+        xfpPacketId: packet.identity.packetId,
+        promptMessageCount: result.messages.length,
+        ...result.decisions
       }
     }
   }
 
+  // M7 Context Packer path — zone-based assembly with dedup
+  if (input.episodeRecords && input.workingSet) {
+    const result = packContext({
+      anchor: CONTEXT_ANCHOR_TEXT,
+      fieldContextMarkdown: input.fieldContextMarkdown ?? null,
+      frozenEpisodes: input.episodeRecords,
+      workingSet: input.workingSet,
+      currentRequest: input.currentUserText,
+      now
+    })
+
+    return {
+      messages: result.messages,
+      decisions: {
+        contextTransform: 'm7-context-packer',
+        ...result.decisions
+      }
+    }
+  }
+
+  // Legacy fallback — manual assembly (pre-M7)
+  return buildLegacyMessages(input, now)
+}
+
+function buildLegacyMessages(
+  input: XuanpuAgentContextTransformInput,
+  now: number
+): XuanpuAgentContextTransformResult {
   const maxPriorMessages = input.maxPriorMessages ?? DEFAULT_MAX_PRIOR_MESSAGES
   const maxPriorChars = input.maxPriorChars ?? DEFAULT_MAX_PRIOR_CHARS
   const maxFrozenEpisodes = input.maxFrozenEpisodes ?? DEFAULT_MAX_FROZEN_EPISODES
@@ -96,19 +161,7 @@ export function buildXuanpuAgentPromptMessages(
     maxPriorChars
   })
 
-  const messages: XuanpuPiPromptMessage[] = [
-    createUserMessage(
-      [
-        '<xuanpu-context-anchor>',
-        'The following messages are assembled by Xuanpu for this hidden experimental runtime.',
-        'They are context for the model, not visible chat transcript text.',
-        'Use the final user message as the active request.',
-        'Do not claim shell, file editing, or project tools are available.',
-        '</xuanpu-context-anchor>'
-      ].join('\n'),
-      now
-    )
-  ]
+  const messages: XuanpuPiPromptMessage[] = [createUserMessage(CONTEXT_ANCHOR_TEXT, now)]
 
   if (fieldContextMarkdown) {
     messages.push(
@@ -144,7 +197,7 @@ export function buildXuanpuAgentPromptMessages(
   return {
     messages,
     decisions: {
-      contextTransform: 'minimal-anchor-field-recent-current',
+      contextTransform: 'legacy-minimal-anchor',
       contextBoundary: 'pi-agent-message-array',
       visibleTranscriptPolicy: 'persist-user-authored-message-only',
       semanticCompression: 'disabled',

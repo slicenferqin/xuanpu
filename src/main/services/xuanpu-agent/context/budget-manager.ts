@@ -1,20 +1,18 @@
 /**
- * ContextBudgetManager — M3 auto-compaction.
+ * ContextBudgetManager — M3 emergency fallback (M7: retreated to fallback role).
  *
- * Tracks estimated context window fill and triggers shrink/emergency compaction
- * when thresholds are crossed. Hooks into oh-my-pi's transformContext.
+ * M7 introduced Context Packer + Episode Freezer for proactive context management.
+ * This manager now only handles:
+ *   - 80% emergency shrink: drop oldest tool results when context critically overflows
+ *   - Fill ratio recording: tracks context utilization for telemetry
  *
- * Token estimation uses a fast heuristic: bytes / 4 ≈ tokens (conservative for
- * code-heavy contexts where the GPT tokenizer averages ~3.5 chars/token).
- *
- * Thresholds:
- *   - 40% fill → shrink: compress tool result content of prior turns
- *   - 80% fill → emergency shrink: drop oldest tool results entirely
+ * The 40% soft shrink path is a no-op — Context Packer handles budget allocation
+ * per-zone before messages reach the LLM.
  *
  * Budget profiles (from xfp/types.ts):
- *   focused  = 150K tokens (~600K chars)
- *   balanced = 300K tokens (~1.2M chars)
- *   extended = 500K tokens (~2.0M chars)
+ *   focused  = 80K tokens (~320K chars)
+ *   balanced = 150K tokens (~600K chars)
+ *   extended = 200K tokens (~800K chars)
  */
 import type { AgentLoopConfig, AgentMessage } from '@oh-my-pi/pi-agent-core'
 
@@ -76,9 +74,9 @@ function estimateTokensFromMessages(messages: AgentMessage[]): number {
 // ───────────────────────────────────────────────────────────────────────────
 
 const BUDGET_TOKENS: Record<BudgetProfile, number> = {
-  focused: 150_000,
-  balanced: 300_000,
-  extended: 500_000
+  focused: 80_000,
+  balanced: 150_000,
+  extended: 200_000
 }
 
 interface BudgetManagerOptions {
@@ -123,6 +121,12 @@ export class ContextBudgetManager {
     this.state.sectionStats = { included, omitted }
   }
 
+  /** Record fill ratio from Context Packer decisions (M7). */
+  recordPackerFillRatio(fillRatio: number): void {
+    this.state.fillRatio = fillRatio
+    this.state.estimatedTokens = Math.round(fillRatio * this.state.maxTokens)
+  }
+
   /**
    * Returns a transformContext function suitable for AgentLoopConfig.
    *
@@ -146,8 +150,8 @@ export class ContextBudgetManager {
         return pruned
       }
 
-      // Soft shrink: 40%+ → mark but don't prune yet (afterToolCall handles per-tool compression)
-      // The transformContext is the right place for cross-turn pruning
+      // Soft shrink: 40%+ → no-op (M7: Context Packer handles zone budgets).
+      // Per-tool compression is handled by afterToolCall hooks.
 
       return messages
     }
@@ -163,6 +167,7 @@ export class ContextBudgetManager {
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i]
       if (msg?.role === 'toolResult' && toolResultsDropped < 50) {
+        console.warn('[ContextBudgetManager] emergencyShrink: pruning tool result', { index: i, role: msg.role })
         result.unshift({
           ...msg,
           role: 'toolResult',
@@ -182,6 +187,11 @@ export class ContextBudgetManager {
     }
 
     if (estimateTokensFromMessages(result) > targetTokens) {
+      console.warn('[ContextBudgetManager] emergencyShrink: still over target, compacting text', {
+        toolResultsDropped,
+        resultTokens: estimateTokensFromMessages(result),
+        targetTokens
+      })
       return result.map((msg) => {
         if (msg.role !== 'assistant' || typeof msg.content === 'string') return msg
         return {

@@ -24,7 +24,8 @@ import {
 } from './xuanpu-agent/runtime'
 import type { XuanpuAgentHarnessMetrics } from './xuanpu-agent/harness/metrics'
 import { XfpPacketCompiler, type CompilerDecision } from './xuanpu-agent/harness/compiler'
-import { buildMessages, SessionAppendOnlyLog } from './xuanpu-agent/harness/build-messages'
+import { packContext } from './xuanpu-agent/context/context-packer'
+import { listFieldEpisodeBlocks } from '../field/episode-block-repository'
 import type {
   XfpAnchorSection,
   XfpCommandTraceSection,
@@ -49,6 +50,7 @@ import { beginSessionRun, emitAgentEvent } from '@shared/lib/normalize-agent-eve
 import { createCommandProfiler } from './xuanpu-agent/context/profiler'
 import { createCommandCompressor } from './xuanpu-agent/context/compressor-impl'
 import type { ArchivePayload } from './xuanpu-agent/harness/tool-call-repair/truncation'
+import type { SubtaskResultDetails } from './xuanpu-agent/tools/subtask-tools'
 import {
   createMemoryPageProposal,
   listMemoryPagesForContext
@@ -204,12 +206,14 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
 
     const field = this.requireField()
     const worktree = field.getWorktree(session.worktreePath)
-    const priorMessages = field.getPriorTurns(session.hiveSessionId)
+    let priorMessages = field.getPriorTurns(session.hiveSessionId)
 
     beginSessionRun(session.hiveSessionId)
     const userMessageId = `xuanpu-agent-user-${randomUUID()}`
     field.persistMessage(session.hiveSessionId, 'user', text, { messageId: userMessageId })
     session.status = 'running'
+    // NOTE: AbortController is a placeholder for future signal wiring.
+    // Actual abort is handled by piSession.abort() below.
     session.abortController = new AbortController()
     this.emitStatus(session.hiveSessionId, 'busy')
 
@@ -299,12 +303,59 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       }
     )
 
-    // ── Assemble messages via harness buildMessages ──
-    const appendOnlyLog = new SessionAppendOnlyLog(
-      priorMessages,
-      compileResult.packet.identity.packetId
-    )
+    // ── M7: Pre-flight freeze (before message assembly) ──
+    if (worktree) {
+      await this.freezeOldConversationTurns(session).catch(() => {})
+    }
 
+    // M7.1: Re-read prior turns after freeze (freeze may have changed episode state)
+    priorMessages = field.getPriorTurns(session.hiveSessionId)
+
+    // M7.1: Load episode records for packer deduplication
+    const episodeRecords = worktree
+      ? listFieldEpisodeBlocks({
+          worktreeId: worktree.id,
+          sessionId: session.hiveSessionId,
+          limit: 200
+        })
+      : []
+
+    // M7.5: Gated episode retrieval (before packer, so retrieved episodes enter active prompt)
+    const episodeCandidates = worktree
+      ? field.getEpisodeCandidates(worktree.id, session.hiveSessionId)
+      : []
+    const episodeRetrieval = field.retrieveEpisodes(
+      text,
+      episodeCandidates,
+      priorMessages,
+      session.hiveSessionId
+    )
+    const retrievedEpisodeEntries = episodeRetrieval.included.map((ep) => {
+      const record = episodeRecords.find((r) => r.id === ep.id)
+      return {
+        episode: record ?? {
+          id: ep.id,
+          worktreeId: worktree?.id ?? 'unknown',
+          sessionId: session.hiveSessionId,
+          createdAt: ep.createdAt,
+          kind: 'turns' as const,
+          title: ep.title,
+          summaryMarkdown: ep.summaryMarkdown,
+          keyFacts: ep.keyFacts ?? [],
+          constraints: ep.constraints ?? [],
+          files: ep.files ?? [],
+          commands: ep.commands ?? [],
+          failures: ep.failures ?? [],
+          rawRefs: [],
+          tokenEstimate: ep.tokenEstimate,
+          confidence: 'medium' as const,
+          metadata: {}
+        },
+        retrievalReason: episodeRetrieval.triggers.join('; ') || 'gated-retrieval'
+      }
+    })
+
+    // ── M7.1: Assemble messages via Context Packer (replaces buildMessages) ──
     try {
       const piSession = this.getOrCreatePiSession(session)
       piSession.setWorktreePath(session.worktreePath)
@@ -348,7 +399,23 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         )
       }
 
-      const harnessMessages = buildMessages(compileResult.packet, appendOnlyLog, text)
+      // M7.1: Use Context Packer as sole message assembly entry point
+      const packetAnchor = [
+        `<xuanpu-xfp-packet version="${compileResult.packet.version}" packet-id="${compileResult.packet.identity.packetId}">`,
+        'The following JSON is a structured Xuanpu Field Protocol packet.',
+        'Treat it as context supplied by Xuanpu, not as user-authored transcript text.',
+        JSON.stringify(compileResult.packet, null, 2),
+        '</xuanpu-xfp-packet>'
+      ].join('\n')
+      const packedContext = packContext({
+        anchor: packetAnchor,
+        fieldContextMarkdown: fieldSnapshot.markdown,
+        frozenEpisodes: episodeRecords,
+        retrievedEpisodes: retrievedEpisodeEntries,
+        workingSet: priorMessages,
+        currentRequest: text
+      })
+      const harnessMessages = packedContext.messages
 
       const observedPaths = new Set<string>()
       const result = await piSession.prompt(harnessMessages, modelRef, {
@@ -361,6 +428,9 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             null,
             observedPaths
           )
+          if (event.toolName === 'xfp_delegate_subtask') {
+            this.emitSubtaskStart(session.hiveSessionId, event)
+          }
           this.emitToolStart(session.hiveSessionId, event)
         },
         onToolEnd: (event) => {
@@ -371,6 +441,10 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             event.result,
             observedPaths
           )
+          const subtaskDetails = extractSubtaskDetails(event.result)
+          if (subtaskDetails) {
+            this.emitSubtaskEnd(session.hiveSessionId, event, subtaskDetails)
+          }
           this.emitToolEnd(session.hiveSessionId, event)
         }
       })
@@ -414,7 +488,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         })
       }
 
-      // Record context package for audit/debug
+      // Record context package for audit/debug (M7.2: derive from packer output)
       if (worktree) {
         try {
           await this.createContextPackage(session, text, modelRef, priorMessages, {
@@ -431,7 +505,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
               })) ?? [],
             resumedCheckpoint,
             claimVerification,
-            harnessMetrics: result.harnessMetrics
+            harnessMetrics: result.harnessMetrics,
+            packerOutput: packedContext
           })
         } catch (err) {
           log.warn('Failed to record context package', {
@@ -450,8 +525,6 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
           assistantText: content
         })
       }
-
-      this.freezeOldConversationTurns(session)
 
       session.status = 'ready'
       session.abortController = null
@@ -578,6 +651,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       resumedCheckpoint?: ResumedCheckpointBlock | null
       claimVerification?: PostResponseClaimVerification
       harnessMetrics?: XuanpuAgentHarnessMetrics | null
+      /** M7.2: Packer output — when provided, skip internal retrieval. */
+      packerOutput?: { messages: unknown[]; decisions: Record<string, unknown> }
     } = {}
   ): Promise<{
     contextPackageId: string | null
@@ -587,13 +662,22 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     const worktree = field.getWorktree(session.worktreePath)
     if (!worktree) return null
 
-    const episodeCandidates = field.getEpisodeCandidates(worktree.id, session.hiveSessionId)
-    const episodeRetrieval = field.retrieveEpisodes(
-      userText,
-      episodeCandidates,
-      priorMessages,
-      session.hiveSessionId
-    )
+    // M7.2: When packer output is provided, use its decisions instead of re-doing retrieval
+    let episodeCandidates: FieldEpisode[]
+    let episodeRetrieval: { included: FieldEpisode[]; dropped: number; triggers: string[] }
+    if (options.packerOutput) {
+      // Packer already did retrieval — use empty candidates, packer decisions have the truth
+      episodeCandidates = []
+      episodeRetrieval = { included: [], dropped: 0, triggers: [] }
+    } else {
+      episodeCandidates = field.getEpisodeCandidates(worktree.id, session.hiveSessionId)
+      episodeRetrieval = field.retrieveEpisodes(
+        userText,
+        episodeCandidates,
+        priorMessages,
+        session.hiveSessionId
+      )
+    }
     const packet = options.packet ?? null
     const baseSections =
       packet && options.decisions
@@ -959,11 +1043,11 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     }
   }
 
-  private freezeOldConversationTurns(session: XuanpuAgentSessionState): void {
+  private async freezeOldConversationTurns(session: XuanpuAgentSessionState): Promise<void> {
     const field = this.requireField()
     const worktree = field.getWorktree(session.worktreePath)
     if (!worktree) return
-    field.freezeEpisodes(worktree.id, session.hiveSessionId)
+    await field.freezeEpisodes(worktree.id, session.hiveSessionId)
   }
 
   private requireField(): FieldProvider {
@@ -1076,7 +1160,11 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
           }
         ]
       }
-    } catch {
+    } catch (err) {
+      log.warn('buildGitStateForWorktree: git probe failed, returning default state', {
+        worktreePath,
+        error: err instanceof Error ? err.message : String(err)
+      })
       return {
         branchName: 'unknown',
         headShort: 'unknown',
@@ -1219,6 +1307,51 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
                 ? details.filesAffected
                 : undefined
             },
+            time: { start: event.startedAt, end: event.endedAt }
+          }
+        }
+      }
+    })
+  }
+
+  private emitSubtaskStart(hiveSessionId: string, event: XuanpuAgentToolStartEvent): void {
+    emitAgentEvent(this.mainWindow, {
+      type: 'message.part.updated',
+      sessionId: hiveSessionId,
+      data: {
+        part: {
+          type: 'subtask',
+          callID: event.toolCallId,
+          description: (event.args.description as string) ?? 'Subtask',
+          agent: (event.args.agent as string) ?? 'general',
+          state: {
+            status: 'running',
+            time: { start: event.startedAt }
+          }
+        }
+      }
+    })
+  }
+
+  private emitSubtaskEnd(
+    hiveSessionId: string,
+    event: XuanpuAgentToolEndEvent,
+    details: SubtaskResultDetails
+  ): void {
+    emitAgentEvent(this.mainWindow, {
+      type: 'message.part.updated',
+      sessionId: hiveSessionId,
+      data: {
+        part: {
+          type: 'subtask',
+          callID: event.toolCallId,
+          childSessionId: details.childSessionId,
+          description: details.description,
+          agent: details.agent,
+          state: {
+            status: details.status,
+            error: details.error,
+            result: extractToolResultText(event.result),
             time: { start: event.startedAt, end: event.endedAt }
           }
         }
@@ -1856,4 +1989,14 @@ function readPacketSection(packet: XfpFieldPacket, name: string): unknown {
     default:
       return undefined
   }
+}
+
+function extractSubtaskDetails(result: unknown): SubtaskResultDetails | null {
+  if (!result || typeof result !== 'object') return null
+  const details = (result as { details?: unknown }).details
+  if (!details || typeof details !== 'object') return null
+  const record = details as Record<string, unknown>
+  if (record.subtask !== true) return null
+  if (typeof record.childSessionId !== 'string') return null
+  return record as unknown as SubtaskResultDetails
 }

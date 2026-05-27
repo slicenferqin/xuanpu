@@ -32,12 +32,14 @@ export interface FieldEpisodeBlockCreate {
   rawRefs: FieldEpisodeRawRef[]
   tokenEstimate?: number
   confidence: FieldEpisodeBlockConfidence
+  metadata?: Record<string, unknown>
 }
 
 export interface FieldEpisodeBlockRecord extends FieldEpisodeBlockCreate {
   id: string
   createdAt: number
   tokenEstimate: number
+  metadata: Record<string, unknown>
 }
 
 interface FieldEpisodeBlockRow {
@@ -60,6 +62,7 @@ interface FieldEpisodeBlockRow {
   raw_refs_json: string
   token_estimate: number
   confidence: FieldEpisodeBlockConfidence
+  metadata_json: string
 }
 
 export interface FieldEpisodeBlockQuery {
@@ -92,7 +95,8 @@ export function createFieldEpisodeBlock(data: FieldEpisodeBlockCreate): FieldEpi
     ...data,
     id: randomUUID(),
     createdAt: Date.now(),
-    tokenEstimate: data.tokenEstimate ?? estimateTokens(data.summaryMarkdown)
+    tokenEstimate: data.tokenEstimate ?? estimateTokens(data.summaryMarkdown),
+    metadata: data.metadata ?? {}
   }
 
   getDatabase()
@@ -117,8 +121,9 @@ export function createFieldEpisodeBlock(data: FieldEpisodeBlockCreate): FieldEpi
         failures_json,
         raw_refs_json,
         token_estimate,
-        confidence
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        confidence,
+        metadata_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       record.id,
@@ -139,15 +144,20 @@ export function createFieldEpisodeBlock(data: FieldEpisodeBlockCreate): FieldEpi
       JSON.stringify(record.failures),
       JSON.stringify(record.rawRefs),
       record.tokenEstimate,
-      record.confidence
+      record.confidence,
+      JSON.stringify(record.metadata ?? {})
     )
 
   return record
 }
 
-export function createRuleBasedEpisodeFromTurns(
+/**
+ * Build rule-based episode create data from turns (does NOT write to DB).
+ * Use this when the caller wants to add metadata before persisting.
+ */
+export function buildRuleBasedEpisodeFromTurns(
   input: RuleBasedEpisodeInput
-): FieldEpisodeBlockRecord {
+): FieldEpisodeBlockCreate {
   const turns = input.turns.filter((turn) => turn.content.trim().length > 0)
   if (turns.length === 0) {
     throw new Error('Cannot create a field episode block without raw turns')
@@ -176,7 +186,7 @@ export function createRuleBasedEpisodeFromTurns(
     .filter((line) => line !== '')
     .join('\n')
 
-  return createFieldEpisodeBlock({
+  return {
     worktreeId: input.worktreeId,
     sessionId: input.sessionId ?? null,
     sourceMessageIdStart: turns.at(0)?.messageId ?? null,
@@ -191,7 +201,17 @@ export function createRuleBasedEpisodeFromTurns(
     failures,
     rawRefs,
     confidence: input.confidence ?? 'medium'
-  })
+  }
+}
+
+/**
+ * Build and persist a rule-based episode block from turns.
+ * Convenience wrapper around buildRuleBasedEpisodeFromTurns + createFieldEpisodeBlock.
+ */
+export function createRuleBasedEpisodeFromTurns(
+  input: RuleBasedEpisodeInput
+): FieldEpisodeBlockRecord {
+  return createFieldEpisodeBlock(buildRuleBasedEpisodeFromTurns(input))
 }
 
 export function getFieldEpisodeBlock(id: string): FieldEpisodeBlockRecord | null {
@@ -217,7 +237,8 @@ export function getFieldEpisodeBlock(id: string): FieldEpisodeBlockRecord | null
         failures_json,
         raw_refs_json,
         token_estimate,
-        confidence
+        confidence,
+        metadata_json
       FROM field_episode_blocks
       WHERE id = ?`
     )
@@ -271,7 +292,8 @@ export function listFieldEpisodeBlocks(
         failures_json,
         raw_refs_json,
         token_estimate,
-        confidence
+        confidence,
+        metadata_json
       FROM field_episode_blocks
       ${where}
       ORDER BY created_at ${order}, id ${order}
@@ -311,7 +333,8 @@ function hydrateRow(row: FieldEpisodeBlockRow): FieldEpisodeBlockRecord {
     failures: parseJson<string[]>(row.failures_json, []),
     rawRefs: parseJson<FieldEpisodeRawRef[]>(row.raw_refs_json, []),
     tokenEstimate: row.token_estimate,
-    confidence: row.confidence
+    confidence: row.confidence,
+    metadata: parseJson<Record<string, unknown>>(row.metadata_json, {})
   }
 }
 

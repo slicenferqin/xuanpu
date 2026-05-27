@@ -31,6 +31,7 @@ export interface FieldSession {
 }
 
 export interface FieldTurn {
+  messageId: string
   role: 'user' | 'assistant'
   content: string
   createdAt: number
@@ -149,7 +150,7 @@ export interface FieldProvider {
   persistContextPackage(pkg: FieldContextPackage): void
 
   /** Freeze old conversation turns into an episode block. */
-  freezeEpisodes(worktreeId: string, sessionId: string): void
+  freezeEpisodes(worktreeId: string, sessionId: string): Promise<void>
 
   // ── Lifecycle ──
 
