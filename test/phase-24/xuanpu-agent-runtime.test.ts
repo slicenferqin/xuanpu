@@ -170,7 +170,13 @@ const EXPECTED_TOOL_NAMES = [
   'write_file',
   'edit_file',
   'run_test',
-  'format_file'
+  'format_file',
+  'xfp_get_current_focus',
+  'xfp_get_last_terminal',
+  'xfp_get_recent_activity',
+  'xfp_get_worktree_summary',
+  'xfp_get_pinned_facts',
+  'xfp_delegate_subtask'
 ]
 
 function recordedToolNames(): string[][] {

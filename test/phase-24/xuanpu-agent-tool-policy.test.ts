@@ -41,7 +41,13 @@ describe('xuanpu-agent native and tool policy', () => {
       'write_file',
       'edit_file',
       'run_test',
-      'format_file'
+      'format_file',
+      'xfp_get_current_focus',
+      'xfp_get_last_terminal',
+      'xfp_get_recent_activity',
+      'xfp_get_worktree_summary',
+      'xfp_get_pinned_facts',
+      'xfp_delegate_subtask'
     ])
     expect(() => assertXuanpuAgentAllowedTools(tools)).not.toThrow()
     expect(() => assertXuanpuAgentAllowedTools([{ name: 'shell' }])).toThrow(
@@ -49,6 +55,9 @@ describe('xuanpu-agent native and tool policy', () => {
     )
     expect(isXuanpuAgentParallelSafeTool('read_file')).toBe(true)
     expect(isXuanpuAgentParallelSafeTool('write_file')).toBe(false)
+    expect(isXuanpuAgentParallelSafeTool('xfp_get_current_focus')).toBe(true)
+    expect(isXuanpuAgentParallelSafeTool('xfp_get_pinned_facts')).toBe(true)
+    expect(isXuanpuAgentParallelSafeTool('xfp_delegate_subtask')).toBe(true)
   })
 
   it('keeps native process and MCP gates closed after controlled writes are enabled', () => {
@@ -64,10 +73,14 @@ describe('xuanpu-agent native and tool policy', () => {
     expect(gates.find((gate) => gate.id === 'permission-policy')?.satisfied).toBe(true)
     expect(gates.find((gate) => gate.id === 'checkpoint-policy')?.satisfied).toBe(true)
     expect(gates.find((gate) => gate.id === 'tool-audit')?.satisfied).toBe(true)
+    expect(gates.find((gate) => gate.id === 'mcp-boundary')?.satisfied).toBe(true)
     expect(
       gates
         .filter(
-          (gate) => !['permission-policy', 'checkpoint-policy', 'tool-audit'].includes(gate.id)
+          (gate) =>
+            !['permission-policy', 'checkpoint-policy', 'tool-audit', 'mcp-boundary'].includes(
+              gate.id
+            )
         )
         .every((gate) => gate.required && !gate.satisfied)
     ).toBe(true)
@@ -75,7 +88,7 @@ describe('xuanpu-agent native and tool policy', () => {
     expect(() => assertXuanpuAgentToolSurfaceReady()).toThrow(
       [
         `xuanpu-agent tools are disabled: ${XUANPU_AGENT_TOOL_POLICY.reason}`,
-        'Unmet gates: native-packaging, ui-capability-gate, mcp-boundary'
+        'Unmet gates: native-packaging, ui-capability-gate'
       ].join('\n')
     )
     expect(() => assertXuanpuAgentAllowedTools([{ name: 'Bash' }])).toThrow(
@@ -92,6 +105,11 @@ describe('xuanpu-agent native and tool policy', () => {
     expect(prompt).toContain('previewToken')
     expect(prompt).toContain('arbitrary shell commands')
     expect(prompt).toContain('MCP')
+    expect(prompt).toContain('xfp_get_current_focus')
+    expect(prompt).toContain('xfp_get_pinned_facts')
+    expect(prompt).toContain('scoped field tools')
+    expect(prompt).toContain('xfp_delegate_subtask')
+    expect(prompt).toContain('delegate subtask')
   })
 
   it('keeps pi-natives process control inert in the compatibility alias', async () => {

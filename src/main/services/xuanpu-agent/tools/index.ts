@@ -3,7 +3,8 @@
  *
  * M2 ships read-only git/file/search tools. M4 adds controlled write tools
  * that are exclusive and require diff-preview confirmation unless the session
- * is explicitly trusted.
+ * is explicitly trusted. M6 adds scoped field tools (Xuanpu-owned, read-only)
+ * and subtask delegation.
  */
 export { gitStatusTool, gitLogTool, gitDiffTool } from './git-tools'
 export { readFileTool, listFilesTool } from './file-tools'
@@ -16,11 +17,22 @@ export {
   formatFileTool,
   CONTROLLED_WRITE_TOOLS
 } from './write-tools'
+export {
+  xfpGetCurrentFocusTool,
+  xfpGetLastTerminalTool,
+  xfpGetRecentActivityTool,
+  xfpGetWorktreeSummaryTool,
+  xfpGetPinnedFactsTool,
+  XFP_FIELD_TOOLS
+} from './field-tools'
+export { xfpDelegateSubtaskTool, SUBTASK_TOOLS } from './subtask-tools'
 
 import { gitStatusTool, gitLogTool, gitDiffTool } from './git-tools'
 import { readFileTool, listFilesTool } from './file-tools'
 import { rgSearchTool } from './search-tools'
 import { CONTROLLED_WRITE_TOOLS } from './write-tools'
+import { XFP_FIELD_TOOLS } from './field-tools'
+import { SUBTASK_TOOLS } from './subtask-tools'
 
 import type { AgentTool } from '@oh-my-pi/pi-agent-core'
 
@@ -38,4 +50,9 @@ export const READ_ONLY_TOOLS: AgentTool[] = [
   gitDiffTool
 ]
 
-export const XUANPU_AGENT_TOOLS: AgentTool[] = [...READ_ONLY_TOOLS, ...CONTROLLED_WRITE_TOOLS]
+export const XUANPU_AGENT_TOOLS: AgentTool[] = [
+  ...READ_ONLY_TOOLS,
+  ...CONTROLLED_WRITE_TOOLS,
+  ...XFP_FIELD_TOOLS,
+  ...SUBTASK_TOOLS
+]
