@@ -62,7 +62,11 @@ export function extractFilePathClaims(text: string): string[] {
     const candidate = stripTrailingPunctuation(match[1] ?? '')
     if (!candidate || candidate.includes('://')) continue
     if (candidate.startsWith('/')) continue
+    if (candidate.startsWith('@')) continue // package refs like @shared/types/foo.ts
     if (candidate.includes('node_modules/')) continue
+    if (candidate.includes('.next/')) continue // framework output
+    if (candidate.includes('.turbo/')) continue
+    if (candidate.includes('.cache/')) continue
     claims.push(candidate)
   }
   return Array.from(new Set(claims))

@@ -106,6 +106,7 @@ export class XuanpuPiAgentSession {
   private unsubscribe: (() => void) | null = null
   private lastModelKey: string | null = null
   private _worktreePath: string | null = null
+  private prompting = false
 
   /** M1.5: 工具调用去重检测。挂载为 beforeToolCall 钩子。 */
   readonly stormDetector = new StormDetector({ windowSize: 5, threshold: 3 })
@@ -165,6 +166,10 @@ export class XuanpuPiAgentSession {
     modelRef: XuanpuAgentModelRef,
     handlers: XuanpuAgentPromptEventHandlers = {}
   ): Promise<XuanpuAgentPromptResult> {
+    if (this.prompting) {
+      throw new Error('xuanpu-agent: overlapping prompt() calls are not allowed on the same session')
+    }
+    this.prompting = true
     const messageId = `xuanpu-agent-${Date.now()}`
     const resolved = await resolvePiModel(modelRef)
     assertXuanpuAgentProviderCredential(resolved.modelRef)
@@ -238,6 +243,7 @@ export class XuanpuPiAgentSession {
       }
     })
 
+    try {
     await agent.prompt(input)
 
     const turnStateMessages = getNewTurnMessages(
@@ -266,6 +272,9 @@ export class XuanpuPiAgentSession {
       usage: message?.usage,
       rawMessage: message ?? undefined,
       harnessMetrics
+    }
+    } finally {
+      this.prompting = false
     }
   }
 
@@ -315,9 +324,6 @@ export class XuanpuPiAgentSession {
     }
 
     this.agent.setModel(model)
-    const tools = getXuanpuAgentAllowedTools()
-    assertXuanpuAgentAllowedTools(tools)
-    this.agent.setTools(tools)
     return this.agent
   }
 }

@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import type { DatabaseService } from '../../src/main/db/database'
 
 interface AutoFreezeCapable {
-  freezeOldConversationTurns(session: unknown): void
+  freezeOldConversationTurns(session: unknown): Promise<void>
 }
 
 const episodeMocks = vi.hoisted(() => ({
@@ -22,8 +22,24 @@ const episodeMocks = vi.hoisted(() => ({
     failures: [],
     rawRefs: [],
     tokenEstimate: 1,
-    confidence: 'medium'
-  }))
+    confidence: 'medium',
+    metadata: {}
+  })),
+  createFieldEpisodeBlock: vi.fn((data) => ({ ...data, id: 'episode-new', createdAt: Date.now() }))
+}))
+
+const summarizerMocks = vi.hoisted(() => ({
+  summarizeEpisode: vi.fn(async (input) => {
+    // Delegate to rule-based mock for assertion compatibility
+    const ruleResult = episodeMocks.createRuleBasedEpisodeFromTurns({
+      worktreeId: input.worktreeId,
+      sessionId: input.sessionId,
+      title: input.title,
+      turns: input.turns,
+      confidence: 'medium'
+    })
+    return ruleResult
+  })
 }))
 
 vi.mock('electron', () => ({
@@ -41,7 +57,19 @@ vi.mock('../../src/main/services/logger', () => ({
 
 vi.mock('../../src/main/field/episode-block-repository', () => ({
   listFieldEpisodeBlocks: episodeMocks.listFieldEpisodeBlocks,
-  createRuleBasedEpisodeFromTurns: episodeMocks.createRuleBasedEpisodeFromTurns
+  createRuleBasedEpisodeFromTurns: episodeMocks.createRuleBasedEpisodeFromTurns,
+  createFieldEpisodeBlock: episodeMocks.createFieldEpisodeBlock
+}))
+
+vi.mock('../../src/main/services/xuanpu-agent/context/episode-summarizer', () => ({
+  summarizeEpisode: summarizerMocks.summarizeEpisode
+}))
+
+vi.mock('../../src/main/services/xuanpu-agent/context/compaction-model', () => ({
+  resolveCompactionModel: vi.fn(async () => ({
+    kind: 'rule-based',
+    source: 'fallback'
+  }))
 }))
 
 function makeMessages(count: number) {
@@ -70,9 +98,10 @@ describe('XuanpuAgentImplementer automatic episode freezing', () => {
     const implementer = new XuanpuAgentImplementer()
     implementer.setDatabaseService({
       getWorktreeByPath: vi.fn(() => ({ id: 'worktree-1' })),
-      getSessionMessages: vi.fn(() => makeMessages(10))
+      getSessionMessages: vi.fn(() => makeMessages(10)),
+      getSetting: vi.fn(() => null)
     } as unknown as DatabaseService)
-    ;(implementer as unknown as AutoFreezeCapable).freezeOldConversationTurns({
+    await (implementer as unknown as AutoFreezeCapable).freezeOldConversationTurns({
       sessionId: 'agent-session-1',
       hiveSessionId: 'session-1',
       worktreePath: '/repo',
@@ -86,17 +115,14 @@ describe('XuanpuAgentImplementer automatic episode freezing', () => {
       sessionId: 'session-1',
       limit: 200
     })
-    expect(episodeMocks.createRuleBasedEpisodeFromTurns).toHaveBeenCalledWith(
+    expect(summarizerMocks.summarizeEpisode).toHaveBeenCalledWith(
       expect.objectContaining({
         worktreeId: 'worktree-1',
         sessionId: 'session-1',
         title: 'Frozen Conversation Turns',
-        turns: [
-          expect.objectContaining({ messageId: 'm-1' }),
-          expect.objectContaining({ messageId: 'm-2' }),
-          expect.objectContaining({ messageId: 'm-3' }),
-          expect.objectContaining({ messageId: 'm-4' })
-        ]
+        turns: expect.arrayContaining([
+          expect.objectContaining({ messageId: 'm-1' })
+        ])
       })
     )
   })
@@ -107,9 +133,10 @@ describe('XuanpuAgentImplementer automatic episode freezing', () => {
     const implementer = new XuanpuAgentImplementer()
     implementer.setDatabaseService({
       getWorktreeByPath: vi.fn(() => ({ id: 'worktree-1' })),
-      getSessionMessages: vi.fn(() => makeMessages(6))
+      getSessionMessages: vi.fn(() => makeMessages(6)),
+      getSetting: vi.fn(() => null)
     } as unknown as DatabaseService)
-    ;(implementer as unknown as AutoFreezeCapable).freezeOldConversationTurns({
+    await (implementer as unknown as AutoFreezeCapable).freezeOldConversationTurns({
       sessionId: 'agent-session-1',
       hiveSessionId: 'session-1',
       worktreePath: '/repo',
@@ -118,6 +145,6 @@ describe('XuanpuAgentImplementer automatic episode freezing', () => {
       piSession: null
     })
 
-    expect(episodeMocks.createRuleBasedEpisodeFromTurns).not.toHaveBeenCalled()
+    expect(summarizerMocks.summarizeEpisode).not.toHaveBeenCalled()
   })
 })

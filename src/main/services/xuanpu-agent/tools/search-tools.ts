@@ -3,6 +3,7 @@
  *
  * rg_search  — ripgrep content search (falls back to Node.js grep if rg not found)
  */
+import * as fs from 'fs'
 import * as path from 'path'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
@@ -35,10 +36,62 @@ function errorResult(message: string, details?: ToolDetails): AgentToolResult<To
   return { content: [{ type: 'text', text: `Error: ${message}` }], details, isError: true }
 }
 
+/**
+ * Resolve a user-supplied path safely within the worktree.
+ * Defends against symlink escapes by resolving symlinks on the existing
+ * parent directory (and the target itself if it exists).
+ * Returns the resolved absolute path, or null if it escapes the worktree.
+ */
 function safeResolve(worktreePath: string, userPath: string): string | null {
   const resolved = path.resolve(worktreePath, userPath)
-  const root = path.resolve(worktreePath)
-  if (resolved !== root && !resolved.startsWith(root + path.sep)) return null
+  const resolvedRoot = path.resolve(worktreePath)
+
+  // If the root doesn't exist on disk, fall back to prefix check
+  let root: string
+  try {
+    root = fs.realpathSync(resolvedRoot)
+  } catch {
+    const normalizedRoot = resolvedRoot + path.sep
+    if (!resolved.startsWith(normalizedRoot) && resolved !== resolvedRoot) {
+      return null
+    }
+    return resolved
+  }
+
+  const relPath = path.relative(root, resolved)
+  if (relPath === '' || relPath === '.') return root
+  if (relPath.startsWith('..') || path.isAbsolute(relPath)) return null
+
+  // Walk up to find the deepest existing ancestor
+  let existingParent = path.dirname(resolved)
+  while (!fs.existsSync(existingParent)) {
+    const next = path.dirname(existingParent)
+    if (next === existingParent) break
+    existingParent = next
+  }
+
+  // Symlink check on the existing parent directory
+  try {
+    const realParent = fs.realpathSync(existingParent)
+    if (realParent !== root && !realParent.startsWith(root + path.sep)) {
+      return null
+    }
+  } catch {
+    // Parent doesn't exist yet — no symlink to check
+  }
+
+  // If the target itself exists, verify it too
+  if (fs.existsSync(resolved)) {
+    try {
+      const realTarget = fs.realpathSync(resolved)
+      if (realTarget !== root && !realTarget.startsWith(root + path.sep)) {
+        return null
+      }
+    } catch {
+      // Can't resolve — let the caller handle ENOENT
+    }
+  }
+
   return resolved
 }
 
@@ -101,13 +154,27 @@ export const rgSearchTool: AgentTool<typeof rgSearchParams> = {
     try {
       const worktreePath = resolveWorktreePath(ctx)
       const target = params.path ?? '.'
-      const searchDir = safeResolve(worktreePath, target)
-      const command =
-        `rg ${params.glob ? `--glob ${params.glob} ` : ''}${params.pattern} ${target}`.trim()
-      const details = { command, cwd: searchDir ?? worktreePath }
-      if (!searchDir) {
-        return errorResult(`Path escapes worktree: ${target}`, details)
+      const resolved = safeResolve(worktreePath, target)
+      if (!resolved) {
+        const command =
+          `rg ${params.glob ? `--glob ${params.glob} ` : ''}${params.pattern} ${target}`.trim()
+        return errorResult(`Path escapes worktree: ${target}`, { command, cwd: worktreePath })
       }
+
+      // If target resolves to a file, search that file (pass as arg, cwd = worktree).
+      // If target resolves to a directory, use it as cwd.
+      const isFile = fs.statSync(resolved).isFile()
+      const cwd = isFile ? worktreePath : resolved
+      const fileArg = isFile ? resolved : null
+      const command = [
+        'rg',
+        params.glob ? `--glob ${params.glob}` : '',
+        params.pattern,
+        fileArg ?? target
+      ]
+        .filter(Boolean)
+        .join(' ')
+      const details = { command, cwd }
       const args: string[] = [
         '--no-heading',
         '--line-number',
@@ -121,10 +188,11 @@ export const rgSearchTool: AgentTool<typeof rgSearchParams> = {
       if (params.glob) args.push('--glob', params.glob)
 
       args.push('--', params.pattern)
+      if (fileArg) args.push(fileArg)
 
       try {
         const { stdout } = await execFileAsync('rg', args, {
-          cwd: searchDir,
+          cwd,
           maxBuffer: 10 * 1024 * 1024, // 10 MiB
           timeout: 30_000
         })

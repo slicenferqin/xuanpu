@@ -111,6 +111,7 @@ export interface AppSettings {
   selectedModel: SelectedModel | null
   selectedModelByProvider: Record<string, SelectedModel>
   defaultModels: ModeDefaultModels | null
+  xuanpuAgentCompactionModel: SelectedModel | null
 
   // Quick Actions
   lastOpenAction: QuickActionType | null
@@ -207,6 +208,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   selectedModel: null,
   selectedModelByProvider: {},
   defaultModels: null,
+  xuanpuAgentCompactionModel: null,
   lastOpenAction: null,
   favoriteModels: [],
   customChromeCommand: '',
@@ -352,6 +354,7 @@ interface SettingsState extends AppSettings {
     mode: 'build' | 'plan' | 'ask',
     model: SelectedModel | null
   ) => Promise<void>
+  setXuanpuAgentCompactionModel: (model: SelectedModel | null) => Promise<void>
   getModelForMode: (mode: 'build' | 'plan' | 'ask') => SelectedModel | null
   toggleFavoriteModel: (providerID: string, modelID: string) => void
   setModelVariantDefault: (providerID: string, modelID: string, variant: string) => void
@@ -410,6 +413,7 @@ function extractSettings(state: SettingsState): AppSettings {
     selectedModel: state.selectedModel,
     selectedModelByProvider: state.selectedModelByProvider,
     defaultModels: state.defaultModels,
+    xuanpuAgentCompactionModel: state.xuanpuAgentCompactionModel,
     lastOpenAction: state.lastOpenAction,
     favoriteModels: state.favoriteModels,
     customChromeCommand: state.customChromeCommand,
@@ -556,6 +560,12 @@ export const useSettingsStore = create<SettingsState>()(
         await saveToDatabase(settings)
       },
 
+      setXuanpuAgentCompactionModel: async (model: SelectedModel | null) => {
+        set({ xuanpuAgentCompactionModel: model })
+        const settings = extractSettings({ ...get(), xuanpuAgentCompactionModel: model } as SettingsState)
+        await saveToDatabase(settings)
+      },
+
       getModelForMode: (mode: 'build' | 'plan' | 'ask') => {
         // Return only the mode-specific default (no global fallback).
         // Callers that need a fallback chain should check selectedModel separately.
@@ -637,6 +647,7 @@ export const useSettingsStore = create<SettingsState>()(
         selectedModel: state.selectedModel,
         selectedModelByProvider: state.selectedModelByProvider,
         defaultModels: state.defaultModels,
+        xuanpuAgentCompactionModel: state.xuanpuAgentCompactionModel,
         lastOpenAction: state.lastOpenAction,
         favoriteModels: state.favoriteModels,
         customChromeCommand: state.customChromeCommand,

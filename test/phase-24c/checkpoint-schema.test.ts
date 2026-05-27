@@ -11,6 +11,7 @@ vi.mock('@shared/app-identity', () => ({
 }))
 
 import { DatabaseService } from '../../src/main/db/database'
+import { CURRENT_SCHEMA_VERSION } from '../../src/main/db/schema'
 
 let tmpDir: string
 let db: DatabaseService
@@ -124,10 +125,9 @@ describe('field_session_checkpoints schema (Phase 24C v20)', () => {
     expect(cols).not.toContain('stale_reason')
   })
 
-  it('schema version is 21', () => {
-    // v21: add_field_pinned_facts (v1.4.1). Phase 24C still owns the
-    // checkpoint table from v20 — this assertion only tracks the head
-    // version of the migration ladder.
-    expect(db.getSchemaVersion()).toBe(21)
+  it('schema version tracks CURRENT_SCHEMA_VERSION', () => {
+    // This assertion tracks the head of the migration ladder.
+    // It auto-updates when new migrations are added to schema.ts.
+    expect(db.getSchemaVersion()).toBe(CURRENT_SCHEMA_VERSION)
   })
 })

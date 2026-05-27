@@ -24,6 +24,12 @@ export interface XuanpuAgentToolPolicy {
   gates: XuanpuAgentToolSurfaceGate[]
 }
 
+/**
+ * NOTE: The gate system is documentation scaffolding, not a runtime security boundary.
+ * The actual enforcement is the tool allowlist in XUANPU_AGENT_TOOLS (tools/index.ts)
+ * and assertXuanpuAgentAllowedTools(). Gates with `satisfied: false` have no runtime
+ * effect — they track readiness of future capabilities (native packaging, UI controls).
+ */
 export const XUANPU_AGENT_TOOL_POLICY: XuanpuAgentToolPolicy = {
   toolsEnabled: true,
   nativeProcessControlEnabled: false,
@@ -99,12 +105,12 @@ export function getXuanpuAgentSystemPromptLines(): string[] {
     '  format_file — preview and format one file with project prettier',
     'You also have access to scoped field tools for IDE context:',
     '  xfp_get_current_focus    — currently focused file and text selection',
-    '  xfp_get_last_terminal    — last terminal command and its output',
+    '  xfp_get_last_terminal_activity — last terminal command and its output',
     '  xfp_get_recent_activity  — recent file/terminal/agent activity',
     '  xfp_get_worktree_summary — worktree metadata, branch, PR, and context notes',
     '  xfp_get_pinned_facts     — pinned facts and notes for this worktree',
-    'You can delegate subtasks to child agents:',
-    '  xfp_delegate_subtask — delegate a subtask that appears in the timeline',
+    'You can delegate subtasks (visible in timeline, currently a focused extraction pass — not real child agent spawning):',
+    '  xfp_delegate_subtask — delegate a subtask tracked in the timeline with running/completed/error lifecycle',
     'Write tools default to preview-only. To apply a write, call the same tool with confirm=true and the returned previewToken. Do not invent preview tokens.',
     'Dangerous paths (.git, node_modules, build outputs, secrets files, and worktree escapes) are blocked.',
     'Every generated patch must be tied to observed source context: prefer sourceContextRefs from read_file/rg_search/git_diff and inspect the diff before confirming.',
@@ -126,7 +132,7 @@ const XUANPU_AGENT_PARALLEL_SAFE_TOOL_NAMES = new Set([
   'git_log',
   'git_diff',
   'xfp_get_current_focus',
-  'xfp_get_last_terminal',
+  'xfp_get_last_terminal_activity',
   'xfp_get_recent_activity',
   'xfp_get_worktree_summary',
   'xfp_get_pinned_facts',

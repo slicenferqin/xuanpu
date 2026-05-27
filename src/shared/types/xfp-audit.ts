@@ -1,6 +1,9 @@
 import type { SharedAgentRuntimeId } from './agent-protocol'
 
-export type XfpAuditRuntimeId = Extract<SharedAgentRuntimeId, 'claude-code' | 'codex' | 'opencode'>
+export type XfpAuditRuntimeId = Extract<
+  SharedAgentRuntimeId,
+  'claude-code' | 'codex' | 'opencode' | 'xuanpu-agent'
+>
 
 export type XfpAuditKind = 'tool' | 'fallback' | 'prompt'
 

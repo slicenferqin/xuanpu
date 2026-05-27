@@ -38,14 +38,60 @@ function errorResult(message: string, details?: ToolDetails): AgentToolResult<To
 
 /**
  * Resolve a user-supplied path safely within the worktree.
+ * Defends against symlink escapes by resolving symlinks on the existing
+ * parent directory (and the target itself if it exists).
  * Returns the resolved absolute path, or null if it escapes the worktree.
  */
 function safeResolve(worktreePath: string, userPath: string): string | null {
   const resolved = path.resolve(worktreePath, userPath)
-  const normalizedRoot = path.resolve(worktreePath) + path.sep
-  if (!resolved.startsWith(normalizedRoot) && resolved !== path.resolve(worktreePath)) {
-    return null
+  const resolvedRoot = path.resolve(worktreePath)
+
+  // If the root doesn't exist on disk, fall back to prefix check
+  let root: string
+  try {
+    root = fs.realpathSync(resolvedRoot)
+  } catch {
+    const normalizedRoot = resolvedRoot + path.sep
+    if (!resolved.startsWith(normalizedRoot) && resolved !== resolvedRoot) {
+      return null
+    }
+    return resolved
   }
+
+  const relPath = path.relative(root, resolved)
+  if (relPath === '' || relPath === '.') return root
+  if (relPath.startsWith('..') || path.isAbsolute(relPath)) return null
+
+  // Walk up to find the deepest existing ancestor
+  let existingParent = path.dirname(resolved)
+  while (!fs.existsSync(existingParent)) {
+    const next = path.dirname(existingParent)
+    if (next === existingParent) break
+    existingParent = next
+  }
+
+  // Symlink check on the existing parent directory
+  try {
+    const realParent = fs.realpathSync(existingParent)
+    if (realParent !== root && !realParent.startsWith(root + path.sep)) {
+      return null
+    }
+  } catch {
+    // Parent doesn't exist yet — no symlink to check
+  }
+
+  // If the target itself exists, verify it too
+  if (fs.existsSync(resolved)) {
+    try {
+      const realTarget = fs.realpathSync(resolved)
+      if (realTarget !== root && !realTarget.startsWith(root + path.sep)) {
+        return null
+      }
+    } catch {
+      // Can't resolve — let the caller handle ENOENT
+    }
+  }
+
   return resolved
 }
 
@@ -106,8 +152,11 @@ export const readFileTool: AgentTool<typeof readFileParams> = {
         return errorResult(`Not a file: ${params.path}`, details)
       }
 
-      // Refuse files larger than 256 KiB
-      if (stat.size > 256 * 1024) {
+      const hasRange = params.startLine !== undefined || params.endLine !== undefined
+
+      // For whole-file reads, refuse files larger than 256 KiB.
+      // For range reads, allow large files — we only read the requested slice.
+      if (!hasRange && stat.size > 256 * 1024) {
         return errorResult(
           `File too large: ${params.path} (${(stat.size / 1024).toFixed(0)} KiB, max 256 KiB). ` +
             `Use startLine/endLine to read a specific range.`,
@@ -118,7 +167,7 @@ export const readFileTool: AgentTool<typeof readFileParams> = {
       const content = fs.readFileSync(resolved, 'utf-8')
       const lines = content.split('\n')
 
-      if (params.startLine !== undefined || params.endLine !== undefined) {
+      if (hasRange) {
         const start = (params.startLine ?? 1) - 1
         const end = params.endLine ?? lines.length
         if (start < 0 || start >= lines.length) {

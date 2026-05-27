@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 31
+export const CURRENT_SCHEMA_VERSION = 32
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -258,7 +258,8 @@ CREATE TABLE IF NOT EXISTS field_episode_blocks (
   failures_json TEXT NOT NULL,
   raw_refs_json TEXT NOT NULL,
   token_estimate INTEGER NOT NULL,
-  confidence TEXT NOT NULL
+  confidence TEXT NOT NULL,
+  metadata_json TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_field_episode_blocks_worktree_created
   ON field_episode_blocks(worktree_id, created_at DESC);
@@ -1138,6 +1139,16 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_field_memory_pages_project_status;
       DROP INDEX IF EXISTS idx_field_memory_pages_scope_status;
       DROP TABLE IF EXISTS field_memory_pages;
+    `
+  },
+  {
+    version: 32,
+    name: 'add_episode_blocks_metadata_json',
+    up: `
+      ALTER TABLE field_episode_blocks ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}';
+    `,
+    down: `
+      -- SQLite cannot DROP COLUMN reliably; no-op for safety
     `
   }
 ]

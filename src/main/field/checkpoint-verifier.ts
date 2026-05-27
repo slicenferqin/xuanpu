@@ -15,6 +15,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { createHash } from 'node:crypto'
 import { statSync, readFileSync } from 'node:fs'
+import { stat as statAsync, readFile as readFileAsync } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createLogger } from '../services/logger'
 import { getLatestCheckpoint } from './checkpoint-repository'
@@ -125,11 +126,43 @@ export function computeDigestDrift(
   return { driftCount: drift, total: entries.length, ratio: drift / entries.length }
 }
 
+export async function computeDigestDriftAsync(
+  recorded: Record<string, string | null> | null,
+  worktreePath: string
+): Promise<DigestDriftResult> {
+  if (!recorded) return { driftCount: 0, total: 0, ratio: 0 }
+  const entries = Object.entries(recorded)
+  if (entries.length === 0) return { driftCount: 0, total: 0, ratio: 0 }
+
+  const results = await Promise.all(
+    entries.map(async ([rel, recordedSha]) => {
+      const current = await sha1OfFileAsync(join(worktreePath, rel))
+      if (current === null) return { drifted: true }
+      if (recordedSha !== null && current !== recordedSha) return { drifted: true }
+      return { drifted: false }
+    })
+  )
+
+  const drift = results.filter((r) => r.drifted).length
+  return { driftCount: drift, total: entries.length, ratio: drift / entries.length }
+}
+
 function sha1OfFile(absPath: string): string | null {
   try {
     const s = statSync(absPath)
     if (!s.isFile() || s.size > DIGEST_MAX_FILE_BYTES) return null
     return createHash('sha1').update(readFileSync(absPath)).digest('hex')
+  } catch {
+    return null
+  }
+}
+
+async function sha1OfFileAsync(absPath: string): Promise<string | null> {
+  try {
+    const s = await statAsync(absPath)
+    if (!s.isFile() || s.size > DIGEST_MAX_FILE_BYTES) return null
+    const buf = await readFileAsync(absPath)
+    return createHash('sha1').update(buf).digest('hex')
   } catch {
     return null
   }
@@ -211,7 +244,7 @@ export async function verifyCheckpoint(
   }
 
   // 5. File digest drift
-  const drift = computeDigestDrift(latest.hotFileDigests, input.worktreePath)
+  const drift = await computeDigestDriftAsync(latest.hotFileDigests, input.worktreePath)
   if (drift.total > 0) {
     if (drift.ratio >= DIGEST_DRIFT_DROP_RATIO) {
       log.debug('verifyCheckpoint: working_set_shifted', {

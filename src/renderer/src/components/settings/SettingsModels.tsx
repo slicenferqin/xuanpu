@@ -12,9 +12,11 @@ export function SettingsModels(): React.JSX.Element {
     resolveModelForSdk(defaultAgentSdk === 'terminal' ? 'opencode' : defaultAgentSdk, s)
   )
   const defaultModels = useSettingsStore((state) => state.defaultModels)
+  const compactionModel = useSettingsStore((state) => state.xuanpuAgentCompactionModel)
   const setSelectedModel = useSettingsStore((state) => state.setSelectedModel)
   const setSelectedModelForSdk = useSettingsStore((state) => state.setSelectedModelForSdk)
   const setModeDefaultModel = useSettingsStore((state) => state.setModeDefaultModel)
+  const setCompactionModel = useSettingsStore((state) => state.setXuanpuAgentCompactionModel)
 
   return (
     <div className="space-y-6">
@@ -71,6 +73,33 @@ export function SettingsModels(): React.JSX.Element {
             </button>
           )}
         </div>
+      </div>
+
+      {/* Compaction model (xuanpu-agent) */}
+      <div className="space-y-2">
+        <label className="text-sm font-medium">压缩模型</label>
+        <p className="text-xs text-muted-foreground">
+          xuanpu-agent 历史轮次摘要使用的轻量模型。留空则自动从主模型 provider 推导；无可用候选时降级为规则摘要。
+        </p>
+        <div className="flex items-center gap-2">
+          <ModelSelector
+            value={compactionModel}
+            onChange={(model) => setCompactionModel(model)}
+          />
+          {compactionModel && (
+            <button
+              onClick={() => setCompactionModel(null)}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              自动
+            </button>
+          )}
+        </div>
+        {!compactionModel && (
+          <p className="text-xs text-muted-foreground/70">
+            当前：自动推导（从主模型 provider 选择轻量候选）
+          </p>
+        )}
       </div>
 
       {supportsModes && (

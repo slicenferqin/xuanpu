@@ -89,8 +89,8 @@ export class StormDetector {
     try {
       return stableCanonicalize(args)
     } catch {
-      // 环形引用或不可序列化 → 退化标记
-      return `unstable:${Date.now()}`
+      // 环形引用或不可序列化 → 确定性退化标记（保证风暴检测仍然生效）
+      return 'unserializable'
     }
   }
 

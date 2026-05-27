@@ -250,6 +250,8 @@ export interface StreamingPart {
     agent: string
     parts: StreamingPart[]
     status: 'running' | 'completed' | 'error'
+    result?: string
+    error?: string
   }
   /** Step start boundary */
   stepStart?: { snapshot?: string }
@@ -2540,25 +2542,58 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
             })
             setIsStreaming(true)
           } else if (part.type === 'subtask') {
-            const subtaskIndex = streamingPartsRef.current.length // index it will be at
-            updateStreamingPartsRef((parts) => [
-              ...parts,
-              {
+            const subtaskId = part.callID || part.id || `subtask-${Date.now()}`
+            updateStreamingPartsRef((parts) => {
+              const idx = parts.findIndex(
+                (p) => p.type === 'subtask' && p.subtask?.id === subtaskId
+              )
+              const previous = idx >= 0 ? parts[idx]?.subtask : undefined
+              const incomingStatus = part.state?.status
+              const status: 'running' | 'completed' | 'error' =
+                incomingStatus === 'completed' || incomingStatus === 'error'
+                  ? incomingStatus
+                  : 'running'
+
+              const subtaskPart: StreamingPart = {
                 type: 'subtask',
                 subtask: {
-                  id: part.id || `subtask-${Date.now()}`,
-                  sessionID: part.sessionID || '',
-                  prompt: part.prompt || '',
-                  description: part.description || '',
-                  agent: part.agent || 'unknown',
-                  parts: [],
-                  status: 'running'
+                  id: subtaskId,
+                  sessionID:
+                    part.childSessionId || part.sessionID || previous?.sessionID || '',
+                  prompt: previous?.prompt || part.prompt || '',
+                  description:
+                    part.description || previous?.description || 'Subtask',
+                  agent: part.agent || previous?.agent || 'unknown',
+                  parts: previous?.parts ?? [],
+                  status,
+                  result:
+                    status === 'completed'
+                      ? (part.state?.result ?? previous?.result)
+                      : previous?.result,
+                  error:
+                    status === 'error'
+                      ? (part.state?.error ?? previous?.error)
+                      : previous?.error
                 }
               }
-            ])
-            // Map child session ID to this subtask's index
-            if (part.sessionID) {
-              childToSubtaskIndexRef.current.set(part.sessionID, subtaskIndex)
+
+              if (idx >= 0) {
+                const updated = [...parts]
+                updated[idx] = subtaskPart
+                return updated
+              }
+              return [...parts, subtaskPart]
+            })
+            // Map child session ID to this subtask's index for Path A routing
+            const childId = part.childSessionId || part.sessionID
+            if (childId) {
+              const currentParts = streamingPartsRef.current
+              const subtaskIndex = currentParts.findIndex(
+                (p) => p.type === 'subtask' && p.subtask?.id === subtaskId
+              )
+              if (subtaskIndex >= 0) {
+                childToSubtaskIndexRef.current.set(childId, subtaskIndex)
+              }
             }
             immediateFlush()
             setIsStreaming(true)

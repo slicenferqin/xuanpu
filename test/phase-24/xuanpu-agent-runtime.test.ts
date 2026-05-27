@@ -172,7 +172,7 @@ const EXPECTED_TOOL_NAMES = [
   'run_test',
   'format_file',
   'xfp_get_current_focus',
-  'xfp_get_last_terminal',
+  'xfp_get_last_terminal_activity',
   'xfp_get_recent_activity',
   'xfp_get_worktree_summary',
   'xfp_get_pinned_facts',
@@ -249,7 +249,7 @@ describe('XuanpuPiAgentSession', () => {
     expect(result.harnessMetrics.parallelTools.totalToolCalls).toBe(0)
     expect(deltas.join('')).toBe('mock ok')
     expect(fakeRuntime.prompts).toEqual(['hello'])
-    expect(recordedToolNames()).toEqual([EXPECTED_TOOL_NAMES, EXPECTED_TOOL_NAMES])
+    expect(recordedToolNames()).toEqual([EXPECTED_TOOL_NAMES])
     expect(fakeRuntime.systemPrompts.at(-1)?.join('\n')).toContain('controlled access')
 
     session.dispose()
@@ -290,7 +290,7 @@ describe('XuanpuPiAgentSession', () => {
     expect((fakeRuntime.prompts[0] as FakePromptMessage[]).at(-1)?.content[0]?.text).toBe(
       'current request'
     )
-    expect(recordedToolNames()).toEqual([EXPECTED_TOOL_NAMES, EXPECTED_TOOL_NAMES])
+    expect(recordedToolNames()).toEqual([EXPECTED_TOOL_NAMES])
   })
 
   it('forwards pi tool lifecycle events to prompt handlers for timeline rendering', async () => {

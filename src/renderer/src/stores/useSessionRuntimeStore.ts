@@ -537,23 +537,52 @@ export function writeEventToStreamingBuffer(
         }
 
         if (part.type === 'subtask') {
+          const subtaskId = (part.callID as string) || (part.id as string) || `subtask-${Date.now()}`
+          const nextParts = [...current.parts]
+          const idx = nextParts.findIndex(
+            (p) => p.type === 'subtask' && p.subtask?.id === subtaskId
+          )
+          const previous = idx >= 0 ? nextParts[idx]?.subtask : undefined
+          const incomingStatus = (part.state as Record<string, unknown>)?.status as
+            | string
+            | undefined
+          const status: 'running' | 'completed' | 'error' =
+            incomingStatus === 'completed' || incomingStatus === 'error'
+              ? incomingStatus
+              : 'running'
+          const state = (part.state as Record<string, unknown>) || {}
+
+          const subtaskPart: StreamingPart = {
+            type: 'subtask',
+            subtask: {
+              id: subtaskId,
+              sessionID: (part.childSessionId as string) ?? previous?.sessionID ?? '',
+              prompt: previous?.prompt ?? '',
+              description:
+                (part.description as string) || previous?.description || 'Subtask',
+              agent: (part.agent as string) || previous?.agent || 'unknown',
+              parts: previous?.parts ?? [],
+              status,
+              result:
+                status === 'completed'
+                  ? ((state.result as string) ?? previous?.result)
+                  : previous?.result,
+              error:
+                status === 'error'
+                  ? ((state.error as string) ?? previous?.error)
+                  : previous?.error
+            }
+          }
+
+          if (idx >= 0) {
+            nextParts[idx] = subtaskPart
+          } else {
+            nextParts.push(subtaskPart)
+          }
+
           return {
             ...current,
-            parts: [
-              ...current.parts,
-              {
-                type: 'subtask',
-                subtask: {
-                  id: (part.id as string) || `subtask-${Date.now()}`,
-                  sessionID: (part.sessionID as string) || '',
-                  prompt: (part.prompt as string) || '',
-                  description: (part.description as string) || '',
-                  agent: (part.agent as string) || 'unknown',
-                  parts: [],
-                  status: 'running'
-                }
-              }
-            ],
+            parts: nextParts,
             isStreaming: true
           }
         }

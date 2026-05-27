@@ -23,6 +23,8 @@ export interface StreamingPart {
     agent: string
     parts: StreamingPart[]
     status: 'running' | 'completed' | 'error'
+    result?: string
+    error?: string
   }
   stepStart?: { snapshot?: string }
   stepFinish?: {

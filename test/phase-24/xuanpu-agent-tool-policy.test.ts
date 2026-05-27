@@ -43,7 +43,7 @@ describe('xuanpu-agent native and tool policy', () => {
       'run_test',
       'format_file',
       'xfp_get_current_focus',
-      'xfp_get_last_terminal',
+      'xfp_get_last_terminal_activity',
       'xfp_get_recent_activity',
       'xfp_get_worktree_summary',
       'xfp_get_pinned_facts',

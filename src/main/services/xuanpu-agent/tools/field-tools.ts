@@ -6,7 +6,7 @@
  *
  * Tools:
  *   xfp_get_current_focus     — current file focus and selection
- *   xfp_get_last_terminal     — last terminal command and output
+ *   xfp_get_last_terminal_activity — last terminal command and output
  *   xfp_get_recent_activity   — recent field events
  *   xfp_get_worktree_summary  — worktree metadata and context
  *   xfp_get_pinned_facts      — pinned facts for the worktree
@@ -21,6 +21,10 @@ let _getDb: (() => unknown) | null = null
 let _getSink: (() => { flushNow: () => Promise<void> }) | null = null
 let _getEvents: AnyFn | null = null
 let _getPinned: AnyFn | null = null
+let _recordAudit: AnyFn | null = null
+let _summarizeOutput: AnyFn | null = null
+let _inferPrivacy: AnyFn | null = null
+let _hasTruncated: AnyFn | null = null
 
 async function ensureImports() {
   if (!_getDb) {
@@ -39,6 +43,40 @@ async function ensureImports() {
     const pinnedMod = await import('../../../field/pinned-facts-repository')
     _getPinned = pinnedMod.getPinnedFacts
   }
+  if (!_recordAudit) {
+    const auditMod = await import('../../../xfp/audit')
+    _recordAudit = auditMod.recordXfpAuditEvent
+    _summarizeOutput = auditMod.summarizeXfpAuditOutput
+    _inferPrivacy = auditMod.inferXfpAuditPrivacy
+    _hasTruncated = auditMod.hasXfpTruncatedOutput
+  }
+}
+
+function recordAudit(
+  worktreeId: string | null,
+  sessionId: string | null,
+  toolName: string,
+  input: Record<string, unknown>,
+  result: AgentToolResult
+): void {
+  if (!_recordAudit || !_summarizeOutput || !_inferPrivacy || !_hasTruncated) return
+  const text = result.content
+    .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+    .map((p) => p.text)
+    .join('')
+  const summary = _summarizeOutput(text)
+  _recordAudit({
+    worktreeId,
+    sessionId: sessionId ?? null,
+    runtimeId: 'xuanpu-agent',
+    kind: 'tool',
+    toolName,
+    input,
+    outputSummary: summary.outputSummary,
+    outputChars: summary.outputChars,
+    truncated: summary.truncated || _hasTruncated(result),
+    privacy: _inferPrivacy(result)
+  })
 }
 
 type JsonSchema<T> = Record<string, unknown> & { static: T }
@@ -50,7 +88,13 @@ type JsonSchema<T> = Record<string, unknown> & { static: T }
 function resolveWorktreePath(ctx?: AgentToolContext): string {
   const record = ctx as Record<string, unknown> | undefined
   if (record && typeof record.worktreePath === 'string') return record.worktreePath
-  return process.cwd()
+  throw new Error('xfp_* tools require a worktreePath in the tool context')
+}
+
+function extractSessionId(ctx?: AgentToolContext): string | null {
+  const record = ctx as Record<string, unknown> | undefined
+  if (record && typeof record.sessionId === 'string') return record.sessionId
+  return null
 }
 
 function textResult(text: string): AgentToolResult {
@@ -82,6 +126,7 @@ export const xfpGetCurrentFocusTool: AgentTool<typeof xfpGetCurrentFocusParams> 
   async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
     await ensureImports()
     const worktreePath = resolveWorktreePath(ctx)
+    const sessionId = extractSessionId(ctx)
     const db = _getDb!()
     const worktree = db.getWorktreeByPath(worktreePath)
 
@@ -107,6 +152,7 @@ export const xfpGetCurrentFocusTool: AgentTool<typeof xfpGetCurrentFocusParams> 
       null
 
     for (const e of events) {
+      if (!e.payload || typeof e.payload !== 'object') continue
       if (e.type === 'file.open' || e.type === 'file.focus') {
         const p = e.payload as { path?: string; name?: string }
         if (typeof p?.path === 'string') {
@@ -141,7 +187,9 @@ export const xfpGetCurrentFocusTool: AgentTool<typeof xfpGetCurrentFocusParams> 
       lines.push(`**Selection:** Lines ${focusSelection.fromLine}-${focusSelection.toLine} (${focusSelection.length} chars)`)
     }
 
-    return textResult(lines.join('\n'))
+    const result = textResult(lines.join('\n'))
+    recordAudit(worktree.id, sessionId, 'xfp_get_current_focus', {}, result)
+    return result
   }
 }
 
@@ -157,7 +205,7 @@ const xfpGetLastTerminalParams = {
 } satisfies JsonSchema<Record<string, never>>
 
 export const xfpGetLastTerminalTool: AgentTool<typeof xfpGetLastTerminalParams> = {
-  name: 'xfp_get_last_terminal',
+  name: 'xfp_get_last_terminal_activity',
   label: 'Get Last Terminal Activity',
   description: 'Get the most recent terminal command and its output',
   parameters: xfpGetLastTerminalParams,
@@ -166,6 +214,7 @@ export const xfpGetLastTerminalTool: AgentTool<typeof xfpGetLastTerminalParams> 
   async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
     await ensureImports()
     const worktreePath = resolveWorktreePath(ctx)
+    const sessionId = extractSessionId(ctx)
     const db = _getDb!()
     const worktree = db.getWorktreeByPath(worktreePath)
 
@@ -191,6 +240,7 @@ export const xfpGetLastTerminalTool: AgentTool<typeof xfpGetLastTerminalParams> 
       null
 
     for (let i = events.length - 1; i >= 0; i--) {
+      if (!events[i].payload || typeof events[i].payload !== 'object') continue
       if (events[i].type === 'terminal.command') {
         const p = events[i].payload as { command?: string }
         if (typeof p?.command === 'string') {
@@ -225,7 +275,9 @@ export const xfpGetLastTerminalTool: AgentTool<typeof xfpGetLastTerminalParams> 
 
     if (!lastCommand) {
       lines.push('No recent terminal commands detected.')
-      return textResult(lines.join('\n'))
+      const result = textResult(lines.join('\n'))
+      recordAudit(worktree.id, sessionId, 'xfp_get_last_terminal_activity', {}, result)
+      return result
     }
 
     const timeAgo = Math.round((Date.now() - lastCommand.timestamp) / 1000)
@@ -257,7 +309,9 @@ export const xfpGetLastTerminalTool: AgentTool<typeof xfpGetLastTerminalParams> 
       lines.push('**Output:** No captured output')
     }
 
-    return textResult(lines.join('\n'))
+    const result = textResult(lines.join('\n'))
+    recordAudit(worktree.id, sessionId, 'xfp_get_last_terminal_activity', {}, result)
+    return result
   }
 }
 
@@ -289,6 +343,7 @@ export const xfpGetRecentActivityTool: AgentTool<typeof xfpGetRecentActivityPara
   async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
     await ensureImports()
     const worktreePath = resolveWorktreePath(ctx)
+    const sessionId = extractSessionId(ctx)
     const db = _getDb!()
     const worktree = db.getWorktreeByPath(worktreePath)
 
@@ -316,11 +371,17 @@ export const xfpGetRecentActivityTool: AgentTool<typeof xfpGetRecentActivityPara
 
     if (recentEvents.length === 0) {
       lines.push('No recent activity detected.')
-      return textResult(lines.join('\n'))
+      const result = textResult(lines.join('\n'))
+      recordAudit(worktree.id, sessionId, 'xfp_get_recent_activity', { limit }, result)
+      return result
     }
 
     for (const e of recentEvents) {
       const timeAgo = Math.round((Date.now() - e.timestamp) / 1000)
+      if (!e.payload || typeof e.payload !== 'object') {
+        lines.push(`- [${timeAgo}s ago] ${e.type}`)
+        continue
+      }
       let summary = ''
 
       switch (e.type) {
@@ -386,7 +447,9 @@ export const xfpGetRecentActivityTool: AgentTool<typeof xfpGetRecentActivityPara
       lines.push(`- [${timeAgo}s ago] ${summary}`)
     }
 
-    return textResult(lines.join('\n'))
+    const result = textResult(lines.join('\n'))
+    recordAudit(worktree.id, sessionId, 'xfp_get_recent_activity', { limit }, result)
+    return result
   }
 }
 
@@ -411,6 +474,7 @@ export const xfpGetWorktreeSummaryTool: AgentTool<typeof xfpGetWorktreeSummaryPa
   async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
     await ensureImports()
     const worktreePath = resolveWorktreePath(ctx)
+    const sessionId = extractSessionId(ctx)
     const db = _getDb!()
     const worktree = db.getWorktreeByPath(worktreePath)
 
@@ -445,7 +509,9 @@ export const xfpGetWorktreeSummaryTool: AgentTool<typeof xfpGetWorktreeSummaryPa
       lines.push(truncate(episodicMemory.summaryMarkdown, 500))
     }
 
-    return textResult(lines.join('\n'))
+    const result = textResult(lines.join('\n'))
+    recordAudit(worktree.id, sessionId, 'xfp_get_worktree_summary', {}, result)
+    return result
   }
 }
 
@@ -470,6 +536,7 @@ export const xfpGetPinnedFactsTool: AgentTool<typeof xfpGetPinnedFactsParams> = 
   async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
     await ensureImports()
     const worktreePath = resolveWorktreePath(ctx)
+    const sessionId = extractSessionId(ctx)
     const db = _getDb!()
     const worktree = db.getWorktreeByPath(worktreePath)
 
@@ -483,14 +550,18 @@ export const xfpGetPinnedFactsTool: AgentTool<typeof xfpGetPinnedFactsParams> = 
 
     if (!pinnedFacts || pinnedFacts.contentMd.trim().length === 0) {
       lines.push('No pinned facts for this worktree.')
-      return textResult(lines.join('\n'))
+      const result = textResult(lines.join('\n'))
+      recordAudit(worktree.id, sessionId, 'xfp_get_pinned_facts', {}, result)
+      return result
     }
 
     const updatedAt = new Date(pinnedFacts.updatedAt).toLocaleString()
     lines.push(`*Last updated: ${updatedAt}*\n`)
     lines.push(pinnedFacts.contentMd)
 
-    return textResult(lines.join('\n'))
+    const result = textResult(lines.join('\n'))
+    recordAudit(worktree.id, sessionId, 'xfp_get_pinned_facts', {}, result)
+    return result
   }
 }
 

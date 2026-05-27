@@ -203,6 +203,7 @@ function deriveFocus(events: StoredFieldEvent[]): FocusResult {
 
   // Events are ASC order. Walking forward and overwriting gives us "last wins".
   for (const e of events) {
+    if (!e.payload || typeof e.payload !== 'object') continue
     if (e.type === 'file.open' || e.type === 'file.focus') {
       const p = e.payload as { path?: string; name?: string }
       if (typeof p?.path === 'string') {
@@ -332,6 +333,9 @@ function deriveLastTerminal(events: StoredFieldEvent[]): TerminalResult {
 function summarizeEvent(e: StoredFieldEvent): FieldContextActivityEntry {
   const type: string = e.type
   const base = { timestamp: e.timestamp, type }
+  if (!e.payload || typeof e.payload !== 'object') {
+    return { ...base, summary: type }
+  }
   switch (e.type) {
     case 'worktree.switch': {
       const p = e.payload as { fromWorktreeId?: string | null }
