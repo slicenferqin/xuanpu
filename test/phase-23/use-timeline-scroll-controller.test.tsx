@@ -47,7 +47,7 @@ function TimelineScrollHarness({
       >
         Round
       </button>
-      <div data-testid="clear-screen-inset">{controller.clearScreenBottomInset}</div>
+      <div data-testid="clear-screen-inset">{controller.focusFillerHeight}</div>
       <div data-testid="active-round-id">{controller.activeRoundId ?? ''}</div>
     </div>
   )
@@ -130,7 +130,7 @@ describe('useTimelineScrollController', () => {
     fireEvent.click(screen.getByTestId('request-clear-screen'))
     rerender(<TimelineScrollHarness contentVersion={2} metricsVersion={2} />)
 
-    expect(scrollTop.current).toBe(720)
+    expect(scrollTop.current).toBe(696)
     await waitFor(() =>
       expect(screen.getByTestId('clear-screen-inset').textContent).toBe('304')
     )

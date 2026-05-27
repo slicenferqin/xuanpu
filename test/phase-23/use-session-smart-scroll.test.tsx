@@ -58,7 +58,6 @@ interface HarnessProps {
   contentVersion: number
   ready: boolean
   isStreaming?: boolean
-  clearScreenActive?: boolean
 }
 
 function SmartScrollHarness({
@@ -66,11 +65,13 @@ function SmartScrollHarness({
   mirrorVersion,
   contentVersion,
   ready,
-  isStreaming = true,
-  clearScreenActive = false
+  isStreaming = true
 }: HarnessProps): React.JSX.Element {
   const bottomAreaRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLDivElement>(null)
+  const focusFillerHeightRef = useRef(0)
+  const scrollModeRef = useRef<'history' | 'sticky-bottom' | 'round-focus'>('sticky-bottom')
+  const manualScrollLockedRef = useRef(false)
   const smartScroll = useSessionSmartScroll({
     sessionId,
     ready,
@@ -79,7 +80,9 @@ function SmartScrollHarness({
     isStreaming,
     bottomAreaRef,
     composerRef,
-    clearScreenActive
+    focusFillerHeightRef,
+    scrollModeRef,
+    manualScrollLockedRef
   })
 
   return (
@@ -112,7 +115,6 @@ function SmartScrollHarness({
       <div data-testid="smart-scroll-bottom-floating-height">
         {smartScroll.bottomFloatingHeight}
       </div>
-      <div data-testid="smart-scroll-clear-inset">{smartScroll.clearScreenBottomInset}</div>
     </div>
   )
 }
@@ -349,7 +351,6 @@ describe('useSessionSmartScroll', () => {
         mirrorVersion={2}
         contentVersion={1}
         ready={false}
-        clearScreenActive
       />
     )
 
@@ -366,7 +367,6 @@ describe('useSessionSmartScroll', () => {
         mirrorVersion={2}
         contentVersion={1}
         ready={true}
-        clearScreenActive
       />
     )
 
@@ -391,7 +391,7 @@ describe('useSessionSmartScroll', () => {
         mirrorVersion={2}
         contentVersion={1}
         ready={false}
-        clearScreenActive
+
         isStreaming
       />
     )
@@ -409,7 +409,7 @@ describe('useSessionSmartScroll', () => {
         mirrorVersion={2}
         contentVersion={1}
         ready={true}
-        clearScreenActive
+
         isStreaming
       />
     )
@@ -429,7 +429,7 @@ describe('useSessionSmartScroll', () => {
         mirrorVersion={5}
         contentVersion={1}
         ready={false}
-        clearScreenActive
+
       />
     )
 
@@ -444,7 +444,7 @@ describe('useSessionSmartScroll', () => {
         mirrorVersion={5}
         contentVersion={1}
         ready={true}
-        clearScreenActive
+
       />
     )
 
@@ -466,7 +466,7 @@ describe('useSessionSmartScroll', () => {
         mirrorVersion={5}
         contentVersion={1}
         ready={false}
-        clearScreenActive
+
       />
     )
 
@@ -481,14 +481,11 @@ describe('useSessionSmartScroll', () => {
         mirrorVersion={5}
         contentVersion={1}
         ready={true}
-        clearScreenActive
       />
     )
 
-    const clearInset = Number(screen.getByTestId('smart-scroll-clear-inset').textContent)
     fireEvent.click(screen.getByTestId('smart-scroll-fab-button'))
 
-    expect(clearInset).toBe(0)
     expect(scrollTop.current).toBe(1600 - 500)
     expect(getSessionViewState('session-a')).toMatchObject({
       stickyBottom: true,
@@ -512,6 +509,6 @@ describe('useSessionSmartScroll', () => {
     expect(source).toContain('getNearBottomThreshold')
     expect(source).toContain('window.innerHeight * 0.06')
     expect(source).toContain('BOTTOM_AREA_COMPENSATE_THRESHOLD')
-    expect(source).toContain('clearScreenBottomInset')
+    expect(source).toContain('focusFillerHeightRef')
   })
 })

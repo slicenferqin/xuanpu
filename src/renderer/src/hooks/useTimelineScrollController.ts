@@ -13,6 +13,16 @@ import {
   getTimelineSafeBottomPadding
 } from '@/lib/session-timeline/geometry'
 
+/**
+ * Scroll mode state machine.
+ *
+ * - 'history': user is browsing past messages; program does not take over scroll
+ * - 'sticky-bottom': normal pinned-to-bottom for streaming / idle follow
+ * - 'round-focus': new turn just sent; user message pinned to viewport top
+ *                   with tail filler providing scrollable space
+ */
+export type TimelineScrollMode = 'history' | 'sticky-bottom' | 'round-focus'
+
 interface PendingRoundScroll {
   type: 'clear-screen'
   roundId: string
@@ -32,11 +42,12 @@ interface UseTimelineScrollControllerOptions {
 interface UseTimelineScrollControllerResult {
   scrollContainerRef: RefObject<HTMLDivElement | null>
   timelineContentRef: RefObject<HTMLDivElement | null>
+  scrollMode: TimelineScrollMode
   showScrollFab: boolean
   scrollFabCount: number
   scrollFabBottomOffset: number
   bottomFloatingHeight: number
-  clearScreenBottomInset: number
+  focusFillerHeight: number
   activeRoundId: string | null
   handleScroll: () => void
   handleScrollWheel: () => void
@@ -68,6 +79,27 @@ function getContainerRelativeTop(container: HTMLElement, target: HTMLElement): n
   return container.scrollTop + targetRect.top - containerRect.top
 }
 
+/**
+ * Compute the filler height needed to make `roundTop` a valid scrollTop.
+ *
+ * fillerHeight = max(0, viewportHeight - topGap - safeBottomPadding - heightFromRoundTopToEnd)
+ *
+ * The filler sits at the tail of the content and shrinks as real content grows.
+ */
+function computeFocusFillerHeight(
+  viewportHeight: number,
+  topGap: number,
+  safeBottomPadding: number,
+  roundOffsetTop: number,
+  realContentHeight: number
+): number {
+  if (viewportHeight <= 0) return 0
+  const heightFromRoundToEnd = realContentHeight - roundOffsetTop
+  return Math.max(0, Math.round(viewportHeight - topGap - safeBottomPadding - heightFromRoundToEnd))
+}
+
+const ROUND_FOCUS_TOP_GAP = 24
+
 export function useTimelineScrollController({
   sessionId,
   ready,
@@ -78,22 +110,40 @@ export function useTimelineScrollController({
   bottomAreaRef,
   composerRef
 }: UseTimelineScrollControllerOptions): UseTimelineScrollControllerResult {
-  const clearScreenBottomInsetRef = useRef(0)
   const timelineContentRef = useRef<HTMLDivElement | null>(null)
   const pendingRoundScrollRef = useRef<PendingRoundScroll | null>(null)
   const activeRoundIdRef = useRef<string | null>(null)
   const suppressActiveRoundFromScrollRef = useRef(false)
-  const suppressStickyBottomRef = useRef(false)
-  const suppressStickyBottomResetRef = useRef<number | null>(null)
-  // Independent ref for clear-screen spacer calculation. Only set by
-  // requestClearScreenScroll, cleared on any manual scroll intent.
-  const clearScreenTargetRoundIdRef = useRef<string | null>(null)
+
+  // ── Scroll mode state machine ─────────────────────────────────────
+  const scrollModeRef = useRef<TimelineScrollMode>('sticky-bottom')
+  const [scrollMode, setScrollMode] = useState<TimelineScrollMode>('sticky-bottom')
+
+  const setMode = useCallback((mode: TimelineScrollMode): void => {
+    if (scrollModeRef.current !== mode) {
+      scrollModeRef.current = mode
+      setScrollMode(mode)
+    }
+  }, [])
+
+  // Round-focus target
+  const focusRoundIdRef = useRef<string | null>(null)
+  const [focusRoundId, setFocusRoundIdState] = useState<string | null>(null)
+  const [focusRequestVersion, setFocusRequestVersion] = useState(0)
+
+  // Fillers
+  const focusFillerHeightRef = useRef(0)
+  const [focusFillerHeight, setFocusFillerHeight] = useState(0)
+
+  // Metrics
   const [timelineViewportHeight, setTimelineViewportHeight] = useState(0)
-  const [timelineContentHeight, setTimelineContentHeight] = useState(0)
-  const [activeRoundOffsetTop, setActiveRoundOffsetTop] = useState(0)
+  const [realContentHeight, setRealContentHeight] = useState(0)
+  const [focusRoundOffsetTop, setFocusRoundOffsetTop] = useState(0)
   const [activeRoundId, setActiveRoundIdState] = useState<string | null>(null)
-  const [clearScreenRequestVersion, setClearScreenRequestVersion] = useState(0)
-  const [clearScreenTargetVersion, setClearScreenTargetVersion] = useState(0)
+  const [activeRoundOffsetTop, setActiveRoundOffsetTop] = useState(0)
+
+  // Manual scroll lock: once user scrolls during round-focus, we don't re-enter
+  const manualScrollLockedRef = useRef(false)
 
   const smartScroll = useSessionSmartScroll({
     sessionId,
@@ -103,26 +153,14 @@ export function useTimelineScrollController({
     isStreaming,
     bottomAreaRef,
     composerRef,
-    clearScreenBottomInsetRef,
-    suppressStickyBottomRef
+    // Pass a ref that smart-scroll reads for bottom-distance calculations.
+    // During round-focus this is non-zero so distanceToContentEnd excludes filler.
+    focusFillerHeightRef,
+    // Smart-scroll checks this to skip auto-scroll during round-focus
+    scrollModeRef,
+    // Smart-scroll reads this to know if user manually intervened
+    manualScrollLockedRef
   })
-  // Clear clear-screen target on any manual scroll intent.
-  const clearScreenTarget = useCallback(() => {
-    if (clearScreenTargetRoundIdRef.current) {
-      clearScreenTargetRoundIdRef.current = null
-      setClearScreenTargetVersion((v) => v + 1)
-    }
-  }, [])
-
-  const handleScrollWheel = useCallback(() => {
-    smartScroll.handleScrollWheel()
-    clearScreenTarget()
-  }, [smartScroll, clearScreenTarget])
-
-  const handleScrollPointerDown = useCallback(() => {
-    smartScroll.handleScrollPointerDown()
-    clearScreenTarget()
-  }, [smartScroll, clearScreenTarget])
 
   const {
     scrollContainerRef,
@@ -139,32 +177,52 @@ export function useTimelineScrollController({
     cancelPendingRestoreScroll
   } = smartScroll
 
-  const setActiveRoundId = useCallback((roundId: string | null) => {
+  // ── Focus round management ────────────────────────────────────────
+
+  const setFocusRoundId = useCallback((roundId: string | null): void => {
+    focusRoundIdRef.current = roundId
+    setFocusRoundIdState(roundId)
+  }, [])
+
+  const setActiveRoundId = useCallback((roundId: string | null): void => {
     activeRoundIdRef.current = roundId
     setActiveRoundIdState((current) => (current === roundId ? current : roundId))
   }, [])
 
+  // ── Manual scroll intent ──────────────────────────────────────────
+  // On any manual scroll intent, transition to history mode.
+  // Do NOT delete filler immediately — let it remain as layout affordance.
+  // It will shrink naturally as content grows, or be replaced on next round.
+
+  const handleScrollWheel = useCallback(() => {
+    smartScroll.handleScrollWheel()
+    if (scrollModeRef.current === 'round-focus') {
+      manualScrollLockedRef.current = true
+      setMode('history')
+    }
+  }, [smartScroll, setMode])
+
+  const handleScrollPointerDown = useCallback(() => {
+    smartScroll.handleScrollPointerDown()
+    if (scrollModeRef.current === 'round-focus') {
+      manualScrollLockedRef.current = true
+      setMode('history')
+    }
+  }, [smartScroll, setMode])
+
+  // ── Request round-focus scroll ────────────────────────────────────
+
   const requestClearScreenScroll = useCallback((roundId: string) => {
     pendingRoundScrollRef.current = { type: 'clear-screen', roundId }
     suppressActiveRoundFromScrollRef.current = true
-    suppressStickyBottomRef.current = true
-    clearScreenTargetRoundIdRef.current = roundId
-    setClearScreenTargetVersion((v) => v + 1)
+    manualScrollLockedRef.current = false
+    setFocusRoundId(roundId)
+    setActiveRoundId(roundId)
+    setMode('round-focus')
     cancelPendingScrollToBottom()
     cancelPendingRestoreScroll()
-    // Re-enable sticky-bottom after the current layout + paint settles.
-    if (suppressStickyBottomResetRef.current !== null) {
-      cancelAnimationFrame(suppressStickyBottomResetRef.current)
-    }
-    suppressStickyBottomResetRef.current = requestAnimationFrame(() => {
-      suppressStickyBottomResetRef.current = requestAnimationFrame(() => {
-        suppressStickyBottomRef.current = false
-        suppressStickyBottomResetRef.current = null
-      })
-    })
-    setActiveRoundId(roundId)
-    setClearScreenRequestVersion((current) => current + 1)
-  }, [cancelPendingRestoreScroll, cancelPendingScrollToBottom, setActiveRoundId])
+    setFocusRequestVersion((v) => v + 1)
+  }, [cancelPendingRestoreScroll, cancelPendingScrollToBottom, setActiveRoundId, setFocusRoundId, setMode])
 
   const scrollToRound = useCallback(
     (roundId: string, options?: { behavior?: ScrollBehavior; topPadding?: number }) => {
@@ -177,7 +235,7 @@ export function useTimelineScrollController({
       setActiveRoundId(roundId)
       suppressActiveRoundFromScrollRef.current = true
       const targetTop = Math.max(
-        getContainerRelativeTop(container, section) - (options?.topPadding ?? 24),
+        getContainerRelativeTop(container, section) - (options?.topPadding ?? ROUND_FOCUS_TOP_GAP),
         0
       )
       scrollToOffset(targetTop, options?.behavior ?? 'smooth')
@@ -185,16 +243,17 @@ export function useTimelineScrollController({
     [scrollContainerRef, scrollToOffset, setActiveRoundId]
   )
 
+  // ── Session switch reset ──────────────────────────────────────────
+
   useEffect(() => {
     pendingRoundScrollRef.current = null
-    suppressStickyBottomRef.current = false
-    clearScreenTargetRoundIdRef.current = null
-    if (suppressStickyBottomResetRef.current !== null) {
-      cancelAnimationFrame(suppressStickyBottomResetRef.current)
-      suppressStickyBottomResetRef.current = null
-    }
+    manualScrollLockedRef.current = false
+    setFocusRoundId(null)
+    setMode('sticky-bottom')
     setActiveRoundId(null)
-  }, [sessionId, setActiveRoundId])
+  }, [sessionId, setActiveRoundId, setFocusRoundId, setMode])
+
+  // ── Track active round from scroll position ───────────────────────
 
   useLayoutEffect(() => {
     const container = scrollContainerRef.current
@@ -258,7 +317,7 @@ export function useTimelineScrollController({
     return () => container.removeEventListener('scroll', updateActiveRoundFromScroll)
   }, [isStreaming, metricsVersion, scrollContainerRef, setActiveRoundId])
 
-  const [clearScreenTargetOffsetTop, setClearScreenTargetOffsetTop] = useState(0)
+  // ── Metrics: viewport, content height, round offsets ──────────────
 
   useLayoutEffect(() => {
     const scrollElement = scrollContainerRef.current
@@ -281,29 +340,37 @@ export function useTimelineScrollController({
           ? Math.round(spacerElement.getBoundingClientRect().height)
           : 0
         const activeRoundElement = findRoundSection(contentElement, activeRoundId ?? '')
-        const targetRoundId = clearScreenTargetRoundIdRef.current
-        const targetRoundElement = targetRoundId
-          ? findRoundSection(contentElement, targetRoundId)
+        const focusElement = focusRoundIdRef.current
+          ? findRoundSection(contentElement, focusRoundIdRef.current)
           : null
 
-        setTimelineViewportHeight(Math.round(scrollElement.clientHeight))
-        setTimelineContentHeight(Math.max(0, Math.round(contentRect.height) - spacerHeight))
-        setActiveRoundOffsetTop(
-          activeRoundElement
-            ? Math.max(
-                0,
-                Math.round(activeRoundElement.getBoundingClientRect().top - contentRect.top)
-              )
-            : 0
-        )
-        setClearScreenTargetOffsetTop(
-          targetRoundElement
-            ? Math.max(
-                0,
-                Math.round(targetRoundElement.getBoundingClientRect().top - contentRect.top)
-              )
-            : 0
-        )
+        const vpHeight = Math.round(scrollElement.clientHeight)
+        const rcHeight = Math.max(0, Math.round(contentRect.height) - spacerHeight)
+        const activeOffset = activeRoundElement
+          ? Math.max(0, Math.round(activeRoundElement.getBoundingClientRect().top - contentRect.top))
+          : 0
+        const focusOffset = focusElement
+          ? Math.max(0, Math.round(focusElement.getBoundingClientRect().top - contentRect.top))
+          : 0
+
+        setTimelineViewportHeight(vpHeight)
+        setRealContentHeight(rcHeight)
+        setActiveRoundOffsetTop(activeOffset)
+        setFocusRoundOffsetTop(focusOffset)
+
+        // Recompute filler when in round-focus mode
+        if (scrollModeRef.current === 'round-focus' && focusElement) {
+          const safeBottom = getTimelineSafeBottomPadding(bottomFloatingHeight)
+          const filler = computeFocusFillerHeight(
+            vpHeight,
+            ROUND_FOCUS_TOP_GAP,
+            safeBottom,
+            focusOffset,
+            rcHeight
+          )
+          focusFillerHeightRef.current = filler
+          setFocusFillerHeight(filler)
+        }
       })
     }
 
@@ -326,29 +393,11 @@ export function useTimelineScrollController({
         cancelAnimationFrame(frame)
       }
     }
-  }, [activeRoundId, clearScreenTargetVersion, metricsVersion, scrollContainerRef])
+  }, [activeRoundId, bottomFloatingHeight, focusRoundId, metricsVersion, scrollContainerRef])
 
-  const safeBottomPadding = getTimelineSafeBottomPadding(bottomFloatingHeight)
-  // Only compute inset when a clear-screen target is active.
-  // During normal scrolling, inset is 0 — the spacer should not affect
-  // scroll geometry or "virtual bottom" calculations.
-  const clearScreenBottomInset =
-    clearScreenTargetRoundIdRef.current && timelineViewportHeight > 0 && timelineContentHeight > 0
-      ? getClearScreenBottomInset({
-          viewportHeight: timelineViewportHeight,
-          contentHeight: timelineContentHeight,
-          activeRoundOffsetTop: clearScreenTargetOffsetTop,
-          safeBottomPadding
-        })
-      : 0
+  // ── Attempt pending round-focus scroll ────────────────────────────
 
-  useEffect(() => {
-    clearScreenBottomInsetRef.current = clearScreenBottomInset
-  }, [clearScreenBottomInset])
-
-  // Attempt the pending clear-screen scroll. Returns true if the scroll was
-  // executed and the pending state cleared.
-  const attemptPendingClearScreenScroll = useCallback((): boolean => {
+  const attemptPendingFocusScroll = useCallback((): boolean => {
     const pendingScroll = pendingRoundScrollRef.current
     const container = scrollContainerRef.current
     if (pendingScroll?.type !== 'clear-screen' || !container) return false
@@ -356,45 +405,37 @@ export function useTimelineScrollController({
     const roundElement = findRoundSection(container, pendingScroll.roundId)
     if (!roundElement) return false
 
-    const targetTop = getContainerRelativeTop(container, roundElement)
+    const targetTop = Math.max(
+      getContainerRelativeTop(container, roundElement) - ROUND_FOCUS_TOP_GAP,
+      0
+    )
     const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight)
-    if (targetTop > maxScrollTop && clearScreenBottomInset <= 0) return false
+    if (targetTop > maxScrollTop) return false
 
-    scrollToOffset(targetTop, 'instant')
+    scrollToOffset(targetTop, 'smooth')
     pendingRoundScrollRef.current = null
-    // Note: clearScreenTargetRoundIdRef is NOT cleared here.
-    // It remains active so the spacer stays in place until the user
-    // starts scrolling manually (wheel/pointerDown) or switches sessions.
     return true
-  }, [clearScreenBottomInset, scrollContainerRef, scrollToOffset])
+  }, [scrollContainerRef, scrollToOffset])
 
   useLayoutEffect(() => {
-    attemptPendingClearScreenScroll()
+    attemptPendingFocusScroll()
   }, [
     activeRoundId,
-    attemptPendingClearScreenScroll,
-    clearScreenRequestVersion,
+    attemptPendingFocusScroll,
+    focusRequestVersion,
     contentVersion
   ])
 
-  // When the inset finishes computing (async), retry the pending scroll.
-  // If the round element still doesn't exist in the DOM (e.g. React hasn't
-  // committed the optimistic message yet), schedule a rAF retry so we catch
-  // the next paint. Cap retries to avoid infinite loops.
+  // Retry pending scroll when DOM might not have the round yet
   useEffect(() => {
     if (pendingRoundScrollRef.current?.type !== 'clear-screen') return
-
-    if (clearScreenBottomInset > 0) {
-      attemptPendingClearScreenScroll()
-      return
-    }
 
     let frame: number | null = null
     let retries = 0
     const maxRetries = 10
     const retry = (): void => {
       frame = null
-      if (!attemptPendingClearScreenScroll() && retries < maxRetries) {
+      if (!attemptPendingFocusScroll() && retries < maxRetries) {
         retries++
         frame = requestAnimationFrame(retry)
       }
@@ -403,16 +444,32 @@ export function useTimelineScrollController({
     return () => {
       if (frame !== null) cancelAnimationFrame(frame)
     }
-  }, [attemptPendingClearScreenScroll, clearScreenBottomInset, clearScreenRequestVersion])
+  }, [attemptPendingFocusScroll, focusRequestVersion])
+
+  // ── Round-focus completion conditions ─────────────────────────────
+  // Transition out of round-focus when:
+  // 1. filler === 0 && !manualScrollLocked → sticky-bottom
+  // 2. manualScrollIntent → history (handled in wheel/pointerDown)
+  // 3. new round request → replace active round (handled in requestClearScreenScroll)
+
+  useEffect(() => {
+    if (scrollModeRef.current !== 'round-focus') return
+    if (manualScrollLockedRef.current) return
+
+    if (focusFillerHeight <= 0) {
+      setMode('sticky-bottom')
+    }
+  }, [focusFillerHeight, setMode])
 
   return {
     scrollContainerRef,
     timelineContentRef,
+    scrollMode,
     showScrollFab,
     scrollFabCount,
     scrollFabBottomOffset,
     bottomFloatingHeight,
-    clearScreenBottomInset,
+    focusFillerHeight,
     activeRoundId,
     handleScroll,
     handleScrollWheel,

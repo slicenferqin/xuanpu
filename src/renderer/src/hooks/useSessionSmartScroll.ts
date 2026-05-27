@@ -9,6 +9,8 @@ const BOTTOM_AREA_COMPENSATE_THRESHOLD = 96
 const DEFAULT_SCROLL_FAB_OFFSET = 16
 const MIN_NEAR_BOTTOM_THRESHOLD = 80
 
+export type TimelineScrollMode = 'history' | 'sticky-bottom' | 'round-focus'
+
 interface UseSessionSmartScrollOptions {
   sessionId: string
   ready: boolean
@@ -18,17 +20,21 @@ interface UseSessionSmartScrollOptions {
   bottomAreaRef?: React.RefObject<HTMLElement | null>
   composerRef?: React.RefObject<HTMLElement | null>
   /**
-   * Ref to the measured clear-screen spacer height (px). When a new round starts
-   * and the spacer pushes content to the viewport top, this value is non-zero.
-   * getDistanceFromBottom subtracts it so FAB detection works correctly.
+   * Ref to the focus filler height (px). During round-focus, the filler
+   * provides scrollable space so the user message can sit at viewport top.
+   * distanceToContentEnd subtracts this from scrollHeight.
    */
-  clearScreenBottomInsetRef?: React.RefObject<number>
+  focusFillerHeightRef?: React.RefObject<number>
   /**
-   * When this ref is true, suppress the sticky-bottom auto-scroll effect.
-   * Used by clear-screen scroll to prevent the sticky-bottom from overriding
-   * the scroll-to-round position.
+   * Ref to the current scroll mode. Smart-scroll skips auto-scroll during
+   * 'round-focus' to let the user message stay pinned at the top.
    */
-  suppressStickyBottomRef?: React.RefObject<boolean>
+  scrollModeRef?: React.RefObject<TimelineScrollMode>
+  /**
+   * Ref indicating the user manually scrolled during round-focus.
+   * Once true, smart-scroll respects 'history' mode and doesn't re-enter.
+   */
+  manualScrollLockedRef?: React.RefObject<boolean>
 }
 
 interface UseSessionSmartScrollResult {
@@ -37,7 +43,6 @@ interface UseSessionSmartScrollResult {
   scrollFabCount: number
   scrollFabBottomOffset: number
   bottomFloatingHeight: number
-  clearScreenBottomInset: number
   handleScroll: () => void
   handleScrollWheel: () => void
   handleScrollPointerDown: () => void
@@ -45,21 +50,30 @@ interface UseSessionSmartScrollResult {
   handleScrollPointerCancel: () => void
   handleScrollToBottomClick: () => void
   scrollToOffset: (top: number, behavior?: ScrollBehavior) => void
+  cancelPendingScrollToBottom: () => void
+  cancelPendingRestoreScroll: () => void
 }
 
-function getDistanceFromBottom(element: HTMLDivElement, bottomInset = 0): number {
-  return element.scrollHeight - bottomInset - element.scrollTop - element.clientHeight
-}
+// ── Distance helpers ────────────────────────────────────────────────
 
-function getBottomScrollTop(element: HTMLDivElement, bottomInset = 0): number {
-  return Math.max(0, element.scrollHeight - element.clientHeight - bottomInset)
-}
-
-// Real bottom distance — no inset subtraction. Used for FAB detection,
-// sticky-bottom decisions, and ResizeObserver compensation during normal
-// browsing. The spacer should not affect these calculations.
-function getRealDistanceFromBottom(element: HTMLDivElement): number {
+/**
+ * Distance to scrollable end (includes filler).
+ * Used for native scroll boundary detection.
+ */
+function getDistanceToScrollableEnd(element: HTMLDivElement): number {
   return element.scrollHeight - element.scrollTop - element.clientHeight
+}
+
+/**
+ * Distance to real content end (excludes filler).
+ * Used for FAB, sticky-bottom, streaming auto-follow, unread detection.
+ */
+function getDistanceToContentEnd(element: HTMLDivElement, fillerHeight: number): number {
+  return element.scrollHeight - fillerHeight - element.scrollTop - element.clientHeight
+}
+
+function getBottomScrollTop(element: HTMLDivElement, fillerHeight: number): number {
+  return Math.max(0, element.scrollHeight - element.clientHeight - fillerHeight)
 }
 
 function getNearBottomThreshold(): number {
@@ -88,8 +102,9 @@ export function useSessionSmartScroll({
   isStreaming,
   bottomAreaRef,
   composerRef,
-  clearScreenBottomInsetRef,
-  suppressStickyBottomRef
+  focusFillerHeightRef,
+  scrollModeRef,
+  manualScrollLockedRef
 }: UseSessionSmartScrollOptions): UseSessionSmartScrollResult {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const programmaticScrollResetRef = useRef<number | null>(null)
@@ -100,8 +115,6 @@ export function useSessionSmartScroll({
   const lastScrollTopRef = useRef(0)
   const hasRestoredInitialAnchorRef = useRef(false)
   const latestMirrorVersionRef = useRef(mirrorVersion)
-  // 用 ref 跟踪 isStreaming，避免 ResizeObserver 的 effect 因为流式状态切换
-  // 反复 disconnect / re-observe（composer + dock + scroller 三处 observer）。
   const isStreamingRef = useRef(isStreaming)
   const [dockHeight, setDockHeight] = useState(0)
   const [composerHeight, setComposerHeight] = useState(0)
@@ -109,13 +122,10 @@ export function useSessionSmartScroll({
     getSessionViewState(sessionId, mirrorVersion)
   )
   const viewStateRef = useRef(viewState)
-  // getClearScreenBottomInset(): measured spacer height (px) from SessionShell. When a new
-  // round starts and the spacer pushes content to the viewport top, this value is
-  // non-zero. The spacer inflates scrollHeight, so getDistanceFromBottom subtracts
-  // it to keep FAB detection accurate. Read from the ref on every call so callers
-  // don't need to re-initialize the hook when the measurement updates.
-  const getClearScreenBottomInset = (): number =>
-    clearScreenBottomInsetRef?.current ?? 0
+
+  const getFillerHeight = (): number => focusFillerHeightRef?.current ?? 0
+  const getScrollMode = (): TimelineScrollMode => scrollModeRef?.current ?? 'sticky-bottom'
+  const isManualScrollLocked = (): boolean => manualScrollLockedRef?.current ?? false
 
   const writeViewState = useCallback(
     (
@@ -144,9 +154,10 @@ export function useSessionSmartScroll({
         return current
       }
 
+      // Use content end (excluding filler) for sticky-bottom detection
       const stickyBottom =
         options?.forceStickyBottom ??
-        getRealDistanceFromBottom(element) < getNearBottomThreshold()
+        getDistanceToContentEnd(element, getFillerHeight()) < getNearBottomThreshold()
       const shouldMarkSeen = options?.markSeen ?? stickyBottom
 
       const next = writeViewState(
@@ -199,7 +210,7 @@ export function useSessionSmartScroll({
       if (!element) return
 
       markProgrammaticScroll()
-      scrollElementTo(element, getBottomScrollTop(element, getClearScreenBottomInset()), behavior)
+      scrollElementTo(element, getBottomScrollTop(element, getFillerHeight()), behavior)
 
       const current = viewStateRef.current
       const shouldSyncState =
@@ -213,13 +224,7 @@ export function useSessionSmartScroll({
         markSeen: true
       })
     },
-    [
-      getClearScreenBottomInset(),
-      isStreaming,
-      markProgrammaticScroll,
-      mirrorVersion,
-      persistCurrentAnchor
-    ]
+    [isStreaming, markProgrammaticScroll, mirrorVersion, persistCurrentAnchor]
   )
 
   const scrollToOffset = useCallback(
@@ -285,7 +290,8 @@ export function useSessionSmartScroll({
     }
     viewStateRef.current = current
 
-    const distanceFromBottom = getRealDistanceFromBottom(element)
+    // Use content end for near-bottom detection
+    const distanceFromBottom = getDistanceToContentEnd(element, getFillerHeight())
     const isNearBottom = distanceFromBottom < getNearBottomThreshold()
     const hasManualIntent = manualScrollIntentRef.current || pointerDownInScrollerRef.current
 
@@ -397,29 +403,24 @@ export function useSessionSmartScroll({
     restoreScrollAnchor()
   }, [contentVersion, ready, restoreScrollAnchor])
 
-  // v2 流式硬贴底 + 闲时自动跟随。
+  // Streaming auto-follow + idle sticky-bottom.
   //
-  // 流式输出阶段（isStreaming=true）：只要用户没有显式锁定（manualScrollLocked
-  // 为 false），就忽略缓存的 stickyBottom 标记（可能因为渲染节流而落后一帧），
-  // 改用实际距离判断。阈值放宽到 3× 平时阈值——这样即便用户因为新内容跳动
-  // 而短暂偏离 1-2 行，也能继续被"拽"到底部，杜绝"输出跑到 composer 下面"。
-  //
-  // 非流式阶段：恢复旧行为，只有 viewState.stickyBottom=true 时才追随，
-  // 避免用户翻历史时被强制拽回。
-  //
-  // 与 clearScreenActive 解耦：v1 这里有 clearScreenActive 的早退，会导致
-  // 流式输出期间一旦 clearScreenActive=true 就完全停止跟随。新的设计是
-  // 流式状态优先级高于一切 transcript 装饰。详见 §9.2。
+  // KEY: Skip auto-scroll during 'round-focus' mode. The user message is
+  // pinned at the viewport top; assistant content grows below it, and the
+  // filler shrinks. We should NOT scrollToBottom during this phase.
   useEffect(() => {
     if (!ready || !hasRestoredInitialAnchorRef.current) return
-    if (suppressStickyBottomRef?.current) return
+
+    // Round-focus: let the controller manage scroll position
+    if (getScrollMode() === 'round-focus') return
 
     const element = scrollContainerRef.current
     if (!element) return
 
     if (isStreaming) {
-      if (viewStateRef.current.manualScrollLocked) return
-      const distance = getDistanceFromBottom(element, 0)
+      if (isManualScrollLocked()) return
+      // Use content end (excluding filler) for streaming threshold
+      const distance = getDistanceToContentEnd(element, getFillerHeight())
       const streamingThreshold = getNearBottomThreshold() * 3
       if (distance < streamingThreshold) {
         scrollToBottom('instant')
@@ -431,9 +432,8 @@ export function useSessionSmartScroll({
     scrollToBottom()
   }, [contentVersion, isStreaming, mirrorVersion, ready, scrollToBottom])
 
-  // Use useLayoutEffect for the initial sync measurement so the first paint
-  // already has the correct padding-bottom — otherwise the first frame leaves
-  // the last transcript node hidden behind the ComposerBar.
+  // Bottom area resize compensation.
+  // Skip during round-focus to avoid pulling user message away from top.
   useLayoutEffect(() => {
     const dockElement = bottomAreaRef?.current
     const composerElement = composerRef?.current
@@ -454,12 +454,10 @@ export function useSessionSmartScroll({
       const scrollElement = scrollContainerRef.current
       if (!scrollElement) return
 
-      const distanceFromBottom = getRealDistanceFromBottom(scrollElement)
-      // 流式期间：composer 增高会让 row-1（transcript scroller）缩小，已存在的
-      // 内容会从底部滑出视口，看起来像"输出跑到 composer 下面"。这时只要用户
-      // 没显式锁定滚动，就一律把最后一行拽回底部——与 streaming auto-follow
-      // effect (L373-391) 的判断口径保持一致，避免两条 path 阈值不一致导致
-      // 漏补偿。非流式期间维持原来的 96px 阈值，避免翻历史时被强制拽回。
+      // Skip compensation during round-focus
+      if (getScrollMode() === 'round-focus') return
+
+      const distanceFromBottom = getDistanceToContentEnd(scrollElement, getFillerHeight())
       const shouldCompensate = isStreamingRef.current
         ? !viewStateRef.current.manualScrollLocked
         : viewStateRef.current.stickyBottom ||
@@ -532,7 +530,12 @@ export function useSessionSmartScroll({
   }, [persistCurrentAnchor, resetInteractionState])
 
   const scrollFabCount = Math.max(0, mirrorVersion - viewState.lastSeenVersion)
-  const showScrollFab = !viewState.stickyBottom && scrollFabCount > 0
+  // Use content end for FAB visibility (exclude filler)
+  const showScrollFab = (() => {
+    const element = scrollContainerRef.current
+    if (!element) return !viewState.stickyBottom && scrollFabCount > 0
+    return getDistanceToContentEnd(element, getFillerHeight()) > getNearBottomThreshold() && scrollFabCount > 0
+  })()
 
   const scrollFabBottomOffset = useMemo(() => {
     const bottomChromeHeight = dockHeight + composerHeight
@@ -544,12 +547,6 @@ export function useSessionSmartScroll({
     showScrollFab,
     scrollFabCount,
     scrollFabBottomOffset,
-    clearScreenBottomInset: getClearScreenBottomInset(),
-    /**
-     * Measured pixel height of the ComposerBar plus any sibling bottom dock.
-     * Consumers should use this to size bottom affordances so transcript
-     * content doesn't get hidden behind expanded attachment previews.
-     */
     bottomFloatingHeight: composerHeight + dockHeight,
     handleScroll,
     handleScrollWheel,

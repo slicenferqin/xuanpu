@@ -288,12 +288,6 @@ export function AgentTimeline({
   //  280px (展开 + InterruptDock)   → 96px
   const safeBottomPadding = getTimelineSafeBottomPadding(bottomFloatingHeight)
 
-  const shortContentTopSpacer = clearScreenSpacerHeight
-
-  // Only add extra paddingTop during active clear-screen alignment.
-  // During normal browsing, paddingTop stays at the fixed 24px breathing room.
-  const dynamicTopPadding = shortContentTopSpacer > 0 ? shortContentTopSpacer : 0
-
   const renderNodeContent = (node: TimelineNode): React.JSX.Element | null => (
     <TimelineNodeRenderer
       node={node}
@@ -395,7 +389,7 @@ export function AgentTimeline({
           // SessionShell reserves real layout space for the floating composer.
           // Keep only breathing room here so the final transcript node does not
           // feel glued to that boundary.
-          paddingTop: `${24 + dynamicTopPadding}px`,
+          paddingTop: '24px',
           paddingBottom: `${safeBottomPadding}px`
         }}
       >
@@ -474,12 +468,12 @@ export function AgentTimeline({
 
             {/* Clear-screen spacer: value is computed by useTimelineScrollController,
                 which is the single owner of timeline scroll geometry. */}
-            {shortContentTopSpacer > 0 && nodes.length > 0 && (
+            {clearScreenSpacerHeight > 0 && nodes.length > 0 && (
               <div
                 aria-hidden="true"
                 data-clear-screen-spacer="true"
                 data-testid="timeline-clear-screen-spacer"
-                style={{ height: `${shortContentTopSpacer}px` }}
+                style={{ height: `${clearScreenSpacerHeight}px` }}
               />
             )}
 

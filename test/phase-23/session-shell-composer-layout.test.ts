@@ -53,7 +53,7 @@ describe('SessionShell composer layout source guard', () => {
     )
     // The clear-screen spacer renders with the height supplied by the scroll controller.
     expect(timelineSource).toContain('data-testid="timeline-clear-screen-spacer"')
-    expect(timelineSource).toContain('shortContentTopSpacer')
+    expect(timelineSource).toContain('clearScreenSpacerHeight')
   })
 
   test('keeps clear-screen spacer geometry in the scroll controller', async () => {
@@ -73,7 +73,7 @@ describe('SessionShell composer layout source guard', () => {
     )
 
     expect(shellSource).toContain(
-      'clearScreenSpacerHeight={timelineScroll.clearScreenBottomInset}'
+      'clearScreenSpacerHeight={timelineScroll.focusFillerHeight}'
     )
     expect(shellSource).toContain('timelineContentRef={timelineScroll.timelineContentRef}')
     expect(timelineSource).toContain('clearScreenSpacerHeight')

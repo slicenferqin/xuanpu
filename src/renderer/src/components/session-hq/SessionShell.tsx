@@ -581,7 +581,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
             onPointerUp={timelineScroll.handleScrollPointerUp}
             onPointerCancel={timelineScroll.handleScrollPointerCancel}
             bottomFloatingHeight={timelineScroll.bottomFloatingHeight}
-            clearScreenSpacerHeight={timelineScroll.clearScreenBottomInset}
+            clearScreenSpacerHeight={timelineScroll.focusFillerHeight}
             activeRoundId={timelineScroll.activeRoundId}
             onRoundAnchorNavigate={handleRoundAnchorNavigate}
             showScrollIndicator={timelineScroll.showScrollFab}
