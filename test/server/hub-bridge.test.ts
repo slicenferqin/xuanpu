@@ -58,7 +58,9 @@ function makeRuntimeStub(overrides: Partial<AgentRuntimeAdapter> = {}): {
   }
 }
 
-function envelope(event: Partial<CanonicalAgentEvent> & { sessionId: string }): CanonicalAgentEvent {
+function envelope(
+  event: Partial<CanonicalAgentEvent> & { sessionId: string }
+): CanonicalAgentEvent {
   return {
     eventId: 'evt-1',
     sessionSequence: 1,
@@ -118,17 +120,14 @@ describe('hub-bridge: outbound translation', () => {
   it('emits status frames with monotonic seq and updates registry status', () => {
     const ws = makeWs()
     registry.subscribe(ws, 'd', 's1')
-    bridge.onIpcEvent(
-      AGENT_STREAM_CHANNEL,
-      [
-        envelope({
-          type: 'session.status',
-          sessionId: 's1',
-          data: { status: { type: 'busy' } },
-          statusPayload: { type: 'busy' }
-        })
-      ]
-    )
+    bridge.onIpcEvent(AGENT_STREAM_CHANNEL, [
+      envelope({
+        type: 'session.status',
+        sessionId: 's1',
+        data: { status: { type: 'busy' } },
+        statusPayload: { type: 'busy' }
+      })
+    ])
     expect(ws.sent).toEqual([{ type: 'status', seq: 1, status: 'busy' }])
     expect(registry.getSession('d', 's1')?.status).toBe('busy')
   })
@@ -136,34 +135,28 @@ describe('hub-bridge: outbound translation', () => {
   it('drops metadata-only message.updated events', () => {
     const ws = makeWs()
     registry.subscribe(ws, 'd', 's1')
-    bridge.onIpcEvent(
-      AGENT_STREAM_CHANNEL,
-      [
-        envelope({
-          type: 'message.updated',
-          sessionId: 's1',
-          data: { id: 'm1', role: 'assistant' }
-        })
-      ]
-    )
+    bridge.onIpcEvent(AGENT_STREAM_CHANNEL, [
+      envelope({
+        type: 'message.updated',
+        sessionId: 's1',
+        data: { id: 'm1', role: 'assistant' }
+      })
+    ])
     expect(ws.sent).toHaveLength(0)
   })
 
   it('translates events from non-primary runtimes (codex/opencode) too', () => {
     const ws = makeWs()
     registry.subscribe(ws, 'd', 's1')
-    bridge.onIpcEvent(
-      AGENT_STREAM_CHANNEL,
-      [
-        envelope({
-          type: 'session.status',
-          sessionId: 's1',
-          runtimeId: 'opencode',
-          data: { status: { type: 'busy' } },
-          statusPayload: { type: 'busy' }
-        })
-      ]
-    )
+    bridge.onIpcEvent(AGENT_STREAM_CHANNEL, [
+      envelope({
+        type: 'session.status',
+        sessionId: 's1',
+        runtimeId: 'opencode',
+        data: { status: { type: 'busy' } },
+        statusPayload: { type: 'busy' }
+      })
+    ])
     // Hub now serves multi-runtime sessions (codex/opencode emit the same
     // canonical protocol), so non-primary events are no longer filtered out.
     expect(ws.sent).toHaveLength(1)
@@ -173,23 +166,20 @@ describe('hub-bridge: outbound translation', () => {
   it('translates permission.asked into permission/request', () => {
     const ws = makeWs()
     registry.subscribe(ws, 'd', 's1')
-    bridge.onIpcEvent(
-      AGENT_STREAM_CHANNEL,
-      [
-        envelope({
-          type: 'permission.asked',
-          sessionId: 's1',
-          data: {
-            id: 'req-1',
-            sessionID: 'sdk-1',
-            permission: 'read',
-            patterns: [],
-            metadata: { tool: 'Read' },
-            always: []
-          }
-        })
-      ]
-    )
+    bridge.onIpcEvent(AGENT_STREAM_CHANNEL, [
+      envelope({
+        type: 'permission.asked',
+        sessionId: 's1',
+        data: {
+          id: 'req-1',
+          sessionID: 'sdk-1',
+          permission: 'read',
+          patterns: [],
+          metadata: { tool: 'Read' },
+          always: []
+        }
+      })
+    ])
     expect(ws.sent[0]).toMatchObject({
       type: 'permission/request',
       seq: 1,
@@ -339,6 +329,79 @@ describe('hub-bridge: outbound translation', () => {
     }
     expect(lastFrame.patch?.value?.type).toBe('tool_result')
     expect(lastFrame.patch?.value?.isError).toBe(true)
+  })
+
+  it('preserves unknown structured live parts for mobile replay', () => {
+    const ws = makeWs()
+    registry.subscribe(ws, 'd', 's1')
+
+    bridge.onIpcEvent(AGENT_STREAM_CHANNEL, [
+      envelope({
+        type: 'message.part.updated',
+        sessionId: 's1',
+        data: {
+          part: {
+            type: 'subtask',
+            id: 'subtask-1',
+            agent: 'xuanpu-agent',
+            status: 'running',
+            description: 'inspect sibling worktree'
+          }
+        }
+      })
+    ])
+
+    expect(ws.sent).toHaveLength(1)
+    expect(ws.sent[0]).toMatchObject({
+      type: 'message/append',
+      message: {
+        parts: [
+          {
+            type: 'unknown',
+            raw: {
+              type: 'subtask',
+              id: 'subtask-1',
+              status: 'running'
+            }
+          }
+        ]
+      }
+    })
+
+    ws.sent.length = 0
+    bridge.onIpcEvent(AGENT_STREAM_CHANNEL, [
+      envelope({
+        type: 'message.part.updated',
+        sessionId: 's1',
+        data: {
+          part: {
+            type: 'subtask',
+            id: 'subtask-1',
+            agent: 'xuanpu-agent',
+            status: 'completed',
+            description: 'inspect sibling worktree'
+          }
+        }
+      })
+    ])
+
+    expect(ws.sent).toEqual([
+      expect.objectContaining({
+        type: 'message/update',
+        patch: {
+          op: 'replacePart',
+          partIdx: 0,
+          value: expect.objectContaining({
+            type: 'unknown',
+            raw: expect.objectContaining({
+              type: 'subtask',
+              id: 'subtask-1',
+              status: 'completed'
+            })
+          })
+        }
+      })
+    ])
   })
 
   it('truncates large tool output to 4 KB', () => {
@@ -527,8 +590,51 @@ describe('hub-bridge: inbound client messages', () => {
     const ws = makeWs()
     await bridge.handleClientMessage(ws, 's1', { type: 'resume', lastSeq: 1 })
 
-    expect(ws.sent).toEqual([
-      { type: 'error', code: 'NEED_FULL_RELOAD', message: 'gap evicted' }
+    expect(ws.sent).toEqual([{ type: 'error', code: 'NEED_FULL_RELOAD', message: 'gap evicted' }])
+  })
+
+  it('preserves unknown structured parts in history snapshots', () => {
+    const registry = new HubRegistry({ localDeviceId: 'd' })
+    const bridge = new HubBridge({
+      registry,
+      runtimeManager: makeRuntimeStub().manager
+    })
+    getSessionTimelineMock.mockReturnValue({
+      messages: [
+        {
+          id: 'm-unknown',
+          role: 'assistant',
+          content: '',
+          timestamp: '2026-01-01T00:00:00.000Z',
+          parts: [
+            {
+              type: 'compaction',
+              summary: 'older tool output was compacted',
+              tokenEstimate: 120
+            }
+          ]
+        }
+      ],
+      compactionMarkers: [],
+      revertBoundary: null
+    })
+
+    const snapshot = bridge.getHistorySnapshot('s1', 10)
+
+    expect(snapshot).toEqual([
+      expect.objectContaining({
+        id: 'm-unknown',
+        parts: [
+          {
+            type: 'unknown',
+            raw: {
+              type: 'compaction',
+              summary: 'older tool output was compacted',
+              tokenEstimate: 120
+            }
+          }
+        ]
+      })
     ])
   })
 })
@@ -649,9 +755,7 @@ describe('hub-bridge: P1 information fidelity (system notices + tool output)', (
     now += 6_000
     fire() // emits (>10s since first)
 
-    const notices = ws.sent.filter(
-      (f) => (f as { type: string }).type === 'system/notice'
-    )
+    const notices = ws.sent.filter((f) => (f as { type: string }).type === 'system/notice')
     expect(notices).toHaveLength(2)
   })
 
@@ -691,12 +795,10 @@ describe('hub-bridge: P1 information fidelity (system notices + tool output)', (
     expect(tool.type).toBe('tool_use')
     expect(tool.pending).toBe(false)
 
-    const resultFrame = ws.sent
-      .slice(1)
-      .find((f) => {
-        const fr = f as { patch?: { value?: { type?: string } } }
-        return fr.patch?.value?.type === 'tool_result'
-      }) as { patch: { value: { type: string; output: unknown; isError: boolean } } } | undefined
+    const resultFrame = ws.sent.slice(1).find((f) => {
+      const fr = f as { patch?: { value?: { type?: string } } }
+      return fr.patch?.value?.type === 'tool_result'
+    }) as { patch: { value: { type: string; output: unknown; isError: boolean } } } | undefined
     expect(resultFrame).toBeDefined()
     expect(resultFrame!.patch.value.output).toBe('a\nb\n')
     expect(resultFrame!.patch.value.isError).toBe(false)
