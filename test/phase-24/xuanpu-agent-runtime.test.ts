@@ -235,6 +235,12 @@ describe('XuanpuPiAgentSession', () => {
       modelID: 'xuanpu-agent-mock'
     })
     expect(result.usage).toEqual({ input: 1, output: 2 })
+    expect(result.harnessMetrics.cache).toMatchObject({
+      inputTokens: 1,
+      hitRatio: null,
+      source: 'provider-usage'
+    })
+    expect(result.harnessMetrics.parallelTools.totalToolCalls).toBe(0)
     expect(deltas.join('')).toBe('mock ok')
     expect(fakeRuntime.prompts).toEqual(['hello'])
     expect(recordedToolNames()).toEqual([EXPECTED_TOOL_NAMES, EXPECTED_TOOL_NAMES])
@@ -315,6 +321,12 @@ describe('XuanpuPiAgentSession', () => {
         isError: false
       }
     ])
+    expect(result.harnessMetrics.parallelTools).toMatchObject({
+      totalToolCalls: 1,
+      parallelSafeToolCalls: 0,
+      serialToolCalls: 1,
+      parallelSafeRatio: 0
+    })
     session.dispose()
   })
 

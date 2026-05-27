@@ -6,6 +6,7 @@ import {
   getXuanpuAgentAllowedTools,
   getXuanpuAgentSystemPromptLines,
   getXuanpuAgentToolSurfaceGates,
+  isXuanpuAgentParallelSafeTool,
   XUANPU_AGENT_TOOL_POLICY
 } from '../../src/main/services/xuanpu-agent/tool-policy'
 import { Process } from '../../src/main/services/xuanpu-agent/pi-natives-compat'
@@ -46,6 +47,8 @@ describe('xuanpu-agent native and tool policy', () => {
     expect(() => assertXuanpuAgentAllowedTools([{ name: 'shell' }])).toThrow(
       /can only expose the M4 controlled harness tools/
     )
+    expect(isXuanpuAgentParallelSafeTool('read_file')).toBe(true)
+    expect(isXuanpuAgentParallelSafeTool('write_file')).toBe(false)
   })
 
   it('keeps native process and MCP gates closed after controlled writes are enabled', () => {

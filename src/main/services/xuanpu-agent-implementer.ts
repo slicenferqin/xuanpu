@@ -22,6 +22,7 @@ import {
   type XuanpuAgentToolEndEvent,
   type XuanpuAgentToolStartEvent
 } from './xuanpu-agent/runtime'
+import type { XuanpuAgentHarnessMetrics } from './xuanpu-agent/harness/metrics'
 import { XfpPacketCompiler, type CompilerDecision } from './xuanpu-agent/harness/compiler'
 import { buildMessages, SessionAppendOnlyLog } from './xuanpu-agent/harness/build-messages'
 import type {
@@ -429,7 +430,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
                 retrievalReason: entry.retrievalReason
               })) ?? [],
             resumedCheckpoint,
-            claimVerification
+            claimVerification,
+            harnessMetrics: result.harnessMetrics
           })
         } catch (err) {
           log.warn('Failed to record context package', {
@@ -575,6 +577,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       retrievedWorkflows?: Array<{ workflowId: string; retrievalReason: string }>
       resumedCheckpoint?: ResumedCheckpointBlock | null
       claimVerification?: PostResponseClaimVerification
+      harnessMetrics?: XuanpuAgentHarnessMetrics | null
     } = {}
   ): Promise<{
     contextPackageId: string | null
@@ -603,7 +606,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             materializedWorkflows: options.materializedWorkflows ?? [],
             retrievedWorkflows: options.retrievedWorkflows ?? [],
             resumedCheckpoint: options.resumedCheckpoint ?? null,
-            claimVerification: options.claimVerification
+            claimVerification: options.claimVerification,
+            harnessMetrics: options.harnessMetrics ?? null
           })
         : [
             ...buildEpisodeContextPackageSections(
@@ -687,7 +691,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
                 value: claim.value
               }))
             }
-          : null
+          : null,
+        harnessMetrics: options.harnessMetrics ?? null
       }
     })
 
@@ -1514,6 +1519,7 @@ function buildContextPackageSections(
     retrievedWorkflows?: Array<{ workflowId: string; retrievalReason: string }>
     resumedCheckpoint?: ResumedCheckpointBlock | null
     claimVerification?: PostResponseClaimVerification
+    harnessMetrics?: XuanpuAgentHarnessMetrics | null
   } = {}
 ): FieldContextPackageSection[] {
   const omittedReasonByName = new Map(
@@ -1568,6 +1574,10 @@ function buildContextPackageSections(
     ...buildClaimVerifierContextPackageSections(
       packet.identity.packetId,
       extras.claimVerification ?? null
+    ),
+    ...buildHarnessMetricsContextPackageSections(
+      packet.identity.packetId,
+      extras.harnessMetrics ?? null
     )
   ]
 }
@@ -1753,6 +1763,34 @@ function buildClaimVerifierContextPackageSections(
           kind: claim.kind,
           value: claim.value
         }))
+      }
+    }
+  ]
+}
+
+function buildHarnessMetricsContextPackageSections(
+  packetId: string,
+  metrics: XuanpuAgentHarnessMetrics | null
+): FieldContextPackageSection[] {
+  if (!metrics) return []
+  return [
+    {
+      id: `${packetId}:harness-metrics`,
+      kind: 'harness_metrics',
+      title: 'Harness Metrics',
+      included: true,
+      approxTokens: Math.ceil(JSON.stringify(metrics).length / 4),
+      source: 'xuanpu-agent-m6-metrics',
+      reason: 'cache, parallel-safe, and compaction metrics captured for postmortem',
+      metadata: {
+        packetId,
+        cacheHitRatio: metrics.cache.hitRatio,
+        cacheSource: metrics.cache.source,
+        parallelSafeRatio: metrics.parallelTools.parallelSafeRatio,
+        totalToolCalls: metrics.parallelTools.totalToolCalls,
+        shrinkCount: metrics.compaction.shrinkCount,
+        emergencyShrunk: metrics.compaction.emergencyShrunk,
+        compressionRatio: metrics.compaction.compressionRatio
       }
     }
   ]

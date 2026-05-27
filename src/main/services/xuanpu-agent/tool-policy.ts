@@ -107,8 +107,21 @@ export function getXuanpuAgentSystemPromptLines(): string[] {
 
 import { XUANPU_AGENT_TOOLS } from './tools'
 
+const XUANPU_AGENT_PARALLEL_SAFE_TOOL_NAMES = new Set([
+  'git_status',
+  'read_file',
+  'rg_search',
+  'list_files',
+  'git_log',
+  'git_diff'
+])
+
 export function getXuanpuAgentAllowedTools(): unknown[] {
   return XUANPU_AGENT_TOOLS
+}
+
+export function isXuanpuAgentParallelSafeTool(toolName: string): boolean {
+  return XUANPU_AGENT_PARALLEL_SAFE_TOOL_NAMES.has(toolName)
 }
 
 export function assertXuanpuAgentAllowedTools(tools: unknown[]): void {

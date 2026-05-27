@@ -362,8 +362,24 @@ describe('xuanpu-agent IPC smoke', () => {
         modelId: 'gpt-4.1',
         decisions: expect.objectContaining({
           providerExecution: 'enabled',
-          visibleTranscriptPolicy: 'persist-user-authored-message-only'
-        })
+          visibleTranscriptPolicy: 'persist-user-authored-message-only',
+          harnessMetrics: expect.objectContaining({
+            cache: expect.objectContaining({
+              inputTokens: 1,
+              source: 'provider-usage'
+            }),
+            parallelTools: expect.objectContaining({
+              totalToolCalls: 0
+            })
+          })
+        }),
+        sections: expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'harness_metrics',
+            title: 'Harness Metrics',
+            included: true
+          })
+        ])
       })
     )
     expect(fieldEventMocks.emitFieldEvent).toHaveBeenCalledWith(

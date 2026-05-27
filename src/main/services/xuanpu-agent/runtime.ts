@@ -8,10 +8,12 @@ import type { XuanpuPiPromptMessage } from './context-transform'
 import {
   assertXuanpuAgentAllowedTools,
   getXuanpuAgentAllowedTools,
-  getXuanpuAgentSystemPromptLines
+  getXuanpuAgentSystemPromptLines,
+  isXuanpuAgentParallelSafeTool
 } from './tool-policy'
 import { StormDetector } from './harness/tool-call-repair/storm'
 import { ToolOutputTruncator, type ArchivePayload } from './harness/tool-call-repair/truncation'
+import { buildXuanpuAgentHarnessMetrics, type XuanpuAgentHarnessMetrics } from './harness/metrics'
 import type { CommandProfiler, CommandCompressor } from './context/compressor'
 import {
   ContextBudgetManager,
@@ -96,6 +98,7 @@ export interface XuanpuAgentPromptResult {
   modelRef: XuanpuAgentModelRef
   usage?: Record<string, unknown>
   rawMessage?: PiAssistantMessage
+  harnessMetrics: XuanpuAgentHarnessMetrics
 }
 
 export class XuanpuPiAgentSession {
@@ -170,6 +173,7 @@ export class XuanpuPiAgentSession {
     let streamedText = ''
     const stateMessageCountBeforePrompt = agent.state.messages?.length ?? 0
     const pendingAssistantMessages: PiAssistantMessage[] = []
+    const toolNames: string[] = []
     const toolStarts = new Map<
       string,
       { toolName: string; args: Record<string, unknown>; startedAt: number }
@@ -206,6 +210,7 @@ export class XuanpuPiAgentSession {
       if (event.type === 'tool_execution_start' && event.toolCallId && event.toolName) {
         const args = event.args && typeof event.args === 'object' ? event.args : {}
         const startedAt = Date.now()
+        toolNames.push(event.toolName)
         toolStarts.set(event.toolCallId, { toolName: event.toolName, args, startedAt })
         handlers.onToolStart?.({
           toolCallId: event.toolCallId,
@@ -248,12 +253,19 @@ export class XuanpuPiAgentSession {
     }
 
     const finalText = extractText(message) || streamedText
+    const harnessMetrics = buildXuanpuAgentHarnessMetrics({
+      usage: message?.usage,
+      toolNames,
+      isParallelSafeTool: isXuanpuAgentParallelSafeTool,
+      budgetState: this.getBudgetState()
+    })
     return {
       messageId,
       text: finalText,
       modelRef: resolved.modelRef,
       usage: message?.usage,
-      rawMessage: message ?? undefined
+      rawMessage: message ?? undefined,
+      harnessMetrics
     }
   }
 
