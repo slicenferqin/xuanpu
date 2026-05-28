@@ -55,7 +55,7 @@ export interface ContextPackerDecisions {
     currentField: { tokens: number; included: boolean }
     frozenEpisodes: { tokens: number; count: number; dropped: number }
     retrievedEpisodes: { tokens: number; count: number; dropped: number; reasons: string[]; includedIds: string[] }
-    workingSet: { tokens: number; count: number; dedupedCount: number }
+    workingSet: { tokens: number; count: number; dedupedCount: number; includedMessageIds: string[]; droppedMessageIds: string[] }
     currentRequest: { tokens: number }
   }
   totalTokens: number
@@ -238,7 +238,11 @@ export function packContext(input: ContextPackerInput): ContextPackerOutput {
         workingSet: {
           tokens: workingSetTokens,
           count: includedTurns.length,
-          dedupedCount
+          dedupedCount,
+          includedMessageIds: includedTurns.map((t) => t.messageId).filter(Boolean),
+          droppedMessageIds: input.workingSet
+            .filter((t) => t.messageId && !includedTurns.some((inc) => inc.messageId === t.messageId))
+            .map((t) => t.messageId)
         },
         currentRequest: { tokens: requestTokens }
       },

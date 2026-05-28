@@ -110,6 +110,34 @@ describe('XfpPacketCompiler', () => {
     })
   })
 
+  it('uses canonical budget tokens when budgetTokens is not provided', () => {
+    const fixture = fullXfpPacketExample()
+    const compiler = new XfpPacketCompiler()
+
+    const focused = compiler.compile(createWorktree(), createSession(), 'task', {
+      now: 1760000000010,
+      packetId: 'pkt-budget-focused',
+      budgetProfile: 'focused',
+      gitState: fixture.gitState
+    })
+    const balanced = compiler.compile(createWorktree(), createSession(), 'task', {
+      now: 1760000000011,
+      packetId: 'pkt-budget-balanced',
+      budgetProfile: 'balanced',
+      gitState: fixture.gitState
+    })
+    const extended = compiler.compile(createWorktree(), createSession(), 'task', {
+      now: 1760000000012,
+      packetId: 'pkt-budget-extended',
+      budgetProfile: 'extended',
+      gitState: fixture.gitState
+    })
+
+    expect(focused.packet.budget.budgetTokens).toBe(80_000)
+    expect(balanced.packet.budget.budgetTokens).toBe(150_000)
+    expect(extended.packet.budget.budgetTokens).toBe(200_000)
+  })
+
   it('uses default omissions for missing optional sections', () => {
     const fixture = fullXfpPacketExample()
     const compiler = new XfpPacketCompiler()

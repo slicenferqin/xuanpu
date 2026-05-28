@@ -150,6 +150,32 @@ describe('packContext', () => {
     expect(result.decisions.zones.workingSet.tokens).toBe(0)
   })
 
+  it('tracks included and dropped working set message IDs for audit', () => {
+    const episode = makeEpisode({
+      rawRefs: [{ type: 'session_message', id: 'msg-deduped', role: 'user' }]
+    })
+
+    const result = packContext({
+      ...BASE_INPUT,
+      frozenEpisodes: [episode],
+      workingSet: [
+        { messageId: 'msg-deduped', role: 'user', content: 'Deduped turn', createdAt: 1000 },
+        { messageId: 'msg-kept', role: 'user', content: 'Kept turn', createdAt: 2000 },
+        { messageId: 'msg-also-kept', role: 'assistant', content: 'Also kept', createdAt: 3000 }
+      ],
+      currentRequest: 'Hello'
+    })
+
+    const ws = result.decisions.zones.workingSet
+    // msg-deduped should be in dropped, not included
+    expect(ws.includedMessageIds).toContain('msg-kept')
+    expect(ws.includedMessageIds).toContain('msg-also-kept')
+    expect(ws.includedMessageIds).not.toContain('msg-deduped')
+    expect(ws.droppedMessageIds).toContain('msg-deduped')
+    expect(ws.droppedMessageIds).not.toContain('msg-kept')
+    expect(ws.dedupedCount).toBe(1)
+  })
+
   it('returns consistent prefixHash when anchor and frozen episodes are unchanged', () => {
     const input = {
       ...BASE_INPUT,

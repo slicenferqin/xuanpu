@@ -167,7 +167,8 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
       decisions: {
         contextTransform: 'm7-context-packer',
         zones: {
-          retrievedEpisodes: { tokens: 0, count: 0, dropped: 0, reasons: [], includedIds: [] }
+          retrievedEpisodes: { tokens: 0, count: 0, dropped: 0, reasons: [], includedIds: [] },
+          workingSet: { tokens: 50, count: 2, dedupedCount: 0, includedMessageIds: ['msg-1', 'msg-2'], droppedMessageIds: [] }
         },
         totalTokens: 100,
         fillRatio: 0.01,
@@ -285,5 +286,62 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
 
     // getPriorTurns should be called twice: once before freeze, once after
     expect(mockFieldProvider.getPriorTurns).toHaveBeenCalledTimes(2)
+  })
+
+  it('prefixSeed is stable across turns despite different packetId and capturedAt', async () => {
+    // Make compiler return different packetId/capturedAt on each call
+    let compileCallCount = 0
+    const { XfpPacketCompiler } = await import(
+      '../../src/main/services/xuanpu-agent/harness/compiler'
+    )
+    vi.mocked(XfpPacketCompiler).mockImplementation(() => ({
+      compile: vi.fn(() => {
+        compileCallCount++
+        return {
+          packet: {
+            version: '1.0',
+            identity: {
+              packetId: `test-packet-${compileCallCount}`,
+              capturedAt: 1000000 + compileCallCount,
+              worktreeId: 'w-1'
+            },
+            budget: { profile: 'balanced', fillRatio: 0 },
+            worktree: { id: 'w-1', name: 'test', path: '/repo', branch: 'main', context: null },
+            git: { branch: 'main', ahead: 0, behind: 0, dirty: false, stashes: 0 },
+            session: { id: 's-1', turnCount: 0 },
+            field: { currentFile: null, recentCommands: [], recentEvents: [] },
+            checkpoints: [],
+            memory: null
+          },
+          decisions: { includedSections: [], omittedSections: [] }
+        }
+      })
+    }))
+
+    const { XuanpuAgentImplementer } = await import(
+      '../../src/main/services/xuanpu-agent-implementer'
+    )
+    const implementer = new XuanpuAgentImplementer()
+    implementer.setDatabaseService({
+      getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
+      getSetting: vi.fn(() => null)
+    } as unknown as DatabaseService)
+
+    const { sessionId } = await implementer.connect('/repo', 'session-1')
+
+    // First turn
+    await implementer.prompt('/repo', sessionId, 'first request')
+    const firstPrefixSeed = packContextMock.mock.calls[0][0].prefixSeed
+
+    // Second turn — different packetId and capturedAt
+    await implementer.prompt('/repo', sessionId, 'second request')
+    const secondPrefixSeed = packContextMock.mock.calls[1][0].prefixSeed
+
+    // prefixSeed must be identical despite different packetId/capturedAt
+    expect(firstPrefixSeed).toBe(secondPrefixSeed)
+    // prefixSeed must NOT contain the packetId
+    expect(firstPrefixSeed).not.toContain('test-packet-')
+    // prefixSeed should still contain version
+    expect(firstPrefixSeed).toContain('version="1.0"')
   })
 })

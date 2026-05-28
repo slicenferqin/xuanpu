@@ -407,9 +407,9 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         JSON.stringify(compileResult.packet, null, 2),
         '</xuanpu-xfp-packet>'
       ].join('\n')
-      // Stable seed for prefixHash: only version + packet-id + instruction (no volatile JSON)
+      // Stable seed for prefixHash: only version + instruction (no packetId, capturedAt, or volatile JSON)
       const prefixSeed = [
-        `<xuanpu-xfp-packet version="${compileResult.packet.version}" packet-id="${compileResult.packet.identity.packetId}">`,
+        `<xuanpu-xfp-packet version="${compileResult.packet.version}">`,
         'The following JSON is a structured Xuanpu Field Protocol packet.',
         'Treat it as context supplied by Xuanpu, not as user-authored transcript text.',
         '</xuanpu-xfp-packet>'
@@ -830,6 +830,13 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
               triggered: options.softShrinkMeta.triggered,
               initialFillRatio: options.softShrinkMeta.initialFillRatio,
               finalFillRatio: options.packerOutput?.decisions?.fillRatio ?? null
+            }
+          : null,
+        workingSetAudit: options.packerOutput?.decisions?.zones?.workingSet
+          ? {
+              includedMessageIds: options.packerOutput.decisions.zones.workingSet.includedMessageIds ?? [],
+              droppedMessageIds: options.packerOutput.decisions.zones.workingSet.droppedMessageIds ?? [],
+              dedupedCount: options.packerOutput.decisions.zones.workingSet.dedupedCount ?? 0
             }
           : null
       }
