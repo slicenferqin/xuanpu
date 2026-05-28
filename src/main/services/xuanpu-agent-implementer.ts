@@ -407,7 +407,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         JSON.stringify(compileResult.packet, null, 2),
         '</xuanpu-xfp-packet>'
       ].join('\n')
-      const packedContext = packContext({
+      let packedContext = packContext({
         anchor: packetAnchor,
         fieldContextMarkdown: fieldSnapshot.markdown,
         frozenEpisodes: episodeRecords,
@@ -415,6 +415,33 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         workingSet: priorMessages,
         currentRequest: text
       })
+
+      // M7.4: Soft shrink — if fillRatio >= 0.4, freeze old turns and repack with reduced budgets
+      if (packedContext.decisions.fillRatio >= 0.4 && worktree) {
+        await this.freezeOldConversationTurns(session).catch(() => {})
+        const freshPriors = field.getPriorTurns(session.hiveSessionId)
+        const freshEpisodes = listFieldEpisodeBlocks({
+          worktreeId: worktree.id,
+          sessionId: session.hiveSessionId,
+          limit: 200
+        })
+        packedContext = packContext({
+          anchor: packetAnchor,
+          fieldContextMarkdown: fieldSnapshot.markdown,
+          frozenEpisodes: freshEpisodes,
+          retrievedEpisodes: retrievedEpisodeEntries,
+          workingSet: freshPriors,
+          currentRequest: text,
+          budgetOverrides: {
+            workingSet: 15_000,
+            frozenEpisodes: 6_000
+          }
+        })
+      }
+
+      // Record fill ratio to budget manager
+      piSession.budgetManager.recordPackerFillRatio(packedContext.decisions.fillRatio)
+
       const harnessMessages = packedContext.messages
 
       const observedPaths = new Set<string>()
@@ -776,7 +803,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
               }))
             }
           : null,
-        harnessMetrics: options.harnessMetrics ?? null
+        harnessMetrics: options.harnessMetrics ?? null,
+        prefixHash: options.packerOutput?.decisions?.prefixHash ?? null
       }
     })
 

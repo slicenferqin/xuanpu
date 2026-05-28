@@ -135,7 +135,8 @@ export async function summarizeEpisode(
         compactorKind: 'rule-based',
         fallbackReason: resolution.kind === 'rule-based'
           ? 'no-model-configured'
-          : 'model-unavailable'
+          : 'model-unavailable',
+        degradedReason: resolution.degradedReason ?? null
       }
     }
   }
@@ -174,7 +175,8 @@ export async function summarizeEpisode(
           compactorKind: 'rule-based',
           providerId: resolution.modelRef?.providerID ?? null,
           modelId: resolution.modelRef?.modelID ?? null,
-          fallbackReason: 'model-output-unparseable'
+          fallbackReason: 'model-output-unparseable',
+          degradedReason: resolution.degradedReason ?? null
         }
       }
     }
@@ -220,7 +222,8 @@ export async function summarizeEpisode(
         compactorKind: 'model',
         providerId: resolution.modelRef?.providerID ?? null,
         modelId: resolution.modelRef?.modelID ?? null,
-        promptVersion: 'v1'
+        promptVersion: 'v1',
+        degradedReason: resolution.degradedReason ?? null
       }
     }
   } catch {
@@ -231,7 +234,8 @@ export async function summarizeEpisode(
         compactorKind: 'rule-based',
         providerId: resolution.modelRef?.providerID ?? null,
         modelId: resolution.modelRef?.modelID ?? null,
-        fallbackReason: 'model-call-error'
+        fallbackReason: 'model-call-error',
+        degradedReason: resolution.degradedReason ?? null
       }
     }
   }

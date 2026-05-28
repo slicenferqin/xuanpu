@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { Lock, TerminalSquare, Check, TriangleAlert } from 'lucide-react'
+import { Lock, TerminalSquare, Check, TriangleAlert, Beaker } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getEnabledSessionAgentSdks, type SessionAgentSdk } from '@/lib/agent-sdk-availability'
 import { ModelSelector } from '../sessions/ModelSelector'
@@ -204,7 +204,30 @@ function XuanpuAgentReadinessCapsule({
     }
   }, [sdk, providerId, modelId])
 
-  if (sdk !== 'xuanpu-agent' || !status || status.status === 'ready') return null
+  if (sdk !== 'xuanpu-agent') return null
+
+  // xuanpu-agent: always show experimental badge (context steady-state not production-ready)
+  if (!status || status.status === 'ready') {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            className="inline-flex items-center gap-1.5 rounded-md border border-violet-500/30 bg-violet-500/10 px-2 py-1 text-[11px] font-medium text-violet-700 dark:text-violet-300"
+            data-testid="xuanpu-agent-runtime-status"
+          >
+            <Beaker className="h-3 w-3" />
+            Experimental
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" sideOffset={6} className="max-w-[280px]">
+          <div className="space-y-1 text-[11px]">
+            <div className="font-medium">xuanpu-agent is experimental</div>
+            <div className="opacity-80">Context steady-state not yet production-ready. Use for dogfood testing.</div>
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    )
+  }
 
   const missingCredentials = status.status === 'missing-credentials'
   const label = status.status === 'mock-ready' ? 'Mock' : missingCredentials ? 'Env' : 'Off'

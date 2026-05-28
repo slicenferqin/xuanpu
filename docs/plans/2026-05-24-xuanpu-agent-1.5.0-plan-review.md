@@ -102,4 +102,5 @@ Related to open question in the plan ("store raw output in SQLite, files, or bot
 ## Non-issues
 
 - **Scope vs. version count.** Solo maintainer + small user base means shipping M0-M6 in one release is acceptable. No community pressure to deliver partial releases.
+  - **M7 CR 更新（2026-05-27）**：M7 CR 发现 M0-M6 的上下文稳态主链路未接通（`buildMessages()` 仍为 active path）。M7 CR 后已修复核心链路，但 soft shrink / prefix cache / 长会话验证仍未完成。原评估需配合 M7 修复进度重新审视。
 - **XFP packet versioning.** Implicitly assumed; add an explicit `version` field from day one for schema evolution.

@@ -150,6 +150,41 @@ describe('packContext', () => {
     expect(result.decisions.zones.workingSet.tokens).toBe(0)
   })
 
+  it('returns consistent prefixHash when anchor and frozen episodes are unchanged', () => {
+    const input = {
+      ...BASE_INPUT,
+      frozenEpisodes: [makeEpisode()],
+      workingSet: [
+        { messageId: 'msg-1', role: 'user' as const, content: 'Turn 1', createdAt: 1000 }
+      ]
+    }
+
+    const result1 = packContext(input)
+    const result2 = packContext({
+      ...input,
+      workingSet: [
+        { messageId: 'msg-2', role: 'user' as const, content: 'Different turn', createdAt: 2000 }
+      ]
+    })
+
+    // Same anchor + same frozen episodes → same prefixHash
+    expect(result1.decisions.prefixHash).toBe(result2.decisions.prefixHash)
+    expect(result1.decisions.prefixHash).toMatch(/^[0-9a-f]+$/)
+  })
+
+  it('returns different prefixHash when frozen episodes change', () => {
+    const result1 = packContext({
+      ...BASE_INPUT,
+      frozenEpisodes: [makeEpisode({ id: 'ep-1', summaryMarkdown: 'Episode A' })]
+    })
+    const result2 = packContext({
+      ...BASE_INPUT,
+      frozenEpisodes: [makeEpisode({ id: 'ep-2', summaryMarkdown: 'Episode B' })]
+    })
+
+    expect(result1.decisions.prefixHash).not.toBe(result2.decisions.prefixHash)
+  })
+
   it('includes retrieved episodes with reasons in a separate zone', () => {
     const result = packContext({
       anchor: 'system context',

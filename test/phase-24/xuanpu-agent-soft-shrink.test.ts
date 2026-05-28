@@ -158,4 +158,40 @@ describe('Context Packer — soft shrink and budget allocation', () => {
     // Both should be included (empty messageId means no dedup)
     expect(result.decisions.zones.workingSet.dedupedCount).toBe(0)
   })
+
+  it('reduced budgets produce lower fillRatio (soft shrink effect)', () => {
+    // Use large content to actually hit budget limits
+    const episodes = Array.from({ length: 5 }, (_, i) =>
+      makeEpisode(`Episode ${i}: ${'z'.repeat(8000)}`, `ep-${i}`)
+    )
+    const turns = Array.from({ length: 20 }, (_, i) =>
+      makeTurn(`Turn ${i}: ${'w'.repeat(4000)}`, `msg-${i}`)
+    )
+
+    const baseResult = packContext({
+      anchor: 'anchor',
+      fieldContextMarkdown: 'field context',
+      frozenEpisodes: episodes,
+      workingSet: turns,
+      currentRequest: 'Hello'
+    })
+
+    const shrunkResult = packContext({
+      anchor: 'anchor',
+      fieldContextMarkdown: 'field context',
+      frozenEpisodes: episodes,
+      workingSet: turns,
+      currentRequest: 'Hello',
+      budgetOverrides: {
+        workingSet: 15_000,
+        frozenEpisodes: 6_000
+      }
+    })
+
+    // Reduced budgets should force content drops → lower total tokens
+    expect(shrunkResult.decisions.totalTokens).toBeLessThan(baseResult.decisions.totalTokens)
+    expect(shrunkResult.decisions.zones.workingSet.count).toBeLessThan(
+      baseResult.decisions.zones.workingSet.count
+    )
+  })
 })

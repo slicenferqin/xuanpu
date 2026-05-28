@@ -35,7 +35,7 @@ describe('resolveCompactionModel', () => {
     expect(result.model).toBe(mockModel)
   })
 
-  it('falls through to provider-default when explicit model unavailable', async () => {
+  it('falls through to provider-default when explicit model unavailable, with degradedReason', async () => {
     const mockModel = { id: 'haiku-model' }
     mockGetBundledModel.mockImplementation((provider: string, modelId: string) => {
       if (provider === 'anthropic' && modelId === 'claude-haiku-4-5') return mockModel
@@ -50,6 +50,7 @@ describe('resolveCompactionModel', () => {
     expect(result.kind).toBe('model')
     expect(result.source).toBe('provider-default')
     expect(result.modelRef?.modelID).toBe('claude-haiku-4-5')
+    expect(result.degradedReason).toBe('explicit-model-unavailable')
   })
 
   it('auto-selects from provider candidates based on main model', async () => {
@@ -97,6 +98,20 @@ describe('resolveCompactionModel', () => {
     expect(result.kind).toBe('rule-based')
     expect(result.source).toBe('fallback')
     expect(result.modelRef).toBeUndefined()
+    expect(result.degradedReason).toBeUndefined()
+  })
+
+  it('carries degradedReason to rule-based fallback when explicit config fails', async () => {
+    mockGetBundledModel.mockReturnValue(null)
+
+    const result = await resolveCompactionModel(
+      { providerID: 'anthropic', modelID: 'nonexistent-model' },
+      undefined
+    )
+
+    expect(result.kind).toBe('rule-based')
+    expect(result.source).toBe('fallback')
+    expect(result.degradedReason).toBe('explicit-model-unavailable')
   })
 
   it('canonicalizes provider aliases', async () => {

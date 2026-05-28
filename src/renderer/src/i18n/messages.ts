@@ -197,7 +197,13 @@ export const messages: Record<AppLocale, MessageTree> = {
           label: '/ask Command Default',
           description: 'Model used when you run the /ask command for quick questions'
         },
-        useGlobal: 'Use global'
+        useGlobal: 'Use global',
+        compaction: {
+          label: 'Compaction Model',
+          description: 'Lightweight model for summarizing xuanpu-agent history. Leave empty to auto-derive from main model provider; falls back to rule-based when no candidate is available.',
+          experimental: 'Experimental — context steady-state not yet production-ready',
+          auto: 'Auto (derived from main model provider)'
+        }
       },
       terminal: {
         embedded: {
@@ -1157,6 +1163,7 @@ export const messages: Record<AppLocale, MessageTree> = {
       },
       badges: {
         ready: 'Ready',
+        experimental: 'Experimental',
         warning: 'Needs attention',
         missing: 'Not installed',
         recommended: 'Recommended',
@@ -3124,7 +3131,13 @@ export const messages: Record<AppLocale, MessageTree> = {
           label: '/ask 命令默认模型',
           description: '执行 /ask 命令进行快速提问时使用的模型'
         },
-        useGlobal: '使用全局默认'
+        useGlobal: '使用全局默认',
+        compaction: {
+          label: '压缩模型',
+          description: 'xuanpu-agent 历史轮次摘要使用的轻量模型。留空则自动从主模型 provider 推导；无可用候选时降级为规则摘要。',
+          experimental: '实验性 — 上下文稳态尚未 production-ready',
+          auto: '当前：自动推导（从主模型 provider 选择轻量候选）'
+        }
       },
       terminal: {
         embedded: {
@@ -4068,6 +4081,7 @@ export const messages: Record<AppLocale, MessageTree> = {
       },
       badges: {
         ready: '已就绪',
+        experimental: '实验性',
         warning: '需处理',
         missing: '未安装',
         recommended: '推荐',

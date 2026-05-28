@@ -33,15 +33,15 @@ M4 和 M5 已有实现与测试。M6 只能算部分完成，不能声称完成�
 
 | 能力 | 状态 | 说明 |
 |------|------|------|
-| M4 受控写入 | 已完成 | `apply_patch`、`write_file`、`edit_file`、`run_test`、`format_file` 已接入 preview token 与危险路径阻断。 |
-| M5 Memory Graph | 已完成 | memory proposal、retrieval、trace workflow materialization 已进入 context package。 |
-| checkpoint/resume | 已完成 | verified checkpoint block 会在 resume turn 注入 XFP packet。 |
-| Post-response claim verifier | 已完成 | assistant 最终输出里的文件/API claim 会基于 observed paths 和本地文件校验。 |
-| long-running supervision | 已完成 | `run_test` 记录 timeout、abort、long-running notification 与压缩输出。 |
-| multi-worktree awareness | 已完成 | XFP 包含同 project sibling worktrees 的有界视图。 |
-| PR/review workflows | 已完成 | XFP 包含 current branch、compare target、attached PR 与 dirty count。 |
-| harness metrics | 已完成 | context package 记录 cache ratio、parallel-safe ratio、compression metrics。 |
-| hub/mobile event propagation | 已完成 | hub/mobile 对 unknown advanced parts 通过 `unknown.raw` 保留。 |
+| M4 受控写入 | 局部实现 | `apply_patch`、`write_file`、`edit_file`、`run_test`、`format_file` 已接入 preview token 与危险路径阻断。 |
+| M5 Memory Graph | 局部实现 | memory proposal、retrieval、trace workflow materialization 已进入 context package。 |
+| checkpoint/resume | 局部实现 | verified checkpoint block 会在 resume turn 注入 XFP packet。 |
+| Post-response claim verifier | 局部实现 | assistant 最终输出里的文件/API claim 会基于 observed paths 和本地文件校验。 |
+| long-running supervision | 局部实现 | `run_test` 记录 timeout、abort、long-running notification 与压缩输出。 |
+| multi-worktree awareness | 局部实现 | XFP 包含同 project sibling worktrees 的有界视图。 |
+| PR/review workflows | 局部实现 | XFP 包含 current branch、compare target、attached PR 与 dirty count。 |
+| harness metrics | 局部实现 | context package 记录 cache ratio、parallel-safe ratio、compression metrics。 |
+| hub/mobile event propagation | 局部实现 | hub/mobile 对 unknown advanced parts 通过 `unknown.raw` 保留。 |
 | MCP integration | 未完成 | `xuanpu-agent` 仍通过 `mcp-boundary` 阻止 MCP；Claude Code 的 XFP MCP 不能等同于 xuanpu-agent MCP。 |
 | subtask delegation | 未完成 | timeline/UI 已支持 `subtask` part，但 xuanpu-agent runtime 尚未委派或发出 subtask lifecycle。 |
 

@@ -349,13 +349,16 @@ assert(!r2.text.includes(r1.text))
 
 ## 缺口分析与优先处理
 
-### 已完成（可直接用）
+### 已有实现（局部可用，需配合 M7 验证）
 
 - XFP v1 类型 + Zod schema + fixtures
 - episode freezer + retrieval 逻辑
 - model-config provider 解析
 - 部分 context-transform（旧架构）
 - 所有规划文档和 INVARIANTS 契约清单
+
+> **M7 CR 更新**：以上实现已有代码和测试，但上下文稳态（Context Packer active path、
+> soft shrink、prefix cache）尚未全部完成，不能视为可直接放行。
 
 ### 立即要做（M0）
 

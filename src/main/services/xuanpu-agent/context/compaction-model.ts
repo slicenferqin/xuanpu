@@ -13,6 +13,8 @@ export interface CompactionModelResolution {
   modelRef?: XuanpuAgentModelRef
   model?: unknown
   streamFn?: unknown
+  /** Set when explicit config was requested but not honored (probe failed). */
+  degradedReason?: string
 }
 
 // Provider → candidate list, cheapest first
@@ -59,6 +61,8 @@ export async function resolveCompactionModel(
 ): Promise<CompactionModelResolution> {
   await ensurePiAi()
 
+  let degradedReason: string | undefined
+
   // 1. Explicit config — user selected a compaction model in settings
   if (configuredCompactionModel) {
     const providerID = canonicalizeProvider(configuredCompactionModel.providerID)
@@ -72,7 +76,8 @@ export async function resolveCompactionModel(
         streamFn: probed.streamFn
       }
     }
-    // Explicit model not available — fall through to auto-detect
+    // Explicit model not available — mark degraded, fall through to auto-detect
+    degradedReason = 'explicit-model-unavailable'
   }
 
   // 2. Provider-auto: derive from main model's provider
@@ -90,7 +95,8 @@ export async function resolveCompactionModel(
             source: 'provider-default',
             modelRef: { providerID, modelID: candidateModelID },
             model: probed.model,
-            streamFn: probed.streamFn
+            streamFn: probed.streamFn,
+            degradedReason
           }
         }
       }
@@ -106,11 +112,12 @@ export async function resolveCompactionModel(
         source: 'provider-default',
         modelRef: { providerID: 'anthropic', modelID: 'claude-haiku-4-5' },
         model: probed.model,
-        streamFn: probed.streamFn
+        streamFn: probed.streamFn,
+        degradedReason
       }
     }
   }
 
   // 4. Rule-based fallback — no model available
-  return { kind: 'rule-based', source: 'fallback' }
+  return { kind: 'rule-based', source: 'fallback', degradedReason }
 }

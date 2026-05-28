@@ -134,7 +134,12 @@ const mockPiSession = {
       harnessMetrics: null
     }
   }),
-  getBudgetState: vi.fn(() => null)
+  getBudgetState: vi.fn(() => null),
+  budgetManager: {
+    recordPackerFillRatio: vi.fn(),
+    recordCompression: vi.fn(),
+    state: { fillRatio: 0, estimatedTokens: 0, maxTokens: 150_000 }
+  }
 }
 
 vi.mock('../../src/main/services/xuanpu-agent/runtime', () => ({

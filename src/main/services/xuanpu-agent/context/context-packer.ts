@@ -56,6 +56,8 @@ export interface ContextPackerDecisions {
   }
   totalTokens: number
   fillRatio: number
+  /** Hash of stable prefix (anchor + frozen episodes). Same across turns if content unchanged. */
+  prefixHash: string
 }
 
 interface ContextZoneBudgets {
@@ -86,6 +88,15 @@ const DEFAULT_TOTAL_BUDGET = 150_000
 
 function estimateTokens(text: string): number {
   return Math.max(1, Math.ceil(Buffer.byteLength(text, 'utf-8') / 4))
+}
+
+/** Simple djb2 hash for prefix stability check. Returns hex string. */
+function djb2Hash(text: string): string {
+  let hash = 5381
+  for (let i = 0; i < text.length; i++) {
+    hash = ((hash << 5) + hash + text.charCodeAt(i)) | 0
+  }
+  return (hash >>> 0).toString(16)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -139,15 +150,19 @@ export function packContext(input: ContextPackerInput): ContextPackerOutput {
   // ── Zone 3: FrozenEpisodes ──
   const { included: includedEpisodes, dropped: droppedEpisodes, tokens: episodeTokens } =
     packEpisodes(input.frozenEpisodes, budgets.frozenEpisodes, totalBudget - usedTokens, now)
+  let frozenEpisodeText = ''
   if (includedEpisodes.length > 0) {
-    const episodeText = [
+    frozenEpisodeText = [
       '<xuanpu-frozen-episodes>',
       ...includedEpisodes.map(formatEpisode),
       '</xuanpu-frozen-episodes>'
     ].join('\n\n')
-    messages.push(createUserMessage(episodeText, now))
+    messages.push(createUserMessage(frozenEpisodeText, now))
     usedTokens += episodeTokens
   }
+
+  // Prefix hash: stable across turns when anchor + frozen episodes unchanged
+  const prefixHash = djb2Hash(input.anchor + frozenEpisodeText)
 
   // ── Zone 3b: RetrievedEpisodes ──
   const retrievedEntries = input.retrievedEpisodes ?? []
@@ -222,7 +237,8 @@ export function packContext(input: ContextPackerInput): ContextPackerOutput {
         currentRequest: { tokens: requestTokens }
       },
       totalTokens: usedTokens,
-      fillRatio: usedTokens / totalBudget
+      fillRatio: usedTokens / totalBudget,
+      prefixHash
     }
   }
 }

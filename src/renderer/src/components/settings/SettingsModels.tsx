@@ -75,11 +75,14 @@ export function SettingsModels(): React.JSX.Element {
         </div>
       </div>
 
-      {/* Compaction model (xuanpu-agent) */}
+      {/* Compaction model (xuanpu-agent) — experimental */}
       <div className="space-y-2">
-        <label className="text-sm font-medium">压缩模型</label>
+        <label className="text-sm font-medium">{t('settings.models.compaction.label')}</label>
+        <p className="text-xs text-violet-600 dark:text-violet-400">
+          {t('settings.models.compaction.experimental')}
+        </p>
         <p className="text-xs text-muted-foreground">
-          xuanpu-agent 历史轮次摘要使用的轻量模型。留空则自动从主模型 provider 推导；无可用候选时降级为规则摘要。
+          {t('settings.models.compaction.description')}
         </p>
         <div className="flex items-center gap-2">
           <ModelSelector
@@ -91,13 +94,13 @@ export function SettingsModels(): React.JSX.Element {
               onClick={() => setCompactionModel(null)}
               className="text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
-              自动
+              {t('settings.models.global.clear')}
             </button>
           )}
         </div>
         {!compactionModel && (
           <p className="text-xs text-muted-foreground/70">
-            当前：自动推导（从主模型 provider 选择轻量候选）
+            {t('settings.models.compaction.auto')}
           </p>
         )}
       </div>

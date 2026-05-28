@@ -31,7 +31,11 @@ Runtime Layer (模型运行时)  → oh-my-pi Agent (不 fork, 挂钩子)
 
 ---
 
-## 二、已完成 (M0–M1.5)
+## 二、已有实现 (M0–M1.5)
+
+> **注意**：以下实现已有代码和局部测试，但上下文稳态主链路（Context Packer active path）
+> 在 M7 CR 前尚未接通。M7 CR 后已修复核心链路，但部分能力（soft shrink、prefix cache、
+> 长会话验证）仍未完成。不能视为 production-ready。
 
 | 里程碑 | 交付 | 文件 |
 |--------|------|------|

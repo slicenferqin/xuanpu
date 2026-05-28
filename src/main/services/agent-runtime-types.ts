@@ -12,6 +12,8 @@ export interface AgentRuntimeCapabilities {
   supportsModelSelection: boolean
   supportsReconnect: boolean
   supportsPartialStreaming: boolean
+  /** True for xuanpu-agent: context steady-state not yet production-ready. */
+  experimental?: boolean
 }
 
 export type AgentPromptPart =
@@ -215,7 +217,8 @@ export const XUANPU_AGENT_CAPABILITIES: AgentRuntimeCapabilities = {
   supportsQuestionPrompts: false,
   supportsModelSelection: true,
   supportsReconnect: false,
-  supportsPartialStreaming: true
+  supportsPartialStreaming: true,
+  experimental: true
 }
 
 // Backward compatibility: AgentSdk* types are aliases of AgentRuntime* types
