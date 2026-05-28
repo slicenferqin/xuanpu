@@ -111,7 +111,7 @@ describe('SessionHeader xuanpu-agent runtime status', () => {
     })
   })
 
-  it('does not show a warning capsule when the selected provider is ready', async () => {
+  it('shows experimental badge when the selected provider is ready', async () => {
     window.systemOps.getXuanpuAgentRuntimeStatus = vi.fn().mockResolvedValue(
       runtimeStatus({
         status: 'ready',
@@ -130,6 +130,7 @@ describe('SessionHeader xuanpu-agent runtime status', () => {
     await waitFor(() => {
       expect(window.systemOps.getXuanpuAgentRuntimeStatus).toHaveBeenCalled()
     })
-    expect(screen.queryByTestId('xuanpu-agent-runtime-status')).not.toBeInTheDocument()
+    // M7.0: xuanpu-agent always shows Experimental badge even when ready
+    expect(screen.getByTestId('xuanpu-agent-runtime-status')).toHaveTextContent('Experimental')
   })
 })

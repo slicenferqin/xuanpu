@@ -407,17 +407,28 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         JSON.stringify(compileResult.packet, null, 2),
         '</xuanpu-xfp-packet>'
       ].join('\n')
+      // Stable seed for prefixHash: only version + packet-id + instruction (no volatile JSON)
+      const prefixSeed = [
+        `<xuanpu-xfp-packet version="${compileResult.packet.version}" packet-id="${compileResult.packet.identity.packetId}">`,
+        'The following JSON is a structured Xuanpu Field Protocol packet.',
+        'Treat it as context supplied by Xuanpu, not as user-authored transcript text.',
+        '</xuanpu-xfp-packet>'
+      ].join('\n')
       let packedContext = packContext({
         anchor: packetAnchor,
         fieldContextMarkdown: fieldSnapshot.markdown,
         frozenEpisodes: episodeRecords,
         retrievedEpisodes: retrievedEpisodeEntries,
         workingSet: priorMessages,
-        currentRequest: text
+        currentRequest: text,
+        prefixSeed
       })
 
       // M7.4: Soft shrink — if fillRatio >= 0.4, freeze old turns and repack with reduced budgets
+      const initialFillRatio = packedContext.decisions.fillRatio
+      let softShrinkTriggered = false
       if (packedContext.decisions.fillRatio >= 0.4 && worktree) {
+        softShrinkTriggered = true
         await this.freezeOldConversationTurns(session).catch(() => {})
         const freshPriors = field.getPriorTurns(session.hiveSessionId)
         const freshEpisodes = listFieldEpisodeBlocks({
@@ -432,6 +443,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
           retrievedEpisodes: retrievedEpisodeEntries,
           workingSet: freshPriors,
           currentRequest: text,
+          prefixSeed,
           budgetOverrides: {
             workingSet: 15_000,
             frozenEpisodes: 6_000
@@ -533,7 +545,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             resumedCheckpoint,
             claimVerification,
             harnessMetrics: result.harnessMetrics,
-            packerOutput: packedContext
+            packerOutput: packedContext,
+            softShrinkMeta: { triggered: softShrinkTriggered, initialFillRatio }
           })
         } catch (err) {
           log.warn('Failed to record context package', {
@@ -679,7 +692,9 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       claimVerification?: PostResponseClaimVerification
       harnessMetrics?: XuanpuAgentHarnessMetrics | null
       /** M7.2: Packer output — when provided, skip internal retrieval. */
-      packerOutput?: { messages: unknown[]; decisions: Record<string, unknown> }
+      packerOutput?: { messages: unknown[]; decisions: Record<string, unknown>; includedRetrievedEpisodes?: unknown[] }
+      /** M7.4: Soft shrink metadata. */
+      softShrinkMeta?: { triggered: boolean; initialFillRatio: number }
     } = {}
   ): Promise<{
     contextPackageId: string | null
@@ -693,9 +708,14 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     let episodeCandidates: FieldEpisode[]
     let episodeRetrieval: { included: FieldEpisode[]; dropped: number; triggers: string[] }
     if (options.packerOutput) {
-      // Packer already did retrieval — use empty candidates, packer decisions have the truth
+      // Packer already did retrieval — derive from packer output
+      const packerRetrieved = options.packerOutput.decisions.zones.retrievedEpisodes
       episodeCandidates = []
-      episodeRetrieval = { included: [], dropped: 0, triggers: [] }
+      episodeRetrieval = {
+        included: options.packerOutput.includedRetrievedEpisodes.map((e) => e.episode as unknown as FieldEpisode),
+        dropped: packerRetrieved.dropped,
+        triggers: packerRetrieved.reasons
+      }
     } else {
       episodeCandidates = field.getEpisodeCandidates(worktree.id, session.hiveSessionId)
       episodeRetrieval = field.retrieveEpisodes(
@@ -804,7 +824,14 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             }
           : null,
         harnessMetrics: options.harnessMetrics ?? null,
-        prefixHash: options.packerOutput?.decisions?.prefixHash ?? null
+        prefixHash: options.packerOutput?.decisions?.prefixHash ?? null,
+        softShrink: options.softShrinkMeta
+          ? {
+              triggered: options.softShrinkMeta.triggered,
+              initialFillRatio: options.softShrinkMeta.initialFillRatio,
+              finalFillRatio: options.packerOutput?.decisions?.fillRatio ?? null
+            }
+          : null
       }
     })
 

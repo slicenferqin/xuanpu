@@ -150,8 +150,9 @@ export class ContextBudgetManager {
         return pruned
       }
 
-      // Soft shrink: 40%+ → no-op (M7: Context Packer handles zone budgets).
-      // Per-tool compression is handled by afterToolCall hooks.
+      // Soft shrink: 40%+ → handled by implementer (freeze + repack with reduced budgets).
+      // This transformContext hook only handles the 80% emergency fallback.
+      // See xuanpu-agent-implementer.ts prompt path for the primary soft shrink logic.
 
       return messages
     }

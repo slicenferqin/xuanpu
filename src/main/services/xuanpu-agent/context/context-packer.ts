@@ -37,12 +37,16 @@ export interface ContextPackerInput {
   budgetOverrides?: Partial<ContextZoneBudgets>
   /** Total budget profile tokens. Default: 150_000 (balanced). */
   totalBudgetTokens?: number
+  /** Stable string for prefixHash computation. Falls back to anchor if omitted. */
+  prefixSeed?: string
   now?: number
 }
 
 export interface ContextPackerOutput {
   messages: XuanpuPiPromptMessage[]
   decisions: ContextPackerDecisions
+  /** Full retrieved episode entries that were included by the packer. */
+  includedRetrievedEpisodes: RetrievedEpisodeEntry[]
 }
 
 export interface ContextPackerDecisions {
@@ -50,7 +54,7 @@ export interface ContextPackerDecisions {
     anchor: { tokens: number }
     currentField: { tokens: number; included: boolean }
     frozenEpisodes: { tokens: number; count: number; dropped: number }
-    retrievedEpisodes: { tokens: number; count: number; dropped: number; reasons: string[] }
+    retrievedEpisodes: { tokens: number; count: number; dropped: number; reasons: string[]; includedIds: string[] }
     workingSet: { tokens: number; count: number; dedupedCount: number }
     currentRequest: { tokens: number }
   }
@@ -162,7 +166,7 @@ export function packContext(input: ContextPackerInput): ContextPackerOutput {
   }
 
   // Prefix hash: stable across turns when anchor + frozen episodes unchanged
-  const prefixHash = djb2Hash(input.anchor + frozenEpisodeText)
+  const prefixHash = djb2Hash((input.prefixSeed ?? input.anchor) + frozenEpisodeText)
 
   // ── Zone 3b: RetrievedEpisodes ──
   const retrievedEntries = input.retrievedEpisodes ?? []
@@ -214,6 +218,7 @@ export function packContext(input: ContextPackerInput): ContextPackerOutput {
 
   return {
     messages,
+    includedRetrievedEpisodes: includedRetrieved,
     decisions: {
       zones: {
         anchor: { tokens: anchorTokens },
@@ -227,7 +232,8 @@ export function packContext(input: ContextPackerInput): ContextPackerOutput {
           tokens: retrievedTokens,
           count: includedRetrieved.length,
           dropped: droppedRetrieved,
-          reasons: retrievedReasons
+          reasons: retrievedReasons,
+          includedIds: includedRetrieved.map((e) => e.episode.id)
         },
         workingSet: {
           tokens: workingSetTokens,

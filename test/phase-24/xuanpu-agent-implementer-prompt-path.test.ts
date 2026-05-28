@@ -163,11 +163,15 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
           timestamp: 2
         }
       ],
+      includedRetrievedEpisodes: [],
       decisions: {
         contextTransform: 'm7-context-packer',
-        zones: {},
+        zones: {
+          retrievedEpisodes: { tokens: 0, count: 0, dropped: 0, reasons: [], includedIds: [] }
+        },
         totalTokens: 100,
-        fillRatio: 0.01
+        fillRatio: 0.01,
+        prefixHash: 'abc123'
       }
     })
   })

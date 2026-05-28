@@ -185,6 +185,25 @@ describe('packContext', () => {
     expect(result1.decisions.prefixHash).not.toBe(result2.decisions.prefixHash)
   })
 
+  it('uses prefixSeed for hash when provided, ignoring volatile anchor changes', () => {
+    const stableSeed = 'stable-seed-v1'
+    const result1 = packContext({
+      ...BASE_INPUT,
+      anchor: 'anchor with capturedAt=1000',
+      frozenEpisodes: [makeEpisode()],
+      prefixSeed: stableSeed
+    })
+    const result2 = packContext({
+      ...BASE_INPUT,
+      anchor: 'anchor with capturedAt=9999',
+      frozenEpisodes: [makeEpisode()],
+      prefixSeed: stableSeed
+    })
+
+    // Same prefixSeed + same frozen episodes → same prefixHash despite different anchor
+    expect(result1.decisions.prefixHash).toBe(result2.decisions.prefixHash)
+  })
+
   it('includes retrieved episodes with reasons in a separate zone', () => {
     const result = packContext({
       anchor: 'system context',
