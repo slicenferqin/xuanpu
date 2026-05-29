@@ -60,16 +60,19 @@ function installAgentOps(overrides: Partial<Window['agentOps']> = {}): {
   return { prompt, steer, abort }
 }
 
-function useHarness(options: {
-  goalMode?: boolean
-  successCriteria?: string
-} = {}) {
+function useHarness(
+  options: {
+    goalMode?: boolean
+    successCriteria?: string
+  } = {}
+) {
   const optimisticRef = React.useRef<TimelineMessage[]>([])
   const timelineMessagesRef = React.useRef<TimelineMessage[]>([])
   const [messages, setMessages] = React.useState<TimelineMessage[]>([])
   const [goalMode, setGoalMode] = React.useState(options.goalMode ?? false)
   const [successCriteria, setSuccessCriteria] = React.useState(options.successCriteria ?? '')
   const resetLiveOverlay = React.useRef(vi.fn()).current
+  const onPromptSettled = React.useRef(vi.fn().mockResolvedValue(undefined)).current
   const requestTurnTopScroll = React.useRef(vi.fn()).current
   const syncOptimisticMessagesToMirror = React.useRef(vi.fn()).current
   const waitForAbortReady = React.useRef(vi.fn().mockResolvedValue(undefined)).current
@@ -99,7 +102,8 @@ function useHarness(options: {
     setSuccessCriteria,
     optimisticTimeline,
     resetLiveOverlay,
-    waitForAbortReady
+    waitForAbortReady,
+    onPromptSettled
   })
 
   return {
@@ -110,6 +114,7 @@ function useHarness(options: {
     goalMode,
     successCriteria,
     resetLiveOverlay,
+    onPromptSettled,
     requestTurnTopScroll,
     syncOptimisticMessagesToMirror,
     waitForAbortReady
@@ -149,6 +154,7 @@ describe('useSessionComposerActions', () => {
       result.current.optimisticRef.current[0].id
     )
     expect(result.current.resetLiveOverlay).not.toHaveBeenCalledWith(true)
+    expect(result.current.onPromptSettled).not.toHaveBeenCalled()
     expect(useSessionRuntimeStore.getState().getPendingMessages(STORE_SESSION_ID)[0]).toMatchObject(
       {
         content: 'follow up later',
@@ -172,6 +178,7 @@ describe('useSessionComposerActions', () => {
     expect(prompt).not.toHaveBeenCalled()
     expect(result.current.optimisticRef.current).toEqual([])
     expect(result.current.resetLiveOverlay).not.toHaveBeenCalled()
+    expect(result.current.onPromptSettled).not.toHaveBeenCalled()
   })
 
   it('restores goal composer state and removes optimistic state when send fails', async () => {
@@ -192,6 +199,7 @@ describe('useSessionComposerActions', () => {
       expect(consumed).toBe(false)
       expect(result.current.resetLiveOverlay).toHaveBeenNthCalledWith(1, true)
       expect(result.current.resetLiveOverlay).toHaveBeenLastCalledWith(false)
+      expect(result.current.onPromptSettled).not.toHaveBeenCalled()
       expect(result.current.goalMode).toBe(true)
       expect(result.current.successCriteria).toBe('focused tests pass')
       expect(result.current.optimisticRef.current).toEqual([])
@@ -248,5 +256,6 @@ describe('useSessionComposerActions', () => {
       ])
     )
     expect(useDiffCommentStore.getState().attachedComments).toEqual([])
+    expect(result.current.onPromptSettled).toHaveBeenCalledTimes(1)
   })
 })

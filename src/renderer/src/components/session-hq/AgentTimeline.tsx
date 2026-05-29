@@ -423,22 +423,25 @@ export function AgentTimeline({
               streamingNodes.map((node, index) => renderStreamingTimelineNode(node, index))}
 
             {/* Streaming with no content yet — show pulse */}
-            {isStreaming && streamingNodes.length === 0 && !streamingContent && (
-              <div className="relative pl-10 mb-4">
-                <div
-                  className={cn(
-                    'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
-                    'flex items-center justify-center z-10',
-                    'bg-neon-mint-soft text-neon-mint'
-                  )}
-                >
-                  <Loader2 className="h-3 w-3 animate-spin" />
+            {isStreaming &&
+              streamingNodes.length === 0 &&
+              !streamingContent &&
+              ephemeralStatusRows.length === 0 && (
+                <div className="relative pl-10 mb-4">
+                  <div
+                    className={cn(
+                      'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
+                      'flex items-center justify-center z-10',
+                      'bg-neon-mint-soft text-neon-mint'
+                    )}
+                  >
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  </div>
+                  <div className="text-sm text-muted-foreground italic">
+                    {t('sessionHq.timeline.thinking')}
+                  </div>
                 </div>
-                <div className="text-sm text-muted-foreground italic">
-                  {t('sessionHq.timeline.thinking')}
-                </div>
-              </div>
-            )}
+              )}
 
             {ephemeralStatusRows.map((status) => (
               <ThreadStatusRow key={status.id} status={status} />

@@ -38,8 +38,11 @@ import { useDiffCommentStore } from '@/stores/useDiffCommentStore'
 import { useSettingsStore, resolveModelForSdk } from '@/stores/useSettingsStore'
 import { Loader2, MessageSquare, X } from 'lucide-react'
 import type { TimelineMessage } from '@shared/lib/timeline-types'
-import type { StreamingPart as SharedStreamingPart } from '@shared/lib/timeline-types'
 import {
+  beginLocalSessionRun,
+  cancelLocalSessionRun,
+  clearStreamingBufferOptimisticMessages,
+  finishLocalSessionRun,
   getStreamingBufferSnapshot,
   subscribeToStreamingBuffer,
   updateStreamingBuffer
@@ -332,19 +335,11 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
   const resetLiveOverlay = useCallback(
     (nextIsStreaming: boolean) => {
-      updateStreamingBuffer(
-        sessionId,
-        (current) => ({
-          ...current,
-          parts: [],
-          childParts: new Map<string, SharedStreamingPart[]>(),
-          streamingContent: '',
-          isStreaming: nextIsStreaming,
-          runStartedAt: undefined,
-          compactionState: null
-        }),
-        { notify: 'immediate' }
-      )
+      if (nextIsStreaming) {
+        beginLocalSessionRun(sessionId)
+        return
+      }
+      cancelLocalSessionRun(sessionId)
     },
     [sessionId]
   )
@@ -457,6 +452,26 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     setMessages
   })
 
+  const clearOptimisticMessages = useCallback(() => {
+    optimisticRef.current = []
+  }, [optimisticRef])
+
+  const settleLiveRunAfterPrompt = useCallback(async () => {
+    try {
+      const messages = await refresh()
+      syncMissionTasksFromMessages(messages)
+    } catch (error) {
+      console.warn(
+        '[SessionShell] prompt completion refresh failed:',
+        error instanceof Error ? error.message : String(error)
+      )
+    } finally {
+      clearOptimisticMessages()
+      clearStreamingBufferOptimisticMessages(sessionId)
+      finishLocalSessionRun(sessionId)
+    }
+  }, [clearOptimisticMessages, refresh, sessionId, syncMissionTasksFromMessages])
+
   usePendingInitialMessageSender({
     sessionId,
     worktreePath,
@@ -465,12 +480,9 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     requestModel,
     buildPendingPromptOptions,
     optimisticTimeline,
-    resetLiveOverlay
+    resetLiveOverlay,
+    onPromptSettled: settleLiveRunAfterPrompt
   })
-
-  const clearOptimisticMessages = useCallback(() => {
-    optimisticRef.current = []
-  }, [optimisticRef])
 
   useSessionEventSubscription({
     sessionId,
@@ -501,7 +513,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     setSuccessCriteria,
     optimisticTimeline,
     resetLiveOverlay,
-    waitForAbortReady
+    waitForAbortReady,
+    onPromptSettled: settleLiveRunAfterPrompt
   })
 
   const userMessageActions = useSessionUserMessageActions({
@@ -519,6 +532,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     promptOptions,
     optimisticTimeline,
     resetLiveOverlay,
+    onPromptSettled: settleLiveRunAfterPrompt,
     t
   })
 
@@ -538,6 +552,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     promptOptions,
     optimisticTimeline,
     resetLiveOverlay,
+    onPromptSettled: settleLiveRunAfterPrompt,
     transitionToolStatus,
     refresh,
     t

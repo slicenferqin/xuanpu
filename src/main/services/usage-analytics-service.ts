@@ -2,8 +2,9 @@ import type { DatabaseService } from '../db/database'
 import type { Session } from '../db/types'
 import { readClaudeTranscriptUsage } from './claude-transcript-reader'
 import { createLogger } from './logger'
-import { resolvePricingModelKey } from '@shared/usage/pricing'
+import { resolvePricingModelKey, calculateUsageCost } from '@shared/usage/pricing'
 import { getCanonicalModelLabel } from '@shared/usage/models'
+import { resolveCodexModelSlug } from './codex-models'
 import type {
   UsageAnalyticsDashboard,
   UsageAnalyticsDashboardResult,
@@ -35,6 +36,14 @@ interface SessionSyncSnapshot {
   partial: boolean
   reason?: UsageAnalyticsPartialSession['reason']
   detail?: string
+}
+
+interface BackfillResult {
+  sourceFound: boolean
+  parsedEventCount: number
+  insertedEventCount: number
+  sourceMtimeMs: number | null
+  error: string | null
 }
 
 function startOfLocalDay(date: Date): Date {
@@ -118,7 +127,14 @@ export class UsageAnalyticsService {
       )
       const engines = toSupportedAgentSdks(filters.engine)
       const { dateFrom, dateTo } = toRangeBounds(filters.range)
-      const entries = this.db.listUsageEntries({ agentSdks: engines, dateFrom, dateTo })
+
+      // Prefer v2 events; fall back to legacy entries per session
+      const v2Events = this.db.listUsageEvents({ agentSdks: engines, dateFrom, dateTo })
+      const legacyEntries = this.db.listUsageEntries({ agentSdks: engines, dateFrom, dateTo })
+
+      // Build set of sessions that have v2 data
+      const sessionsWithV2 = new Set(v2Events.map((e) => e.session_id))
+
       const sessionMap = new Map(sessions.map((session) => [session.id, session] as const))
 
       const totals = {
@@ -170,35 +186,53 @@ export class UsageAnalyticsService {
       >()
       const timelineMap = new Map<string, UsageAnalyticsTimelineRow & { sessionIds: Set<string> }>()
 
-      for (const entry of entries) {
-        const session = sessionMap.get(entry.session_id)
-        if (!session || !engines.includes(entry.agent_sdk)) continue
+      // Helper to accumulate a single data point into aggregates
+      const accumulateEntry = (params: {
+        sessionId: string
+        agentSdk: UsageAnalyticsEngine
+        modelId: string | null
+        modelLabel: string | null
+        providerId: string | null
+        cost: number
+        totalTokens: number
+        inputTokens: number
+        outputTokens: number
+        cacheWriteTokens: number
+        cacheReadTokens: number
+        occurredAt: string
+      }): void => {
+        const session = sessionMap.get(params.sessionId)
+        if (!session || !engines.includes(params.agentSdk)) return
+
         const canonicalModelKey = resolvePricingModelKey(
-          entry.model_id ?? entry.model_label ?? 'unknown',
-          entry.provider_id ?? entry.agent_sdk
+          params.modelId ?? params.modelLabel ?? 'unknown',
+          params.providerId ?? params.agentSdk
         )
-        const canonicalModelLabel = getEntryModelLabel(entry)
+        const canonicalModelLabel = getCanonicalModelLabel(
+          params.modelId ?? params.modelLabel,
+          params.providerId ?? params.agentSdk
+        ) ?? params.modelLabel ?? params.modelId ?? 'Unknown'
 
-        totals.cost += entry.cost
-        totals.tokens += entry.total_tokens
-        totals.input += entry.input_tokens
-        totals.output += entry.output_tokens
-        totals.cacheWrite += entry.cache_write_tokens
-        totals.cacheRead += entry.cache_read_tokens
+        totals.cost += params.cost
+        totals.tokens += params.totalTokens
+        totals.input += params.inputTokens
+        totals.output += params.outputTokens
+        totals.cacheWrite += params.cacheWriteTokens
+        totals.cacheRead += params.cacheReadTokens
 
-        const engineBucket = engineMap.get(entry.agent_sdk) ?? {
+        const engineBucket = engineMap.get(params.agentSdk) ?? {
           total_cost: 0,
           total_tokens: 0,
           sessionIds: new Set<string>()
         }
-        engineBucket.total_cost += entry.cost
-        engineBucket.total_tokens += entry.total_tokens
-        engineBucket.sessionIds.add(entry.session_id)
-        engineMap.set(entry.agent_sdk, engineBucket)
+        engineBucket.total_cost += params.cost
+        engineBucket.total_tokens += params.totalTokens
+        engineBucket.sessionIds.add(params.sessionId)
+        engineMap.set(params.agentSdk, engineBucket)
 
-        const modelKey = `${entry.agent_sdk}::${canonicalModelKey}`
+        const modelKey = `${params.agentSdk}::${canonicalModelKey}`
         const modelBucket = modelMap.get(modelKey) ?? {
-          engine: entry.agent_sdk,
+          engine: params.agentSdk,
           model_key: canonicalModelKey,
           model_label: canonicalModelLabel,
           total_cost: 0,
@@ -209,41 +243,41 @@ export class UsageAnalyticsService {
           cache_read_tokens: 0,
           sessionIds: new Set<string>()
         }
-        modelBucket.total_cost += entry.cost
-        modelBucket.total_tokens += entry.total_tokens
-        modelBucket.input_tokens += entry.input_tokens
-        modelBucket.output_tokens += entry.output_tokens
-        modelBucket.cache_write_tokens += entry.cache_write_tokens
-        modelBucket.cache_read_tokens += entry.cache_read_tokens
-        modelBucket.sessionIds.add(entry.session_id)
+        modelBucket.total_cost += params.cost
+        modelBucket.total_tokens += params.totalTokens
+        modelBucket.input_tokens += params.inputTokens
+        modelBucket.output_tokens += params.outputTokens
+        modelBucket.cache_write_tokens += params.cacheWriteTokens
+        modelBucket.cache_read_tokens += params.cacheReadTokens
+        modelBucket.sessionIds.add(params.sessionId)
         modelMap.set(modelKey, modelBucket)
 
         const projectKey =
           filters.engine === 'all'
             ? session.project_id
-            : `${entry.agent_sdk}::${session.project_id}`
+            : `${params.agentSdk}::${session.project_id}`
         const projectBucket = projectMap.get(projectKey) ?? {
-          engine: filters.engine === 'all' ? 'all' : entry.agent_sdk,
+          engine: filters.engine === 'all' ? 'all' : params.agentSdk,
           project_id: session.project_id,
           project_name: session.project_name,
           project_path: session.project_path,
           total_cost: 0,
           total_tokens: 0,
           sessionIds: new Set<string>(),
-          last_used_at: entry.occurred_at
+          last_used_at: params.occurredAt
         }
-        projectBucket.total_cost += entry.cost
-        projectBucket.total_tokens += entry.total_tokens
-        projectBucket.sessionIds.add(entry.session_id)
-        if (entry.occurred_at > projectBucket.last_used_at) {
-          projectBucket.last_used_at = entry.occurred_at
+        projectBucket.total_cost += params.cost
+        projectBucket.total_tokens += params.totalTokens
+        projectBucket.sessionIds.add(params.sessionId)
+        if (params.occurredAt > projectBucket.last_used_at) {
+          projectBucket.last_used_at = params.occurredAt
         }
         projectMap.set(projectKey, projectBucket)
 
-        const sessionBucket = sessionRows.get(entry.session_id) ?? {
-          session_id: entry.session_id,
+        const sessionBucket = sessionRows.get(params.sessionId) ?? {
+          session_id: params.sessionId,
           session_name: session.name ?? 'Untitled',
-          engine: entry.agent_sdk,
+          engine: params.agentSdk,
           project_id: session.project_id,
           project_name: session.project_name,
           project_path: session.project_path,
@@ -256,24 +290,24 @@ export class UsageAnalyticsService {
           output_tokens: 0,
           cache_write_tokens: 0,
           cache_read_tokens: 0,
-          last_used_at: entry.occurred_at,
+          last_used_at: params.occurredAt,
           started_at: session.created_at,
           updated_at: session.updated_at
         }
-        sessionBucket.total_cost += entry.cost
-        sessionBucket.total_tokens += entry.total_tokens
-        sessionBucket.input_tokens += entry.input_tokens
-        sessionBucket.output_tokens += entry.output_tokens
-        sessionBucket.cache_write_tokens += entry.cache_write_tokens
-        sessionBucket.cache_read_tokens += entry.cache_read_tokens
+        sessionBucket.total_cost += params.cost
+        sessionBucket.total_tokens += params.totalTokens
+        sessionBucket.input_tokens += params.inputTokens
+        sessionBucket.output_tokens += params.outputTokens
+        sessionBucket.cache_write_tokens += params.cacheWriteTokens
+        sessionBucket.cache_read_tokens += params.cacheReadTokens
         sessionBucket.model_label = canonicalModelLabel
         appendUnique(sessionBucket.model_labels, canonicalModelLabel)
-        if (entry.occurred_at > sessionBucket.last_used_at) {
-          sessionBucket.last_used_at = entry.occurred_at
+        if (params.occurredAt > sessionBucket.last_used_at) {
+          sessionBucket.last_used_at = params.occurredAt
         }
-        sessionRows.set(entry.session_id, sessionBucket)
+        sessionRows.set(params.sessionId, sessionBucket)
 
-        const dateKey = formatDateKey(new Date(entry.occurred_at))
+        const dateKey = formatDateKey(new Date(params.occurredAt))
         const timelineBucket = timelineMap.get(dateKey) ?? {
           date: dateKey,
           total_cost: 0,
@@ -281,11 +315,48 @@ export class UsageAnalyticsService {
           total_sessions: 0,
           sessionIds: new Set<string>()
         }
-        timelineBucket.total_cost += entry.cost
-        timelineBucket.total_tokens += entry.total_tokens
-        timelineBucket.sessionIds.add(entry.session_id)
+        timelineBucket.total_cost += params.cost
+        timelineBucket.total_tokens += params.totalTokens
+        timelineBucket.sessionIds.add(params.sessionId)
         timelineBucket.total_sessions = timelineBucket.sessionIds.size
         timelineMap.set(dateKey, timelineBucket)
+      }
+
+      // Accumulate v2 events (preferred source)
+      for (const event of v2Events) {
+        accumulateEntry({
+          sessionId: event.session_id,
+          agentSdk: 'codex', // v2 events are currently only codex
+          modelId: null, // resolved from session below
+          modelLabel: null,
+          providerId: 'codex',
+          cost: event.cost_estimate,
+          totalTokens: event.total_tokens,
+          inputTokens: event.input_tokens,
+          outputTokens: event.output_tokens,
+          cacheWriteTokens: event.cache_write_tokens,
+          cacheReadTokens: event.cache_read_tokens,
+          occurredAt: event.occurred_at
+        })
+      }
+
+      // Accumulate legacy entries ONLY for sessions without v2 data
+      for (const entry of legacyEntries) {
+        if (sessionsWithV2.has(entry.session_id)) continue // v2 takes priority
+        accumulateEntry({
+          sessionId: entry.session_id,
+          agentSdk: entry.agent_sdk,
+          modelId: entry.model_id,
+          modelLabel: entry.model_label,
+          providerId: entry.provider_id,
+          cost: entry.cost,
+          totalTokens: entry.total_tokens,
+          inputTokens: entry.input_tokens,
+          outputTokens: entry.output_tokens,
+          cacheWriteTokens: entry.cache_write_tokens,
+          cacheReadTokens: entry.cache_read_tokens,
+          occurredAt: entry.occurred_at
+        })
       }
 
       const partialSessions: UsageAnalyticsPartialSession[] = []
@@ -397,11 +468,81 @@ export class UsageAnalyticsService {
 
       await this.syncSession(session, true)
 
+      // Prefer v2 usage_events ledger when available
+      const usageEvents = this.db.getUsageEventsBySession(sessionId)
+      const snapshot = this.db.getUsageSnapshot(sessionId)
+
+      if (usageEvents.length > 0) {
+        // Aggregate from v2 event-keyed ledger
+        const modelLabels: string[] = []
+        let totalCost = 0
+        let totalTokens = 0
+        let inputTokens = 0
+        let outputTokens = 0
+        let reasoningTokens = 0
+        let cacheWriteTokens = 0
+        let cacheReadTokens = 0
+        let lastUsedAt: string | null = null
+
+        for (const event of usageEvents) {
+          totalCost += event.cost_estimate
+          totalTokens += event.total_tokens
+          inputTokens += event.input_tokens
+          outputTokens += event.output_tokens
+          reasoningTokens += event.reasoning_tokens
+          cacheWriteTokens += event.cache_write_tokens
+          cacheReadTokens += event.cache_read_tokens
+          if (!lastUsedAt || event.occurred_at > lastUsedAt) {
+            lastUsedAt = event.occurred_at
+          }
+        }
+
+        // Use snapshot for model labels if available
+        if (snapshot?.model_label) {
+          appendUnique(modelLabels, snapshot.model_label)
+        }
+
+        const syncState = this.db.getUsageSyncState(sessionId)
+        const endAt = lastUsedAt ?? session.updated_at
+
+        const isPartialStatus = syncState?.status === 'partial'
+          || syncState?.status === 'error'
+          || syncState?.status === 'missing-source'
+          || syncState?.status === 'legacy-undercounted'
+
+        const summary: UsageAnalyticsSessionSummary = {
+          session_id: sessionId,
+          engine: session.agent_sdk as UsageAnalyticsEngine,
+          total_cost: totalCost,
+          total_tokens: totalTokens,
+          input_tokens: inputTokens,
+          output_tokens: outputTokens,
+          cache_write_tokens: cacheWriteTokens,
+          cache_read_tokens: cacheReadTokens,
+          duration_seconds: Math.max(
+            0,
+            Math.round((new Date(endAt).getTime() - new Date(session.created_at).getTime()) / 1000)
+          ),
+          last_used_at: lastUsedAt,
+          model_labels: modelLabels,
+          latest_model_label: modelLabels[modelLabels.length - 1] ?? null,
+          partial: isPartialStatus
+        }
+
+        return { success: true, data: summary }
+      }
+
+      // Fall back to legacy usage_entries
       const entries = [...this.db.getUsageEntriesBySession(sessionId)].sort((a, b) =>
         a.occurred_at.localeCompare(b.occurred_at)
       )
       const syncState = this.db.getUsageSyncState(sessionId)
       const modelLabels: string[] = []
+
+      const isPartialStatus = syncState?.status === 'partial'
+        || syncState?.status === 'error'
+        || syncState?.status === 'missing-source'
+        || syncState?.status === 'legacy-undercounted'
 
       const summary: UsageAnalyticsSessionSummary = {
         session_id: sessionId,
@@ -416,7 +557,7 @@ export class UsageAnalyticsService {
         last_used_at: entries.length > 0 ? entries[entries.length - 1].occurred_at : null,
         model_labels: [],
         latest_model_label: null,
-        partial: syncState?.status === 'partial' || syncState?.status === 'error'
+        partial: isPartialStatus
       }
 
       for (const entry of entries) {
@@ -475,6 +616,142 @@ export class UsageAnalyticsService {
     }
   }
 
+  async fetchScopeSummary(
+    scopeId: string,
+    scopeType: 'worktree' | 'connection',
+    sessionIds: string[]
+  ): Promise<import('@shared/types/usage-analytics').UsageAnalyticsScopeSummaryResult> {
+    try {
+      const sessions = this.db.getUsageAnalyticsSessions(['claude-code', 'codex'], 'all')
+      const sessionMap = new Map(sessions.map((s) => [s.id, s] as const))
+      const syncStates = new Map(
+        this.db.getUsageSyncStates().map((state) => [state.session_id, state] as const)
+      )
+
+      const coverage = {
+        synced: 0,
+        partial: 0,
+        legacy_undercounted: 0,
+        missing_source: 0,
+        unsupported: 0
+      }
+
+      let totalCost = 0
+      let totalTokens = 0
+      let inputTokens = 0
+      let outputTokens = 0
+      let cacheWriteTokens = 0
+      let cacheReadTokens = 0
+      let contextUsedTokens: number | null = null
+      let contextWindowTokens: number | null = null
+      let contextPercent: number | null = null
+      const partialSessions: import('@shared/types/usage-analytics').UsageAnalyticsPartialSession[] = []
+      const seenSessionIds = new Set<string>()
+
+      for (const sessionId of sessionIds) {
+        if (seenSessionIds.has(sessionId)) continue
+        seenSessionIds.add(sessionId)
+
+        const session = sessionMap.get(sessionId)
+        if (!session) {
+          coverage.unsupported++
+          continue
+        }
+
+        const syncState = syncStates.get(sessionId)
+        const syncStatus = syncState?.status ?? 'unknown'
+
+        // Coverage accounting
+        if (syncStatus === 'synced') {
+          coverage.synced++
+        } else if (syncStatus === 'legacy-undercounted') {
+          coverage.legacy_undercounted++
+        } else if (syncStatus === 'partial' || syncStatus === 'missing-source') {
+          coverage.partial++
+        } else if (syncStatus === 'error') {
+          coverage.partial++
+        } else {
+          coverage.missing_source++
+        }
+
+        // Partial session detail
+        const snapshot = this.getSessionSyncSnapshot(session, syncState)
+        if (snapshot.partial && snapshot.reason) {
+          partialSessions.push({
+            session_id: sessionId,
+            session_name: session.name ?? 'Untitled',
+            engine: session.agent_sdk as import('@shared/types/usage-analytics').UsageAnalyticsEngine,
+            reason: snapshot.reason,
+            ...(snapshot.detail ? { detail: snapshot.detail } : {})
+          })
+        }
+
+        // Prefer v2 snapshot for totals (single source of truth)
+        const v2Snapshot = this.db.getUsageSnapshot(sessionId)
+        if (v2Snapshot) {
+          totalCost += v2Snapshot.total_cost_estimate
+          totalTokens += v2Snapshot.total_tokens
+          inputTokens += v2Snapshot.total_input_tokens
+          outputTokens += v2Snapshot.total_output_tokens
+          cacheWriteTokens += v2Snapshot.total_cache_write_tokens
+          cacheReadTokens += v2Snapshot.total_cache_read_tokens
+
+          // Use the most recent snapshot's context info
+          if (v2Snapshot.context_window_tokens && v2Snapshot.context_window_tokens > 0) {
+            contextUsedTokens = (contextUsedTokens ?? 0) + (v2Snapshot.context_used_tokens ?? 0)
+            contextWindowTokens = Math.max(
+              contextWindowTokens ?? 0,
+              v2Snapshot.context_window_tokens
+            )
+          }
+        } else {
+          // Fallback: aggregate from v2 events
+          const events = this.db.getUsageEventsBySession(sessionId)
+          for (const event of events) {
+            totalCost += event.cost_estimate
+            totalTokens += event.total_tokens
+            inputTokens += event.input_tokens
+            outputTokens += event.output_tokens
+            cacheWriteTokens += event.cache_write_tokens
+            cacheReadTokens += event.cache_read_tokens
+          }
+        }
+      }
+
+      if (contextUsedTokens !== null && contextWindowTokens !== null && contextWindowTokens > 0) {
+        contextPercent = (contextUsedTokens / contextWindowTokens) * 100
+      }
+
+      return {
+        success: true,
+        data: {
+          scope_id: scopeId,
+          scope_type: scopeType,
+          session_count: seenSessionIds.size,
+          active_session_count: sessionIds.filter((id) => {
+            const s = sessionMap.get(id)
+            return s?.status === 'active'
+          }).length,
+          total_cost: totalCost,
+          total_tokens: totalTokens,
+          input_tokens: inputTokens,
+          output_tokens: outputTokens,
+          cache_write_tokens: cacheWriteTokens,
+          cache_read_tokens: cacheReadTokens,
+          context_used_tokens: contextUsedTokens,
+          context_window_tokens: contextWindowTokens,
+          context_percent: contextPercent,
+          coverage,
+          partial_sessions: partialSessions
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      log.warn('Failed to fetch scope summary', { scopeId, scopeType, error: message })
+      return { success: false, error: message }
+    }
+  }
+
   private getSessionSyncSnapshot(
     session: SupportedSession,
     syncState: ReturnType<DatabaseService['getUsageSyncState']> | undefined
@@ -503,12 +780,21 @@ export class UsageAnalyticsService {
       return { stale: true, partial: false }
     }
 
-    if (syncState.status === 'partial') {
+    if (syncState.status === 'partial' || syncState.status === 'missing-source') {
       return {
         stale: false,
         partial: true,
         reason: 'missing-source',
         detail: syncState.last_error ?? 'Source data is incomplete.'
+      }
+    }
+
+    if (syncState.status === 'legacy-undercounted') {
+      return {
+        stale: false,
+        partial: true,
+        reason: 'missing-source',
+        detail: syncState.last_error ?? 'Only legacy undercounted data available.'
       }
     }
 
@@ -623,32 +909,387 @@ export class UsageAnalyticsService {
     return 'synced'
   }
 
-  private async syncCodexSession(session: SupportedSession): Promise<'synced'> {
-    // codex 把 token 用量在运行时由 CodexImplementer.persistCodexTurnUsage 直接
-    // 写入 usage_entries（每个 turn 一行，source_message_id='codex-turn:<turnId>'），
-    // session_messages.opencode_message_json 里并不携带 token 信息。
-    //
-    // 因此本同步函数不再尝试从消息流重新提取——只清点现有 codex-message 行数并
-    // 刷新 sync_state。绝对不要在这里 deleteUsageEntriesForSession：那会把运行
-    // 时已经写入的权威数据清空，应用一旦重启就再也算不出 codex 的 token 明细。
+  private async syncCodexSession(session: SupportedSession): Promise<'synced' | 'partial'> {
+    // First, try to backfill from JSONL if available
+    const jsonlPath = await this.resolveCodexJsonlPath(session)
+    let backfillResult: BackfillResult | null = null
+    if (jsonlPath) {
+      backfillResult = await this.backfillCodexFromJsonl(session)
+    }
+
+    // Then count existing entries for sync state
     const existingEntries = this.db
       .getUsageEntriesBySession(session.id)
       .filter((entry) => entry.source_kind === 'codex-message')
 
+    const existingEvents = this.db.getUsageEventsBySession(session.id)
+
+    // Determine quality status:
+    // - synced: v2 events exist (backfill or live wrote them)
+    // - legacy-undercounted: only legacy rows exist, no v2 events (undercount)
+    // - partial: JSONL found but backfill produced no events (parse failure)
+    // - missing-source: no JSONL and no data at all
+    let status: string
+    let lastError: string | null = null
+
+    if (existingEvents.length > 0) {
+      status = 'synced'
+      // If backfill itself had an error, log it but don't downgrade —
+      // live events may have already populated the ledger correctly.
+      if (backfillResult?.error) {
+        log.warn('syncCodexSession: backfill had errors but v2 events exist', {
+          sessionId: session.id,
+          error: backfillResult.error
+        })
+      }
+    } else if (existingEntries.length > 0) {
+      // Legacy rows exist but no v2 events — this is the undercount state
+      status = 'legacy-undercounted'
+      if (backfillResult?.sourceFound && backfillResult.parsedEventCount === 0) {
+        lastError = 'JSONL found but contained no token_count events.'
+      } else if (backfillResult?.error) {
+        lastError = `Backfill failed: ${backfillResult.error}`
+      } else if (!backfillResult?.sourceFound) {
+        lastError = 'Codex JSONL source is missing; only legacy undercounted data exists.'
+      }
+    } else if (backfillResult?.sourceFound) {
+      // JSONL found but no events were inserted
+      status = 'partial'
+      lastError = backfillResult.error
+        ? `Backfill failed: ${backfillResult.error}`
+        : 'JSONL found but contained no usable token_count events.'
+    } else if (jsonlPath) {
+      status = 'partial'
+      lastError = 'JSONL path resolved but backfill did not run.'
+    } else {
+      status = 'missing-source'
+      lastError = 'Codex JSONL source is missing.'
+    }
+
+    // Use real file mtime from backfill if available, else fallback
+    const sourceMtimeMs = backfillResult?.sourceMtimeMs
+      ?? (jsonlPath ? new Date(session.updated_at).getTime() : null)
+
     this.db.upsertUsageSyncState({
       session_id: session.id,
       agent_sdk: 'codex',
-      source_kind: 'codex-message',
-      source_ref: session.opencode_session_id ?? session.id,
-      source_mtime_ms: new Date(session.updated_at).getTime(),
-      status: 'synced',
-      entry_count: existingEntries.length,
+      source_kind: 'codex-token-count',
+      source_ref: jsonlPath ?? session.opencode_session_id ?? session.id,
+      source_mtime_ms: sourceMtimeMs,
+      status,
+      entry_count: existingEntries.length + existingEvents.length,
       last_synced_at: new Date().toISOString(),
-      last_error: null
+      last_error: lastError
     })
 
+    if (status === 'missing-source') return 'partial'
+    if (status === 'legacy-undercounted') return 'partial'
+    if (status === 'partial') return 'partial'
     return 'synced'
   }
+
+  /**
+   * Backfill usage_events from Codex JSONL file.
+   *
+   * Parses all token_count events from the JSONL and inserts them into
+   * the v2 event-keyed ledger. This corrects the undercount caused by
+   * the old turn-keyed persistence.
+   *
+   * Returns a structured result — callers must inspect it to determine
+   * the sync quality state. Silent failures are no longer possible.
+   */
+  private async backfillCodexFromJsonl(session: SupportedSession): Promise<BackfillResult> {
+    const result: BackfillResult = {
+      sourceFound: false,
+      parsedEventCount: 0,
+      insertedEventCount: 0,
+      sourceMtimeMs: null,
+      error: null
+    }
+
+    try {
+      const jsonlPath = await this.resolveCodexJsonlPath(session)
+      if (!jsonlPath) return result
+
+      result.sourceFound = true
+
+      const { readFile, stat } = await import('node:fs/promises')
+      const content = await readFile(jsonlPath, 'utf-8')
+
+      try {
+        const fileStat = await stat(jsonlPath)
+        result.sourceMtimeMs = fileStat.mtimeMs
+      } catch {
+        // Non-fatal — mtime is best-effort
+      }
+
+      const lines = content.split('\n').filter((l) => l.trim())
+
+      // Resolve model from session record first, then fallback to JSONL
+      const sessionModelId = session.model_id
+      const sessionModelLabel = session.model_id
+
+      let lastTokenCount: Record<string, unknown> | undefined
+      let lastTimestamp: string | undefined
+
+      // Fix 3: Maintain current turn_id across the JSONL stream.
+      // token_count events don't carry turn_id, but turn_context and
+      // task_started events do. We attribute subsequent token_count
+      // events to the most recently seen turn.
+      let currentTurnId: string | null = null
+
+      for (const line of lines) {
+        try {
+          const entry = JSON.parse(line) as Record<string, unknown>
+          const msg = asObject(entry.payload) ?? asObject(entry.msg)
+          if (!msg) continue
+
+          // Track turn_id from turn_context and task_started events
+          if (msg.type === 'turn_context') {
+            const payload = asObject(msg.payload) ?? msg
+            const turnId = asString(payload.turn_id)
+            if (turnId) currentTurnId = turnId
+            continue
+          }
+          if (msg.type === 'task_started') {
+            const payload = asObject(msg.payload) ?? msg
+            const turnId = asString(payload.turn_id)
+            if (turnId) currentTurnId = turnId
+            continue
+          }
+
+          if (msg.type !== 'token_count') continue
+
+          const info = asObject(msg.info)
+          if (!info) continue
+
+          result.parsedEventCount++
+
+          const lastUsage = asObject(info.last_token_usage)
+          const totalUsage = asObject(info.total_token_usage) ?? lastUsage
+          if (!lastUsage) continue
+
+          const lastInputTokens = asNumber(lastUsage.input_tokens) ?? 0
+          const lastCachedInputTokens = asNumber(lastUsage.cached_input_tokens) ?? 0
+          const lastOutputTokens = asNumber(lastUsage.output_tokens) ?? 0
+          const lastReasoningTokens = asNumber(lastUsage.reasoning_output_tokens) ?? 0
+
+          const totalInputTokens = asNumber(totalUsage?.input_tokens) ?? lastInputTokens
+          const totalCachedInputTokens =
+            asNumber(totalUsage?.cached_input_tokens) ?? lastCachedInputTokens
+          const totalOutputTokens = asNumber(totalUsage?.output_tokens) ?? lastOutputTokens
+          const totalReasoningTokens =
+            asNumber(totalUsage?.reasoning_output_tokens) ?? lastReasoningTokens
+
+          // Use tracked turn_id — token_count events don't carry their own
+          const turnId = asString(msg.turn_id) ?? asString(entry.turn_id) ?? currentTurnId
+
+          // Build event fingerprint (cumulative totals for idempotency)
+          const sourceEventId = [
+            session.opencode_session_id ?? 'unknown',
+            turnId ?? 'unknown',
+            totalInputTokens,
+            totalCachedInputTokens,
+            totalOutputTokens,
+            totalReasoningTokens
+          ].join(':')
+
+          // Resolve model: prefer session record, then JSONL info, then fallback
+          const modelID = sessionModelId
+            ?? resolveCodexModelSlug(asString(info.model) ?? undefined)
+
+          // Delta from last_token_usage (the event's incremental tokens)
+          // Note: reasoning_output_tokens is a subset of output_tokens, NOT additive
+          const lastTokensDelta = {
+            input: Math.max(0, lastInputTokens - lastCachedInputTokens),
+            cacheRead: lastCachedInputTokens,
+            cacheWrite: 0,
+            output: lastOutputTokens
+          }
+          // total_tokens = input + output (reasoning is subset of output)
+          const totalDelta = lastTokensDelta.input + lastTokensDelta.output + lastTokensDelta.cacheRead
+
+          if (totalDelta <= 0) continue
+
+          const cost = calculateUsageCost(modelID, lastTokensDelta, 'codex')
+          const pricingModelKey = resolvePricingModelKey(modelID, 'codex')
+
+          // Use JSONL timestamp if available, otherwise fallback to now.
+          const rawTimestamp = entry.timestamp ?? entry.ts
+          let occurredAt: string
+          if (typeof rawTimestamp === 'string' && rawTimestamp.length > 0) {
+            const parsed = new Date(rawTimestamp)
+            occurredAt = Number.isFinite(parsed.getTime()) ? parsed.toISOString() : new Date().toISOString()
+          } else if (typeof rawTimestamp === 'number' && Number.isFinite(rawTimestamp)) {
+            occurredAt = new Date(rawTimestamp).toISOString()
+          } else {
+            occurredAt = new Date().toISOString()
+          }
+          lastTimestamp = occurredAt
+
+          this.db.insertUsageEvent({
+            session_id: session.id,
+            project_id: session.project_id,
+            worktree_id: session.worktree_id ?? null,
+            agent_sdk: 'codex',
+            source_kind: 'codex-token-count',
+            source_event_id: sourceEventId,
+            runtime_session_id: session.opencode_session_id ?? null,
+            thread_id: session.opencode_session_id ?? null,
+            turn_id: turnId ?? null,
+            provider_id: 'codex',
+            model_id: pricingModelKey,
+            model_label: sessionModelLabel ?? modelID,
+            input_tokens: lastTokensDelta.input,
+            output_tokens: lastTokensDelta.output,
+            reasoning_tokens: lastReasoningTokens,
+            cache_write_tokens: lastTokensDelta.cacheWrite,
+            cache_read_tokens: lastTokensDelta.cacheRead,
+            total_tokens: totalDelta,
+            cost_estimate: cost,
+            occurred_at: occurredAt
+          })
+
+          result.insertedEventCount++
+          lastTokenCount = info
+        } catch {
+          continue
+        }
+      }
+
+      // Update snapshot from the last token_count event
+      if (lastTokenCount && result.insertedEventCount > 0) {
+        const lastUsage = asObject(lastTokenCount.last_token_usage)
+        const totalUsage = asObject(lastTokenCount.total_token_usage) ?? lastUsage
+        if (lastUsage && totalUsage) {
+          const totalInputTokens = asNumber(totalUsage.input_tokens) ?? 0
+          const totalCachedInputTokens = asNumber(totalUsage.cached_input_tokens) ?? 0
+          const totalOutputTokens = asNumber(totalUsage.output_tokens) ?? 0
+          const totalReasoningTokens = asNumber(totalUsage.reasoning_output_tokens) ?? 0
+          const lastInputTokens = asNumber(lastUsage.input_tokens) ?? 0
+          const contextWindow = asNumber(lastTokenCount.model_context_window) ?? 0
+          const modelID = sessionModelId
+            ?? resolveCodexModelSlug(asString(lastTokenCount.model) ?? undefined)
+          const pricingModelKey = resolvePricingModelKey(modelID, 'codex')
+
+          // total_tokens = input + output (reasoning is subset of output)
+          const snapshotTotalTokens = totalInputTokens + totalOutputTokens
+
+          this.db.upsertUsageSnapshot({
+            session_id: session.id,
+            agent_sdk: 'codex',
+            runtime_session_id: session.opencode_session_id ?? null,
+            thread_id: session.opencode_session_id ?? null,
+            provider_id: 'codex',
+            model_id: pricingModelKey,
+            model_label: sessionModelLabel ?? modelID,
+            total_input_tokens: Math.max(0, totalInputTokens - totalCachedInputTokens),
+            total_output_tokens: totalOutputTokens,
+            total_reasoning_tokens: totalReasoningTokens,
+            total_cache_write_tokens: 0,
+            total_cache_read_tokens: totalCachedInputTokens,
+            total_tokens: snapshotTotalTokens,
+            total_cost_estimate: calculateUsageCost(
+              modelID,
+              {
+                input: Math.max(0, totalInputTokens - totalCachedInputTokens),
+                cacheRead: totalCachedInputTokens,
+                cacheWrite: 0,
+                output: totalOutputTokens
+              },
+              'codex'
+            ),
+            context_used_tokens: lastInputTokens,
+            context_window_tokens: contextWindow,
+            context_percent: contextWindow > 0 ? (lastInputTokens / contextWindow) * 100 : 0,
+            source_kind: 'codex-token-count',
+            source_ref: jsonlPath,
+            source_mtime_ms: result.sourceMtimeMs,
+            sync_status: 'synced',
+            last_event_at: lastTimestamp ?? new Date().toISOString()
+          })
+        }
+
+        log.info('backfillCodexFromJsonl: backfilled usage events', {
+          sessionId: session.id,
+          parsedEventCount: result.parsedEventCount,
+          insertedEventCount: result.insertedEventCount,
+          sourceMtimeMs: result.sourceMtimeMs,
+          jsonlPath
+        })
+      }
+
+      return result
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      result.error = message
+      log.warn('backfillCodexFromJsonl: failed', {
+        sessionId: session.id,
+        error: message
+      })
+      return result
+    }
+  }
+
+  /**
+   * Resolve the Codex JSONL file path for a session.
+   *
+   * Searches ~/.codex/sessions/ for a JSONL file matching the thread ID.
+   */
+  private async resolveCodexJsonlPath(session: SupportedSession): Promise<string | null> {
+    const threadId = session.opencode_session_id
+    if (!threadId) return null
+
+    try {
+      const { readdir } = await import('node:fs/promises')
+      const { join } = await import('node:path')
+      const os = await import('node:os')
+
+      const codexSessionsDir = join(os.homedir(), '.codex', 'sessions')
+
+      // Search for JSONL files matching the thread ID
+      // Pattern: ~/.codex/sessions/YYYY/MM/DD/rollout-*-<threadId>.jsonl
+      const findJsonl = async (dir: string): Promise<string | null> => {
+        try {
+          const entries = await readdir(dir, { withFileTypes: true })
+          for (const entry of entries) {
+            const fullPath = join(dir, entry.name)
+            if (entry.isDirectory()) {
+              const result = await findJsonl(fullPath)
+              if (result) return result
+            } else if (
+              entry.isFile() &&
+              entry.name.endsWith('.jsonl') &&
+              entry.name.includes(threadId)
+            ) {
+              return fullPath
+            }
+          }
+        } catch {
+          // Directory might not exist
+        }
+        return null
+      }
+
+      return await findJsonl(codexSessionsDir)
+    } catch {
+      return null
+    }
+  }
+}
+
+function asObject(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined
+}
+
+function asNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
 let usageAnalyticsService: UsageAnalyticsService | null = null

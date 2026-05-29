@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
   Activity,
   BarChart3,
@@ -26,8 +26,7 @@ import { GoalStatusCard } from '@/components/session-hq/cards/GoalStatusCard'
 import { TodoCard } from '@/components/session-hq/cards/TodoCard'
 import { FieldContextDebug } from '@/components/sessions/FieldContextDebug'
 import { extractMissionTasks, type SessionTask } from '@/lib/session-tasks'
-import { resolveUsageTokenTotals } from '@/lib/usage-token-totals'
-import type { UsageAnalyticsSessionSummary } from '@shared/types/usage-analytics'
+import type { UsageAnalyticsScopeSummary } from '@shared/types/usage-analytics'
 
 interface ContextPanelHostProps {
   worktreePath: string | null
@@ -261,11 +260,15 @@ function useSessionTasks(activeSessionId: string | null): SessionTask[] {
 function OverviewPanel({
   sessions,
   worktreePath,
-  scopeLabel
+  scopeLabel,
+  scopeId,
+  isConnectionMode
 }: {
   sessions: OverviewSession[]
   worktreePath: string | null
   scopeLabel: string
+  scopeId: string | null
+  isConnectionMode: boolean
 }): React.JSX.Element {
   const { t } = useI18n()
   const sessionIds = useMemo(() => sessions.map((session) => session.id), [sessions])
@@ -276,10 +279,7 @@ function OverviewPanel({
     t('contextPanel.overview.activeSessions', { count: activeSessionCount }),
     t('contextPanel.overview.inactiveSessions', { count: inactiveSessionCount })
   ].join('\n')
-  const [summaryBySession, setSummaryBySession] = useState<
-    Record<string, UsageAnalyticsSessionSummary>
-  >({})
-  const summaryBySessionRef = useRef(summaryBySession)
+  const [scopeSummary, setScopeSummary] = useState<UsageAnalyticsScopeSummary | null>(null)
   const activityTick = useSessionRuntimeStore((state) =>
     sessionIds.map((sessionId) => state.sessions.get(sessionId)?.lastActivityAt ?? 0).join('|')
   )
@@ -291,62 +291,45 @@ function OverviewPanel({
   )
 
   useEffect(() => {
-    summaryBySessionRef.current = summaryBySession
-  }, [summaryBySession])
-
-  useEffect(() => {
     let cancelled = false
 
-    if (sessionIds.length === 0 || !window.usageAnalyticsOps?.fetchSessionSummary) {
-      setSummaryBySession({})
+    if (
+      sessionIds.length === 0 ||
+      !scopeId ||
+      !window.usageAnalyticsOps?.fetchScopeSummary
+    ) {
+      setScopeSummary(null)
       return () => {
         cancelled = true
       }
     }
 
-    Promise.all(
-      sessionIds.map(async (sessionId) => {
-        try {
-          const result = await window.usageAnalyticsOps.fetchSessionSummary(sessionId)
-          if (!result.success || !result.data) return null
-          return [sessionId, result.data] as const
-        } catch {
-          return null
-        }
-      })
-    )
-      .then((entries) => {
+    const scopeType = isConnectionMode ? 'connection' : 'worktree'
+    window.usageAnalyticsOps
+      .fetchScopeSummary(scopeId, scopeType, sessionIds)
+      .then((result) => {
         if (cancelled) return
-
-        const next: Record<string, UsageAnalyticsSessionSummary> = {}
-        const store = useContextStore.getState()
-        for (const entry of entries) {
-          if (!entry) continue
-          const [sessionId, summary] = entry
-          next[sessionId] = summary
-          if (
-            summary.total_cost > 0 &&
-            (store.costBySession[sessionId] ?? 0) < summary.total_cost
-          ) {
-            store.setSessionCost(sessionId, summary.total_cost)
+        if (result.success && result.data) {
+          setScopeSummary(result.data)
+          // Update per-session costs from scope summary snapshot data
+          const store = useContextStore.getState()
+          for (const sessionId of sessionIds) {
+            const snapshot = result.data
+            if (snapshot.total_cost > 0) {
+              // Scope-level cost — set on first session for display
+              break
+            }
           }
         }
-        if (
-          Object.keys(next).length === 0 &&
-          Object.keys(summaryBySessionRef.current).length === 0
-        ) {
-          return
-        }
-        setSummaryBySession(next)
       })
       .catch(() => {
-        if (!cancelled) setSummaryBySession({})
+        if (!cancelled) setScopeSummary(null)
       })
 
     return () => {
       cancelled = true
     }
-  }, [activityTick, sessionIds, sessionIdsKey])
+  }, [activityTick, sessionIds, sessionIdsKey, scopeId, isConnectionMode])
 
   if (!worktreePath && sessionIds.length === 0) {
     return (
@@ -357,65 +340,74 @@ function OverviewPanel({
     )
   }
 
-  const totals = sessionIds.reduce(
-    (acc, sessionId) => {
-      const summary = summaryBySession[sessionId]
-      const tokens = tokensBySession[sessionId]
-      const liveCost = costBySession[sessionId] ?? 0
-      const resolvedTokens = resolveUsageTokenTotals(summary, tokens)
+  // Use scope summary from backend as primary source
+  const backendCost = scopeSummary?.total_cost ?? 0
+  const liveCost = sessionIds.reduce(
+    (sum, id) => sum + (costBySession[id] ?? 0),
+    0
+  )
+  const totalCost = Math.max(backendCost, liveCost)
 
-      acc.totalCost += Math.max(summary?.total_cost ?? 0, liveCost)
-      acc.totalTokens += resolvedTokens.totalTokens
-      acc.inputTokens += resolvedTokens.inputTokens
-      acc.outputTokens += resolvedTokens.outputTokens
-      acc.cacheReadTokens += resolvedTokens.cacheReadTokens
-      acc.cacheWriteTokens += resolvedTokens.cacheWriteTokens
-      return acc
+  // For tokens, prefer scope summary, fallback to live runtime tokens
+  const backendTokens = scopeSummary?.total_tokens ?? 0
+  const liveTokens = sessionIds.reduce(
+    (sum, id) => {
+      const t = tokensBySession[id]
+      return sum + (t ? t.input + t.output + t.cacheRead + t.cacheWrite : 0)
     },
-    {
-      totalCost: 0,
-      totalTokens: 0,
-      inputTokens: 0,
-      outputTokens: 0,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0
-    }
+    0
   )
-  const maxTokenSlice = Math.max(
-    totals.inputTokens,
-    totals.outputTokens,
-    totals.cacheReadTokens,
-    totals.cacheWriteTokens,
-    1
+  const totalTokens = Math.max(backendTokens, liveTokens)
+
+  const inputTokens = scopeSummary?.input_tokens ?? sessionIds.reduce(
+    (sum, id) => sum + (tokensBySession[id]?.input ?? 0), 0
   )
+  const outputTokens = scopeSummary?.output_tokens ?? sessionIds.reduce(
+    (sum, id) => sum + (tokensBySession[id]?.output ?? 0), 0
+  )
+  const cacheReadTokens = scopeSummary?.cache_read_tokens ?? sessionIds.reduce(
+    (sum, id) => sum + (tokensBySession[id]?.cacheRead ?? 0), 0
+  )
+  const cacheWriteTokens = scopeSummary?.cache_write_tokens ?? sessionIds.reduce(
+    (sum, id) => sum + (tokensBySession[id]?.cacheWrite ?? 0), 0
+  )
+
+  const contextUsed = scopeSummary?.context_used_tokens
+  const contextWindow = scopeSummary?.context_window_tokens
+  const contextPercent = scopeSummary?.context_percent
+
+  const maxTokenSlice = Math.max(inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, 1)
   const tokenRows = [
     {
       label: t('contextPanel.overview.input'),
-      amount: totals.inputTokens,
+      amount: inputTokens,
       tone: 'mint' as const
     },
     {
       label: t('contextPanel.overview.cacheRead'),
-      amount: totals.cacheReadTokens,
+      amount: cacheReadTokens,
       tone: 'muted' as const
     },
     {
       label: t('contextPanel.overview.cacheWrite'),
-      amount: totals.cacheWriteTokens,
+      amount: cacheWriteTokens,
       tone: 'muted' as const
     },
     {
       label: t('contextPanel.overview.output'),
-      amount: totals.outputTokens,
+      amount: outputTokens,
       tone: 'lavender' as const
     }
   ]
   const cacheHitRate =
-    totals.cacheReadTokens > 0 || totals.inputTokens > 0
+    cacheReadTokens > 0 || inputTokens > 0
       ? Math.round(
-          (totals.cacheReadTokens / (totals.cacheReadTokens + totals.inputTokens)) * 100
+          (cacheReadTokens / (cacheReadTokens + inputTokens)) * 100
         )
       : null
+
+  const coverage = scopeSummary?.coverage
+  const partialCount = scopeSummary?.partial_sessions.length ?? 0
 
   return (
     <div className="min-h-0 flex-1 overflow-auto px-2.5 py-3" data-testid="context-panel-overview">
@@ -440,16 +432,40 @@ function OverviewPanel({
           <div className="relative mt-3 space-y-1.5">
             <OverviewHeroMetric
               label={t('contextPanel.overview.cost')}
-              value={formatCost(totals.totalCost)}
+              value={formatCost(totalCost)}
               tone="cost"
             />
             <OverviewHeroMetric
               label={t('contextPanel.overview.tokens')}
-              value={formatCompactNumber(totals.totalTokens)}
+              value={formatCompactNumber(totalTokens)}
               tone="tokens"
             />
           </div>
         </section>
+
+        {contextWindow && contextWindow > 0 && (
+          <section className="crisp-panel-surface rounded-xl p-3">
+            <div className="mb-2.5 flex items-center justify-between">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                {t('contextPanel.overview.contextPressure')}
+              </div>
+              {contextPercent !== null && (
+                <div className="text-[10px] text-muted-foreground">
+                  <span className="font-mono font-medium text-foreground">
+                    {contextPercent.toFixed(1)}%
+                  </span>
+                </div>
+              )}
+            </div>
+            <OverviewTokenRow
+              label={`${formatCompactNumber(contextUsed ?? 0)} / ${formatCompactNumber(contextWindow)}`}
+              amount={contextUsed ?? 0}
+              value={formatCompactNumber(contextUsed ?? 0)}
+              max={contextWindow}
+              tone="mint"
+            />
+          </section>
+        )}
 
         <section className="crisp-panel-surface rounded-xl p-3">
           <div className="mb-2.5 flex items-center justify-between">
@@ -476,6 +492,36 @@ function OverviewPanel({
             ))}
           </div>
         </section>
+
+        {coverage && (
+          <section className="rounded-xl border border-sidebar-border bg-agent-card px-3 py-2.5">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              {t('contextPanel.overview.dataQuality')}
+            </div>
+            <div className="mt-1.5 space-y-0.5 font-mono text-[11px] leading-relaxed text-steel">
+              {coverage.synced > 0 && (
+                <div>synced: {coverage.synced}</div>
+              )}
+              {coverage.legacy_undercounted > 0 && (
+                <div className="text-amber-500">legacy (undercounted): {coverage.legacy_undercounted}</div>
+              )}
+              {coverage.partial > 0 && (
+                <div className="text-amber-500">partial: {coverage.partial}</div>
+              )}
+              {coverage.missing_source > 0 && (
+                <div className="text-muted-foreground">missing source: {coverage.missing_source}</div>
+              )}
+              {coverage.unsupported > 0 && (
+                <div className="text-muted-foreground">unsupported: {coverage.unsupported}</div>
+              )}
+              {partialCount > 0 && (
+                <div className="text-amber-500">
+                  {partialCount} session{partialCount > 1 ? 's' : ''} with incomplete data
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
         <section className="rounded-xl border border-sidebar-border bg-agent-card px-3 py-2.5">
           <div className="flex items-center justify-between gap-2">
@@ -776,6 +822,8 @@ export function ContextPanelHost({
             sessions={overviewSessions}
             worktreePath={worktreePath}
             scopeLabel={overviewScopeLabel}
+            scopeId={overviewScopeId ?? null}
+            isConnectionMode={!!isConnectionMode}
           />
         )
       case 'review':

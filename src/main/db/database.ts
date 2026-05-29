@@ -2917,6 +2917,317 @@ export class DatabaseService {
     return !!result
   }
 
+  // ── Usage Events (v2 event-keyed ledger) ──────────────────────────
+
+  insertUsageEvent(data: {
+    session_id: string
+    project_id: string
+    worktree_id?: string | null
+    agent_sdk: string
+    source_kind: string
+    source_event_id: string
+    runtime_session_id?: string | null
+    thread_id?: string | null
+    turn_id?: string | null
+    provider_id?: string | null
+    model_id?: string | null
+    model_label?: string | null
+    input_tokens?: number
+    output_tokens?: number
+    reasoning_tokens?: number
+    cache_write_tokens?: number
+    cache_read_tokens?: number
+    total_tokens?: number
+    cost_estimate?: number
+    source_payload_json?: string | null
+    occurred_at: string
+  }): void {
+    const db = this.getDb()
+    const now = new Date().toISOString()
+    const id = randomUUID()
+
+    db.prepare(
+      `INSERT OR IGNORE INTO usage_events (
+        id, session_id, project_id, worktree_id, agent_sdk, source_kind,
+        source_event_id, runtime_session_id, thread_id, turn_id,
+        provider_id, model_id, model_label,
+        input_tokens, output_tokens, reasoning_tokens,
+        cache_write_tokens, cache_read_tokens, total_tokens,
+        cost_estimate, source_payload_json, occurred_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id,
+      data.session_id,
+      data.project_id,
+      data.worktree_id ?? null,
+      data.agent_sdk,
+      data.source_kind,
+      data.source_event_id,
+      data.runtime_session_id ?? null,
+      data.thread_id ?? null,
+      data.turn_id ?? null,
+      data.provider_id ?? null,
+      data.model_id ?? null,
+      data.model_label ?? null,
+      data.input_tokens ?? 0,
+      data.output_tokens ?? 0,
+      data.reasoning_tokens ?? 0,
+      data.cache_write_tokens ?? 0,
+      data.cache_read_tokens ?? 0,
+      data.total_tokens ?? 0,
+      data.cost_estimate ?? 0,
+      data.source_payload_json ?? null,
+      data.occurred_at,
+      now
+    )
+  }
+
+  getUsageEventsBySession(sessionId: string): Array<{
+    id: string
+    session_id: string
+    source_event_id: string
+    turn_id: string | null
+    input_tokens: number
+    output_tokens: number
+    reasoning_tokens: number
+    cache_write_tokens: number
+    cache_read_tokens: number
+    total_tokens: number
+    cost_estimate: number
+    occurred_at: string
+  }> {
+    const db = this.getDb()
+    return db
+      .prepare(
+        `SELECT id, session_id, source_event_id, turn_id,
+                input_tokens, output_tokens, reasoning_tokens,
+                cache_write_tokens, cache_read_tokens, total_tokens,
+                cost_estimate, occurred_at
+         FROM usage_events WHERE session_id = ? ORDER BY occurred_at ASC`
+      )
+      .all(sessionId) as Array<{
+      id: string
+      session_id: string
+      source_event_id: string
+      turn_id: string | null
+      input_tokens: number
+      output_tokens: number
+      reasoning_tokens: number
+      cache_write_tokens: number
+      cache_read_tokens: number
+      total_tokens: number
+      cost_estimate: number
+      occurred_at: string
+    }>
+  }
+
+  listUsageEvents(options?: {
+    agentSdks?: Array<'claude-code' | 'codex'>
+    dateFrom?: string | null
+    dateTo?: string | null
+  }): Array<{
+    id: string
+    session_id: string
+    source_event_id: string
+    turn_id: string | null
+    input_tokens: number
+    output_tokens: number
+    reasoning_tokens: number
+    cache_write_tokens: number
+    cache_read_tokens: number
+    total_tokens: number
+    cost_estimate: number
+    occurred_at: string
+  }> {
+    const db = this.getDb()
+    const conditions: string[] = []
+    const values: (string | number)[] = []
+
+    if (options?.agentSdks?.length) {
+      const placeholders = options.agentSdks.map(() => '?').join(', ')
+      conditions.push(`agent_sdk IN (${placeholders})`)
+      values.push(...options.agentSdks)
+    }
+
+    if (options?.dateFrom) {
+      conditions.push('occurred_at >= ?')
+      values.push(options.dateFrom)
+    }
+
+    if (options?.dateTo) {
+      conditions.push('occurred_at < ?')
+      values.push(options.dateTo)
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+
+    return db
+      .prepare(
+        `SELECT id, session_id, source_event_id, turn_id,
+                input_tokens, output_tokens, reasoning_tokens,
+                cache_write_tokens, cache_read_tokens, total_tokens,
+                cost_estimate, occurred_at
+         FROM usage_events ${where} ORDER BY occurred_at DESC`
+      )
+      .all(...values) as Array<{
+      id: string
+      session_id: string
+      source_event_id: string
+      turn_id: string | null
+      input_tokens: number
+      output_tokens: number
+      reasoning_tokens: number
+      cache_write_tokens: number
+      cache_read_tokens: number
+      total_tokens: number
+      cost_estimate: number
+      occurred_at: string
+    }>
+  }
+
+  // ── Session Usage Snapshots ───────────────────────────────────────
+
+  upsertUsageSnapshot(data: {
+    session_id: string
+    agent_sdk: string
+    runtime_session_id?: string | null
+    thread_id?: string | null
+    provider_id?: string | null
+    model_id?: string | null
+    model_label?: string | null
+    total_input_tokens?: number
+    total_output_tokens?: number
+    total_reasoning_tokens?: number
+    total_cache_write_tokens?: number
+    total_cache_read_tokens?: number
+    total_tokens?: number
+    total_cost_estimate?: number
+    context_used_tokens?: number | null
+    context_window_tokens?: number | null
+    context_percent?: number | null
+    source_kind?: string
+    source_ref?: string | null
+    source_mtime_ms?: number | null
+    source_payload_json?: string | null
+    sync_status?: string
+    last_event_at?: string | null
+    last_error?: string | null
+  }): void {
+    const db = this.getDb()
+    const now = new Date().toISOString()
+
+    db.prepare(
+      `INSERT INTO session_usage_snapshots (
+        session_id, agent_sdk, runtime_session_id, thread_id,
+        provider_id, model_id, model_label,
+        total_input_tokens, total_output_tokens, total_reasoning_tokens,
+        total_cache_write_tokens, total_cache_read_tokens, total_tokens,
+        total_cost_estimate, context_used_tokens, context_window_tokens,
+        context_percent, source_kind, source_ref, source_mtime_ms,
+        source_payload_json, sync_status, last_event_at, updated_at, last_error
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(session_id) DO UPDATE SET
+        agent_sdk = excluded.agent_sdk,
+        runtime_session_id = excluded.runtime_session_id,
+        thread_id = excluded.thread_id,
+        provider_id = excluded.provider_id,
+        model_id = excluded.model_id,
+        model_label = excluded.model_label,
+        total_input_tokens = excluded.total_input_tokens,
+        total_output_tokens = excluded.total_output_tokens,
+        total_reasoning_tokens = excluded.total_reasoning_tokens,
+        total_cache_write_tokens = excluded.total_cache_write_tokens,
+        total_cache_read_tokens = excluded.total_cache_read_tokens,
+        total_tokens = excluded.total_tokens,
+        total_cost_estimate = excluded.total_cost_estimate,
+        context_used_tokens = excluded.context_used_tokens,
+        context_window_tokens = excluded.context_window_tokens,
+        context_percent = excluded.context_percent,
+        source_kind = excluded.source_kind,
+        source_ref = excluded.source_ref,
+        source_mtime_ms = excluded.source_mtime_ms,
+        source_payload_json = excluded.source_payload_json,
+        sync_status = excluded.sync_status,
+        last_event_at = excluded.last_event_at,
+        updated_at = excluded.updated_at,
+        last_error = excluded.last_error`
+    ).run(
+      data.session_id,
+      data.agent_sdk,
+      data.runtime_session_id ?? null,
+      data.thread_id ?? null,
+      data.provider_id ?? null,
+      data.model_id ?? null,
+      data.model_label ?? null,
+      data.total_input_tokens ?? 0,
+      data.total_output_tokens ?? 0,
+      data.total_reasoning_tokens ?? 0,
+      data.total_cache_write_tokens ?? 0,
+      data.total_cache_read_tokens ?? 0,
+      data.total_tokens ?? 0,
+      data.total_cost_estimate ?? 0,
+      data.context_used_tokens ?? null,
+      data.context_window_tokens ?? null,
+      data.context_percent ?? null,
+      data.source_kind ?? 'unknown',
+      data.source_ref ?? null,
+      data.source_mtime_ms ?? null,
+      data.source_payload_json ?? null,
+      data.sync_status ?? 'pending',
+      data.last_event_at ?? null,
+      now,
+      data.last_error ?? null
+    )
+  }
+
+  getUsageSnapshot(sessionId: string): {
+    session_id: string
+    agent_sdk: string
+    model_label: string | null
+    total_input_tokens: number
+    total_output_tokens: number
+    total_reasoning_tokens: number
+    total_cache_write_tokens: number
+    total_cache_read_tokens: number
+    total_tokens: number
+    total_cost_estimate: number
+    context_used_tokens: number | null
+    context_window_tokens: number | null
+    context_percent: number | null
+    sync_status: string
+    last_event_at: string | null
+  } | undefined {
+    const db = this.getDb()
+    return db
+      .prepare(
+        `SELECT session_id, agent_sdk, model_label,
+                total_input_tokens, total_output_tokens, total_reasoning_tokens,
+                total_cache_write_tokens, total_cache_read_tokens, total_tokens,
+                total_cost_estimate, context_used_tokens, context_window_tokens,
+                context_percent, sync_status, last_event_at
+         FROM session_usage_snapshots WHERE session_id = ?`
+      )
+      .get(sessionId) as
+      | {
+          session_id: string
+          agent_sdk: string
+          model_label: string | null
+          total_input_tokens: number
+          total_output_tokens: number
+          total_reasoning_tokens: number
+          total_cache_write_tokens: number
+          total_cache_read_tokens: number
+          total_tokens: number
+          total_cost_estimate: number
+          context_used_tokens: number | null
+          context_window_tokens: number | null
+          context_percent: number | null
+          sync_status: string
+          last_event_at: string | null
+        }
+      | undefined
+  }
+
   // Get all indexes
   getIndexes(): { name: string; tbl_name: string }[] {
     const db = this.getDb()

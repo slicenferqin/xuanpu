@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 31
+export const CURRENT_SCHEMA_VERSION = 32
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -377,6 +377,68 @@ CREATE INDEX IF NOT EXISTS idx_diff_comments_worktree_file
   ON diff_comments(worktree_id, file_path, line_number);
 CREATE INDEX IF NOT EXISTS idx_diff_comments_worktree_updated
   ON diff_comments(worktree_id, updated_at DESC);
+
+-- Usage events ledger (event-keyed, for correct Codex persistence)
+CREATE TABLE IF NOT EXISTS usage_events (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  worktree_id TEXT REFERENCES worktrees(id) ON DELETE SET NULL,
+  agent_sdk TEXT NOT NULL,
+  source_kind TEXT NOT NULL,
+  source_event_id TEXT NOT NULL,
+  runtime_session_id TEXT,
+  thread_id TEXT,
+  turn_id TEXT,
+  provider_id TEXT,
+  model_id TEXT,
+  model_label TEXT,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+  total_tokens INTEGER NOT NULL DEFAULT 0,
+  cost_estimate REAL NOT NULL DEFAULT 0,
+  source_payload_json TEXT,
+  occurred_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_events_session_source_event
+  ON usage_events(session_id, source_kind, source_event_id);
+CREATE INDEX IF NOT EXISTS idx_usage_events_session_occurred
+  ON usage_events(session_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_events_project_occurred
+  ON usage_events(project_id, occurred_at DESC);
+
+-- Session usage snapshots (fast path for UI display)
+CREATE TABLE IF NOT EXISTS session_usage_snapshots (
+  session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+  agent_sdk TEXT NOT NULL,
+  runtime_session_id TEXT,
+  thread_id TEXT,
+  provider_id TEXT,
+  model_id TEXT,
+  model_label TEXT,
+  total_input_tokens INTEGER NOT NULL DEFAULT 0,
+  total_output_tokens INTEGER NOT NULL DEFAULT 0,
+  total_reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+  total_cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  total_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+  total_tokens INTEGER NOT NULL DEFAULT 0,
+  total_cost_estimate REAL NOT NULL DEFAULT 0,
+  context_used_tokens INTEGER,
+  context_window_tokens INTEGER,
+  context_percent REAL,
+  source_kind TEXT NOT NULL,
+  source_ref TEXT,
+  source_mtime_ms INTEGER,
+  source_payload_json TEXT,
+  sync_status TEXT NOT NULL DEFAULT 'pending',
+  last_event_at TEXT,
+  updated_at TEXT NOT NULL,
+  last_error TEXT
+);
 `
 
 export interface Migration {
@@ -1138,6 +1200,84 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_field_memory_pages_project_status;
       DROP INDEX IF EXISTS idx_field_memory_pages_scope_status;
       DROP TABLE IF EXISTS field_memory_pages;
+    `
+  },
+  {
+    version: 32,
+    name: 'add_usage_events_and_snapshots',
+    up: `
+      -- Phase: Usage Metrics Accuracy Audit
+      -- Event-keyed ledger for correct Codex usage persistence.
+      -- Each row represents one billable provider usage event, not a turn.
+      CREATE TABLE IF NOT EXISTS usage_events (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        worktree_id TEXT REFERENCES worktrees(id) ON DELETE SET NULL,
+        agent_sdk TEXT NOT NULL,
+        source_kind TEXT NOT NULL,
+        source_event_id TEXT NOT NULL,
+        runtime_session_id TEXT,
+        thread_id TEXT,
+        turn_id TEXT,
+        provider_id TEXT,
+        model_id TEXT,
+        model_label TEXT,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+        total_tokens INTEGER NOT NULL DEFAULT 0,
+        cost_estimate REAL NOT NULL DEFAULT 0,
+        source_payload_json TEXT,
+        occurred_at TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_events_session_source_event
+        ON usage_events(session_id, source_kind, source_event_id);
+      CREATE INDEX IF NOT EXISTS idx_usage_events_session_occurred
+        ON usage_events(session_id, occurred_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_usage_events_project_occurred
+        ON usage_events(project_id, occurred_at DESC);
+
+      -- Durable usage/context snapshot for fast UI display.
+      -- One row per session, updated on every usage event.
+      CREATE TABLE IF NOT EXISTS session_usage_snapshots (
+        session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+        agent_sdk TEXT NOT NULL,
+        runtime_session_id TEXT,
+        thread_id TEXT,
+        provider_id TEXT,
+        model_id TEXT,
+        model_label TEXT,
+        total_input_tokens INTEGER NOT NULL DEFAULT 0,
+        total_output_tokens INTEGER NOT NULL DEFAULT 0,
+        total_reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+        total_cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+        total_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+        total_tokens INTEGER NOT NULL DEFAULT 0,
+        total_cost_estimate REAL NOT NULL DEFAULT 0,
+        context_used_tokens INTEGER,
+        context_window_tokens INTEGER,
+        context_percent REAL,
+        source_kind TEXT NOT NULL,
+        source_ref TEXT,
+        source_mtime_ms INTEGER,
+        source_payload_json TEXT,
+        sync_status TEXT NOT NULL DEFAULT 'pending',
+        last_event_at TEXT,
+        updated_at TEXT NOT NULL,
+        last_error TEXT
+      );
+    `,
+    down: `
+      DROP TABLE IF EXISTS session_usage_snapshots;
+      DROP INDEX IF EXISTS idx_usage_events_project_occurred;
+      DROP INDEX IF EXISTS idx_usage_events_session_occurred;
+      DROP INDEX IF EXISTS idx_usage_events_session_source_event;
+      DROP TABLE IF EXISTS usage_events;
     `
   }
 ]

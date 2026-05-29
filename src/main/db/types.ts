@@ -310,10 +310,10 @@ export interface UsageEntryCreate {
 export interface UsageSyncState {
   session_id: string
   agent_sdk: 'claude-code' | 'codex'
-  source_kind: 'claude-transcript' | 'codex-message'
+  source_kind: 'claude-transcript' | 'codex-message' | 'codex-token-count'
   source_ref: string | null
   source_mtime_ms: number | null
-  status: 'pending' | 'synced' | 'partial' | 'error'
+  status: 'pending' | 'synced' | 'partial' | 'error' | 'missing-source'
   entry_count: number
   last_synced_at: string | null
   last_error: string | null
@@ -322,10 +322,10 @@ export interface UsageSyncState {
 export interface UsageSyncStateUpsert {
   session_id: string
   agent_sdk: 'claude-code' | 'codex'
-  source_kind: 'claude-transcript' | 'codex-message'
+  source_kind: 'claude-transcript' | 'codex-message' | 'codex-token-count'
   source_ref?: string | null
   source_mtime_ms?: number | null
-  status: 'pending' | 'synced' | 'partial' | 'error'
+  status: 'pending' | 'synced' | 'partial' | 'error' | 'missing-source'
   entry_count?: number
   last_synced_at?: string | null
   last_error?: string | null

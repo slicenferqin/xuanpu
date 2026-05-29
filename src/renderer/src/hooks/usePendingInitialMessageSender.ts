@@ -18,6 +18,7 @@ import {
 import { useWorktreeStatusStore } from '@/stores/useWorktreeStatusStore'
 
 type ResetLiveOverlay = (nextIsStreaming: boolean) => void
+type PromptSettledHandler = () => Promise<void>
 
 interface UsePendingInitialMessageSenderOptions {
   sessionId: string
@@ -30,6 +31,7 @@ interface UsePendingInitialMessageSenderOptions {
   ) => PendingMessagePromptOptions | undefined
   optimisticTimeline: OptimisticTimelineMessagesController
   resetLiveOverlay: ResetLiveOverlay
+  onPromptSettled?: PromptSettledHandler
 }
 
 export function usePendingInitialMessageSender({
@@ -40,7 +42,8 @@ export function usePendingInitialMessageSender({
   requestModel,
   buildPendingPromptOptions,
   optimisticTimeline,
-  resetLiveOverlay
+  resetLiveOverlay,
+  onPromptSettled
 }: UsePendingInitialMessageSenderOptions): void {
   useEffect(() => {
     if (!worktreePath || !runtimeSessionId) return
@@ -85,6 +88,7 @@ export function usePendingInitialMessageSender({
         }
 
         void refreshSessionLastMessageAt(sessionId)
+        await onPromptSettled?.()
       } catch (err) {
         console.error('[SessionShell] pending message send failed:', err)
         useSessionStore
@@ -110,6 +114,7 @@ export function usePendingInitialMessageSender({
     mode,
     requestModel,
     optimisticTimeline,
-    resetLiveOverlay
+    resetLiveOverlay,
+    onPromptSettled
   ])
 }

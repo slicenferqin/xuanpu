@@ -907,7 +907,8 @@ function parsePendingModel(raw: string | null): PendingMessage['model'] {
   try {
     const parsed = JSON.parse(raw) as PendingMessageModelSnapshot
     if (!parsed || typeof parsed !== 'object') return undefined
-    if (typeof parsed.providerID !== 'string' || typeof parsed.modelID !== 'string') return undefined
+    if (typeof parsed.providerID !== 'string' || typeof parsed.modelID !== 'string')
+      return undefined
     return parsed
   } catch {
     return undefined
@@ -1560,3 +1561,72 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
     }
   }
 }))
+
+/**
+ * Start a locally-initiated prompt run before backend stream events arrive.
+ *
+ * The user-visible running state must not depend solely on `session.status`
+ * events from the provider: after resume/reload, the renderer may briefly miss
+ * or reject those events, but the composer should still switch to Stop and the
+ * timeline should show the running row immediately after Send.
+ */
+export function beginLocalSessionRun(sessionId: string): StreamingBuffer {
+  clearSessionEventGuard(sessionId)
+  const runtime = useSessionRuntimeStore.getState()
+  runtime.setRetryInfo(sessionId, null)
+  runtime.setLifecycle(sessionId, 'busy')
+
+  return updateStreamingBuffer(
+    sessionId,
+    (current) => ({
+      ...resetStreamingBufferOverlayState(current, {
+        preserveOptimisticMessages: true,
+        preserveCompactionState: false
+      }),
+      isStreaming: true,
+      runStartedAt: Date.now()
+    }),
+    { notify: 'immediate' }
+  )
+}
+
+/**
+ * Cancel a locally-started run before it produces durable output.
+ * Used when send fails or is rejected.
+ */
+export function cancelLocalSessionRun(sessionId: string): StreamingBuffer {
+  const runtime = useSessionRuntimeStore.getState()
+  runtime.setRetryInfo(sessionId, null)
+  runtime.setLifecycle(sessionId, 'idle')
+
+  return updateStreamingBuffer(
+    sessionId,
+    (current) =>
+      resetStreamingBufferOverlayState(current, {
+        preserveOptimisticMessages: true,
+        preserveCompactionState: false
+      }),
+    { notify: 'immediate' }
+  )
+}
+
+/**
+ * Settle a completed prompt run after durable timeline refresh has had a
+ * chance to land. This is an event-loss backstop; normal idle events still run
+ * through useSessionEventSubscription.
+ */
+export function finishLocalSessionRun(sessionId: string): StreamingBuffer {
+  const runtime = useSessionRuntimeStore.getState()
+  runtime.setRetryInfo(sessionId, null)
+  runtime.setLifecycle(sessionId, 'idle')
+
+  return updateStreamingBuffer(
+    sessionId,
+    (current) => ({
+      ...current,
+      isStreaming: false,
+      runStartedAt: undefined
+    }),
+    { notify: 'immediate' }
+  )
+}

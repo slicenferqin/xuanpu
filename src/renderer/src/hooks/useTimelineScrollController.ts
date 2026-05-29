@@ -112,6 +112,27 @@ function computeFocusFillerHeight(
 }
 
 const ROUND_FOCUS_TOP_GAP = 24
+const TAIL_READABLE_EPSILON = 1
+
+function isTailReadableByGeometry(
+  scrollElement: HTMLElement,
+  sentinel: HTMLElement,
+  bottomReadableInset: number
+): boolean {
+  if (scrollElement.scrollHeight <= scrollElement.clientHeight + TAIL_READABLE_EPSILON) {
+    return true
+  }
+
+  const containerRect = scrollElement.getBoundingClientRect()
+  const sentinelRect = sentinel.getBoundingClientRect()
+  if (containerRect.height <= 0) return true
+
+  const readableBottom = containerRect.bottom - bottomReadableInset
+  // The FAB should mean "real content continues below the readable area".
+  // If the sentinel is above the viewport, the user is in spacer/padding, not
+  // missing content hidden under the composer.
+  return sentinelRect.bottom <= readableBottom + TAIL_READABLE_EPSILON
+}
 
 export function useTimelineScrollController({
   sessionId,
@@ -169,8 +190,11 @@ export function useTimelineScrollController({
   const [unreadCount, setUnreadCount] = useState(0)
   const lastSeenContentVersionRef = useRef(contentVersion)
 
-  // showJumpToBottom: true when tail is not readable OR in history mode
-  const showJumpToBottom = !tailReadable || scrollMode === 'history'
+  // Show the FAB only when the real content tail is below the composer-safe
+  // readable area. Scroll mode alone is not enough: clear-screen focus uses a
+  // filler spacer, and that spacer must not make the UI look like content is
+  // hidden under the input.
+  const showJumpToBottom = !tailReadable
 
   const smartScroll = useSessionSmartScroll({
     sessionId,
@@ -190,7 +214,7 @@ export function useTimelineScrollController({
     scrollContainerRef,
     scrollFabBottomOffset: _scrollFabBottomOffset,
     bottomFloatingHeight: _bottomFloatingHeight,
-    handleScroll,
+    handleScroll: handleSmartScroll,
     handleScrollPointerUp,
     handleScrollPointerCancel,
     scrollToOffset,
@@ -212,6 +236,38 @@ export function useTimelineScrollController({
     activeRoundIdRef.current = roundId
     setActiveRoundIdState((current) => (current === roundId ? current : roundId))
   }, [])
+
+  const markTailReadable = useCallback((): void => {
+    setTailReadable(true)
+    unreadCountRef.current = 0
+    setUnreadCount(0)
+    lastSeenContentVersionRef.current = contentVersion
+  }, [contentVersion])
+
+  const measureTailReadable = useCallback((): boolean => {
+    const scrollElement = scrollContainerRef.current
+    const sentinel = tailSentinelRef.current
+    if (!scrollElement || !sentinel) {
+      markTailReadable()
+      return true
+    }
+
+    const isReadable = isTailReadableByGeometry(scrollElement, sentinel, bottomReadableInset)
+    setTailReadable(isReadable)
+
+    if (isReadable) {
+      unreadCountRef.current = 0
+      setUnreadCount(0)
+      lastSeenContentVersionRef.current = contentVersion
+    }
+
+    return isReadable
+  }, [bottomReadableInset, contentVersion, markTailReadable, scrollContainerRef])
+
+  const handleScroll = useCallback(() => {
+    handleSmartScroll()
+    measureTailReadable()
+  }, [handleSmartScroll, measureTailReadable])
 
   // ── Manual scroll intent ──────────────────────────────────────────
   // On any manual scroll intent, transition to history mode.
@@ -245,6 +301,7 @@ export function useTimelineScrollController({
       focusMeasuredRef.current = false
       focusFillerHeightRef.current = 0
       setFocusFillerHeight(0)
+      markTailReadable()
       setFocusRoundId(roundId)
       setActiveRoundId(roundId)
       setMode('round-focus')
@@ -255,6 +312,7 @@ export function useTimelineScrollController({
     [
       cancelPendingRestoreScroll,
       cancelPendingScrollToBottom,
+      markTailReadable,
       setActiveRoundId,
       setFocusRoundId,
       setMode
@@ -298,6 +356,7 @@ export function useTimelineScrollController({
       const overflow = sentinelRect.bottom - readableBottom
 
       if (overflow <= 0) {
+        markTailReadable()
         markStickyBottomSeen(container.scrollTop)
         return
       }
@@ -309,9 +368,16 @@ export function useTimelineScrollController({
 
       markProgrammaticScroll()
       scrollElementTo(container, targetTop, behavior)
+      markTailReadable()
       markStickyBottomSeen(targetTop)
     },
-    [scrollContainerRef, bottomReadableInset, markProgrammaticScroll, markStickyBottomSeen]
+    [
+      scrollContainerRef,
+      bottomReadableInset,
+      markProgrammaticScroll,
+      markStickyBottomSeen,
+      markTailReadable
+    ]
   )
 
   // Scroll-to-bottom/FAB clears all controller focus state and scrolls to the
@@ -339,6 +405,7 @@ export function useTimelineScrollController({
     lastSeenContentVersionRef.current = contentVersion
     setFocusRoundId(null)
     setFocusFillerHeight(0)
+    setTailReadable(true)
     setUnreadCount(0)
     setMode('sticky-bottom')
     setActiveRoundId(null)
@@ -424,16 +491,8 @@ export function useTimelineScrollController({
     }
 
     const observer = new IntersectionObserver(
-      ([entry]) => {
-        const isReadable = entry?.isIntersecting ?? true
-        setTailReadable(isReadable)
-
-        // Update unread count when content changes while not at tail
-        if (isReadable) {
-          unreadCountRef.current = 0
-          setUnreadCount(0)
-          lastSeenContentVersionRef.current = contentVersion
-        }
+      () => {
+        measureTailReadable()
       },
       {
         root: scrollElement,
@@ -449,7 +508,7 @@ export function useTimelineScrollController({
       observer.disconnect()
       tailObserverRef.current = null
     }
-  }, [scrollContainerRef, contentVersion, bottomReadableInset])
+  }, [scrollContainerRef, contentVersion, bottomReadableInset, measureTailReadable])
 
   // Increment unread count when content changes while tail is not readable
   useEffect(() => {
@@ -515,6 +574,8 @@ export function useTimelineScrollController({
 
         if (ready && scrollModeRef.current === 'sticky-bottom' && canAutoFollow()) {
           scrollToTailReadable('instant')
+        } else {
+          measureTailReadable()
         }
       })
     }
@@ -546,7 +607,8 @@ export function useTimelineScrollController({
     metricsVersion,
     ready,
     scrollContainerRef,
-    scrollToTailReadable
+    scrollToTailReadable,
+    measureTailReadable
   ])
 
   // ── Re-sticky on overlay height change ────────────────────────────

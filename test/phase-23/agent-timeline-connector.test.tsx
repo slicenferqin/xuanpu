@@ -173,4 +173,28 @@ describe('AgentTimeline connector rendering', () => {
       'mcp__xuanpu__bash:git status --short'
     )
   })
+
+  it('uses the agent running row instead of the empty thinking pulse', () => {
+    render(
+      <AgentTimeline
+        timelineMessages={[]}
+        streamingContent=""
+        streamingParts={[]}
+        isStreaming
+        lifecycle="busy"
+        ephemeralStatusRows={[
+          {
+            id: 'running-session',
+            kind: 'running',
+            timestamp: Date.now(),
+            startedAt: Date.now(),
+            ephemeral: true
+          }
+        ]}
+      />
+    )
+
+    expect(screen.getByTestId('thread-status-running')).toBeInTheDocument()
+    expect(screen.queryByText(/Thinking|思考中/)).not.toBeInTheDocument()
+  })
 })

@@ -56,7 +56,7 @@ export interface CodexSessionState {
   revertDiff: string | null
   titleGenerated: boolean
   titleGenerationStarted: boolean
-  tokenUsageCostByTurn?: Map<string, number>
+  tokenUsageCostByEvent?: Map<string, number>
   /**
    * Per-session mapper state. Codex commandExecution streams stdout via
    * outputDelta chunks; the mapper aggregates them into state.output here so
@@ -729,28 +729,55 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     session: CodexSessionState,
     turnId: string | undefined,
     modelID: string,
-    tokens: { input: number; cacheRead: number; cacheWrite: number; output: number }
+    tokens: { input: number; cacheRead: number; cacheWrite: number; output: number },
+    totals?: {
+      totalInputTokens: number
+      totalCachedInputTokens: number
+      totalOutputTokens: number
+      totalReasoningTokens: number
+    }
   ): { cost?: number; requestId?: string } {
     if (!turnId) return {}
 
-    const costByTurn =
-      session.tokenUsageCostByTurn ?? (session.tokenUsageCostByTurn = new Map<string, number>())
-    const totalCost = calculateUsageCost(modelID, tokens, 'codex')
-    const previousCost = costByTurn.get(turnId) ?? 0
-    costByTurn.set(turnId, Math.max(previousCost, totalCost))
+    // Use event-keyed dedup instead of per-turn max.
+    // Each unique token-count event should only be counted once.
+    const costByEvent =
+      session.tokenUsageCostByEvent ?? (session.tokenUsageCostByEvent = new Map<string, number>())
 
-    const delta = Math.max(0, totalCost - previousCost)
-    if (delta <= 0) return {}
+    // Build event key matching the DB sourceEventId fingerprint.
+    // Use cumulative totals when available (same as persistCodexTokenCountEvent),
+    // fall back to delta values for backward compat.
+    const eventKey = totals
+      ? [
+          session.threadId ?? 'unknown',
+          turnId,
+          totals.totalInputTokens,
+          totals.totalCachedInputTokens,
+          totals.totalOutputTokens,
+          totals.totalReasoningTokens
+        ].join(':')
+      : [
+          turnId,
+          tokens.input,
+          tokens.cacheRead,
+          tokens.cacheWrite,
+          tokens.output
+        ].join(':')
+
+    const totalCost = calculateUsageCost(modelID, tokens, 'codex')
+
+    if (costByEvent.has(eventKey)) {
+      // Already counted this exact event
+      return {}
+    }
+
+    costByEvent.set(eventKey, totalCost)
 
     return {
-      cost: delta,
+      cost: totalCost,
       requestId: [
         'codex-context-usage',
-        turnId,
-        tokens.input,
-        tokens.cacheRead,
-        tokens.cacheWrite,
-        tokens.output
+        eventKey
       ].join(':')
     }
   }
@@ -759,15 +786,138 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
    * Persist a codex turn's token usage to `usage_entries`.
    *
    * Per-turn rows are keyed by `(session_id, source_message_id='codex-turn:<turnId>')`,
-   * so repeated `tokenUsage/updated` events for the same turn UPSERT (replace) and
-   * different turns accumulate. The values stored are the turn-local `lastTokens`
-   * (NOT the thread cumulative), so summing rows across a session reconstructs the
-   * thread total exactly once.
+   * Persist a single Codex token-count event to the v2 event-keyed ledger.
    *
-   * Cost is computed from the same `lastTokens` so it matches token detail; the
-   * runtime delta tracker (`calculateTurnTokenUsageCostDelta`) is unchanged.
+   * Each tokenUsage/updated notification gets its own row, keyed by a fingerprint
+   * of the cumulative totals. This ensures:
+   * - Duplicate notifications with the same cumulative total are ignored
+   * - Multiple events in the same turn each get their own row
+   * - Summing event deltas reconstructs the correct thread total
    */
-  private persistCodexTurnUsage(
+  private persistCodexTokenCountEvent(
+    session: CodexSessionState,
+    turnId: string | undefined,
+    modelID: string,
+    lastTokens: { input: number; cacheRead: number; cacheWrite: number; output: number; reasoning: number },
+    totals: {
+      totalInputTokens: number
+      totalCachedInputTokens: number
+      totalOutputTokens: number
+      totalReasoningTokens: number
+      lastInputTokens: number
+      lastCachedInputTokens: number
+      lastOutputTokens: number
+      lastReasoningTokens: number
+    },
+    contextWindow: number
+  ): void {
+    if (!this.dbService || !turnId) return
+
+    // total_tokens = input + output + cacheRead + cacheWrite
+    // reasoning is a subset of output, NOT additive
+    const total =
+      lastTokens.input + lastTokens.output + lastTokens.cacheRead + lastTokens.cacheWrite
+    if (total <= 0) return
+
+    try {
+      const dbSession = this.dbService.getSession(session.hiveSessionId)
+      if (!dbSession) return
+
+      // Build a stable event fingerprint from cumulative totals.
+      // If Codex ever exposes a native event id, use that instead.
+      const sourceEventId = [
+        session.threadId ?? 'unknown',
+        turnId,
+        totals.totalInputTokens,
+        totals.totalCachedInputTokens,
+        totals.totalOutputTokens,
+        totals.totalReasoningTokens
+      ].join(':')
+
+      // Cost uses input + output + cache (reasoning is subset of output)
+      const costTokens = {
+        input: lastTokens.input,
+        cacheRead: lastTokens.cacheRead,
+        cacheWrite: lastTokens.cacheWrite,
+        output: lastTokens.output
+      }
+      const cost = calculateUsageCost(modelID, costTokens, 'codex')
+      const pricingModelKey = resolvePricingModelKey(modelID, 'codex')
+
+      this.dbService.insertUsageEvent({
+        session_id: session.hiveSessionId,
+        project_id: dbSession.project_id,
+        worktree_id: dbSession.worktree_id ?? null,
+        agent_sdk: 'codex',
+        source_kind: 'codex-token-count',
+        source_event_id: sourceEventId,
+        runtime_session_id: session.threadId ?? null,
+        thread_id: session.threadId ?? null,
+        turn_id: turnId,
+        provider_id: 'codex',
+        model_id: pricingModelKey,
+        model_label: modelID,
+        input_tokens: lastTokens.input,
+        output_tokens: lastTokens.output,
+        reasoning_tokens: lastTokens.reasoning,
+        cache_write_tokens: lastTokens.cacheWrite,
+        cache_read_tokens: lastTokens.cacheRead,
+        total_tokens: total,
+        cost_estimate: cost,
+        occurred_at: new Date().toISOString()
+      })
+
+      // Update the session usage snapshot with cumulative totals
+      // total_tokens = input + output (reasoning is subset of output)
+      const snapshotTotalTokens = totals.totalInputTokens + totals.totalOutputTokens
+      this.dbService.upsertUsageSnapshot({
+        session_id: session.hiveSessionId,
+        agent_sdk: 'codex',
+        runtime_session_id: session.threadId ?? null,
+        thread_id: session.threadId ?? null,
+        provider_id: 'codex',
+        model_id: pricingModelKey,
+        model_label: modelID,
+        total_input_tokens: totals.totalInputTokens - totals.totalCachedInputTokens,
+        total_output_tokens: totals.totalOutputTokens,
+        total_reasoning_tokens: totals.totalReasoningTokens,
+        total_cache_write_tokens: 0,
+        total_cache_read_tokens: totals.totalCachedInputTokens,
+        total_tokens: snapshotTotalTokens,
+        total_cost_estimate: calculateUsageCost(
+          modelID,
+          {
+            input: totals.totalInputTokens - totals.totalCachedInputTokens,
+            cacheRead: totals.totalCachedInputTokens,
+            cacheWrite: 0,
+            output: totals.totalOutputTokens
+          },
+          'codex'
+        ),
+        context_used_tokens: totals.lastInputTokens,
+        context_window_tokens: contextWindow,
+        context_percent: contextWindow > 0 ? (totals.lastInputTokens / contextWindow) * 100 : 0,
+        source_kind: 'codex-token-count',
+        sync_status: 'synced',
+        last_event_at: new Date().toISOString()
+      })
+
+      // Also persist to legacy usage_entries for backward compatibility
+      this.persistCodexTurnUsageLegacy(session, turnId, modelID, lastTokens)
+    } catch (error) {
+      log.warn('Failed to persist codex token-count event', {
+        hiveSessionId: session.hiveSessionId,
+        turnId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
+  }
+
+  /**
+   * Legacy persistence to usage_entries for backward compatibility.
+   * This keeps the old behavior of one row per turn for existing consumers.
+   */
+  private persistCodexTurnUsageLegacy(
     session: CodexSessionState,
     turnId: string | undefined,
     modelID: string,
@@ -805,7 +955,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         occurred_at: new Date().toISOString()
       })
     } catch (error) {
-      log.warn('Failed to persist codex turn usage', {
+      log.warn('Failed to persist codex turn usage (legacy)', {
         hiveSessionId: session.hiveSessionId,
         turnId,
         error: error instanceof Error ? error.message : String(error)
@@ -964,23 +1114,39 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         targetSession,
         turnId,
         modelID,
-        lastTokens
+        lastTokens,
+        {
+          totalInputTokens,
+          totalCachedInputTokens,
+          totalOutputTokens,
+          totalReasoningTokens
+        }
       )
 
-      // Persist this turn's token usage so it survives app restart.
+      // Persist this token-count event to the v2 event-keyed ledger.
       //
-      // 历史问题：codex 之前只把 token 信息 emit 到 useContextStore（内存），
-      // 从不落库 → 应用一关，所有 codex 用量就只剩 cost 一个标量，明细全丢。
-      // ContextPanelHost 在打包版 / 开发版之间数据相差 11×，根因就是 in-memory
-      // 状态在两个进程之间无法共享。
+      // Previous behavior: one row per turnId, upserted on each tokenUsage/updated.
+      // This lost ~90% of data because a single turn can have many token-count events.
       //
-      // 修法：以 turnId 为唯一键（'codex-turn:${turnId}'）写一行 usage_entries，
-      // 同 turn 多次 tokenUsage/updated 通过 UPSERT 覆盖最新值；不同 turn 各自
-      // 累加，summary 路径就能准确算出 thread 总量。
-      //
-      // 使用 lastTokens（本 turn 增量）而不是 total（线程累计），避免 syncSession
-      // 触发时把同一线程的累计值重复计入。
-      this.persistCodexTurnUsage(targetSession, turnId, modelID, lastTokens)
+      // New behavior: one row per unique token-count event, keyed by a fingerprint
+      // of the cumulative totals. This allows correct aggregation by summing deltas.
+      this.persistCodexTokenCountEvent(
+        targetSession,
+        turnId,
+        modelID,
+        lastTokens,
+        {
+          totalInputTokens,
+          totalCachedInputTokens,
+          totalOutputTokens,
+          totalReasoningTokens,
+          lastInputTokens,
+          lastCachedInputTokens,
+          lastOutputTokens,
+          lastReasoningTokens
+        },
+        contextWindow
+      )
 
       emitAgentEvent(this.mainWindow, {
         type: 'session.context_usage',
@@ -1247,7 +1413,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       revertDiff: null,
       titleGenerated: false,
       titleGenerationStarted: false,
-      tokenUsageCostByTurn: new Map(),
+      tokenUsageCostByEvent: new Map(),
       mapperState: createCodexMapperState(),
       itemTimestampsByTurn: new Map(),
       recordedItemIdsByTurn: new Map()
@@ -1325,7 +1491,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         revertDiff: null,
         titleGenerated: true,
         titleGenerationStarted: true,
-        tokenUsageCostByTurn: new Map(),
+        tokenUsageCostByEvent: new Map(),
         mapperState: createCodexMapperState(),
         itemTimestampsByTurn: new Map(),
         recordedItemIdsByTurn: new Map()
@@ -3575,7 +3741,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         revertDiff: null,
         titleGenerated: true,
         titleGenerationStarted: true,
-        tokenUsageCostByTurn: new Map(),
+        tokenUsageCostByEvent: new Map(),
         mapperState: createCodexMapperState(),
         itemTimestampsByTurn: new Map(),
         recordedItemIdsByTurn: new Map()

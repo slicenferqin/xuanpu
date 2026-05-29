@@ -1865,6 +1865,8 @@ export const messages: Record<AppLocale, MessageTree> = {
         activeSessions: '{count} active sessions',
         inactiveSessions: '{count} inactive sessions',
         contextLimit: '{used} / {limit}',
+        contextPressure: 'Context Pressure',
+        dataQuality: 'Data Quality',
         worktree: 'Worktree',
         connection: 'Connection'
       },
@@ -4770,6 +4772,8 @@ export const messages: Record<AppLocale, MessageTree> = {
         activeSessions: '{count} 个活跃会话',
         inactiveSessions: '{count} 个非活跃会话',
         contextLimit: '{used} / {limit}',
+        contextPressure: '上下文压力',
+        dataQuality: '数据质量',
         worktree: 'Worktree',
         connection: '连接'
       },
