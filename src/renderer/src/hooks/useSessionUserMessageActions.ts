@@ -22,7 +22,6 @@ import { useSettingsStore } from '@/stores/useSettingsStore'
 
 type Translate = (key: string, params?: Record<string, string | number | boolean>) => string
 type ResetLiveOverlay = (nextIsStreaming: boolean) => void
-type PromptSettledHandler = () => Promise<void>
 
 export interface SessionRecordForUserMessageActions {
   id: string
@@ -49,7 +48,6 @@ export interface UseSessionUserMessageActionsOptions {
   promptOptions?: PendingMessagePromptOptions
   optimisticTimeline: OptimisticTimelineMessagesController
   resetLiveOverlay: ResetLiveOverlay
-  onPromptSettled?: PromptSettledHandler
   t: Translate
 }
 
@@ -85,7 +83,6 @@ export function useSessionUserMessageActions({
   promptOptions,
   optimisticTimeline,
   resetLiveOverlay,
-  onPromptSettled,
   t
 }: UseSessionUserMessageActionsOptions): UseSessionUserMessageActionsResult {
   const skipForkFromMessageConfirm = useSettingsStore((state) => state.skipForkFromMessageConfirm)
@@ -155,9 +152,9 @@ export function useSessionUserMessageActions({
 
         if (!consumed) {
           resetLiveOverlay(false)
-        } else {
-          await onPromptSettled?.()
         }
+        // Settlement is handled by useSessionEventSubscription on
+        // session.status idle / session.error — do not call onPromptSettled here.
       } catch (error) {
         console.error('[useSessionUserMessageActions] edit resend failed:', error)
         toast.error(t('sessionView.toasts.messageError'))
@@ -175,7 +172,6 @@ export function useSessionUserMessageActions({
       agentSdk,
       requestModel,
       promptOptions,
-      onPromptSettled,
       t
     ]
   )

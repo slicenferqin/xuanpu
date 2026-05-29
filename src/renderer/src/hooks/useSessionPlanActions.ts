@@ -22,7 +22,6 @@ import { useWorktreeStatusStore } from '@/stores/useWorktreeStatusStore'
 
 type Translate = (key: string, params?: Record<string, string | number | boolean>) => string
 type ResetLiveOverlay = (nextIsStreaming: boolean) => void
-type PromptSettledHandler = () => Promise<void>
 type TransitionToolStatus = (
   toolUseID: string,
   status: 'success' | 'error' | 'rejected',
@@ -44,7 +43,6 @@ interface UseSessionPlanActionsOptions {
   promptOptions?: PendingMessagePromptOptions
   optimisticTimeline: OptimisticTimelineMessagesController
   resetLiveOverlay: ResetLiveOverlay
-  onPromptSettled?: PromptSettledHandler
   transitionToolStatus: TransitionToolStatus
   refresh: () => Promise<TimelineMessage[]>
   t: Translate
@@ -71,7 +69,6 @@ export function useSessionPlanActions({
   promptOptions,
   optimisticTimeline,
   resetLiveOverlay,
-  onPromptSettled,
   transitionToolStatus,
   refresh,
   t
@@ -130,7 +127,7 @@ export function useSessionPlanActions({
         createOptimisticUserMessage({ content: implementPrompt })
       )
 
-      const consumed = await executeSendAction('send', implementPrompt, [], {
+      await executeSendAction('send', implementPrompt, [], {
         worktreePath,
         sessionId: runtimeSessionId,
         queueSessionId: sessionId,
@@ -141,9 +138,8 @@ export function useSessionPlanActions({
         abort: (wp, sid) => window.agentOps.abort(wp, sid),
         queueMessage: (sid, msg) => useSessionRuntimeStore.getState().queueMessage(sid, msg)
       })
-      if (consumed) {
-        await onPromptSettled?.()
-      }
+      // Settlement is handled by useSessionEventSubscription on
+      // session.status idle / session.error — do not call onPromptSettled here.
     } catch (err) {
       console.error('[SessionShell] plan implement failed:', err)
       toast.error(`Plan approve error: ${err instanceof Error ? err.message : String(err)}`)
@@ -159,7 +155,6 @@ export function useSessionPlanActions({
     sessionId,
     optimisticTimeline,
     resetLiveOverlay,
-    onPromptSettled,
     transitionToolStatus,
     requestModel,
     promptOptions

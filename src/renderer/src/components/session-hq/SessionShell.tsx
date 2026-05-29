@@ -41,8 +41,6 @@ import type { TimelineMessage } from '@shared/lib/timeline-types'
 import {
   beginLocalSessionRun,
   cancelLocalSessionRun,
-  clearStreamingBufferOptimisticMessages,
-  finishLocalSessionRun,
   getStreamingBufferSnapshot,
   subscribeToStreamingBuffer,
   updateStreamingBuffer
@@ -456,22 +454,6 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     optimisticRef.current = []
   }, [optimisticRef])
 
-  const settleLiveRunAfterPrompt = useCallback(async () => {
-    try {
-      const messages = await refresh()
-      syncMissionTasksFromMessages(messages)
-    } catch (error) {
-      console.warn(
-        '[SessionShell] prompt completion refresh failed:',
-        error instanceof Error ? error.message : String(error)
-      )
-    } finally {
-      clearOptimisticMessages()
-      clearStreamingBufferOptimisticMessages(sessionId)
-      finishLocalSessionRun(sessionId)
-    }
-  }, [clearOptimisticMessages, refresh, sessionId, syncMissionTasksFromMessages])
-
   usePendingInitialMessageSender({
     sessionId,
     worktreePath,
@@ -481,7 +463,6 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     buildPendingPromptOptions,
     optimisticTimeline,
     resetLiveOverlay,
-    onPromptSettled: settleLiveRunAfterPrompt
   })
 
   useSessionEventSubscription({
@@ -514,7 +495,6 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     optimisticTimeline,
     resetLiveOverlay,
     waitForAbortReady,
-    onPromptSettled: settleLiveRunAfterPrompt
   })
 
   const userMessageActions = useSessionUserMessageActions({
@@ -532,7 +512,6 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     promptOptions,
     optimisticTimeline,
     resetLiveOverlay,
-    onPromptSettled: settleLiveRunAfterPrompt,
     t
   })
 
@@ -552,7 +531,6 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     promptOptions,
     optimisticTimeline,
     resetLiveOverlay,
-    onPromptSettled: settleLiveRunAfterPrompt,
     transitionToolStatus,
     refresh,
     t

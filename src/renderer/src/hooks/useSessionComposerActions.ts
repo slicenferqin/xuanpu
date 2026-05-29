@@ -19,7 +19,6 @@ import {
 import { useSessionStore } from '@/stores/useSessionStore'
 
 type ResetLiveOverlay = (nextIsStreaming: boolean) => void
-type PromptSettledHandler = () => Promise<void>
 
 interface UseSessionComposerActionsOptions {
   sessionId: string
@@ -36,7 +35,6 @@ interface UseSessionComposerActionsOptions {
   optimisticTimeline: OptimisticTimelineMessagesController
   resetLiveOverlay: ResetLiveOverlay
   waitForAbortReady: () => Promise<void>
-  onPromptSettled?: PromptSettledHandler
 }
 
 interface UseSessionComposerActionsResult {
@@ -95,8 +93,7 @@ export function useSessionComposerActions({
   setSuccessCriteria,
   optimisticTimeline,
   resetLiveOverlay,
-  waitForAbortReady,
-  onPromptSettled
+  waitForAbortReady
 }: UseSessionComposerActionsOptions): UseSessionComposerActionsResult {
   const handleComposerAction = useCallback(
     async (
@@ -201,12 +198,6 @@ export function useSessionComposerActions({
           void refreshSessionLastMessageAt(sessionId)
           useDiffCommentStore.getState().clearAttachments()
         }
-        if (
-          consumed &&
-          (action === 'send' || action === 'stop_and_send' || action === 'reply_interrupt')
-        ) {
-          await onPromptSettled?.()
-        }
         if (!consumed && shouldClearGoalComposer) {
           setGoalMode(previousGoalMode)
           setSuccessCriteria(previousSuccessCriteria)
@@ -243,8 +234,7 @@ export function useSessionComposerActions({
       agentSdk,
       requestModel,
       promptOptions,
-      waitForAbortReady,
-      onPromptSettled
+      waitForAbortReady
     ]
   )
 
