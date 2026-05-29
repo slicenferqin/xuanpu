@@ -20,7 +20,7 @@ import { ThreadStatusRow, type ThreadStatusRowData } from '@/components/session-
 import type { SessionTask } from '@/lib/session-tasks'
 import { buildTimelineViewModel, type TimelineNode } from '@/lib/session-timeline/view-model'
 import type { TimelineCardType } from '@/lib/session-timeline/card-type'
-import { getTimelineSafeBottomPadding } from '@/lib/session-timeline/geometry'
+
 import {
   TimelineNodeFrame,
   type TimelineNodeIconConfig
@@ -40,8 +40,7 @@ import {
   Users,
   MessageSquare,
   User,
-  Loader2,
-  ChevronDown
+  Loader2
 } from 'lucide-react'
 
 // ---------------------------------------------------------------------------
@@ -156,30 +155,25 @@ export interface AgentTimelineProps {
    * to the content div; scroll geometry remains outside this renderer.
    */
   timelineContentRef?: React.RefObject<HTMLDivElement | null>
+  /**
+   * Ref for the tail sentinel element. Used by IntersectionObserver to
+   * determine tail readability against the bottom overlay.
+   */
+  tailSentinelRef?: React.RefObject<HTMLDivElement | null>
   onScroll?: () => void
   onWheel?: () => void
   onPointerDown?: () => void
   onPointerUp?: () => void
   onPointerCancel?: () => void
   /**
-   * Measured pixel height of the floating ComposerBar / dock so the scroll
-   * viewport can reserve enough bottom padding. The previous static value
-   * (`pb-[14.5rem]` = 232px) wasn't enough once the composer expanded
-   * (attachments preview, multi-line draft, slash popover, queue dropdown),
-   * causing the last few transcript nodes to render BEHIND the composer.
-  */
-  bottomFloatingHeight?: number
+   * Measured bottom readable inset (overlay height + breathing room).
+   * Used as paddingBottom so content is readable above the overlay.
+   */
+  bottomReadableInset?: number
   /** Spacer height computed by useTimelineScrollController for clear-screen rounds. */
   clearScreenSpacerHeight?: number
   activeRoundId?: string | null
   onRoundAnchorNavigate?: (roundId: string) => void
-  /**
-   * When true, shows a Telegram-style scroll-down indicator at the bottom of the
-   * timeline when streaming output extends beyond the viewport (indicated by
-   * showBottomGradient). Clicking it scrolls to the latest content.
-   */
-  showScrollIndicator?: boolean
-  onScrollIndicatorClick?: () => void
 }
 
 export function AgentTimeline({
@@ -209,17 +203,16 @@ export function AgentTimeline({
   forkingMessageId,
   scrollContainerRef,
   timelineContentRef: externalTimelineContentRef,
+  tailSentinelRef,
   onScroll,
   onWheel,
   onPointerDown,
   onPointerUp,
   onPointerCancel,
-  bottomFloatingHeight = 0,
+  bottomReadableInset = 72,
   clearScreenSpacerHeight = 0,
   activeRoundId = null,
-  onRoundAnchorNavigate,
-  showScrollIndicator = false,
-  onScrollIndicatorClick
+  onRoundAnchorNavigate
 }: AgentTimelineProps): React.JSX.Element {
   const { t } = useI18n()
   const internalScrollContainerRef = React.useRef<HTMLDivElement | null>(null)
@@ -270,23 +263,9 @@ export function AgentTimeline({
     }
   }, [effectiveScrollContainerRef])
 
-  // SessionShell 通过 CSS Grid 的 row-2 给 ComposerBar 留出了物理空间，
-  // 但 ComposerBar 自身的 `crisp-floating-surface` box-shadow 会向上扩散
-  // ~15px、`crisp-composer-veil` 渐变末段（70-100% 区段）浓度高达 ~82%，
-  // 这一带视觉上仍然在「压」transcript 最后一行。原先 hardcoded 的 24px
-  // 不够 breathing room，流式输出滚到底时最后一行紧贴这条视觉边界，
-  // 直观感受就是「输出跑到了输入框下面」。
-  //
-  // 这里改成跟随测量值 `bottomFloatingHeight`（composerHeight + dockHeight）
-  // 动态计算：保底 56px（容纳阴影 + veil + 一点呼吸），并按 0.3 比例随
-  // composer 扩展（attachments / voice / slash popover / 多行草稿）增长；
-  // 封顶 96px 避免内容很短时拉出过多空白。
-  //
-  // 数值落点示例：
-  //   60px (单行 composer, 无 dock) → 56px
-  //  160px (展开 composer, 无 dock) → 80px
-  //  280px (展开 + InterruptDock)   → 96px
-  const safeBottomPadding = getTimelineSafeBottomPadding(bottomFloatingHeight)
+  // Overlay model: use the measured bottomReadableInset directly.
+  // This replaces the old safeBottomPadding heuristic.
+  const paddingBottom = bottomReadableInset
 
   const renderNodeContent = (node: TimelineNode): React.JSX.Element | null => (
     <TimelineNodeRenderer
@@ -386,11 +365,10 @@ export function AgentTimeline({
       <div
         className="w-[85%] ml-[5%]"
         style={{
-          // SessionShell reserves real layout space for the floating composer.
-          // Keep only breathing room here so the final transcript node does not
-          // feel glued to that boundary.
+          // SessionShell measures the bottom overlay and passes the readable inset
+          // here, so native scrolling can expose the real tail above the composer.
           paddingTop: '24px',
-          paddingBottom: `${safeBottomPadding}px`
+          paddingBottom: `${paddingBottom}px`
         }}
       >
         <div className="flex items-start gap-4">
@@ -466,6 +444,17 @@ export function AgentTimeline({
               <ThreadStatusRow key={status.id} status={status} />
             ))}
 
+            {/* Tail sentinel: represents the real content tail.
+                Must be before the clear-screen/focus filler, because filler
+                is a layout affordance, not real content. */}
+            <div
+              ref={tailSentinelRef}
+              data-timeline-tail-sentinel="true"
+              data-testid="timeline-tail-sentinel"
+              className="h-px w-full"
+              aria-hidden="true"
+            />
+
             {/* Clear-screen spacer: value is computed by useTimelineScrollController,
                 which is the single owner of timeline scroll geometry. */}
             {clearScreenSpacerHeight > 0 && nodes.length > 0 && (
@@ -503,21 +492,6 @@ export function AgentTimeline({
           showBottomGradient ? 'opacity-100' : 'opacity-0'
         )}
       />
-      {/* Telegram-style scroll indicator: shown during streaming when content extends below.
-          Appears above the bottom gradient, pointing downward to indicate more content. */}
-      {isStreaming && showScrollIndicator && showBottomGradient && (
-        <button
-          type="button"
-          onClick={onScrollIndicatorClick}
-          className="absolute bottom-8 left-1/2 z-20 -translate-x-1/2 cursor-pointer rounded-full bg-primary/90 px-4 py-2 shadow-lg transition-all duration-200 hover:bg-primary hover:scale-105 active:scale-95"
-          data-testid="scroll-to-bottom-indicator"
-        >
-          <div className="flex items-center gap-1.5 text-xs font-medium text-primary-foreground">
-            <span>{t('sessionHq.timeline.scrollIndicatorText')}</span>
-            <ChevronDown className="h-3.5 w-3.5 animate-bounce" />
-          </div>
-        </button>
-      )}
     </div>
   )
 }

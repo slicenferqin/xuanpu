@@ -5,7 +5,6 @@ import {
   type SessionViewState
 } from '@/lib/session-view-registry'
 
-const BOTTOM_AREA_COMPENSATE_THRESHOLD = 96
 const DEFAULT_SCROLL_FAB_OFFSET = 16
 const MIN_NEAR_BOTTOM_THRESHOLD = 80
 
@@ -35,6 +34,11 @@ interface UseSessionSmartScrollOptions {
    * Once true, smart-scroll respects 'history' mode and doesn't re-enter.
    */
   manualScrollLockedRef?: React.RefObject<boolean>
+  /**
+   * Lets a higher-level controller own overlay-aware auto-follow. Smart scroll
+   * still owns anchor persistence and manual-intent tracking.
+   */
+  disableAutoFollow?: boolean
 }
 
 interface UseSessionSmartScrollResult {
@@ -50,19 +54,14 @@ interface UseSessionSmartScrollResult {
   handleScrollPointerCancel: () => void
   handleScrollToBottomClick: () => void
   scrollToOffset: (top: number, behavior?: ScrollBehavior) => void
+  markProgrammaticScroll: () => void
+  markStickyBottomSeen: (scrollTop?: number) => void
+  canAutoFollow: () => boolean
   cancelPendingScrollToBottom: () => void
   cancelPendingRestoreScroll: () => void
 }
 
 // ── Distance helpers ────────────────────────────────────────────────
-
-/**
- * Distance to scrollable end (includes filler).
- * Used for native scroll boundary detection.
- */
-function getDistanceToScrollableEnd(element: HTMLDivElement): number {
-  return element.scrollHeight - element.scrollTop - element.clientHeight
-}
 
 /**
  * Distance to real content end (excludes filler).
@@ -104,7 +103,8 @@ export function useSessionSmartScroll({
   composerRef,
   focusFillerHeightRef,
   scrollModeRef,
-  manualScrollLockedRef
+  manualScrollLockedRef,
+  disableAutoFollow = false
 }: UseSessionSmartScrollOptions): UseSessionSmartScrollResult {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const programmaticScrollResetRef = useRef<number | null>(null)
@@ -188,6 +188,34 @@ export function useSessionSmartScroll({
       })
     })
   }, [])
+
+  const markStickyBottomSeen = useCallback(
+    (scrollTop?: number): void => {
+      const element = scrollContainerRef.current
+      const nextTop = Math.max(0, scrollTop ?? element?.scrollTop ?? viewStateRef.current.scrollTop)
+
+      writeViewState(
+        () => ({
+          scrollTop: nextTop,
+          stickyBottom: true,
+          manualScrollLocked: false,
+          lastSeenVersion: mirrorVersion
+        }),
+        { syncState: true }
+      )
+      lastScrollTopRef.current = nextTop
+    },
+    [mirrorVersion, writeViewState]
+  )
+
+  const canAutoFollow = useCallback((): boolean => {
+    const current = viewStateRef.current
+    return (
+      current.stickyBottom &&
+      !current.manualScrollLocked &&
+      !(manualScrollLockedRef?.current ?? false)
+    )
+  }, [manualScrollLockedRef])
 
   const resetInteractionState = useCallback(() => {
     if (programmaticScrollResetRef.current !== null) {
@@ -410,6 +438,7 @@ export function useSessionSmartScroll({
   // filler shrinks. We should NOT scrollToBottom during this phase.
   useEffect(() => {
     if (!ready || !hasRestoredInitialAnchorRef.current) return
+    if (disableAutoFollow) return
 
     // Round-focus: let the controller manage scroll position
     if (getScrollMode() === 'round-focus') return
@@ -430,7 +459,7 @@ export function useSessionSmartScroll({
 
     if (!viewStateRef.current.stickyBottom) return
     scrollToBottom()
-  }, [contentVersion, isStreaming, mirrorVersion, ready, scrollToBottom])
+  }, [contentVersion, disableAutoFollow, isStreaming, mirrorVersion, ready, scrollToBottom])
 
   // Bottom area resize compensation.
   // Skip during round-focus to avoid pulling user message away from top.
@@ -451,29 +480,10 @@ export function useSessionSmartScroll({
 
     const observers: ResizeObserver[] = []
     const handleResize = () => {
-      const scrollElement = scrollContainerRef.current
-      if (!scrollElement) return
-
-      // Skip compensation during round-focus
-      if (getScrollMode() === 'round-focus') return
-
-      const distanceFromBottom = getDistanceToContentEnd(scrollElement, getFillerHeight())
-      const shouldCompensate = isStreamingRef.current
-        ? !viewStateRef.current.manualScrollLocked
-        : viewStateRef.current.stickyBottom ||
-          distanceFromBottom < BOTTOM_AREA_COMPENSATE_THRESHOLD
-
-      if (!shouldCompensate) return
-
-      if (bottomAreaScrollRafRef.current !== null) {
-        cancelAnimationFrame(bottomAreaScrollRafRef.current)
-      }
-
-      bottomAreaScrollRafRef.current = requestAnimationFrame(() => {
-        bottomAreaScrollRafRef.current = null
-        resetInteractionState()
-        scrollToBottom('instant')
-      })
+      // Overlay mode: composer height changes don't affect timeline clientHeight.
+      // bottomReadableInset is handled by SessionShell, and the controller
+      // recomputes filler when inset changes. No need for scrollToBottom here.
+      return
     }
 
     const observedTargets: Array<
@@ -504,13 +514,7 @@ export function useSessionSmartScroll({
         bottomAreaScrollRafRef.current = null
       }
     }
-  }, [
-    bottomAreaRef,
-    composerRef,
-    resetInteractionState,
-    scrollToBottom,
-    sessionId
-  ])
+  }, [bottomAreaRef, composerRef, resetInteractionState, scrollToBottom, sessionId])
 
   useEffect(() => {
     return () => {
@@ -534,7 +538,10 @@ export function useSessionSmartScroll({
   const showScrollFab = (() => {
     const element = scrollContainerRef.current
     if (!element) return !viewState.stickyBottom && scrollFabCount > 0
-    return getDistanceToContentEnd(element, getFillerHeight()) > getNearBottomThreshold() && scrollFabCount > 0
+    return (
+      getDistanceToContentEnd(element, getFillerHeight()) > getNearBottomThreshold() &&
+      scrollFabCount > 0
+    )
   })()
 
   const scrollFabBottomOffset = useMemo(() => {
@@ -555,6 +562,9 @@ export function useSessionSmartScroll({
     handleScrollPointerCancel,
     handleScrollToBottomClick,
     scrollToOffset,
+    markProgrammaticScroll,
+    markStickyBottomSeen,
+    canAutoFollow,
     cancelPendingScrollToBottom,
     cancelPendingRestoreScroll
   }

@@ -308,8 +308,13 @@ export function buildTimelineViewModel({
   activeRunStartedAt,
   suppressTodoCards
 }: TimelineViewModelInput): TimelineViewModel {
+  // Keep the run cutoff active as long as activeRunStartedAt is set,
+  // even after isStreaming goes false. This prevents committed assistant
+  // messages from flashing into view before refresh() delivers the
+  // definitive ordering. The event subscription clears runStartedAt
+  // after refresh completes.
   const runCutoffMs =
-    isStreaming && activeRunStartedAt != null
+    activeRunStartedAt != null
       ? typeof activeRunStartedAt === 'number'
         ? activeRunStartedAt
         : Date.parse(activeRunStartedAt)

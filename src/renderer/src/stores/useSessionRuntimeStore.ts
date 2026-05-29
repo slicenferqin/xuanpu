@@ -342,6 +342,38 @@ export function clearStreamingBufferOverlay(
   )
 }
 
+/**
+ * Clear `runStartedAt` after an idle transition's refresh() has completed.
+ * Called by the event subscription to lift the view-model filter only once
+ * the committed message ordering is definitive.
+ */
+export function clearStreamingBufferRunState(sessionId: string): StreamingBuffer {
+  return updateStreamingBuffer(
+    sessionId,
+    (current) => {
+      if (current.runStartedAt === undefined) return current
+      return { ...current, runStartedAt: undefined }
+    },
+    { notify: 'immediate' }
+  )
+}
+
+/**
+ * Clear optimistic messages from the streaming buffer after refresh
+ * confirms committed messages are back. Prevents stale optimistic
+ * bubbles from resurrecting on tab switch / remount.
+ */
+export function clearStreamingBufferOptimisticMessages(sessionId: string): StreamingBuffer {
+  return updateStreamingBuffer(
+    sessionId,
+    (current) => {
+      if (!current.optimisticMessages || current.optimisticMessages.length === 0) return current
+      return { ...current, optimisticMessages: undefined }
+    },
+    { notify: 'immediate' }
+  )
+}
+
 export function syncStreamingBufferGuardState(
   sessionId: string,
   state: SessionEventGuardState,
@@ -592,10 +624,16 @@ export function writeEventToStreamingBuffer(
           // back would show an empty (or near-empty) transcript until the
           // next user message. The next send calls resetLiveOverlay(true)
           // to clear, so there's no need to do it here.
+          //
+          // IMPORTANT: Keep `runStartedAt` alive. The event subscription's
+          // idle handler calls refresh() asynchronously; clearing the filter
+          // cutoff before refresh lands causes committed assistant messages
+          // to flash above the optimistic user message. The event subscription
+          // clears runStartedAt after refresh completes via
+          // clearStreamingBufferRunState().
           return {
             ...current,
-            isStreaming: false,
-            runStartedAt: undefined
+            isStreaming: false
           }
         }
 
@@ -623,10 +661,9 @@ export function writeEventToStreamingBuffer(
       }
 
       if (event.type === 'session.error') {
-        return {
-          ...current,
-          runStartedAt: undefined
-        }
+        // Keep runStartedAt — same rationale as the idle handler.
+        // The event subscription will clear it after refresh completes.
+        return current
       }
 
       return current

@@ -301,7 +301,7 @@ describe('useSessionSmartScroll', () => {
     })
   })
 
-  it('compensates bottom-area height changes when already anchored near the bottom', () => {
+  it('does not auto-scroll on bottom-area resize in overlay mode', () => {
     const { rerender } = render(
       <SmartScrollHarness
         sessionId="session-a"
@@ -324,13 +324,18 @@ describe('useSessionSmartScroll', () => {
       <SmartScrollHarness sessionId="session-a" mirrorVersion={2} contentVersion={1} ready={true} />
     )
 
+    // Record scroll position after ready transition (restoreScrollAnchor may scroll to bottom)
+    const scrollTopAfterReady = scrollTop.current
+
     scrollHeight.current = 1440
     act(() => {
       getObserverFor(bottomArea).trigger(96)
       getObserverFor(composer).trigger(120)
     })
 
-    expect(scrollTop.current).toBe(1040)
+    // Overlay mode: composer height changes don't affect timeline clientHeight.
+    // Scroll position should remain unchanged after resize.
+    expect(scrollTop.current).toBe(scrollTopAfterReady)
     expect(
       Number(screen.getByTestId('smart-scroll-fab-offset').textContent)
     ).toBeGreaterThanOrEqual(152)
@@ -362,12 +367,7 @@ describe('useSessionSmartScroll', () => {
     attachHeight(composer, 80)
 
     rerender(
-      <SmartScrollHarness
-        sessionId="session-a"
-        mirrorVersion={2}
-        contentVersion={1}
-        ready={true}
-      />
+      <SmartScrollHarness sessionId="session-a" mirrorVersion={2} contentVersion={1} ready={true} />
     )
 
     scrollHeight.current = 1440
@@ -378,7 +378,7 @@ describe('useSessionSmartScroll', () => {
     expect(scrollTop.current).toBe(320)
   })
 
-  it('keeps streaming output anchored when composer height changes during clear-screen mode', () => {
+  it('does not auto-scroll on composer resize during streaming in overlay mode', () => {
     setSessionViewState('session-a', {
       stickyBottom: true,
       manualScrollLocked: false,
@@ -391,7 +391,6 @@ describe('useSessionSmartScroll', () => {
         mirrorVersion={2}
         contentVersion={1}
         ready={false}
-
         isStreaming
       />
     )
@@ -409,17 +408,21 @@ describe('useSessionSmartScroll', () => {
         mirrorVersion={2}
         contentVersion={1}
         ready={true}
-
         isStreaming
       />
     )
+
+    // Record scroll position after ready transition
+    const scrollTopAfterReady = scrollTop.current
 
     scrollHeight.current = 1440
     act(() => {
       getObserverFor(composer).trigger(160)
     })
 
-    expect(scrollTop.current).toBe(1040)
+    // Overlay mode: composer height changes don't affect timeline clientHeight.
+    // Scroll position should remain unchanged after resize.
+    expect(scrollTop.current).toBe(scrollTopAfterReady)
   })
 
   it('scrolls to a programmatic turn-top offset without re-enabling sticky bottom', () => {
@@ -429,7 +432,6 @@ describe('useSessionSmartScroll', () => {
         mirrorVersion={5}
         contentVersion={1}
         ready={false}
-
       />
     )
 
@@ -439,13 +441,7 @@ describe('useSessionSmartScroll', () => {
     attachScrollMetrics(scroller, { scrollTop, scrollHeight, clientHeight: 500 })
 
     rerender(
-      <SmartScrollHarness
-        sessionId="session-a"
-        mirrorVersion={5}
-        contentVersion={1}
-        ready={true}
-
-      />
+      <SmartScrollHarness sessionId="session-a" mirrorVersion={5} contentVersion={1} ready={true} />
     )
 
     fireEvent.click(screen.getByTestId('smart-scroll-offset-button'))
@@ -466,7 +462,6 @@ describe('useSessionSmartScroll', () => {
         mirrorVersion={5}
         contentVersion={1}
         ready={false}
-
       />
     )
 
@@ -476,12 +471,7 @@ describe('useSessionSmartScroll', () => {
     attachScrollMetrics(scroller, { scrollTop, scrollHeight, clientHeight: 500 })
 
     rerender(
-      <SmartScrollHarness
-        sessionId="session-a"
-        mirrorVersion={5}
-        contentVersion={1}
-        ready={true}
-      />
+      <SmartScrollHarness sessionId="session-a" mirrorVersion={5} contentVersion={1} ready={true} />
     )
 
     fireEvent.click(screen.getByTestId('smart-scroll-fab-button'))
@@ -508,7 +498,8 @@ describe('useSessionSmartScroll', () => {
     expect(source).toContain("scrollToBottom('instant')")
     expect(source).toContain('getNearBottomThreshold')
     expect(source).toContain('window.innerHeight * 0.06')
-    expect(source).toContain('BOTTOM_AREA_COMPENSATE_THRESHOLD')
+    expect(source).toContain('disableAutoFollow')
+    expect(source).toContain('markStickyBottomSeen')
     expect(source).toContain('focusFillerHeightRef')
   })
 })

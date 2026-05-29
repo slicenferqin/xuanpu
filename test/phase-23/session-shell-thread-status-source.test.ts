@@ -175,7 +175,7 @@ describe('SessionShell thread status flow (source verification)', () => {
       "import { useTimelineScrollController } from '@/hooks/useTimelineScrollController'"
     )
     expect(source).toContain('const timelineScroll = useTimelineScrollController({')
-    expect(source).toContain('count={timelineScroll.scrollFabCount}')
+    expect(source).toContain('count={timelineScroll.unreadCount}')
     expect(source).toContain('scrollContainerRef={timelineScroll.scrollContainerRef}')
     expect(source).toContain('containerRef={composerBarRef}')
   })
