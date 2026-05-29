@@ -1,12 +1,12 @@
 /**
  * TextCard — Renders plain assistant text content (non-tool, non-reasoning).
  *
- * Renders inline without the ActionCard wrapper — text is the main content
- * flow and should not look like a "card action".
+ * Now delegates to ReadableMessage for the Session HQ visual system v2.
+ * Kept as a compatibility wrapper — new code should import ReadableMessage directly.
  */
 
 import React from 'react'
-import { MarkdownRenderer } from '../../sessions/MarkdownRenderer'
+import { ReadableMessage } from '../readable/ReadableMessage'
 
 interface TextCardProps {
   content: string
@@ -14,14 +14,5 @@ interface TextCardProps {
 }
 
 export function TextCard({ content, isStreaming = false }: TextCardProps): React.JSX.Element {
-  return (
-    <div className="rounded-xl bg-agent-card/80 px-4 py-3">
-      <div className="prose prose-sm dark:prose-invert crisp-readable max-w-none text-sm text-foreground">
-        <MarkdownRenderer content={content} />
-        {isStreaming && (
-          <span className="inline-block w-[3px] h-[1.1em] bg-foreground/60 ml-0.5 align-text-bottom animate-pulse" />
-        )}
-      </div>
-    </div>
-  )
+  return <ReadableMessage content={content} isStreaming={isStreaming} />
 }

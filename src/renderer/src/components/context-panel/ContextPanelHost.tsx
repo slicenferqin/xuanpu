@@ -26,7 +26,10 @@ import { GoalStatusCard } from '@/components/session-hq/cards/GoalStatusCard'
 import { TodoCard } from '@/components/session-hq/cards/TodoCard'
 import { FieldContextDebug } from '@/components/sessions/FieldContextDebug'
 import { extractMissionTasks, type SessionTask } from '@/lib/session-tasks'
-import type { UsageAnalyticsScopeSummary } from '@shared/types/usage-analytics'
+import type {
+  UsageAnalyticsScopeSummary,
+  UsageAnalyticsSessionSummary
+} from '@shared/types/usage-analytics'
 
 interface ContextPanelHostProps {
   worktreePath: string | null
@@ -124,81 +127,310 @@ function EmptyPanel({
   )
 }
 
-function OverviewTokenRow({
+function MetricRow({
   label,
-  amount,
   value,
-  max,
-  tone = 'default'
+  alert = false
 }: {
   label: string
-  amount: number
   value: string
-  max: number
-  tone?: 'mint' | 'lavender' | 'muted'
+  alert?: boolean
 }): React.JSX.Element {
-  const percent =
-    max > 0 && Number.isFinite(amount) && amount > 0 ? Math.max(3, (amount / max) * 100) : 0
-
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0 truncate text-[11px] font-medium text-muted-foreground">
-          {label}
-        </div>
-        <div
+    <div className="flex items-center justify-between gap-2 py-0.5">
+      <div className="min-w-0 truncate text-[11px] text-xp-telemetry-muted">{label}</div>
+      <div
+        className={cn(
+          'shrink-0 font-mono text-[11px] tabular-nums',
+          alert ? 'text-xp-intent-danger font-medium' : 'text-xp-telemetry-text'
+        )}
+      >
+        {value}
+      </div>
+    </div>
+  )
+}
+
+function ContextBar({
+  used,
+  max,
+  percent,
+  alert
+}: {
+  used: number
+  max: number
+  percent: number | null
+  alert: boolean
+}): React.JSX.Element {
+  const pct = percent ?? (max > 0 ? (used / max) * 100 : 0)
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-[10px]">
+        <span className="text-xp-telemetry-muted">
+          {formatCompactNumber(used)} / {formatCompactNumber(max)}
+        </span>
+        <span
           className={cn(
-            'shrink-0 font-mono text-xs font-medium tabular-nums',
-            tone === 'muted' ? 'text-muted-foreground/80' : 'text-steel'
+            'font-mono tabular-nums',
+            alert ? 'text-xp-intent-danger font-medium' : 'text-xp-telemetry-text'
           )}
         >
-          {value}
-        </div>
+          {pct.toFixed(1)}%
+        </span>
       </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-neon-mint-soft/80">
+      <div className="h-1 overflow-hidden rounded-full bg-xp-telemetry-track">
         <div
           className={cn(
-            'h-full rounded-full',
-            tone === 'mint'
-              ? 'bg-neon-mint'
-              : tone === 'lavender'
-                ? 'bg-neon-violet/75'
-                : 'bg-steel/25'
+            'h-full rounded-full transition-all',
+            alert ? 'bg-xp-intent-danger' : 'bg-xp-telemetry-text/30'
           )}
-          style={{ width: `${Math.min(percent, 100)}%` }}
+          style={{ width: `${Math.min(pct, 100)}%` }}
         />
       </div>
     </div>
   )
 }
 
-function OverviewHeroMetric({
-  label,
-  value,
-  tone = 'default'
-}: {
-  label: string
-  value: string
-  tone?: 'default' | 'cost' | 'tokens'
-}): React.JSX.Element {
+function SectionLabel({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
-    <div className="relative flex min-w-0 flex-col gap-1 overflow-hidden rounded-[10px] border border-sidebar-border bg-agent-card px-3.5 py-2">
-      <div
-        className={cn(
-          'absolute left-0 right-0 top-0 h-0.5',
-          tone === 'cost' ? 'bg-neon-pink' : tone === 'tokens' ? 'bg-neon-mint' : 'bg-tech-blue'
-        )}
+    <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-xp-telemetry-muted">
+      {children}
+    </div>
+  )
+}
+
+function OverviewPanel({
+  sessions,
+  worktreePath,
+  scopeLabel,
+  scopeId,
+  isConnectionMode,
+  activeSessionId
+}: {
+  sessions: OverviewSession[]
+  worktreePath: string | null
+  scopeLabel: string
+  scopeId: string | null
+  isConnectionMode: boolean
+  activeSessionId: string | null
+}): React.JSX.Element {
+  const { t } = useI18n()
+  const sessionIds = useMemo(() => sessions.map((session) => session.id), [sessions])
+  const sessionIdsKey = sessionIds.join('|')
+  const activeSessionCount = sessions.filter((session) => session.status === 'active').length
+  const inactiveSessionCount = Math.max(0, sessions.length - activeSessionCount)
+  const sessionBreakdownTitle = [
+    t('contextPanel.overview.activeSessions', { count: activeSessionCount }),
+    t('contextPanel.overview.inactiveSessions', { count: inactiveSessionCount })
+  ].join('\n')
+
+  const [sessionSummary, setSessionSummary] = useState<UsageAnalyticsSessionSummary | null>(null)
+  const [scopeSummary, setScopeSummary] = useState<UsageAnalyticsScopeSummary | null>(null)
+
+  const liveTokens = useContextStore(
+    useShallow((state) => (activeSessionId ? state.tokensBySession[activeSessionId] : null))
+  )
+  const liveCost = useContextStore(
+    useShallow((state) => (activeSessionId ? (state.costBySession[activeSessionId] ?? 0) : 0))
+  )
+
+  const activityTick = useSessionRuntimeStore((state) =>
+    activeSessionId ? state.sessions.get(activeSessionId)?.lastActivityAt ?? 0 : 0
+  )
+
+  // Fetch current session summary
+  useEffect(() => {
+    let cancelled = false
+    if (!activeSessionId || !window.usageAnalyticsOps?.fetchSessionSummary) {
+      setSessionSummary(null)
+      return () => { cancelled = true }
+    }
+
+    window.usageAnalyticsOps.fetchSessionSummary(activeSessionId).then((result) => {
+      if (cancelled) return
+      setSessionSummary(result.success && result.data ? result.data : null)
+    }).catch(() => {
+      if (!cancelled) setSessionSummary(null)
+    })
+
+    return () => { cancelled = true }
+  }, [activeSessionId, activityTick])
+
+  // Fetch worktree aggregate
+  useEffect(() => {
+    let cancelled = false
+    if (sessionIds.length === 0 || !scopeId || !window.usageAnalyticsOps?.fetchScopeSummary) {
+      setScopeSummary(null)
+      return () => { cancelled = true }
+    }
+
+    const scopeType = isConnectionMode ? 'connection' : 'worktree'
+    window.usageAnalyticsOps.fetchScopeSummary(scopeId, scopeType, sessionIds).then((result) => {
+      if (cancelled) return
+      setScopeSummary(result.success && result.data ? result.data : null)
+    }).catch(() => {
+      if (!cancelled) setScopeSummary(null)
+    })
+
+    return () => { cancelled = true }
+  }, [sessionIds, sessionIdsKey, scopeId, isConnectionMode])
+
+  if (!worktreePath && sessionIds.length === 0) {
+    return (
+      <EmptyPanel
+        title={t('contextPanel.empty.noWorktree')}
+        description={t('contextPanel.empty.noSessionDescription')}
       />
-      <div className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/85">
-        {label}
-      </div>
-      <div
-        className={cn(
-          'shrink-0 whitespace-nowrap font-mono text-[24px] font-semibold leading-none tabular-nums tracking-tight',
-          tone === 'cost' ? 'text-neon-pink' : tone === 'tokens' ? 'text-neon-mint' : 'text-ink'
+    )
+  }
+
+  // ── Current Session data ──
+  const sCost = (sessionSummary?.total_cost ?? 0) > 0 ? sessionSummary!.total_cost : liveCost
+  const sTokens = (sessionSummary?.total_tokens ?? 0) > 0 ? sessionSummary!.total_tokens : 0
+  const sInput = (sessionSummary?.input_tokens ?? 0) > 0
+    ? sessionSummary!.input_tokens
+    : (liveTokens ? liveTokens.input : 0)
+  const sOutput = (sessionSummary?.output_tokens ?? 0) > 0
+    ? sessionSummary!.output_tokens
+    : (liveTokens ? liveTokens.output : 0)
+  const sCacheRead = (sessionSummary?.cache_read_tokens ?? 0) > 0
+    ? sessionSummary!.cache_read_tokens
+    : (liveTokens ? liveTokens.cacheRead : 0)
+  const sCacheWrite = (sessionSummary?.cache_write_tokens ?? 0) > 0
+    ? sessionSummary!.cache_write_tokens
+    : (liveTokens ? liveTokens.cacheWrite : 0)
+  const sCacheTotal = sCacheRead + sCacheWrite + sInput
+  const sCacheHitRate = sCacheTotal > 0 ? Math.round((sCacheRead / sCacheTotal) * 100) : null
+  // Live tokens total (for when session summary has no data)
+  const liveTokensTotal = liveTokens
+    ? liveTokens.input + liveTokens.output + liveTokens.cacheRead + liveTokens.cacheWrite
+    : 0
+  const sTokensDisplay = sTokens > 0 ? sTokens : liveTokensTotal
+  const sModel = sessionSummary?.latest_model_label ?? null
+  const sDuration = sessionSummary?.duration_seconds ?? 0
+  const sPartial = sessionSummary?.partial ?? false
+
+  // ── Worktree Aggregate data ──
+  const wCost = scopeSummary?.total_cost ?? 0
+  const wTokens = scopeSummary?.total_tokens ?? 0
+  const wSessionCount = scopeSummary?.session_count ?? sessionIds.length
+  const wCoverage = scopeSummary?.coverage
+
+  // Context is per-session only — do not aggregate
+  const contextUsed = sessionSummary
+    ? (sessionSummary.input_tokens + sessionSummary.output_tokens)
+    : (liveTokens ? liveTokens.input + liveTokens.output : null)
+  const contextWindow = null // Will come from snapshot when available
+  const contextPercent = null
+
+  return (
+    <div className="min-h-0 flex-1 overflow-auto px-2.5 py-3" data-testid="context-panel-overview">
+      <div className="space-y-3">
+
+        {/* ── Current Session ── */}
+        <section className="space-y-2">
+          <div className="flex items-center justify-between">
+            <SectionLabel>{t('contextPanel.inspector.currentSession')}</SectionLabel>
+            {sPartial && (
+              <span className="text-[9px] font-medium text-xp-intent-warning bg-xp-intent-warning/10 rounded px-1 py-0.5">
+                {t('contextPanel.inspector.partial')}
+              </span>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-xp-telemetry-border bg-xp-ops-surface-muted px-3 py-2 space-y-1">
+            <MetricRow label={t('contextPanel.overview.cost')} value={formatCost(sCost)} />
+            <MetricRow label={t('contextPanel.overview.tokens')} value={formatCompactNumber(sTokensDisplay)} />
+            {sModel && (
+              <MetricRow label={t('contextPanel.inspector.model')} value={sModel} />
+            )}
+            {sDuration > 0 && (
+              <MetricRow
+                label={t('contextPanel.inspector.duration')}
+                value={sDuration < 60 ? `${sDuration}s` : `${Math.round(sDuration / 60)}m`}
+              />
+            )}
+          </div>
+
+          {/* Token breakdown */}
+          {(sInput > 0 || sOutput > 0 || sCacheRead > 0) && (
+            <div className="rounded-lg border border-xp-telemetry-border bg-xp-ops-surface-muted px-3 py-2 space-y-1">
+              <SectionLabel>{t('contextPanel.inspector.tokenBreakdown')}</SectionLabel>
+              <MetricRow label={t('contextPanel.overview.input')} value={formatCompactNumber(sInput)} />
+              <MetricRow label={t('contextPanel.overview.output')} value={formatCompactNumber(sOutput)} />
+              <MetricRow label={t('contextPanel.overview.cacheRead')} value={formatCompactNumber(sCacheRead)} />
+              {sCacheHitRate !== null && (
+                <MetricRow
+                  label={t('contextPanel.overview.cacheHitRate')}
+                  value={`${sCacheHitRate}% (${formatCompactNumber(sCacheRead)} / ${formatCompactNumber(sCacheTotal)})`}
+                />
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* ── Context ── */}
+        {contextUsed !== null && contextUsed > 0 && (
+          <section className="space-y-1.5">
+            <SectionLabel>{t('contextPanel.overview.contextPressure')}</SectionLabel>
+            <div className="rounded-lg border border-xp-telemetry-border bg-xp-ops-surface-muted px-3 py-2">
+              {contextWindow && contextWindow > 0 ? (
+                <ContextBar used={contextUsed} max={contextWindow} percent={contextPercent} alert={false} />
+              ) : (
+                <MetricRow label={t('contextPanel.inspector.contextUsed')} value={formatCompactNumber(contextUsed)} />
+              )}
+            </div>
+          </section>
         )}
-      >
-        {value}
+
+        {/* ── Worktree Aggregate ── */}
+        <section className="space-y-1.5">
+          <SectionLabel>
+            {scopeLabel} · {t('contextPanel.inspector.aggregate')}
+            <span
+              className="ml-1 inline-flex h-3.5 w-3.5 translate-y-[1px] items-center justify-center rounded-full border border-xp-telemetry-border text-xp-telemetry-muted"
+              aria-label={t('contextPanel.overview.sessionBreakdownLabel')}
+              title={sessionBreakdownTitle}
+            >
+              <HelpCircle className="h-2.5 w-2.5" />
+            </span>
+          </SectionLabel>
+          <div className="rounded-lg border border-xp-telemetry-border/60 bg-xp-ops-surface-muted/50 px-3 py-2 space-y-1">
+            <MetricRow label={t('contextPanel.inspector.totalCost')} value={formatCost(wCost)} />
+            <MetricRow label={t('contextPanel.inspector.totalTokens')} value={formatCompactNumber(wTokens)} />
+            <MetricRow
+              label={t('contextPanel.inspector.sessions')}
+              value={`${wSessionCount}`}
+            />
+          </div>
+        </section>
+
+        {/* ── Diagnostics ── */}
+        {wCoverage && (
+          <section className="space-y-1.5">
+            <SectionLabel>{t('contextPanel.overview.dataQuality')}</SectionLabel>
+            <div className="rounded-lg border border-xp-telemetry-border/60 bg-xp-ops-surface-muted/50 px-3 py-2">
+              <div className="space-y-0.5 font-mono text-[10px] leading-relaxed text-xp-telemetry-muted">
+                {wCoverage.synced > 0 && <div>synced: {wCoverage.synced}</div>}
+                {wCoverage.legacy_undercounted > 0 && (
+                  <div className="text-xp-intent-warning">legacy (undercounted): {wCoverage.legacy_undercounted}</div>
+                )}
+                {wCoverage.partial > 0 && (
+                  <div className="text-xp-intent-warning">partial: {wCoverage.partial}</div>
+                )}
+                {wCoverage.missing_source > 0 && <div>missing source: {wCoverage.missing_source}</div>}
+                {wCoverage.unsupported > 0 && <div>unsupported: {wCoverage.unsupported}</div>}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ── Path ── */}
+        <section className="rounded-lg border border-xp-telemetry-border/40 bg-xp-ops-surface-muted/30 px-3 py-2">
+          <div className="break-all font-mono text-[10px] leading-relaxed text-xp-telemetry-muted">
+            {worktreePath ?? t('contextPanel.empty.noWorktree')}
+          </div>
+        </section>
       </div>
     </div>
   )
@@ -255,287 +487,6 @@ function useSessionTasks(activeSessionId: string | null): SessionTask[] {
   }, [activeSessionId, activityTick])
 
   return liveTasks.length > 0 ? liveTasks : tasks
-}
-
-function OverviewPanel({
-  sessions,
-  worktreePath,
-  scopeLabel,
-  scopeId,
-  isConnectionMode
-}: {
-  sessions: OverviewSession[]
-  worktreePath: string | null
-  scopeLabel: string
-  scopeId: string | null
-  isConnectionMode: boolean
-}): React.JSX.Element {
-  const { t } = useI18n()
-  const sessionIds = useMemo(() => sessions.map((session) => session.id), [sessions])
-  const sessionIdsKey = sessionIds.join('|')
-  const activeSessionCount = sessions.filter((session) => session.status === 'active').length
-  const inactiveSessionCount = Math.max(0, sessions.length - activeSessionCount)
-  const sessionBreakdownTitle = [
-    t('contextPanel.overview.activeSessions', { count: activeSessionCount }),
-    t('contextPanel.overview.inactiveSessions', { count: inactiveSessionCount })
-  ].join('\n')
-  const [scopeSummary, setScopeSummary] = useState<UsageAnalyticsScopeSummary | null>(null)
-  const activityTick = useSessionRuntimeStore((state) =>
-    sessionIds.map((sessionId) => state.sessions.get(sessionId)?.lastActivityAt ?? 0).join('|')
-  )
-  const { tokensBySession, costBySession } = useContextStore(
-    useShallow((state) => ({
-      tokensBySession: state.tokensBySession,
-      costBySession: state.costBySession
-    }))
-  )
-
-  useEffect(() => {
-    let cancelled = false
-
-    if (
-      sessionIds.length === 0 ||
-      !scopeId ||
-      !window.usageAnalyticsOps?.fetchScopeSummary
-    ) {
-      setScopeSummary(null)
-      return () => {
-        cancelled = true
-      }
-    }
-
-    const scopeType = isConnectionMode ? 'connection' : 'worktree'
-    window.usageAnalyticsOps
-      .fetchScopeSummary(scopeId, scopeType, sessionIds)
-      .then((result) => {
-        if (cancelled) return
-        if (result.success && result.data) {
-          setScopeSummary(result.data)
-          // Update per-session costs from scope summary snapshot data
-          const store = useContextStore.getState()
-          for (const sessionId of sessionIds) {
-            const snapshot = result.data
-            if (snapshot.total_cost > 0) {
-              // Scope-level cost — set on first session for display
-              break
-            }
-          }
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setScopeSummary(null)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [activityTick, sessionIds, sessionIdsKey, scopeId, isConnectionMode])
-
-  if (!worktreePath && sessionIds.length === 0) {
-    return (
-      <EmptyPanel
-        title={t('contextPanel.empty.noWorktree')}
-        description={t('contextPanel.empty.noSessionDescription')}
-      />
-    )
-  }
-
-  // Use scope summary from backend as primary source
-  const backendCost = scopeSummary?.total_cost ?? 0
-  const liveCost = sessionIds.reduce(
-    (sum, id) => sum + (costBySession[id] ?? 0),
-    0
-  )
-  const totalCost = Math.max(backendCost, liveCost)
-
-  // For tokens, prefer scope summary, fallback to live runtime tokens
-  const backendTokens = scopeSummary?.total_tokens ?? 0
-  const liveTokens = sessionIds.reduce(
-    (sum, id) => {
-      const t = tokensBySession[id]
-      return sum + (t ? t.input + t.output + t.cacheRead + t.cacheWrite : 0)
-    },
-    0
-  )
-  const totalTokens = Math.max(backendTokens, liveTokens)
-
-  const inputTokens = scopeSummary?.input_tokens ?? sessionIds.reduce(
-    (sum, id) => sum + (tokensBySession[id]?.input ?? 0), 0
-  )
-  const outputTokens = scopeSummary?.output_tokens ?? sessionIds.reduce(
-    (sum, id) => sum + (tokensBySession[id]?.output ?? 0), 0
-  )
-  const cacheReadTokens = scopeSummary?.cache_read_tokens ?? sessionIds.reduce(
-    (sum, id) => sum + (tokensBySession[id]?.cacheRead ?? 0), 0
-  )
-  const cacheWriteTokens = scopeSummary?.cache_write_tokens ?? sessionIds.reduce(
-    (sum, id) => sum + (tokensBySession[id]?.cacheWrite ?? 0), 0
-  )
-
-  const contextUsed = scopeSummary?.context_used_tokens
-  const contextWindow = scopeSummary?.context_window_tokens
-  const contextPercent = scopeSummary?.context_percent
-
-  const maxTokenSlice = Math.max(inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, 1)
-  const tokenRows = [
-    {
-      label: t('contextPanel.overview.input'),
-      amount: inputTokens,
-      tone: 'mint' as const
-    },
-    {
-      label: t('contextPanel.overview.cacheRead'),
-      amount: cacheReadTokens,
-      tone: 'muted' as const
-    },
-    {
-      label: t('contextPanel.overview.cacheWrite'),
-      amount: cacheWriteTokens,
-      tone: 'muted' as const
-    },
-    {
-      label: t('contextPanel.overview.output'),
-      amount: outputTokens,
-      tone: 'lavender' as const
-    }
-  ]
-  const cacheHitRate =
-    cacheReadTokens > 0 || inputTokens > 0
-      ? Math.round(
-          (cacheReadTokens / (cacheReadTokens + inputTokens)) * 100
-        )
-      : null
-
-  const coverage = scopeSummary?.coverage
-  const partialCount = scopeSummary?.partial_sessions.length ?? 0
-
-  return (
-    <div className="min-h-0 flex-1 overflow-auto px-2.5 py-3" data-testid="context-panel-overview">
-      <div className="space-y-2.5">
-        <section className="crisp-floating-surface relative overflow-hidden rounded-xl p-3">
-          <div className="pointer-events-none absolute -right-12 -top-12 h-28 w-28 rounded-full bg-tech-blue-soft blur-2xl" />
-          <div className="relative min-w-0">
-            <div className="min-w-0">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-steel">
-                {scopeLabel} · {t('contextPanel.tabs.overview')}
-                <span
-                  className="ml-1.5 inline-flex h-4 w-4 translate-y-[2px] items-center justify-center rounded-full border border-steel/25 text-steel/75"
-                  aria-label={t('contextPanel.overview.sessionBreakdownLabel')}
-                  title={sessionBreakdownTitle}
-                >
-                  <HelpCircle className="h-3 w-3" />
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="relative mt-3 space-y-1.5">
-            <OverviewHeroMetric
-              label={t('contextPanel.overview.cost')}
-              value={formatCost(totalCost)}
-              tone="cost"
-            />
-            <OverviewHeroMetric
-              label={t('contextPanel.overview.tokens')}
-              value={formatCompactNumber(totalTokens)}
-              tone="tokens"
-            />
-          </div>
-        </section>
-
-        {contextWindow && contextWindow > 0 && (
-          <section className="crisp-panel-surface rounded-xl p-3">
-            <div className="mb-2.5 flex items-center justify-between">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                {t('contextPanel.overview.contextPressure')}
-              </div>
-              {contextPercent !== null && (
-                <div className="text-[10px] text-muted-foreground">
-                  <span className="font-mono font-medium text-foreground">
-                    {contextPercent.toFixed(1)}%
-                  </span>
-                </div>
-              )}
-            </div>
-            <OverviewTokenRow
-              label={`${formatCompactNumber(contextUsed ?? 0)} / ${formatCompactNumber(contextWindow)}`}
-              amount={contextUsed ?? 0}
-              value={formatCompactNumber(contextUsed ?? 0)}
-              max={contextWindow}
-              tone="mint"
-            />
-          </section>
-        )}
-
-        <section className="crisp-panel-surface rounded-xl p-3">
-          <div className="mb-2.5 flex items-center justify-between">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-              {t('contextPanel.overview.tokens')}
-            </div>
-            {cacheHitRate !== null && (
-              <div className="text-[10px] text-muted-foreground">
-                {t('contextPanel.overview.cacheHitRate')}{' '}
-                <span className="font-mono font-medium text-foreground">{cacheHitRate}%</span>
-              </div>
-            )}
-          </div>
-          <div className="space-y-2.5">
-            {tokenRows.map((row) => (
-              <OverviewTokenRow
-                key={row.label}
-                label={row.label}
-                amount={row.amount}
-                value={formatCompactNumber(row.amount)}
-                max={maxTokenSlice}
-                tone={row.tone}
-              />
-            ))}
-          </div>
-        </section>
-
-        {coverage && (
-          <section className="rounded-xl border border-sidebar-border bg-agent-card px-3 py-2.5">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              {t('contextPanel.overview.dataQuality')}
-            </div>
-            <div className="mt-1.5 space-y-0.5 font-mono text-[11px] leading-relaxed text-steel">
-              {coverage.synced > 0 && (
-                <div>synced: {coverage.synced}</div>
-              )}
-              {coverage.legacy_undercounted > 0 && (
-                <div className="text-amber-500">legacy (undercounted): {coverage.legacy_undercounted}</div>
-              )}
-              {coverage.partial > 0 && (
-                <div className="text-amber-500">partial: {coverage.partial}</div>
-              )}
-              {coverage.missing_source > 0 && (
-                <div className="text-muted-foreground">missing source: {coverage.missing_source}</div>
-              )}
-              {coverage.unsupported > 0 && (
-                <div className="text-muted-foreground">unsupported: {coverage.unsupported}</div>
-              )}
-              {partialCount > 0 && (
-                <div className="text-amber-500">
-                  {partialCount} session{partialCount > 1 ? 's' : ''} with incomplete data
-                </div>
-              )}
-            </div>
-          </section>
-        )}
-
-        <section className="rounded-xl border border-sidebar-border bg-agent-card px-3 py-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              {scopeLabel}
-            </div>
-          </div>
-          <div className="mt-1.5 break-all font-mono text-[11px] leading-relaxed text-steel">
-            {worktreePath ?? t('contextPanel.empty.noWorktree')}
-          </div>
-        </section>
-      </div>
-    </div>
-  )
 }
 
 function GoalPanel({ activeSessionId }: { activeSessionId: string | null }): React.JSX.Element {
@@ -824,6 +775,7 @@ export function ContextPanelHost({
             scopeLabel={overviewScopeLabel}
             scopeId={overviewScopeId ?? null}
             isConnectionMode={!!isConnectionMode}
+            activeSessionId={activeSessionId}
           />
         )
       case 'review':

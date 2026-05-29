@@ -1870,6 +1870,18 @@ export const messages: Record<AppLocale, MessageTree> = {
         worktree: 'Worktree',
         connection: 'Connection'
       },
+      inspector: {
+        currentSession: 'Current Session',
+        aggregate: 'Aggregate',
+        partial: 'partial',
+        model: 'Model',
+        duration: 'Duration',
+        tokenBreakdown: 'Token Breakdown',
+        contextUsed: 'Context Used',
+        totalCost: 'Total Cost',
+        totalTokens: 'Total Tokens',
+        sessions: 'Sessions',
+      },
       tasks: {
         emptyTitle: 'No tasks yet',
         emptyDescription: 'Agent todo updates will appear here after the session emits a task list.'
@@ -4776,6 +4788,18 @@ export const messages: Record<AppLocale, MessageTree> = {
         dataQuality: '数据质量',
         worktree: 'Worktree',
         connection: '连接'
+      },
+      inspector: {
+        currentSession: '当前会话',
+        aggregate: '聚合',
+        partial: '不完整',
+        model: '模型',
+        duration: '时长',
+        tokenBreakdown: 'Token 明细',
+        contextUsed: '上下文占用',
+        totalCost: '总花费',
+        totalTokens: '总 Tokens',
+        sessions: '会话数',
       },
       tasks: {
         emptyTitle: '暂无任务',

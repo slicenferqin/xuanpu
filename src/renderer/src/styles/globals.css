@@ -48,6 +48,44 @@
   --color-neon-pink-soft: var(--neon-pink-soft);
   --color-neon-violet: var(--neon-violet);
   --color-neon-violet-soft: var(--neon-violet-soft);
+
+  --color-xp-reader-canvas: var(--xp-reader-canvas);
+  --color-xp-reader-surface: var(--xp-reader-surface);
+  --color-xp-reader-text: var(--xp-reader-text);
+  --color-xp-reader-secondary: var(--xp-reader-secondary);
+  --color-xp-reader-muted: var(--xp-reader-muted);
+  --color-xp-reader-border: var(--xp-reader-border);
+  --color-xp-reader-link: var(--xp-reader-link);
+
+  --color-xp-reader-surface-muted: var(--xp-reader-surface-muted);
+  --color-xp-reader-selection: var(--xp-reader-selection);
+
+  --color-xp-md-inline-code-bg: var(--xp-md-inline-code-bg);
+  --color-xp-md-inline-code-border: var(--xp-md-inline-code-border);
+  --color-xp-md-inline-code-text: var(--xp-md-inline-code-text);
+  --color-xp-md-path-text: var(--xp-md-path-text);
+  --color-xp-md-metric-key: var(--xp-md-metric-key);
+  --color-xp-md-metric-value: var(--xp-md-metric-value);
+  --color-xp-md-id-text: var(--xp-md-id-text);
+  --color-xp-md-command-bg: var(--xp-md-command-bg);
+  --color-xp-md-command-text: var(--xp-md-command-text);
+
+  --color-xp-ops-surface: var(--xp-ops-surface);
+  --color-xp-ops-surface-muted: var(--xp-ops-surface-muted);
+  --color-xp-ops-border: var(--xp-ops-border);
+  --color-xp-ops-code-bg: var(--xp-ops-code-bg);
+  --color-xp-ops-code-text: var(--xp-ops-code-text);
+
+  --color-xp-telemetry-text: var(--xp-telemetry-text);
+  --color-xp-telemetry-muted: var(--xp-telemetry-muted);
+  --color-xp-telemetry-border: var(--xp-telemetry-border);
+  --color-xp-telemetry-track: var(--xp-telemetry-track);
+
+  --color-xp-intent-info: var(--xp-intent-info);
+  --color-xp-intent-success: var(--xp-intent-success);
+  --color-xp-intent-warning: var(--xp-intent-warning);
+  --color-xp-intent-danger: var(--xp-intent-danger);
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -188,6 +226,53 @@
   --celadon-foreground: #001a16;
 }
 
+/* ── Session HQ Visual System v2: Semantic Tokens ── */
+:root {
+  /* Reader layer — assistant prose */
+  --xp-reader-canvas: #f5f6f3;
+  --xp-reader-surface: #fcfcfa;
+  --xp-reader-surface-muted: #f1f2ee;
+  --xp-reader-text: #343a42;
+  --xp-reader-secondary: #626b75;
+  --xp-reader-muted: #8d949d;
+  --xp-reader-border: #e1e4dd;
+  --xp-reader-link: #526f9e;
+  --xp-reader-selection: #dfe8f4;
+  --xp-reader-measure: 820px;
+  --xp-reader-font-size: 15px;
+  --xp-reader-line-height: 1.74;
+
+  /* Markdown inline code */
+  --xp-md-inline-code-bg: #f3f4f1;
+  --xp-md-inline-code-border: #e2e5df;
+  --xp-md-inline-code-text: #3e4650;
+  --xp-md-path-text: #4d657f;
+  --xp-md-id-text: #7a828b;
+  --xp-md-metric-key: #6f7780;
+  --xp-md-metric-value: #3e4650;
+  --xp-md-command-bg: #eef0ec;
+  --xp-md-command-text: #3a5a40;
+
+  /* Operations layer — tool output, diffs, terminal */
+  --xp-ops-surface: #ffffff;
+  --xp-ops-surface-muted: #f6f7f4;
+  --xp-ops-border: #e1e4dd;
+  --xp-ops-code-bg: #18202d;
+  --xp-ops-code-text: #d9e1ea;
+
+  /* Telemetry layer — cost, tokens, context */
+  --xp-telemetry-text: #4d5661;
+  --xp-telemetry-muted: #858d96;
+  --xp-telemetry-border: #e2e5df;
+  --xp-telemetry-track: #edf0eb;
+
+  /* Intent colors — threshold-driven, not for normal state */
+  --xp-intent-info: #526f9e;
+  --xp-intent-success: #5d8e81;
+  --xp-intent-warning: #b38345;
+  --xp-intent-danger: #b35c66;
+}
+
 .dark {
   --streaming-cursor: var(--tech-blue);
   --thinking-bg: var(--agent-card-muted);
@@ -200,6 +285,46 @@
   --provider-terminal: #7f849c;
   --celadon: var(--neon-mint);
   --celadon-foreground: #08111f;
+
+  /* Session HQ v2: Semantic Tokens (dark) */
+  --xp-reader-canvas: #141c2a;
+  --xp-reader-surface: #1a2435;
+  --xp-reader-surface-muted: #151d2b;
+  --xp-reader-text: #c8d0e0;
+  --xp-reader-secondary: #8a94a8;
+  --xp-reader-muted: #6b7588;
+  --xp-reader-border: #2a364a;
+  --xp-reader-link: #8bb4e0;
+  --xp-reader-selection: #22304a;
+  --xp-reader-measure: 820px;
+  --xp-reader-font-size: 15px;
+  --xp-reader-line-height: 1.74;
+
+  --xp-md-inline-code-bg: #1e2738;
+  --xp-md-inline-code-border: #2a364a;
+  --xp-md-inline-code-text: #b8c0d0;
+  --xp-md-path-text: #8bb4e0;
+  --xp-md-id-text: #7a8498;
+  --xp-md-metric-key: #8a94a8;
+  --xp-md-metric-value: #b8c0d0;
+  --xp-md-command-bg: #1e2d3a;
+  --xp-md-command-text: #7ec8a0;
+
+  --xp-ops-surface: #1a2435;
+  --xp-ops-surface-muted: #151d2b;
+  --xp-ops-border: #2a364a;
+  --xp-ops-code-bg: #0d1420;
+  --xp-ops-code-text: #c8d5e5;
+
+  --xp-telemetry-text: #8a94a8;
+  --xp-telemetry-muted: #5a6478;
+  --xp-telemetry-border: #2a364a;
+  --xp-telemetry-track: #1e2738;
+
+  --xp-intent-info: #8bb4e0;
+  --xp-intent-success: #7ec8a0;
+  --xp-intent-warning: #d4a84b;
+  --xp-intent-danger: #e07080;
 }
 
 @layer base {
@@ -759,4 +884,32 @@
 .pr-comment-html details > *:not(summary) {
   margin-left: 0.5em;
   margin-right: 0.5em;
+}
+
+/* ── Wide Block: breaks out of reader measure for code/tables/diffs ── */
+.xp-wide-block {
+  width: min(100%, var(--xp-reader-wide-measure, 1120px));
+  max-width: calc(100vw - var(--xp-shell-side-insets, 360px));
+  margin-left: 0;
+}
+
+/* ── Reading Density Modes ── */
+[data-reading-density='comfortable'] {
+  --xp-reader-font-size: 15px;
+  --xp-reader-line-height: 1.74;
+}
+
+[data-reading-density='standard'] {
+  --xp-reader-font-size: 14px;
+  --xp-reader-line-height: 1.65;
+}
+
+[data-reading-density='compact'] {
+  --xp-reader-font-size: 13px;
+  --xp-reader-line-height: 1.55;
+}
+
+/* ── Focus Mode ── */
+[data-focus-mode='true'] .xp-readable-message {
+  max-width: min(var(--xp-reader-measure, 820px), 100%);
 }

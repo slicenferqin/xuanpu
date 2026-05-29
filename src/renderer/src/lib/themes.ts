@@ -130,6 +130,69 @@ export const THEME_PRESETS: ThemePreset[] = [
       'neon-violet': '#6D5BD0',
       'neon-violet-soft': '#F1EDFF'
     }
+  },
+
+  // =====================
+  // LIGHT THEME — Xuanpu Calm
+  // =====================
+  {
+    id: 'calm',
+    name: 'Xuanpu Calm',
+    type: 'light',
+    colors: {
+      background: '#F5F6F3',
+      foreground: '#3A4048',
+      card: '#FCFCFA',
+      'card-foreground': '#3A4048',
+      popover: '#FCFCFA',
+      'popover-foreground': '#3A4048',
+      primary: '#526F9E',
+      'primary-foreground': '#FFFFFF',
+      secondary: '#EEF0EB',
+      'secondary-foreground': '#4E5660',
+      muted: '#EEF0EB',
+      'muted-foreground': '#737B84',
+      accent: '#E7EDF4',
+      'accent-foreground': '#364253',
+      destructive: '#B35C66',
+      'destructive-foreground': '#FFFFFF',
+      border: '#E1E4DD',
+      input: '#D6DBD2',
+      ring: '#526F9E',
+      sidebar: '#EEF0EB',
+      'sidebar-foreground': '#5A626B',
+      'sidebar-primary': '#526F9E',
+      'sidebar-primary-foreground': '#FFFFFF',
+      'sidebar-accent': '#FCFCFA',
+      'sidebar-accent-foreground': '#3A4048',
+      'sidebar-border': '#E1E4DD',
+      'sidebar-ring': '#526F9E',
+      celadon: '#5D8E81',
+      'celadon-foreground': '#FFFFFF',
+      'agent-canvas': '#F5F6F3',
+      'agent-sheet': '#FAFAF7',
+      'agent-card': '#FCFCFA',
+      'agent-card-muted': '#F1F2EE',
+      'agent-hover': '#E9ECE6',
+      'agent-shadow-rgb': '52 58 66',
+      'code-block-bg': '#1E293B',
+      'code-block-header': '#172033',
+      'code-block-border': '#334155',
+      'code-block-text': '#E2E8F0',
+      'code-block-muted': '#94A3B8',
+      'code-block-accent': '#7DD3FC',
+      'code-block-warm': '#FCD34D',
+      ink: '#343A42',
+      steel: '#737B84',
+      'tech-blue': '#526F9E',
+      'tech-blue-soft': '#E7EDF4',
+      'neon-mint': '#5D8E81',
+      'neon-mint-soft': '#E7F0EC',
+      'neon-pink': '#B35C66',
+      'neon-pink-soft': '#F3E4E7',
+      'neon-violet': '#6C668F',
+      'neon-violet-soft': '#ECEAF3'
+    }
   }
 ]
 

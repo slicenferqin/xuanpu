@@ -234,6 +234,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   }, [sessionId])
 
   // --- Model resolution ---
+  const focusMode = useSettingsStore((s) => s.focusMode)
+  const readingDensity = useSettingsStore((s) => s.readingDensity)
   const resolvedModel = useSettingsStore((s) => (agentSdk ? resolveModelForSdk(agentSdk, s) : null))
   const requestModel = useMemo(() => {
     if (sessionRecord?.model_provider_id && sessionRecord.model_id) {
@@ -566,7 +568,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   const composerInterrupt = currentInterrupt?.type === 'plan' ? null : currentInterrupt
 
   return (
-    <div className="relative h-full min-h-0 overflow-hidden">
+    <div className="relative h-full min-h-0 overflow-hidden" data-focus-mode={focusMode} data-reading-density={readingDensity}>
       {/* Timeline fills the full stage */}
       <AgentTimeline
         timelineMessages={timelineMessages}
