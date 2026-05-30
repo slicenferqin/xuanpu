@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback } from 'react'
+import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 
 interface RoundNavigatorItem {
@@ -10,12 +10,12 @@ interface RoundNavigatorItem {
 interface RoundNavigatorProps {
   rounds: RoundNavigatorItem[]
   activeRoundId?: string | null
+  scrollContainerRef?: React.RefObject<HTMLElement | null>
   onRoundAnchorNavigate?: (roundId: string) => void
 }
 
 const VISIBLE_ROWS = 10
 const PREVIEW_MAX_CHARS = 10
-const NEIGHBOR_RADIUS = 3
 
 function truncatePreview(text: string, max: number): string {
   if (text.length <= max) return text
@@ -26,38 +26,39 @@ function clampIndex(index: number, max: number): number {
   return Math.max(0, Math.min(max, index))
 }
 
-function getNeighborhood(
-  rounds: RoundNavigatorItem[],
-  centerIndex: number,
-  radius: number
-): RoundNavigatorItem[] {
-  const start = Math.max(0, centerIndex - radius)
-  const end = Math.min(rounds.length, centerIndex + radius + 1)
-  return rounds.slice(start, end)
-}
-
-/**
- * Compute wheel window start so that:
- * - focus is near center when possible
- * - window always fills VISIBLE_ROWS when rounds.length >= VISIBLE_ROWS
- * - window clamps to [0, rounds.length - VISIBLE_ROWS] at edges
- */
 function getWheelStart(focusIndex: number, roundCount: number): number {
   if (roundCount <= VISIBLE_ROWS) return 0
   const half = Math.floor(VISIBLE_ROWS / 2)
-  const rawStart = focusIndex - half
-  return clampIndex(rawStart, roundCount - VISIBLE_ROWS)
+  return clampIndex(focusIndex - half, roundCount - VISIBLE_ROWS)
+}
+
+/**
+ * Measure the viewport-center Y of the active round section.
+ * Returns null if the element isn't found.
+ */
+function measureActiveRoundY(
+  scrollContainer: HTMLElement | null,
+  activeRoundId: string | null | undefined
+): number | null {
+  if (!scrollContainer || !activeRoundId) return null
+  const el = scrollContainer.querySelector(`[data-round-id="${activeRoundId}"]`)
+  if (!el) return null
+  const containerRect = scrollContainer.getBoundingClientRect()
+  const elRect = el.getBoundingClientRect()
+  return elRect.top - containerRect.top + elRect.height / 2
 }
 
 export function RoundNavigator({
   rounds,
   activeRoundId,
+  scrollContainerRef,
   onRoundAnchorNavigate
 }: RoundNavigatorProps): React.JSX.Element | null {
   const [isHovered, setIsHovered] = useState(false)
   const [focusIndex, setFocusIndex] = useState(rounds.length - 1)
+  const [activeRoundY, setActiveRoundY] = useState<number | null>(null)
+  const railRef = useRef<HTMLDivElement>(null)
 
-  // Resolve active index: explicit match or fallback to latest
   const activeIndex = useMemo(() => {
     if (activeRoundId) {
       const idx = rounds.findIndex((r) => r.id === activeRoundId)
@@ -66,20 +67,30 @@ export function RoundNavigator({
     return Math.max(0, rounds.length - 1)
   }, [activeRoundId, rounds])
 
-  // Whether the resolved active is the "latest fallback"
   const isLatestFallback = !activeRoundId || !rounds.some((r) => r.id === activeRoundId)
 
   // Sync focus to active when not hovering
-  React.useEffect(() => {
-    if (!isHovered) {
-      setFocusIndex(activeIndex)
-    }
+  useEffect(() => {
+    if (!isHovered) setFocusIndex(activeIndex)
   }, [activeIndex, isHovered])
 
-  const neighborhood = useMemo(
-    () => getNeighborhood(rounds, isHovered ? focusIndex : activeIndex, NEIGHBOR_RADIUS),
-    [rounds, activeIndex, focusIndex, isHovered]
-  )
+  // Measure active round Y for connector line
+  useEffect(() => {
+    const container = scrollContainerRef?.current
+    if (!container) return
+
+    const update = (): void => {
+      setActiveRoundY(measureActiveRoundY(container, activeRoundId))
+    }
+    update()
+
+    container.addEventListener('scroll', update, { passive: true })
+    window.addEventListener('resize', update)
+    return () => {
+      container.removeEventListener('scroll', update)
+      window.removeEventListener('resize', update)
+    }
+  }, [scrollContainerRef, activeRoundId])
 
   const wheelItems = useMemo(() => {
     const start = getWheelStart(focusIndex, rounds.length)
@@ -93,7 +104,6 @@ export function RoundNavigator({
     [onRoundAnchorNavigate]
   )
 
-  // Wheel: preventDefault stops scroll, stopPropagation prevents timeline scroll
   const handleWheel = useCallback(
     (event: React.WheelEvent) => {
       event.preventDefault()
@@ -133,118 +143,210 @@ export function RoundNavigator({
 
   if (rounds.length <= 1) return null
 
-  // The rail is always 24px wide (stable layout). Wheel is absolute overlay.
+  // Connector line Y: from active round center to rail center
+  const connectorY = activeRoundY ?? null
+
   return (
-    <aside
-      className="sticky top-1/2 z-20 hidden w-6 shrink-0 -translate-y-1/2 self-start lg:block"
-      data-testid="round-navigator"
-      onMouseEnter={() => setIsHovered(true)}
-      onFocus={() => setIsHovered(true)}
-      onMouseLeave={handleMouseLeave}
-      onWheel={isHovered ? handleWheel : undefined}
-      onKeyDown={isHovered ? handleKeyDown : undefined}
-      tabIndex={0}
-      role="navigation"
-      aria-label="Round navigator"
-    >
-      {/* Ghost markers — always visible, always 24px */}
-      <div className="relative flex flex-col items-center gap-1.5 py-2">
-        {neighborhood.map((item) => {
-          const isActive = item.index === activeIndex && !isLatestFallback
-          const distance = Math.abs(item.index - activeIndex)
-          const opacity = isActive ? 1 : Math.max(0.2, 0.6 - distance * 0.15)
-
-          return (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => handleClick(item.id)}
-              className={cn(
-                'rounded-full transition-all duration-150',
-                isActive ? 'h-[7px] w-[7px]' : 'h-[4px] w-[4px]'
-              )}
-              style={{
-                backgroundColor: isActive
-                  ? 'var(--foreground)'
-                  : 'color-mix(in srgb, var(--muted-foreground) 35%, transparent)',
-                opacity,
-                boxShadow: isActive
-                  ? '0 0 6px color-mix(in srgb, var(--foreground) 8%, transparent)'
-                  : 'none'
-              }}
-              title={item.preview}
-              aria-current={isActive ? 'step' : undefined}
-            />
-          )
-        })}
-      </div>
-
-      {/* Wheel overlay — absolute positioned, doesn't affect layout */}
+    <>
+      {/* Interaction veil: subtle blur on content right edge when wheel open */}
       {isHovered && (
         <div
-          className="absolute left-full top-1/2 ml-2 -translate-y-1/2"
-          style={{ animation: 'round-navigator-expand 160ms ease-out' }}
-        >
-          <div
-            className="rounded-xl border py-1.5 backdrop-blur-sm"
-            style={{
-              backgroundColor: 'color-mix(in srgb, var(--agent-card) 88%, transparent)',
-              borderColor: 'color-mix(in srgb, var(--border) 86%, transparent)',
-              boxShadow: '0 2px 8px rgb(var(--agent-shadow-rgb) / 0.10)'
-            }}
-            role="listbox"
-            aria-label="Round list"
-          >
-            {wheelItems.map((item) => {
-              const isActive = item.index === activeIndex && !isLatestFallback
-              const isFocused = item.index === focusIndex
-              const distance = Math.abs(item.index - focusIndex)
-              const opacity = Math.max(0.4, 1 - distance * 0.15)
-
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  role="option"
-                  aria-selected={isActive}
-                  onClick={() => handleClick(item.id)}
-                  onMouseEnter={() => setFocusIndex(item.index)}
-                  className={cn(
-                    'flex w-full items-center gap-2 px-3 py-1 text-left transition-colors',
-                    (isFocused || isActive) && 'rounded-md'
-                  )}
-                  style={{
-                    opacity,
-                    backgroundColor: isActive
-                      ? 'color-mix(in srgb, var(--agent-hover) 45%, transparent)'
-                      : isFocused
-                        ? 'color-mix(in srgb, var(--agent-hover) 25%, transparent)'
-                        : 'transparent',
-                    borderLeft: isActive
-                      ? '2px solid color-mix(in srgb, var(--foreground) 60%, transparent)'
-                      : '2px solid transparent'
-                  }}
-                >
-                  <span
-                    className="w-5 shrink-0 text-right text-[10px] tabular-nums"
-                    style={{ color: 'var(--muted-foreground)' }}
-                  >
-                    {item.index + 1}
-                  </span>
-                  <span
-                    className="truncate text-[11px]"
-                    style={{
-                      color: isActive ? 'var(--foreground)' : 'var(--muted-foreground)'
-                    }}
-                  >
-                    {truncatePreview(item.preview, PREVIEW_MAX_CHARS)}
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-        </div>
+          aria-hidden="true"
+          className="pointer-events-none absolute right-0 top-0 bottom-0 z-10"
+          style={{
+            width: '120px',
+            background: 'linear-gradient(to left, color-mix(in srgb, var(--background) 40%, transparent), transparent)',
+            backdropFilter: 'blur(2px) saturate(1.02)',
+            transition: 'opacity 150ms ease-out'
+          }}
+        />
       )}
-    </aside>
+
+      {/* Navigator overlay — absolute inside scroll container, not in flex layout */}
+      <div
+        ref={railRef}
+        className="absolute right-0 top-0 z-20 h-full"
+        data-testid="round-navigator"
+        onMouseEnter={() => setIsHovered(true)}
+        onFocus={() => setIsHovered(true)}
+        onMouseLeave={handleMouseLeave}
+        onWheel={handleWheel}
+        onKeyDown={handleKeyDown}
+        tabIndex={0}
+        role="navigation"
+        aria-label="Round navigator"
+      >
+        {/* Connector line from active round to rail */}
+        {connectorY !== null && (
+          <div
+            aria-hidden="true"
+            className={cn(
+              'absolute right-6 h-px transition-opacity duration-200',
+              isHovered ? 'opacity-60' : 'opacity-0'
+            )}
+            style={{
+              top: `${connectorY}px`,
+              width: '32px',
+              background: 'linear-gradient(to left, color-mix(in srgb, var(--foreground) 20%, transparent), transparent)'
+            }}
+          />
+        )}
+
+        {/* Hairline + markers column */}
+        <div className="relative flex h-full flex-col items-end">
+          {/* 1px vertical hairline — always visible, very faint */}
+          <div
+            aria-hidden="true"
+            className="absolute right-[11px] top-4 bottom-4 w-px"
+            style={{
+              backgroundColor: 'color-mix(in srgb, var(--muted-foreground) 12%, transparent)'
+            }}
+          />
+
+          {/* Active knob — always visible */}
+          <div
+            className="absolute right-[7px]"
+            style={{
+              top: connectorY != null ? `${connectorY}px` : '50%',
+              transform: 'translateY(-50%)'
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                const item = rounds[activeIndex]
+                if (item) handleClick(item.id)
+              }}
+              className="block h-[9px] w-[9px] rounded-full transition-all duration-150"
+              style={{
+                backgroundColor: isLatestFallback
+                  ? 'color-mix(in srgb, var(--muted-foreground) 40%, transparent)'
+                  : 'var(--foreground)',
+                boxShadow: isLatestFallback
+                  ? 'none'
+                  : '0 0 8px color-mix(in srgb, var(--foreground) 10%, transparent)'
+              }}
+              title={rounds[activeIndex]?.preview}
+              aria-current="step"
+            />
+          </div>
+
+          {/* Neighbor dots — only on hover/focus, fade in */}
+          {isHovered && (
+            <div
+              className="absolute right-[7px] flex flex-col items-center gap-1"
+              style={{
+                top: connectorY != null ? `${connectorY}px` : '50%',
+                transform: 'translateY(-50%)',
+                animation: 'round-navigator-neighbor-fade 120ms ease-out'
+              }}
+            >
+              {rounds
+                .filter((r) => Math.abs(r.index - activeIndex) <= 3 && r.index !== activeIndex)
+                .map((item) => {
+                  const distance = Math.abs(item.index - activeIndex)
+                  const opacity = Math.max(0.15, 0.5 - distance * 0.12)
+
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => handleClick(item.id)}
+                      className="block rounded-full transition-all duration-100"
+                      style={{
+                        width: `${Math.max(3, 5 - distance)}px`,
+                        height: `${Math.max(3, 5 - distance)}px`,
+                        backgroundColor: 'color-mix(in srgb, var(--muted-foreground) 30%, transparent)',
+                        opacity
+                      }}
+                      title={item.preview}
+                    />
+                  )
+                })}
+            </div>
+          )}
+
+          {/* Wheel overlay — expands leftward toward content */}
+          {isHovered && (
+            <div
+              className="absolute right-full top-1/2 mr-3 -translate-y-1/2"
+              style={{
+                transformOrigin: 'right center',
+                animation: 'round-navigator-wheel-open 160ms ease-out'
+              }}
+            >
+              <div
+                className="rounded-xl border py-1.5"
+                style={{
+                  backgroundColor: 'color-mix(in srgb, var(--agent-card) 92%, transparent)',
+                  borderColor: 'color-mix(in srgb, var(--border) 80%, transparent)',
+                  boxShadow: '0 4px 24px rgb(var(--agent-shadow-rgb) / 0.14), 0 1px 4px rgb(var(--agent-shadow-rgb) / 0.06)',
+                  backdropFilter: 'blur(16px) saturate(1.05)'
+                }}
+                role="listbox"
+                aria-label="Round list"
+              >
+                {wheelItems.map((item) => {
+                  const isActive = item.index === activeIndex && !isLatestFallback
+                  const isFocused = item.index === focusIndex
+                  const distance = Math.abs(item.index - focusIndex)
+                  const opacity = Math.max(0.35, 1 - distance * 0.12)
+
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      role="option"
+                      aria-selected={isActive}
+                      onClick={() => handleClick(item.id)}
+                      onMouseEnter={() => setFocusIndex(item.index)}
+                      className={cn(
+                        'flex w-full items-center gap-2.5 px-3 py-[5px] text-left transition-colors duration-80',
+                        (isFocused || isActive) && 'rounded-md'
+                      )}
+                      style={{
+                        opacity,
+                        backgroundColor: isActive
+                          ? 'color-mix(in srgb, var(--agent-hover) 50%, transparent)'
+                          : isFocused
+                            ? 'color-mix(in srgb, var(--agent-hover) 30%, transparent)'
+                            : 'transparent'
+                      }}
+                    >
+                      {/* Active indicator: left capsule */}
+                      <span
+                        className="w-[3px] shrink-0 rounded-full transition-all duration-100"
+                        style={{
+                          height: isActive ? '14px' : '0px',
+                          backgroundColor: 'var(--foreground)',
+                          opacity: isActive ? 0.7 : 0
+                        }}
+                      />
+                      <span
+                        className="w-4 shrink-0 text-right text-[9px] tabular-nums"
+                        style={{ color: 'var(--muted-foreground)', opacity: 0.6 }}
+                      >
+                        {item.index + 1}
+                      </span>
+                      <span
+                        className="truncate text-[11px] leading-tight"
+                        style={{
+                          color: isActive || isFocused
+                            ? 'var(--foreground)'
+                            : 'var(--muted-foreground)',
+                          fontWeight: isActive ? 500 : 400
+                        }}
+                      >
+                        {truncatePreview(item.preview, PREVIEW_MAX_CHARS)}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
   )
 }

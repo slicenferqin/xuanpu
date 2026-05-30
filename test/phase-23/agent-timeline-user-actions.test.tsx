@@ -95,7 +95,7 @@ describe('AgentTimeline user message actions', () => {
     expect(screen.getByTestId('timeline-clear-screen-spacer')).toHaveStyle({ height: '304px' })
   })
 
-  it('renders round navigator with ghost handle (stable 24px rail)', () => {
+  it('renders round navigator as absolute overlay inside scroll container', () => {
     render(
       <AgentTimeline
         timelineMessages={[
@@ -110,10 +110,10 @@ describe('AgentTimeline user message actions', () => {
     )
 
     const nav = screen.getByTestId('round-navigator')
-    // Ghost handle is 24px (w-6), stable layout
-    expect(nav.className).toContain('w-6')
-    expect(nav.className).toContain('top-1/2')
-    expect(nav.className).toContain('-translate-y-1/2')
+    // Navigator is absolute overlay inside scroll container, not a flex sibling
+    expect(nav.className).toContain('absolute')
+    expect(nav.className).toContain('right-0')
+    expect(nav.className).toContain('z-20')
   })
 
   it('shows at most 7 ghost markers for long sessions', () => {
@@ -130,13 +130,13 @@ describe('AgentTimeline user message actions', () => {
     )
 
     const nav = screen.getByTestId('round-navigator')
-    // Ghost handle shows at most 7 markers (neighborhood), not all 18
+    // Ghost handle: hairline + knob + at most 3 neighbor dots per side
     const buttons = nav.querySelectorAll('button')
     expect(buttons.length).toBeLessThanOrEqual(7)
     expect(buttons.length).toBeGreaterThan(0)
   })
 
-  it('wheel overlay is absolute positioned and does not shift layout', () => {
+  it('wheel overlay expands leftward and does not change timeline width', () => {
     render(
       <AgentTimeline
         timelineMessages={Array.from({ length: 50 }, (_, index) =>
@@ -150,17 +150,17 @@ describe('AgentTimeline user message actions', () => {
     )
 
     const nav = screen.getByTestId('round-navigator')
-    // Rail is always 24px
-    expect(nav.className).toContain('w-6')
+    // Navigator is absolute, doesn't participate in flex layout
+    expect(nav.className).toContain('absolute')
 
     // Hover to expand
     fireEvent.mouseEnter(nav)
 
-    // Wheel overlay should be absolute (doesn't change rail width)
+    // Wheel should expand leftward (right-full mr-3)
     const wheel = nav.querySelector('[role="listbox"]')
     expect(wheel).toBeTruthy()
-    // Rail itself stays w-6
-    expect(nav.className).toContain('w-6')
+    // Navigator still absolute — timeline width unchanged
+    expect(nav.className).toContain('absolute')
   })
 
   it('shows edit button only when the message is editable', () => {

@@ -923,6 +923,16 @@
   to { opacity: 1; transform: scale(1) translateX(0); }
 }
 
+@keyframes round-navigator-wheel-open {
+  from { opacity: 0; transform: translateY(-50%) translateX(8px) scaleX(0.92); }
+  to { opacity: 1; transform: translateY(-50%) translateX(0) scaleX(1); }
+}
+
+@keyframes round-navigator-neighbor-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 /* ── Reading Density Modes ── */
 [data-reading-density='comfortable'] {
   --xp-reader-font-size: 15px;
