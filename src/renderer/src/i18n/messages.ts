@@ -1882,6 +1882,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         totalTokens: 'Total Tokens',
         sessions: 'Sessions',
         noAggregateData: 'Syncing aggregate data…',
+        aggregateError: 'Aggregate data unavailable — try restarting to complete migration',
       },
       tasks: {
         emptyTitle: 'No tasks yet',
@@ -4802,6 +4803,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         totalTokens: '总 Tokens',
         sessions: '会话数',
         noAggregateData: '正在同步聚合数据…',
+        aggregateError: '聚合数据不可用 — 请重启以完成迁移',
       },
       tasks: {
         emptyTitle: '暂无任务',

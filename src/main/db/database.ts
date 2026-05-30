@@ -2942,6 +2942,7 @@ export class DatabaseService {
     source_payload_json?: string | null
     occurred_at: string
   }): void {
+    if (!this.tableExists('usage_events')) return
     const db = this.getDb()
     const now = new Date().toISOString()
     const id = randomUUID()
@@ -2996,6 +2997,7 @@ export class DatabaseService {
     cost_estimate: number
     occurred_at: string
   }> {
+    if (!this.tableExists('usage_events')) return []
     const db = this.getDb()
     return db
       .prepare(
@@ -3039,6 +3041,7 @@ export class DatabaseService {
     cost_estimate: number
     occurred_at: string
   }> {
+    if (!this.tableExists('usage_events')) return []
     const db = this.getDb()
     const conditions: string[] = []
     const values: (string | number)[] = []
@@ -3113,6 +3116,7 @@ export class DatabaseService {
     last_event_at?: string | null
     last_error?: string | null
   }): void {
+    if (!this.tableExists('session_usage_snapshots')) return
     const db = this.getDb()
     const now = new Date().toISOString()
 
@@ -3197,6 +3201,7 @@ export class DatabaseService {
     sync_status: string
     last_event_at: string | null
   } | undefined {
+    if (!this.tableExists('session_usage_snapshots')) return undefined
     const db = this.getDb()
     return db
       .prepare(

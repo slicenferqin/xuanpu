@@ -227,12 +227,16 @@ function OverviewPanel({
 
   const [sessionSummary, setSessionSummary] = useState<UsageAnalyticsSessionSummary | null>(null)
   const [scopeSummary, setScopeSummary] = useState<UsageAnalyticsScopeSummary | null>(null)
+  const [scopeSummaryStatus, setScopeSummaryStatus] = useState<'loading' | 'ready' | 'error' | 'empty'>('loading')
 
   const liveTokens = useContextStore(
     useShallow((state) => (activeSessionId ? state.tokensBySession[activeSessionId] : null))
   )
   const liveCost = useContextStore(
     useShallow((state) => (activeSessionId ? (state.costBySession[activeSessionId] ?? 0) : 0))
+  )
+  const contextSnapshot = useContextStore(
+    useShallow((state) => (activeSessionId ? state.contextSnapshotsBySession[activeSessionId] : null))
   )
 
   const activityTick = useSessionRuntimeStore((state) =>
@@ -262,15 +266,25 @@ function OverviewPanel({
     let cancelled = false
     if (sessionIds.length === 0 || !scopeId || !window.usageAnalyticsOps?.fetchScopeSummary) {
       setScopeSummary(null)
+      setScopeSummaryStatus('empty')
       return () => { cancelled = true }
     }
 
+    setScopeSummaryStatus('loading')
     const scopeType = isConnectionMode ? 'connection' : 'worktree'
     window.usageAnalyticsOps.fetchScopeSummary(scopeId, scopeType, sessionIds).then((result) => {
       if (cancelled) return
-      setScopeSummary(result.success && result.data ? result.data : null)
+      if (result.success && result.data) {
+        setScopeSummary(result.data)
+        setScopeSummaryStatus('ready')
+      } else {
+        setScopeSummary(null)
+        setScopeSummaryStatus('error')
+      }
     }).catch(() => {
-      if (!cancelled) setScopeSummary(null)
+      if (cancelled) return
+      setScopeSummary(null)
+      setScopeSummaryStatus('error')
     })
 
     return () => { cancelled = true }
@@ -287,7 +301,8 @@ function OverviewPanel({
 
   // ── Current Session data: use resolveUsageTokenTotals for consistency ──
   const resolvedTokens = resolveUsageTokenTotals(sessionSummary, liveTokens)
-  const sCost = (sessionSummary?.total_cost ?? 0) > 0 ? sessionSummary!.total_cost : liveCost
+  // Cost: Math.max like top SessionCostPill — never show older value when live is higher
+  const sCost = Math.max(sessionSummary?.total_cost ?? 0, liveCost ?? 0)
   const sPartial = sessionSummary?.partial ?? false
   const sModel = sessionSummary?.latest_model_label ?? null
   const sDuration = sessionSummary?.duration_seconds ?? 0
@@ -298,14 +313,13 @@ function OverviewPanel({
       )
     : null
 
-  // Context: prefer persisted snapshot fields, not input+output
-  const contextUsed = sessionSummary?.context_used_tokens ?? null
-  const contextWindow = sessionSummary?.context_window_tokens ?? null
-  const contextPercent = sessionSummary?.context_percent ?? null
+  // Context: prefer runtime snapshot, then persisted snapshot, then null
+  const contextUsed = contextSnapshot?.usedTokens ?? sessionSummary?.context_used_tokens ?? null
+  const contextWindow = contextSnapshot?.maxTokens ?? sessionSummary?.context_window_tokens ?? null
+  const contextPercent = contextSnapshot?.percent ?? sessionSummary?.context_percent ?? null
   const contextAlert = contextPercent !== null && contextPercent >= 90
 
   // ── Worktree Aggregate data ──
-  const hasScopeData = scopeSummary !== null
   const wCost = scopeSummary?.total_cost ?? 0
   const wTokens = scopeSummary?.total_tokens ?? 0
   const wSessionCount = scopeSummary?.session_count ?? sessionIds.length
@@ -383,7 +397,28 @@ function OverviewPanel({
               <HelpCircle className="h-2.5 w-2.5" />
             </span>
           </SectionLabel>
-          {hasScopeData ? (
+          {scopeSummaryStatus === 'loading' && (
+            <div className="rounded-lg border border-xp-telemetry-border/40 bg-xp-ops-surface-muted/30 px-3 py-2">
+              <div className="text-[10px] text-xp-telemetry-muted">
+                {t('contextPanel.inspector.noAggregateData')}
+              </div>
+            </div>
+          )}
+          {scopeSummaryStatus === 'error' && (
+            <div className="rounded-lg border border-xp-intent-warning/30 bg-xp-intent-warning/5 px-3 py-2">
+              <div className="text-[10px] text-xp-intent-warning">
+                {t('contextPanel.inspector.aggregateError')}
+              </div>
+            </div>
+          )}
+          {scopeSummaryStatus === 'empty' && (
+            <div className="rounded-lg border border-xp-telemetry-border/40 bg-xp-ops-surface-muted/30 px-3 py-2">
+              <div className="text-[10px] text-xp-telemetry-muted">
+                {t('contextPanel.inspector.noAggregateData')}
+              </div>
+            </div>
+          )}
+          {scopeSummaryStatus === 'ready' && scopeSummary && (
             <div className="rounded-lg border border-xp-telemetry-border/60 bg-xp-ops-surface-muted/50 px-3 py-2 space-y-1">
               <MetricRow label={t('contextPanel.inspector.totalCost')} value={formatCost(wCost)} />
               <MetricRow label={t('contextPanel.inspector.totalTokens')} value={formatCompactNumber(wTokens)} />
@@ -391,12 +426,6 @@ function OverviewPanel({
                 label={t('contextPanel.inspector.sessions')}
                 value={`${wSessionCount}`}
               />
-            </div>
-          ) : (
-            <div className="rounded-lg border border-xp-telemetry-border/40 bg-xp-ops-surface-muted/30 px-3 py-2">
-              <div className="text-[10px] text-xp-telemetry-muted">
-                {t('contextPanel.inspector.noAggregateData')}
-              </div>
             </div>
           )}
         </section>
