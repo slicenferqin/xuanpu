@@ -23,7 +23,7 @@ function makeRound(id: string, userText: string): TimelineRound {
 }
 
 describe('buildRoundNavigatorItems', () => {
-  it('returns items with 10-char preview', () => {
+  it('returns raw normalized preview (component handles truncation)', () => {
     const rounds = [
       makeRound('r1', '请帮我修复这个 bug，问题出在 session usage 统计不准确'),
       makeRound('r2', 'pnpm test'),
@@ -31,7 +31,8 @@ describe('buildRoundNavigatorItems', () => {
     ]
     const items = buildRoundNavigatorItems(rounds)
     expect(items).toHaveLength(3)
-    expect(items[0].preview).toBe('请帮我修复这个 bu…')
+    // Builder returns raw normalized text, not truncated
+    expect(items[0].preview).toBe('请帮我修复这个 bug，问题出在 session usage 统计不准确')
     expect(items[0].index).toBe(0)
     expect(items[1].preview).toBe('pnpm test')
     expect(items[1].index).toBe(1)
@@ -51,21 +52,22 @@ describe('buildRoundNavigatorItems', () => {
     expect(items[0].preview).toBe('未命名')
   })
 
-  it('truncates long English text at 10 chars', () => {
-    const rounds = [makeRound('r1', 'Please help me fix the usage analytics dashboard')]
-    const items = buildRoundNavigatorItems(rounds)
-    expect(items[0].preview).toBe('Please hel…')
-  })
-
   it('normalizes whitespace', () => {
     const rounds = [makeRound('r1', '  hello   world  ')]
     const items = buildRoundNavigatorItems(rounds)
-    expect(items[0].preview).toBe('hello worl…')
+    expect(items[0].preview).toBe('hello world')
   })
 
   it('preserves round ids', () => {
     const rounds = [makeRound('abc-123', 'test')]
     const items = buildRoundNavigatorItems(rounds)
     expect(items[0].id).toBe('abc-123')
+  })
+
+  it('does not truncate long text (component responsibility)', () => {
+    const rounds = [makeRound('r1', 'Please help me fix the usage analytics dashboard')]
+    const items = buildRoundNavigatorItems(rounds)
+    // Builder returns full normalized text
+    expect(items[0].preview).toBe('Please help me fix the usage analytics dashboard')
   })
 })

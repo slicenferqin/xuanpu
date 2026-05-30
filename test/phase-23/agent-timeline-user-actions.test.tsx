@@ -95,7 +95,7 @@ describe('AgentTimeline user message actions', () => {
     expect(screen.getByTestId('timeline-clear-screen-spacer')).toHaveStyle({ height: '304px' })
   })
 
-  it('keeps the prompt anchor rail vertically centered', () => {
+  it('renders round navigator with ghost handle (stable 24px rail)', () => {
     render(
       <AgentTimeline
         timelineMessages={[
@@ -109,18 +109,14 @@ describe('AgentTimeline user message actions', () => {
       />
     )
 
-    const rail = screen.getByTestId('timeline-round-anchor-rail')
-    expect(rail.className).toContain('top-0')
-    expect(rail.className).toContain('-mt-6')
-    expect(rail.className).not.toContain('-translate-y-1/2')
-
-    const railItems = screen.getByTestId('timeline-round-anchor-rail-items')
-    expect(railItems.className).toContain('overflow-visible')
-    expect(railItems.className).not.toContain('overflow-y-auto')
-    expect(railItems).toHaveStyle({ height: '336px' })
+    const nav = screen.getByTestId('round-navigator')
+    // Ghost handle is 24px (w-6), stable layout
+    expect(nav.className).toContain('w-6')
+    expect(nav.className).toContain('top-1/2')
+    expect(nav.className).toContain('-translate-y-1/2')
   })
 
-  it('keeps every prompt anchor in the fixed fisheye rail for long sessions', () => {
+  it('shows at most 7 ghost markers for long sessions', () => {
     render(
       <AgentTimeline
         timelineMessages={Array.from({ length: 18 }, (_, index) =>
@@ -133,15 +129,14 @@ describe('AgentTimeline user message actions', () => {
       />
     )
 
-    const railButtons = screen.getAllByTestId('timeline-round-anchor-button')
-    expect(railButtons).toHaveLength(18)
-    expect(railButtons[0]).toHaveStyle({ top: '0%' })
-    expect(railButtons[railButtons.length - 1]).toHaveStyle({ top: '100%' })
-    expect(railButtons[0].getAttribute('aria-label')).toContain('第 1 轮')
-    expect(railButtons[railButtons.length - 1].getAttribute('aria-label')).toContain('第 18 轮')
+    const nav = screen.getByTestId('round-navigator')
+    // Ghost handle shows at most 7 markers (neighborhood), not all 18
+    const buttons = nav.querySelectorAll('button')
+    expect(buttons.length).toBeLessThanOrEqual(7)
+    expect(buttons.length).toBeGreaterThan(0)
   })
 
-  it('magnifies anchors near the pointer without using a rail scrollbar', () => {
+  it('wheel overlay is absolute positioned and does not shift layout', () => {
     render(
       <AgentTimeline
         timelineMessages={Array.from({ length: 50 }, (_, index) =>
@@ -154,20 +149,18 @@ describe('AgentTimeline user message actions', () => {
       />
     )
 
-    const railItems = screen.getByTestId('timeline-round-anchor-rail-items')
-    Object.defineProperty(railItems, 'getBoundingClientRect', {
-      value: () => ({ top: 0, left: 0, width: 32, height: 420, right: 32, bottom: 420 }),
-      configurable: true
-    })
+    const nav = screen.getByTestId('round-navigator')
+    // Rail is always 24px
+    expect(nav.className).toContain('w-6')
 
-    fireEvent.mouseMove(railItems, { clientY: 210 })
+    // Hover to expand
+    fireEvent.mouseEnter(nav)
 
-    const railButtons = screen.getAllByTestId('timeline-round-anchor-button')
-    expect(railButtons).toHaveLength(50)
-    expect(railItems.className).not.toContain('overflow-y-auto')
-    expect(Number.parseFloat(railButtons[25].style.height)).toBeGreaterThan(
-      Number.parseFloat(railButtons[0].style.height)
-    )
+    // Wheel overlay should be absolute (doesn't change rail width)
+    const wheel = nav.querySelector('[role="listbox"]')
+    expect(wheel).toBeTruthy()
+    // Rail itself stays w-6
+    expect(nav.className).toContain('w-6')
   })
 
   it('shows edit button only when the message is editable', () => {
