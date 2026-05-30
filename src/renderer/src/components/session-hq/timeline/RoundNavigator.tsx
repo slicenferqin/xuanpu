@@ -115,7 +115,7 @@ export function RoundNavigator({
   if (isHovered) {
     return (
       <aside
-        className="sticky top-0 -mt-6 hidden w-[176px] shrink-0 self-start lg:block"
+        className="sticky top-1/2 -mt-6 hidden w-[176px] shrink-0 -translate-y-1/2 self-start lg:block"
         data-testid="round-navigator"
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => {
@@ -197,7 +197,7 @@ export function RoundNavigator({
 
   return (
     <aside
-      className="sticky top-0 -mt-6 hidden w-6 shrink-0 self-start lg:block"
+      className="sticky top-1/2 -mt-6 hidden w-6 shrink-0 -translate-y-1/2 self-start lg:block"
       data-testid="round-navigator"
       onMouseEnter={() => setIsHovered(true)}
       onFocus={() => setIsHovered(true)}
@@ -205,7 +205,7 @@ export function RoundNavigator({
       role="navigation"
       aria-label="Round navigator"
     >
-      <div className="relative flex h-full flex-col items-center justify-center gap-1.5 py-2">
+      <div className="relative flex flex-col items-center gap-1.5 py-2">
         {neighborhood.map((item) => {
           const isActive = item.id === activeRoundId
           const distance = Math.abs(item.index - activeIndex)
