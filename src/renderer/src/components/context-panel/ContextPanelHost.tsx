@@ -322,6 +322,8 @@ function OverviewPanel({
   // ── Worktree Aggregate data with live overlay ──
   // When the active session's live data is higher than its persisted contribution,
   // replace it in the scope aggregate. This ensures scope >= current session.
+  // Guard: only do subtraction+addition when contribution exists. Otherwise
+  // use Math.max to avoid double-counting (base already includes persisted data).
   const scopeContributions = scopeSummary?.session_contributions
   const activeContribution = activeSessionId ? scopeContributions?.[activeSessionId] : null
   const liveTotalTokens = liveTokens
@@ -329,15 +331,25 @@ function OverviewPanel({
     : 0
   const liveTotalCost = liveCost ?? 0
 
-  // Compute overlay: subtract old contribution, add live
-  const oldCost = activeContribution?.totalCost ?? 0
-  const oldTokens = activeContribution?.totalTokens ?? 0
-  const liveIsHigher = liveTotalTokens > oldTokens || liveTotalCost > oldCost
-
   const wBaseCost = scopeSummary?.total_cost ?? 0
   const wBaseTokens = scopeSummary?.total_tokens ?? 0
-  const wCost = liveIsHigher ? (wBaseCost - oldCost + liveTotalCost) : wBaseCost
-  const wTokens = liveIsHigher ? (wBaseTokens - oldTokens + liveTotalTokens) : wBaseTokens
+  let wCost = wBaseCost
+  let wTokens = wBaseTokens
+
+  if (activeContribution) {
+    // Contribution exists: replace it with live if live is higher
+    const oldCost = activeContribution.totalCost
+    const oldTokens = activeContribution.totalTokens
+    if (liveTotalTokens > oldTokens || liveTotalCost > oldCost) {
+      wCost = wBaseCost - oldCost + Math.max(oldCost, liveTotalCost)
+      wTokens = wBaseTokens - oldTokens + Math.max(oldTokens, liveTotalTokens)
+    }
+  } else if (activeSessionId && (liveTotalTokens > 0 || liveTotalCost > 0)) {
+    // No contribution found: use Math.max to avoid double-counting
+    wCost = Math.max(wBaseCost, liveTotalCost)
+    wTokens = Math.max(wBaseTokens, liveTotalTokens)
+  }
+
   const wSessionCount = scopeSummary?.session_count ?? sessionIds.length
   const wCoverage = scopeSummary?.coverage
 

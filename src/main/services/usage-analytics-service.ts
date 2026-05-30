@@ -517,6 +517,38 @@ export class UsageAnalyticsService {
         appendUnique(modelLabels, snapshot.model_label)
       }
 
+      // Rebuild snapshot from events when totals diverge.
+      // This prevents scope aggregate from reading stale snapshot totals
+      // even when syncSession skipped because session wasn't stale.
+      if (
+        snapshot &&
+        (snapshot.total_tokens !== totalTokens ||
+          Math.abs(snapshot.total_cost_estimate - totalCost) > 0.000001)
+      ) {
+        this.db.upsertUsageSnapshot({
+          session_id: sessionId,
+          agent_sdk: snapshot.agent_sdk,
+          runtime_session_id: snapshot.session_id,
+          thread_id: snapshot.session_id,
+          provider_id: 'codex',
+          model_id: snapshot.model_label ?? null,
+          model_label: snapshot.model_label ?? null,
+          total_input_tokens: inputTokens,
+          total_output_tokens: outputTokens,
+          total_reasoning_tokens: 0,
+          total_cache_write_tokens: cacheWriteTokens,
+          total_cache_read_tokens: cacheReadTokens,
+          total_tokens: totalTokens,
+          total_cost_estimate: totalCost,
+          context_used_tokens: snapshot.context_used_tokens ?? null,
+          context_window_tokens: snapshot.context_window_tokens ?? null,
+          context_percent: snapshot.context_percent ?? null,
+          source_kind: 'codex-token-count',
+          sync_status: 'synced',
+          last_event_at: lastUsedAt ?? new Date().toISOString()
+        })
+      }
+
       return {
         totalCost,
         totalTokens,

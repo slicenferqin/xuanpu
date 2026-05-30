@@ -764,4 +764,97 @@ describe('ContextPanelHost', () => {
       expect(screen.queryByText('650')).not.toBeInTheDocument()
     })
   })
+
+  it('does not double-count when scope has no contribution for active session', async () => {
+    const sessions = [
+      {
+        id: 'sess-no-contrib',
+        worktree_id: 'wt-1',
+        project_id: 'proj-1',
+        connection_id: null,
+        name: 'No contrib session',
+        status: 'active' as const,
+        opencode_session_id: 'runtime-no-contrib',
+        agent_sdk: 'codex' as const,
+        mode: 'build' as const,
+        model_provider_id: null,
+        model_id: null,
+        model_variant: null,
+        first_message_at: null,
+        created_at: '2026-05-21T00:00:00.000Z',
+        updated_at: '2026-05-21T00:00:00.000Z',
+        completed_at: null
+      }
+    ]
+    useSessionStore.setState({
+      activeSessionId: 'sess-no-contrib',
+      activeWorktreeId: 'wt-1',
+      sessionsByWorktree: new Map([['wt-1', sessions]]),
+      tabOrderByWorktree: new Map([['wt-1', ['sess-no-contrib']]])
+    })
+    // Live tokens: 418K
+    useContextStore.getState().setSessionTokens('sess-no-contrib', {
+      input: 280000,
+      output: 3000,
+      reasoning: 0,
+      cacheRead: 135294,
+      cacheWrite: 0
+    })
+    useContextStore.getState().setSessionCost('sess-no-contrib', 1.036941)
+    window.db.session.getByWorktree = vi.fn().mockResolvedValue(sessions)
+    window.usageAnalyticsOps.fetchSessionSummary = vi.fn().mockResolvedValue({
+      success: true,
+      data: {
+        session_id: 'sess-no-contrib',
+        engine: 'codex',
+        total_cost: 1.036941,
+        total_tokens: 418294,
+        input_tokens: 280000,
+        output_tokens: 3000,
+        cache_write_tokens: 0,
+        cache_read_tokens: 135294,
+        duration_seconds: 120,
+        last_used_at: '2026-05-21T00:02:00.000Z',
+        model_labels: ['o3'],
+        latest_model_label: 'o3',
+        partial: false,
+        context_used_tokens: null,
+        context_window_tokens: null,
+        context_percent: null
+      }
+    })
+    // Scope has NO session_contributions — simulates missing contribution
+    window.usageAnalyticsOps.fetchScopeSummary = vi.fn().mockResolvedValue({
+      success: true,
+      data: {
+        scope_id: 'wt-1',
+        scope_type: 'worktree',
+        session_count: 1,
+        active_session_count: 1,
+        total_cost: 0.79,
+        total_tokens: 239172,
+        input_tokens: 147269,
+        output_tokens: 383,
+        cache_write_tokens: 0,
+        cache_read_tokens: 91520,
+        context_used_tokens: null,
+        context_window_tokens: null,
+        context_percent: null,
+        coverage: { synced: 1, partial: 0, legacy_undercounted: 0, missing_source: 0, unsupported: 0 },
+        partial_sessions: []
+        // No session_contributions — renderer must NOT do base - 0 + live
+      }
+    })
+
+    renderHost()
+
+    await waitFor(() => {
+      // Current session shows 418K / $1.04
+      expect(screen.getByText('$1.04')).toBeInTheDocument()
+      expect(screen.getByText('418.3K')).toBeInTheDocument()
+      // Worktree aggregate should be Math.max(239K, 418K) = 418K, NOT 239K + 418K = 657K
+      expect(screen.queryByText('657.5K')).not.toBeInTheDocument()
+      expect(screen.queryByText('783.5K')).not.toBeInTheDocument()
+    })
+  })
 })
