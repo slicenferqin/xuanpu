@@ -46,6 +46,22 @@ interface BackfillResult {
   error: string | null
 }
 
+interface SessionUsageTotals {
+  totalCost: number
+  totalTokens: number
+  inputTokens: number
+  outputTokens: number
+  cacheWriteTokens: number
+  cacheReadTokens: number
+  lastUsedAt: string | null
+  modelLabels: string[]
+  latestModelLabel: string | null
+  contextUsedTokens: number | null
+  contextWindowTokens: number | null
+  contextPercent: number | null
+  source: 'events' | 'snapshot' | 'legacy' | 'none'
+}
+
 function startOfLocalDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate())
 }
@@ -456,6 +472,144 @@ export class UsageAnalyticsService {
     }
   }
 
+  /**
+   * Unified session usage resolver. Both fetchSessionSummary and fetchScopeSummary
+   * MUST use this to ensure consistent data.
+   *
+   * Priority:
+   *   1. v2 usage_events — aggregate tokens/cost from the event-keyed ledger
+   *   2. session_usage_snapshots — used ONLY for context/model metadata, or as
+   *      fallback for totals when events are empty
+   *   3. legacy usage_entries — final fallback
+   *
+   * This prevents the scope showing stale snapshot totals while the session
+   * summary shows fresh event totals.
+   */
+  private resolveSessionUsage(sessionId: string): SessionUsageTotals {
+    const events = this.db.getUsageEventsBySession(sessionId)
+    const snapshot = this.db.getUsageSnapshot(sessionId)
+
+    if (events.length > 0) {
+      // Events are the authoritative source for totals
+      let totalCost = 0
+      let totalTokens = 0
+      let inputTokens = 0
+      let outputTokens = 0
+      let cacheWriteTokens = 0
+      let cacheReadTokens = 0
+      let lastUsedAt: string | null = null
+      const modelLabels: string[] = []
+
+      for (const event of events) {
+        totalCost += event.cost_estimate
+        totalTokens += event.total_tokens
+        inputTokens += event.input_tokens
+        outputTokens += event.output_tokens
+        cacheWriteTokens += event.cache_write_tokens
+        cacheReadTokens += event.cache_read_tokens
+        if (!lastUsedAt || event.occurred_at > lastUsedAt) {
+          lastUsedAt = event.occurred_at
+        }
+      }
+
+      // Model label from snapshot (metadata, not totals)
+      if (snapshot?.model_label) {
+        appendUnique(modelLabels, snapshot.model_label)
+      }
+
+      return {
+        totalCost,
+        totalTokens,
+        inputTokens,
+        outputTokens,
+        cacheWriteTokens,
+        cacheReadTokens,
+        lastUsedAt,
+        modelLabels,
+        latestModelLabel: modelLabels[modelLabels.length - 1] ?? null,
+        // Context from snapshot (events don't carry context info)
+        contextUsedTokens: snapshot?.context_used_tokens ?? null,
+        contextWindowTokens: snapshot?.context_window_tokens ?? null,
+        contextPercent: snapshot?.context_percent ?? null,
+        source: 'events'
+      }
+    }
+
+    // Fallback: snapshot totals (when events don't exist yet)
+    if (snapshot) {
+      return {
+        totalCost: snapshot.total_cost_estimate,
+        totalTokens: snapshot.total_tokens,
+        inputTokens: snapshot.total_input_tokens,
+        outputTokens: snapshot.total_output_tokens,
+        cacheWriteTokens: snapshot.total_cache_write_tokens,
+        cacheReadTokens: snapshot.total_cache_read_tokens,
+        lastUsedAt: snapshot.last_event_at,
+        modelLabels: snapshot.model_label ? [snapshot.model_label] : [],
+        latestModelLabel: snapshot.model_label ?? null,
+        contextUsedTokens: snapshot.context_used_tokens ?? null,
+        contextWindowTokens: snapshot.context_window_tokens ?? null,
+        contextPercent: snapshot.context_percent ?? null,
+        source: 'snapshot'
+      }
+    }
+
+    // Final fallback: legacy usage_entries
+    const entries = this.db.getUsageEntriesBySession(sessionId)
+    if (entries.length > 0) {
+      let totalCost = 0
+      let totalTokens = 0
+      let inputTokens = 0
+      let outputTokens = 0
+      let cacheWriteTokens = 0
+      let cacheReadTokens = 0
+      const modelLabels: string[] = []
+
+      for (const entry of entries) {
+        totalCost += entry.cost
+        totalTokens += entry.total_tokens
+        inputTokens += entry.input_tokens
+        outputTokens += entry.output_tokens
+        cacheWriteTokens += entry.cache_write_tokens
+        cacheReadTokens += entry.cache_read_tokens
+        appendUnique(modelLabels, getEntryModelLabel(entry))
+      }
+
+      const sorted = [...entries].sort((a, b) => a.occurred_at.localeCompare(b.occurred_at))
+      return {
+        totalCost,
+        totalTokens,
+        inputTokens,
+        outputTokens,
+        cacheWriteTokens,
+        cacheReadTokens,
+        lastUsedAt: sorted[sorted.length - 1]?.occurred_at ?? null,
+        modelLabels,
+        latestModelLabel: modelLabels[modelLabels.length - 1] ?? null,
+        contextUsedTokens: null,
+        contextWindowTokens: null,
+        contextPercent: null,
+        source: 'legacy'
+      }
+    }
+
+    return {
+      totalCost: 0,
+      totalTokens: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheWriteTokens: 0,
+      cacheReadTokens: 0,
+      lastUsedAt: null,
+      modelLabels: [],
+      latestModelLabel: null,
+      contextUsedTokens: null,
+      contextWindowTokens: null,
+      contextPercent: null,
+      source: 'none'
+    }
+  }
+
   async fetchSessionSummary(sessionId: string): Promise<UsageAnalyticsSessionSummaryResult> {
     try {
       const session = this.db
@@ -468,125 +622,35 @@ export class UsageAnalyticsService {
 
       await this.syncSession(session, true)
 
-      // Prefer v2 usage_events ledger when available
-      const usageEvents = this.db.getUsageEventsBySession(sessionId)
-      const snapshot = this.db.getUsageSnapshot(sessionId)
-
-      if (usageEvents.length > 0) {
-        // Aggregate from v2 event-keyed ledger
-        const modelLabels: string[] = []
-        let totalCost = 0
-        let totalTokens = 0
-        let inputTokens = 0
-        let outputTokens = 0
-        let reasoningTokens = 0
-        let cacheWriteTokens = 0
-        let cacheReadTokens = 0
-        let lastUsedAt: string | null = null
-
-        for (const event of usageEvents) {
-          totalCost += event.cost_estimate
-          totalTokens += event.total_tokens
-          inputTokens += event.input_tokens
-          outputTokens += event.output_tokens
-          reasoningTokens += event.reasoning_tokens
-          cacheWriteTokens += event.cache_write_tokens
-          cacheReadTokens += event.cache_read_tokens
-          if (!lastUsedAt || event.occurred_at > lastUsedAt) {
-            lastUsedAt = event.occurred_at
-          }
-        }
-
-        // Use snapshot for model labels if available
-        if (snapshot?.model_label) {
-          appendUnique(modelLabels, snapshot.model_label)
-        }
-
-        const syncState = this.db.getUsageSyncState(sessionId)
-        const endAt = lastUsedAt ?? session.updated_at
-
-        const isPartialStatus = syncState?.status === 'partial'
-          || syncState?.status === 'error'
-          || syncState?.status === 'missing-source'
-          || syncState?.status === 'legacy-undercounted'
-
-        const summary: UsageAnalyticsSessionSummary = {
-          session_id: sessionId,
-          engine: session.agent_sdk as UsageAnalyticsEngine,
-          total_cost: totalCost,
-          total_tokens: totalTokens,
-          input_tokens: inputTokens,
-          output_tokens: outputTokens,
-          cache_write_tokens: cacheWriteTokens,
-          cache_read_tokens: cacheReadTokens,
-          duration_seconds: Math.max(
-            0,
-            Math.round((new Date(endAt).getTime() - new Date(session.created_at).getTime()) / 1000)
-          ),
-          last_used_at: lastUsedAt,
-          model_labels: modelLabels,
-          latest_model_label: modelLabels[modelLabels.length - 1] ?? null,
-          partial: isPartialStatus,
-          context_used_tokens: snapshot?.context_used_tokens ?? null,
-          context_window_tokens: snapshot?.context_window_tokens ?? null,
-          context_percent: snapshot?.context_percent ?? null
-        }
-
-        return { success: true, data: summary }
-      }
-
-      // Fall back to legacy usage_entries
-      const entries = [...this.db.getUsageEntriesBySession(sessionId)].sort((a, b) =>
-        a.occurred_at.localeCompare(b.occurred_at)
-      )
+      const usage = this.resolveSessionUsage(sessionId)
       const syncState = this.db.getUsageSyncState(sessionId)
-      const modelLabels: string[] = []
-
       const isPartialStatus = syncState?.status === 'partial'
         || syncState?.status === 'error'
         || syncState?.status === 'missing-source'
         || syncState?.status === 'legacy-undercounted'
 
-      // Try to get context from snapshot even in legacy path
-      const legacySnapshot = this.db.getUsageSnapshot(sessionId)
-
+      const endAt = usage.lastUsedAt ?? session.updated_at
       const summary: UsageAnalyticsSessionSummary = {
         session_id: sessionId,
         engine: session.agent_sdk as UsageAnalyticsEngine,
-        total_cost: 0,
-        total_tokens: 0,
-        input_tokens: 0,
-        output_tokens: 0,
-        cache_write_tokens: 0,
-        cache_read_tokens: 0,
-        duration_seconds: 0,
-        last_used_at: entries.length > 0 ? entries[entries.length - 1].occurred_at : null,
-        model_labels: [],
-        latest_model_label: null,
+        total_cost: usage.totalCost,
+        total_tokens: usage.totalTokens,
+        input_tokens: usage.inputTokens,
+        output_tokens: usage.outputTokens,
+        cache_write_tokens: usage.cacheWriteTokens,
+        cache_read_tokens: usage.cacheReadTokens,
+        duration_seconds: Math.max(
+          0,
+          Math.round((new Date(endAt).getTime() - new Date(session.created_at).getTime()) / 1000)
+        ),
+        last_used_at: usage.lastUsedAt,
+        model_labels: usage.modelLabels,
+        latest_model_label: usage.latestModelLabel,
         partial: isPartialStatus,
-        context_used_tokens: legacySnapshot?.context_used_tokens ?? null,
-        context_window_tokens: legacySnapshot?.context_window_tokens ?? null,
-        context_percent: legacySnapshot?.context_percent ?? null
+        context_used_tokens: usage.contextUsedTokens,
+        context_window_tokens: usage.contextWindowTokens,
+        context_percent: usage.contextPercent
       }
-
-      for (const entry of entries) {
-        summary.total_cost += entry.cost
-        summary.total_tokens += entry.total_tokens
-        summary.input_tokens += entry.input_tokens
-        summary.output_tokens += entry.output_tokens
-        summary.cache_write_tokens += entry.cache_write_tokens
-        summary.cache_read_tokens += entry.cache_read_tokens
-        appendUnique(modelLabels, getEntryModelLabel(entry))
-      }
-
-      summary.model_labels = modelLabels
-      summary.latest_model_label = modelLabels[modelLabels.length - 1] ?? null
-
-      const endAt = summary.last_used_at ?? session.updated_at
-      summary.duration_seconds = Math.max(
-        0,
-        Math.round((new Date(endAt).getTime() - new Date(session.created_at).getTime()) / 1000)
-      )
 
       return { success: true, data: summary }
     } catch (error) {
@@ -633,6 +697,19 @@ export class UsageAnalyticsService {
     try {
       const sessions = this.db.getUsageAnalyticsSessions(['claude-code', 'codex'], 'all')
       const sessionMap = new Map(sessions.map((s) => [s.id, s] as const))
+
+      // Sync supported sessions before aggregating (like fetchSessionSummary does)
+      for (const sessionId of sessionIds) {
+        const session = sessionMap.get(sessionId)
+        if (session) {
+          try {
+            await this.syncSession(session, false)
+          } catch {
+            // Non-fatal — we'll use whatever data is available
+          }
+        }
+      }
+
       const syncStates = new Map(
         this.db.getUsageSyncStates().map((state) => [state.session_id, state] as const)
       )
@@ -656,6 +733,15 @@ export class UsageAnalyticsService {
       let contextPercent: number | null = null
       const partialSessions: import('@shared/types/usage-analytics').UsageAnalyticsPartialSession[] = []
       const seenSessionIds = new Set<string>()
+      // Per-session contributions for renderer live overlay
+      const sessionContributions = new Map<string, {
+        totalCost: number
+        totalTokens: number
+        inputTokens: number
+        outputTokens: number
+        cacheWriteTokens: number
+        cacheReadTokens: number
+      }>()
 
       for (const sessionId of sessionIds) {
         if (seenSessionIds.has(sessionId)) continue
@@ -684,60 +770,40 @@ export class UsageAnalyticsService {
         }
 
         // Partial session detail
-        const snapshot = this.getSessionSyncSnapshot(session, syncState)
-        if (snapshot.partial && snapshot.reason) {
+        const syncSnapshot = this.getSessionSyncSnapshot(session, syncState)
+        if (syncSnapshot.partial && syncSnapshot.reason) {
           partialSessions.push({
             session_id: sessionId,
             session_name: session.name ?? 'Untitled',
             engine: session.agent_sdk as import('@shared/types/usage-analytics').UsageAnalyticsEngine,
-            reason: snapshot.reason,
-            ...(snapshot.detail ? { detail: snapshot.detail } : {})
+            reason: syncSnapshot.reason,
+            ...(syncSnapshot.detail ? { detail: syncSnapshot.detail } : {})
           })
         }
 
-        // Prefer v2 snapshot for totals (single source of truth)
-        const v2Snapshot = this.db.getUsageSnapshot(sessionId)
-        if (v2Snapshot) {
-          totalCost += v2Snapshot.total_cost_estimate
-          totalTokens += v2Snapshot.total_tokens
-          inputTokens += v2Snapshot.total_input_tokens
-          outputTokens += v2Snapshot.total_output_tokens
-          cacheWriteTokens += v2Snapshot.total_cache_write_tokens
-          cacheReadTokens += v2Snapshot.total_cache_read_tokens
+        // Use unified resolver — same as fetchSessionSummary
+        const usage = this.resolveSessionUsage(sessionId)
 
-          // Use the most recent snapshot's context info
-          if (v2Snapshot.context_window_tokens && v2Snapshot.context_window_tokens > 0) {
-            contextUsedTokens = (contextUsedTokens ?? 0) + (v2Snapshot.context_used_tokens ?? 0)
-            contextWindowTokens = Math.max(
-              contextWindowTokens ?? 0,
-              v2Snapshot.context_window_tokens
-            )
-          }
-        } else {
-          // Fallback: aggregate from v2 events
-          const events = this.db.getUsageEventsBySession(sessionId)
-          if (events.length > 0) {
-            for (const event of events) {
-              totalCost += event.cost_estimate
-              totalTokens += event.total_tokens
-              inputTokens += event.input_tokens
-              outputTokens += event.output_tokens
-              cacheWriteTokens += event.cache_write_tokens
-              cacheReadTokens += event.cache_read_tokens
-            }
-          } else {
-            // Final fallback: legacy usage_entries
-            // This ensures worktree aggregate shows real data even before v2 migration
-            const entries = this.db.getUsageEntriesBySession(sessionId)
-            for (const entry of entries) {
-              totalCost += entry.cost
-              totalTokens += entry.total_tokens
-              inputTokens += entry.input_tokens
-              outputTokens += entry.output_tokens
-              cacheWriteTokens += entry.cache_write_tokens
-              cacheReadTokens += entry.cache_read_tokens
-            }
-          }
+        totalCost += usage.totalCost
+        totalTokens += usage.totalTokens
+        inputTokens += usage.inputTokens
+        outputTokens += usage.outputTokens
+        cacheWriteTokens += usage.cacheWriteTokens
+        cacheReadTokens += usage.cacheReadTokens
+
+        sessionContributions.set(sessionId, {
+          totalCost: usage.totalCost,
+          totalTokens: usage.totalTokens,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          cacheWriteTokens: usage.cacheWriteTokens,
+          cacheReadTokens: usage.cacheReadTokens
+        })
+
+        // Context: use the highest context window, sum used (only for active sessions)
+        if (usage.contextWindowTokens && usage.contextWindowTokens > 0) {
+          contextUsedTokens = (contextUsedTokens ?? 0) + (usage.contextUsedTokens ?? 0)
+          contextWindowTokens = Math.max(contextWindowTokens ?? 0, usage.contextWindowTokens)
         }
       }
 
@@ -765,7 +831,8 @@ export class UsageAnalyticsService {
           context_window_tokens: contextWindowTokens,
           context_percent: contextPercent,
           coverage,
-          partial_sessions: partialSessions
+          partial_sessions: partialSessions,
+          session_contributions: Object.fromEntries(sessionContributions)
         }
       }
     } catch (error) {
@@ -992,6 +1059,55 @@ export class UsageAnalyticsService {
     // Use real file mtime from backfill if available, else fallback
     const sourceMtimeMs = backfillResult?.sourceMtimeMs
       ?? (jsonlPath ? new Date(session.updated_at).getTime() : null)
+
+    // When events exist, rebuild snapshot from event ledger to keep it fresh.
+    // This prevents snapshot from lagging behind events (the root cause of
+    // scope aggregate < current session).
+    if (existingEvents.length > 0) {
+      const existingSnapshot = this.db.getUsageSnapshot(session.id)
+      let totalCost = 0
+      let totalTokens = 0
+      let inputTokens = 0
+      let outputTokens = 0
+      let cacheWriteTokens = 0
+      let cacheReadTokens = 0
+      let lastEventAt: string | null = null
+
+      for (const event of existingEvents) {
+        totalCost += event.cost_estimate
+        totalTokens += event.total_tokens
+        inputTokens += event.input_tokens
+        outputTokens += event.output_tokens
+        cacheWriteTokens += event.cache_write_tokens
+        cacheReadTokens += event.cache_read_tokens
+        if (!lastEventAt || event.occurred_at > lastEventAt) {
+          lastEventAt = event.occurred_at
+        }
+      }
+
+      this.db.upsertUsageSnapshot({
+        session_id: session.id,
+        agent_sdk: 'codex',
+        runtime_session_id: session.opencode_session_id ?? null,
+        thread_id: session.opencode_session_id ?? null,
+        provider_id: 'codex',
+        model_id: session.model_id ?? null,
+        model_label: session.model_id ?? null,
+        total_input_tokens: inputTokens,
+        total_output_tokens: outputTokens,
+        total_reasoning_tokens: 0,
+        total_cache_write_tokens: cacheWriteTokens,
+        total_cache_read_tokens: cacheReadTokens,
+        total_tokens: totalTokens,
+        total_cost_estimate: totalCost,
+        context_used_tokens: existingSnapshot?.context_used_tokens ?? null,
+        context_window_tokens: existingSnapshot?.context_window_tokens ?? null,
+        context_percent: existingSnapshot?.context_percent ?? null,
+        source_kind: 'codex-token-count',
+        sync_status: 'synced',
+        last_event_at: lastEventAt ?? new Date().toISOString()
+      })
+    }
 
     this.db.upsertUsageSyncState({
       session_id: session.id,

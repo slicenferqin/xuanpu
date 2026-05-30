@@ -164,6 +164,14 @@ export interface UsageAnalyticsScopeSummary {
     unsupported: number
   }
   partial_sessions: UsageAnalyticsPartialSession[]
+  session_contributions?: Record<string, {
+    totalCost: number
+    totalTokens: number
+    inputTokens: number
+    outputTokens: number
+    cacheWriteTokens: number
+    cacheReadTokens: number
+  }>
 }
 
 export interface UsageAnalyticsScopeSummaryResult {

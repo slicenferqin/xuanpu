@@ -319,9 +319,25 @@ function OverviewPanel({
   const contextPercent = contextSnapshot?.percent ?? sessionSummary?.context_percent ?? null
   const contextAlert = contextPercent !== null && contextPercent >= 90
 
-  // ── Worktree Aggregate data ──
-  const wCost = scopeSummary?.total_cost ?? 0
-  const wTokens = scopeSummary?.total_tokens ?? 0
+  // ── Worktree Aggregate data with live overlay ──
+  // When the active session's live data is higher than its persisted contribution,
+  // replace it in the scope aggregate. This ensures scope >= current session.
+  const scopeContributions = scopeSummary?.session_contributions
+  const activeContribution = activeSessionId ? scopeContributions?.[activeSessionId] : null
+  const liveTotalTokens = liveTokens
+    ? liveTokens.input + liveTokens.output + liveTokens.cacheRead + liveTokens.cacheWrite
+    : 0
+  const liveTotalCost = liveCost ?? 0
+
+  // Compute overlay: subtract old contribution, add live
+  const oldCost = activeContribution?.totalCost ?? 0
+  const oldTokens = activeContribution?.totalTokens ?? 0
+  const liveIsHigher = liveTotalTokens > oldTokens || liveTotalCost > oldCost
+
+  const wBaseCost = scopeSummary?.total_cost ?? 0
+  const wBaseTokens = scopeSummary?.total_tokens ?? 0
+  const wCost = liveIsHigher ? (wBaseCost - oldCost + liveTotalCost) : wBaseCost
+  const wTokens = liveIsHigher ? (wBaseTokens - oldTokens + liveTotalTokens) : wBaseTokens
   const wSessionCount = scopeSummary?.session_count ?? sessionIds.length
   const wCoverage = scopeSummary?.coverage
 
