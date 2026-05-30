@@ -888,9 +888,17 @@
 
 /* ── Wide Block: breaks out of reader measure for code/tables/diffs ── */
 .xp-wide-block {
-  width: min(100%, var(--xp-reader-wide-measure, 1120px));
+  /* Break out of the reader measure container using negative margin */
+  width: min(var(--xp-reader-wide-measure, 1120px), calc(100vw - var(--xp-shell-side-insets, 360px)));
   max-width: calc(100vw - var(--xp-shell-side-insets, 360px));
-  margin-left: 0;
+  margin-left: 50%;
+  transform: translateX(-50%);
+  position: relative;
+}
+
+.xp-readable-message {
+  /* Allow wide blocks to overflow visually */
+  overflow: visible;
 }
 
 /* ── Reading Density Modes ── */

@@ -526,7 +526,10 @@ export class UsageAnalyticsService {
           last_used_at: lastUsedAt,
           model_labels: modelLabels,
           latest_model_label: modelLabels[modelLabels.length - 1] ?? null,
-          partial: isPartialStatus
+          partial: isPartialStatus,
+          context_used_tokens: snapshot?.context_used_tokens ?? null,
+          context_window_tokens: snapshot?.context_window_tokens ?? null,
+          context_percent: snapshot?.context_percent ?? null
         }
 
         return { success: true, data: summary }
@@ -544,6 +547,9 @@ export class UsageAnalyticsService {
         || syncState?.status === 'missing-source'
         || syncState?.status === 'legacy-undercounted'
 
+      // Try to get context from snapshot even in legacy path
+      const legacySnapshot = this.db.getUsageSnapshot(sessionId)
+
       const summary: UsageAnalyticsSessionSummary = {
         session_id: sessionId,
         engine: session.agent_sdk as UsageAnalyticsEngine,
@@ -557,7 +563,10 @@ export class UsageAnalyticsService {
         last_used_at: entries.length > 0 ? entries[entries.length - 1].occurred_at : null,
         model_labels: [],
         latest_model_label: null,
-        partial: isPartialStatus
+        partial: isPartialStatus,
+        context_used_tokens: legacySnapshot?.context_used_tokens ?? null,
+        context_window_tokens: legacySnapshot?.context_window_tokens ?? null,
+        context_percent: legacySnapshot?.context_percent ?? null
       }
 
       for (const entry of entries) {
@@ -707,13 +716,27 @@ export class UsageAnalyticsService {
         } else {
           // Fallback: aggregate from v2 events
           const events = this.db.getUsageEventsBySession(sessionId)
-          for (const event of events) {
-            totalCost += event.cost_estimate
-            totalTokens += event.total_tokens
-            inputTokens += event.input_tokens
-            outputTokens += event.output_tokens
-            cacheWriteTokens += event.cache_write_tokens
-            cacheReadTokens += event.cache_read_tokens
+          if (events.length > 0) {
+            for (const event of events) {
+              totalCost += event.cost_estimate
+              totalTokens += event.total_tokens
+              inputTokens += event.input_tokens
+              outputTokens += event.output_tokens
+              cacheWriteTokens += event.cache_write_tokens
+              cacheReadTokens += event.cache_read_tokens
+            }
+          } else {
+            // Final fallback: legacy usage_entries
+            // This ensures worktree aggregate shows real data even before v2 migration
+            const entries = this.db.getUsageEntriesBySession(sessionId)
+            for (const entry of entries) {
+              totalCost += entry.cost
+              totalTokens += entry.total_tokens
+              inputTokens += entry.input_tokens
+              outputTokens += entry.output_tokens
+              cacheWriteTokens += entry.cache_write_tokens
+              cacheReadTokens += entry.cache_read_tokens
+            }
           }
         }
       }

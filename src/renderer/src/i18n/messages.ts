@@ -1881,6 +1881,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         totalCost: 'Total Cost',
         totalTokens: 'Total Tokens',
         sessions: 'Sessions',
+        noAggregateData: 'Syncing aggregate data…',
       },
       tasks: {
         emptyTitle: 'No tasks yet',
@@ -4800,6 +4801,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         totalCost: '总花费',
         totalTokens: '总 Tokens',
         sessions: '会话数',
+        noAggregateData: '正在同步聚合数据…',
       },
       tasks: {
         emptyTitle: '暂无任务',

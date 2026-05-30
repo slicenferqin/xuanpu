@@ -26,6 +26,7 @@ import { GoalStatusCard } from '@/components/session-hq/cards/GoalStatusCard'
 import { TodoCard } from '@/components/session-hq/cards/TodoCard'
 import { FieldContextDebug } from '@/components/sessions/FieldContextDebug'
 import { extractMissionTasks, type SessionTask } from '@/lib/session-tasks'
+import { resolveUsageTokenTotals } from '@/lib/usage-token-totals'
 import type {
   UsageAnalyticsScopeSummary,
   UsageAnalyticsSessionSummary
@@ -284,44 +285,31 @@ function OverviewPanel({
     )
   }
 
-  // ── Current Session data ──
+  // ── Current Session data: use resolveUsageTokenTotals for consistency ──
+  const resolvedTokens = resolveUsageTokenTotals(sessionSummary, liveTokens)
   const sCost = (sessionSummary?.total_cost ?? 0) > 0 ? sessionSummary!.total_cost : liveCost
-  const sTokens = (sessionSummary?.total_tokens ?? 0) > 0 ? sessionSummary!.total_tokens : 0
-  const sInput = (sessionSummary?.input_tokens ?? 0) > 0
-    ? sessionSummary!.input_tokens
-    : (liveTokens ? liveTokens.input : 0)
-  const sOutput = (sessionSummary?.output_tokens ?? 0) > 0
-    ? sessionSummary!.output_tokens
-    : (liveTokens ? liveTokens.output : 0)
-  const sCacheRead = (sessionSummary?.cache_read_tokens ?? 0) > 0
-    ? sessionSummary!.cache_read_tokens
-    : (liveTokens ? liveTokens.cacheRead : 0)
-  const sCacheWrite = (sessionSummary?.cache_write_tokens ?? 0) > 0
-    ? sessionSummary!.cache_write_tokens
-    : (liveTokens ? liveTokens.cacheWrite : 0)
-  const sCacheTotal = sCacheRead + sCacheWrite + sInput
-  const sCacheHitRate = sCacheTotal > 0 ? Math.round((sCacheRead / sCacheTotal) * 100) : null
-  // Live tokens total (for when session summary has no data)
-  const liveTokensTotal = liveTokens
-    ? liveTokens.input + liveTokens.output + liveTokens.cacheRead + liveTokens.cacheWrite
-    : 0
-  const sTokensDisplay = sTokens > 0 ? sTokens : liveTokensTotal
+  const sPartial = sessionSummary?.partial ?? false
   const sModel = sessionSummary?.latest_model_label ?? null
   const sDuration = sessionSummary?.duration_seconds ?? 0
-  const sPartial = sessionSummary?.partial ?? false
+  const sCacheHitRate = resolvedTokens.cacheReadTokens > 0
+    ? Math.round(
+        (resolvedTokens.cacheReadTokens /
+          (resolvedTokens.cacheReadTokens + resolvedTokens.inputTokens + resolvedTokens.cacheWriteTokens)) * 100
+      )
+    : null
+
+  // Context: prefer persisted snapshot fields, not input+output
+  const contextUsed = sessionSummary?.context_used_tokens ?? null
+  const contextWindow = sessionSummary?.context_window_tokens ?? null
+  const contextPercent = sessionSummary?.context_percent ?? null
+  const contextAlert = contextPercent !== null && contextPercent >= 90
 
   // ── Worktree Aggregate data ──
+  const hasScopeData = scopeSummary !== null
   const wCost = scopeSummary?.total_cost ?? 0
   const wTokens = scopeSummary?.total_tokens ?? 0
   const wSessionCount = scopeSummary?.session_count ?? sessionIds.length
   const wCoverage = scopeSummary?.coverage
-
-  // Context is per-session only — do not aggregate
-  const contextUsed = sessionSummary
-    ? (sessionSummary.input_tokens + sessionSummary.output_tokens)
-    : (liveTokens ? liveTokens.input + liveTokens.output : null)
-  const contextWindow = null // Will come from snapshot when available
-  const contextPercent = null
 
   return (
     <div className="min-h-0 flex-1 overflow-auto px-2.5 py-3" data-testid="context-panel-overview">
@@ -340,7 +328,7 @@ function OverviewPanel({
 
           <div className="rounded-lg border border-xp-telemetry-border bg-xp-ops-surface-muted px-3 py-2 space-y-1">
             <MetricRow label={t('contextPanel.overview.cost')} value={formatCost(sCost)} />
-            <MetricRow label={t('contextPanel.overview.tokens')} value={formatCompactNumber(sTokensDisplay)} />
+            <MetricRow label={t('contextPanel.overview.tokens')} value={formatCompactNumber(resolvedTokens.totalTokens)} />
             {sModel && (
               <MetricRow label={t('contextPanel.inspector.model')} value={sModel} />
             )}
@@ -353,16 +341,16 @@ function OverviewPanel({
           </div>
 
           {/* Token breakdown */}
-          {(sInput > 0 || sOutput > 0 || sCacheRead > 0) && (
+          {resolvedTokens.totalTokens > 0 && (
             <div className="rounded-lg border border-xp-telemetry-border bg-xp-ops-surface-muted px-3 py-2 space-y-1">
               <SectionLabel>{t('contextPanel.inspector.tokenBreakdown')}</SectionLabel>
-              <MetricRow label={t('contextPanel.overview.input')} value={formatCompactNumber(sInput)} />
-              <MetricRow label={t('contextPanel.overview.output')} value={formatCompactNumber(sOutput)} />
-              <MetricRow label={t('contextPanel.overview.cacheRead')} value={formatCompactNumber(sCacheRead)} />
+              <MetricRow label={t('contextPanel.overview.input')} value={formatCompactNumber(resolvedTokens.inputTokens)} />
+              <MetricRow label={t('contextPanel.overview.output')} value={formatCompactNumber(resolvedTokens.outputTokens)} />
+              <MetricRow label={t('contextPanel.overview.cacheRead')} value={formatCompactNumber(resolvedTokens.cacheReadTokens)} />
               {sCacheHitRate !== null && (
                 <MetricRow
                   label={t('contextPanel.overview.cacheHitRate')}
-                  value={`${sCacheHitRate}% (${formatCompactNumber(sCacheRead)} / ${formatCompactNumber(sCacheTotal)})`}
+                  value={`${sCacheHitRate}% (${formatCompactNumber(resolvedTokens.cacheReadTokens)} / ${formatCompactNumber(resolvedTokens.cacheReadTokens + resolvedTokens.inputTokens + resolvedTokens.cacheWriteTokens)})`}
                 />
               )}
             </div>
@@ -395,14 +383,22 @@ function OverviewPanel({
               <HelpCircle className="h-2.5 w-2.5" />
             </span>
           </SectionLabel>
-          <div className="rounded-lg border border-xp-telemetry-border/60 bg-xp-ops-surface-muted/50 px-3 py-2 space-y-1">
-            <MetricRow label={t('contextPanel.inspector.totalCost')} value={formatCost(wCost)} />
-            <MetricRow label={t('contextPanel.inspector.totalTokens')} value={formatCompactNumber(wTokens)} />
-            <MetricRow
-              label={t('contextPanel.inspector.sessions')}
-              value={`${wSessionCount}`}
-            />
-          </div>
+          {hasScopeData ? (
+            <div className="rounded-lg border border-xp-telemetry-border/60 bg-xp-ops-surface-muted/50 px-3 py-2 space-y-1">
+              <MetricRow label={t('contextPanel.inspector.totalCost')} value={formatCost(wCost)} />
+              <MetricRow label={t('contextPanel.inspector.totalTokens')} value={formatCompactNumber(wTokens)} />
+              <MetricRow
+                label={t('contextPanel.inspector.sessions')}
+                value={`${wSessionCount}`}
+              />
+            </div>
+          ) : (
+            <div className="rounded-lg border border-xp-telemetry-border/40 bg-xp-ops-surface-muted/30 px-3 py-2">
+              <div className="text-[10px] text-xp-telemetry-muted">
+                {t('contextPanel.inspector.noAggregateData')}
+              </div>
+            </div>
+          )}
         </section>
 
         {/* ── Diagnostics ── */}

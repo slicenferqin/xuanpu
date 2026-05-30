@@ -118,6 +118,9 @@ export interface UsageAnalyticsSessionSummary {
   model_labels: string[]
   latest_model_label: string | null
   partial: boolean
+  context_used_tokens: number | null
+  context_window_tokens: number | null
+  context_percent: number | null
 }
 
 export interface UsageAnalyticsDashboardResult {
