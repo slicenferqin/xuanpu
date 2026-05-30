@@ -363,131 +363,130 @@ export function AgentTimeline({
           showTopGradient ? 'opacity-100' : 'opacity-0'
         )}
       />
+      <RoundNavigator
+        rounds={buildRoundNavigatorItems(rounds)}
+        activeRoundId={activeRoundId}
+        bottomReadableInset={bottomReadableInset}
+        scrollContainerRef={effectiveScrollContainerRef}
+        onRoundAnchorNavigate={onRoundAnchorNavigate}
+      />
       <div
         className="w-[85%] ml-[5%]"
-        style={{
-          paddingTop: '24px',
-          paddingBottom: `${paddingBottom}px`,
-          // Expose real timeline content width for .xp-wide-block breakout.
-          // This replaces the old viewport-based calc that broke in 3-column layout.
-          '--xp-reader-wide-max': '100%'
-        } as React.CSSProperties}
+        style={
+          {
+            paddingTop: '24px',
+            paddingBottom: `${paddingBottom}px`,
+            // Expose real timeline content width for .xp-wide-block breakout.
+            // This replaces the old viewport-based calc that broke in 3-column layout.
+            '--xp-reader-wide-max': '100%'
+          } as React.CSSProperties
+        }
       >
-        <div className="flex items-start gap-4">
-          <div ref={timelineContentRef} className="min-w-0 flex-1">
-            {preludeNodes.map((node, index) =>
-              renderCommittedTimelineNode(node, preludeNodes[index + 1])
-            )}
+        <div ref={timelineContentRef} className="min-w-0">
+          {preludeNodes.map((node, index) =>
+            renderCommittedTimelineNode(node, preludeNodes[index + 1])
+          )}
 
-            {rounds.map((round) => {
-              return (
-                <section
-                  key={round.id}
-                  id={round.anchorId}
-                  data-round-anchor="true"
-                  data-round-id={round.id}
-                  className="mb-7 scroll-mt-8"
-                >
-                  {round.nodes.map((node, nodeIndex) =>
-                    renderCommittedTimelineNode(node, round.nodes[nodeIndex + 1])
-                  )}
-                </section>
-              )
-            })}
+          {rounds.map((round) => {
+            return (
+              <section
+                key={round.id}
+                id={round.anchorId}
+                data-round-anchor="true"
+                data-round-id={round.id}
+                className="mb-7 scroll-mt-8"
+              >
+                {round.nodes.map((node, nodeIndex) =>
+                  renderCommittedTimelineNode(node, round.nodes[nodeIndex + 1])
+                )}
+              </section>
+            )
+          })}
 
-            {/* Inflight 压缩 marker：永远落在 rounds 之后、streaming 之前。 */}
-            {inflightCompaction && (
-              <ThreadStatusRow key={inflightCompaction.id} status={inflightCompaction} />
-            )}
+          {/* Inflight 压缩 marker：永远落在 rounds 之后、streaming 之前。 */}
+          {inflightCompaction && (
+            <ThreadStatusRow key={inflightCompaction.id} status={inflightCompaction} />
+          )}
 
-            {/* Final aggregated TodoCard — rendered only when a parent explicitly passes it. */}
-            {finalTodoTasks && finalTodoTasks.length > 0 && (
+          {/* Final aggregated TodoCard — rendered only when a parent explicitly passes it. */}
+          {finalTodoTasks && finalTodoTasks.length > 0 && (
+            <div className="relative pl-10 mb-4">
+              <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border opacity-60" />
+              <div
+                className={cn(
+                  'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
+                  'flex items-center justify-center z-10',
+                  ICON_MAP.todo.bgClass,
+                  ICON_MAP.todo.colorClass
+                )}
+              >
+                <CheckSquare className="h-3 w-3" />
+              </div>
+              <TodoCard tasks={finalTodoTasks} />
+            </div>
+          )}
+
+          {/* Live streaming parts — real-time tool/text/reasoning rendering.
+                Render from buffer regardless of streaming state so content survives
+                session switches: the buffer holds what thread/read hasn't persisted yet. */}
+          {streamingNodes.length > 0 &&
+            streamingNodes.map((node, index) => renderStreamingTimelineNode(node, index))}
+
+          {/* Streaming with no content yet — show pulse */}
+          {isStreaming &&
+            streamingNodes.length === 0 &&
+            !streamingContent &&
+            ephemeralStatusRows.length === 0 && (
               <div className="relative pl-10 mb-4">
-                <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border opacity-60" />
                 <div
                   className={cn(
                     'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
                     'flex items-center justify-center z-10',
-                    ICON_MAP.todo.bgClass,
-                    ICON_MAP.todo.colorClass
+                    'bg-neon-mint-soft text-neon-mint'
                   )}
                 >
-                  <CheckSquare className="h-3 w-3" />
+                  <Loader2 className="h-3 w-3 animate-spin" />
                 </div>
-                <TodoCard tasks={finalTodoTasks} />
+                <div className="text-sm text-muted-foreground italic">
+                  {t('sessionHq.timeline.thinking')}
+                </div>
               </div>
             )}
 
-            {/* Live streaming parts — real-time tool/text/reasoning rendering.
-                Render from buffer regardless of streaming state so content survives
-                session switches: the buffer holds what thread/read hasn't persisted yet. */}
-            {streamingNodes.length > 0 &&
-              streamingNodes.map((node, index) => renderStreamingTimelineNode(node, index))}
+          {ephemeralStatusRows.map((status) => (
+            <ThreadStatusRow key={status.id} status={status} />
+          ))}
 
-            {/* Streaming with no content yet — show pulse */}
-            {isStreaming &&
-              streamingNodes.length === 0 &&
-              !streamingContent &&
-              ephemeralStatusRows.length === 0 && (
-                <div className="relative pl-10 mb-4">
-                  <div
-                    className={cn(
-                      'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
-                      'flex items-center justify-center z-10',
-                      'bg-neon-mint-soft text-neon-mint'
-                    )}
-                  >
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  </div>
-                  <div className="text-sm text-muted-foreground italic">
-                    {t('sessionHq.timeline.thinking')}
-                  </div>
-                </div>
-              )}
-
-            {ephemeralStatusRows.map((status) => (
-              <ThreadStatusRow key={status.id} status={status} />
-            ))}
-
-            {/* Tail sentinel: represents the real content tail.
+          {/* Tail sentinel: represents the real content tail.
                 Must be before the clear-screen/focus filler, because filler
                 is a layout affordance, not real content. */}
-            <div
-              ref={tailSentinelRef}
-              data-timeline-tail-sentinel="true"
-              data-testid="timeline-tail-sentinel"
-              className="h-px w-full"
-              aria-hidden="true"
-            />
-
-            {/* Clear-screen spacer: value is computed by useTimelineScrollController,
-                which is the single owner of timeline scroll geometry. */}
-            {clearScreenSpacerHeight > 0 && nodes.length > 0 && (
-              <div
-                aria-hidden="true"
-                data-clear-screen-spacer="true"
-                data-testid="timeline-clear-screen-spacer"
-                style={{ height: `${clearScreenSpacerHeight}px` }}
-              />
-            )}
-
-            {/* Empty state */}
-            {nodes.length === 0 && ephemeralStatusRows.length === 0 && !isStreaming && (
-              <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-                <MessageSquare className="h-10 w-10 mb-3 opacity-30" />
-                <div className="text-sm font-medium">{t('sessionHq.timeline.emptyTitle')}</div>
-                <div className="text-xs mt-1">{t('sessionHq.timeline.emptySubtitle')}</div>
-              </div>
-            )}
-          </div>
-
-          {/* Round navigator — sticky overlay in flex row, right of content */}
-          <RoundNavigator
-            rounds={buildRoundNavigatorItems(rounds)}
-            activeRoundId={activeRoundId}
-            scrollContainerRef={effectiveScrollContainerRef}
-            onRoundAnchorNavigate={onRoundAnchorNavigate}
+          <div
+            ref={tailSentinelRef}
+            data-timeline-tail-sentinel="true"
+            data-testid="timeline-tail-sentinel"
+            className="h-px w-full"
+            aria-hidden="true"
           />
+
+          {/* Clear-screen spacer: value is computed by useTimelineScrollController,
+                which is the single owner of timeline scroll geometry. */}
+          {clearScreenSpacerHeight > 0 && nodes.length > 0 && (
+            <div
+              aria-hidden="true"
+              data-clear-screen-spacer="true"
+              data-testid="timeline-clear-screen-spacer"
+              style={{ height: `${clearScreenSpacerHeight}px` }}
+            />
+          )}
+
+          {/* Empty state */}
+          {nodes.length === 0 && ephemeralStatusRows.length === 0 && !isStreaming && (
+            <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+              <MessageSquare className="h-10 w-10 mb-3 opacity-30" />
+              <div className="text-sm font-medium">{t('sessionHq.timeline.emptyTitle')}</div>
+              <div className="text-xs mt-1">{t('sessionHq.timeline.emptySubtitle')}</div>
+            </div>
+          )}
         </div>
       </div>
       {/* Bottom edge mask: visible when content extends below the viewport */}

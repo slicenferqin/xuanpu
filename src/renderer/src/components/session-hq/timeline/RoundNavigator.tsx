@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 
 interface RoundNavigatorItem {
@@ -10,329 +10,528 @@ interface RoundNavigatorItem {
 interface RoundNavigatorProps {
   rounds: RoundNavigatorItem[]
   activeRoundId?: string | null
+  bottomReadableInset?: number
   scrollContainerRef?: React.RefObject<HTMLElement | null>
   onRoundAnchorNavigate?: (roundId: string) => void
 }
 
-const VISIBLE_ROWS = 10
-const PREVIEW_MAX_CHARS = 10
+interface NavigatorMetrics {
+  containerHeight: number
+}
+
+interface MarkerItem {
+  item: RoundNavigatorItem
+}
+
+interface NavigatorSlot {
+  item: RoundNavigatorItem
+  order: number
+}
+
+const MIN_WINDOW_PREVIEW_ROWS = 9
+const MAX_WINDOW_PREVIEW_ROWS = 18
+const DEFAULT_CONTAINER_HEIGHT = 720
+const TOP_GUARD = 88
+const BOTTOM_GUARD = 44
+const NAVIGATOR_GUTTER_LEFT = 'calc(90% + 34px)'
+const NAVIGATOR_RAIL_WIDTH = 38
+const NAVIGATOR_EXPANDED_WIDTH = 348
+const DEFAULT_EXPANDED_ROW_HEIGHT = 40
+const MIN_FULL_ROW_HEIGHT = 16
+const EXPANDED_VERTICAL_PADDING = 6
+const COLLAPSED_SLOT_HEIGHT = 20
+const MIN_OVERVIEW_ROW_HEIGHT = 8
+const MAX_OVERVIEW_ROW_HEIGHT = 14
+const CLOSE_DELAY_MS = 140
 
 function truncatePreview(text: string, max: number): string {
   if (text.length <= max) return text
   return text.slice(0, max) + '…'
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max)
+}
+
 function clampIndex(index: number, max: number): number {
-  return Math.max(0, Math.min(max, index))
+  return clamp(index, 0, max)
 }
 
-function getWheelStart(focusIndex: number, roundCount: number): number {
-  if (roundCount <= VISIBLE_ROWS) return 0
-  const half = Math.floor(VISIBLE_ROWS / 2)
-  return clampIndex(focusIndex - half, roundCount - VISIBLE_ROWS)
+function getPreviewWindowItems(
+  rounds: RoundNavigatorItem[],
+  focusIndex: number,
+  fullPreviewCapacity: number,
+  windowLimit: number
+): RoundNavigatorItem[] {
+  if (rounds.length === 0) return []
+  if (rounds.length <= fullPreviewCapacity) return rounds
+
+  const visibleCount = Math.min(windowLimit, rounds.length)
+  const safeFocusIndex = clampIndex(focusIndex, rounds.length - 1)
+  const half = Math.floor(visibleCount / 2)
+  const start = clampIndex(safeFocusIndex - half, rounds.length - visibleCount)
+
+  return rounds.slice(start, start + visibleCount)
 }
 
-/**
- * Measure the viewport-center Y of the active round section.
- * Returns null if the element isn't found.
- */
-function measureActiveRoundY(
-  scrollContainer: HTMLElement | null,
-  activeRoundId: string | null | undefined
-): number | null {
-  if (!scrollContainer || !activeRoundId) return null
-  const el = scrollContainer.querySelector(`[data-round-id="${activeRoundId}"]`)
-  if (!el) return null
+function getMarkerItems(
+  rounds: RoundNavigatorItem[],
+  activeIndex: number,
+  markerCapacity: number
+): MarkerItem[] {
+  if (rounds.length === 0) return []
+
+  const selected = new Map<number, RoundNavigatorItem>()
+  const add = (index: number): void => {
+    const item = rounds[index]
+    if (item) selected.set(index, item)
+  }
+
+  if (rounds.length <= markerCapacity) {
+    rounds.forEach((item) => selected.set(item.index, item))
+  } else {
+    const step = Math.ceil(rounds.length / markerCapacity)
+    for (let index = 0; index < rounds.length; index += step) {
+      add(index)
+    }
+    add(0)
+    add(rounds.length - 1)
+    add(activeIndex)
+  }
+
+  return Array.from(selected.values())
+    .sort((left, right) => left.index - right.index)
+    .map((item) => ({ item }))
+}
+
+function getAnchoredStackTop(
+  railHeight: number,
+  stackHeight: number,
+  rowHeight: number,
+  focusRowIndex: number
+): number {
+  const focusedRowTop = railHeight / 2 - EXPANDED_VERTICAL_PADDING - rowHeight / 2
+  const idealTop = focusedRowTop - focusRowIndex * rowHeight
+  return clamp(idealTop, 0, Math.max(0, railHeight - stackHeight))
+}
+
+function measureNavigatorMetrics(scrollContainer: HTMLElement | null): NavigatorMetrics {
+  if (!scrollContainer) {
+    return { containerHeight: DEFAULT_CONTAINER_HEIGHT }
+  }
+
   const containerRect = scrollContainer.getBoundingClientRect()
-  const elRect = el.getBoundingClientRect()
-  return elRect.top - containerRect.top + elRect.height / 2
+  const containerHeight =
+    scrollContainer.clientHeight ||
+    containerRect.height ||
+    window.innerHeight ||
+    DEFAULT_CONTAINER_HEIGHT
+
+  return { containerHeight }
 }
 
 export function RoundNavigator({
   rounds,
   activeRoundId,
+  bottomReadableInset = 72,
   scrollContainerRef,
   onRoundAnchorNavigate
 }: RoundNavigatorProps): React.JSX.Element | null {
-  const [isHovered, setIsHovered] = useState(false)
+  const [isOpen, setIsOpen] = useState(false)
   const [focusIndex, setFocusIndex] = useState(rounds.length - 1)
-  const [activeRoundY, setActiveRoundY] = useState<number | null>(null)
-  const railRef = useRef<HTMLDivElement>(null)
+  const [metrics, setMetrics] = useState<NavigatorMetrics>({
+    containerHeight: DEFAULT_CONTAINER_HEIGHT
+  })
+  const closeTimerRef = useRef<number | null>(null)
 
   const activeIndex = useMemo(() => {
     if (activeRoundId) {
-      const idx = rounds.findIndex((r) => r.id === activeRoundId)
+      const idx = rounds.findIndex((round) => round.id === activeRoundId)
       if (idx >= 0) return idx
     }
     return Math.max(0, rounds.length - 1)
   }, [activeRoundId, rounds])
 
-  const isLatestFallback = !activeRoundId || !rounds.some((r) => r.id === activeRoundId)
-
-  // Sync focus to active when not hovering
   useEffect(() => {
-    if (!isHovered) setFocusIndex(activeIndex)
-  }, [activeIndex, isHovered])
+    setFocusIndex((current) => (isOpen ? clampIndex(current, rounds.length - 1) : activeIndex))
+  }, [activeIndex, isOpen, rounds.length])
 
-  // Measure active round Y for connector line
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current)
+      }
+    }
+  }, [])
+
   useEffect(() => {
     const container = scrollContainerRef?.current
-    if (!container) return
 
     const update = (): void => {
-      setActiveRoundY(measureActiveRoundY(container, activeRoundId))
+      setMetrics(measureNavigatorMetrics(container ?? null))
     }
+
     update()
 
-    container.addEventListener('scroll', update, { passive: true })
-    window.addEventListener('resize', update)
-    return () => {
-      container.removeEventListener('scroll', update)
-      window.removeEventListener('resize', update)
+    if (!container) return
+
+    let frameId: number | null = null
+    const scheduleUpdate = (): void => {
+      if (frameId !== null) return
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null
+        update()
+      })
     }
-  }, [scrollContainerRef, activeRoundId])
 
-  const wheelItems = useMemo(() => {
-    const start = getWheelStart(focusIndex, rounds.length)
-    return rounds.slice(start, start + VISIBLE_ROWS)
-  }, [rounds, focusIndex])
+    container.addEventListener('scroll', scheduleUpdate, { passive: true })
+    window.addEventListener('resize', scheduleUpdate)
 
-  const handleClick = useCallback(
+    let resizeObserver: ResizeObserver | null = null
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(scheduleUpdate)
+      resizeObserver.observe(container)
+    }
+
+    return () => {
+      container.removeEventListener('scroll', scheduleUpdate)
+      window.removeEventListener('resize', scheduleUpdate)
+      resizeObserver?.disconnect()
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId)
+      }
+    }
+  }, [scrollContainerRef, rounds.length])
+
+  const railHeight = useMemo(
+    () => Math.max(180, metrics.containerHeight - bottomReadableInset - TOP_GUARD - BOTTOM_GUARD),
+    [bottomReadableInset, metrics.containerHeight]
+  )
+
+  const fullPreviewCapacity = Math.max(
+    MIN_WINDOW_PREVIEW_ROWS,
+    Math.floor((railHeight - EXPANDED_VERTICAL_PADDING * 2) / MIN_FULL_ROW_HEIGHT)
+  )
+  const windowPreviewLimit = clamp(
+    Math.floor(fullPreviewCapacity * 0.34),
+    MIN_WINDOW_PREVIEW_ROWS,
+    MAX_WINDOW_PREVIEW_ROWS
+  )
+  const markerItems = useMemo(
+    () => getMarkerItems(rounds, activeIndex, fullPreviewCapacity),
+    [activeIndex, fullPreviewCapacity, rounds]
+  )
+  const previewItems = useMemo(
+    () => getPreviewWindowItems(rounds, focusIndex, fullPreviewCapacity, windowPreviewLimit),
+    [focusIndex, fullPreviewCapacity, rounds, windowPreviewLimit]
+  )
+  const showFullPreview = rounds.length <= fullPreviewCapacity
+
+  const expandedRowHeight = showFullPreview
+    ? clamp(
+        Math.floor((railHeight - EXPANDED_VERTICAL_PADDING * 2) / Math.max(previewItems.length, 1)),
+        MIN_FULL_ROW_HEIGHT,
+        DEFAULT_EXPANDED_ROW_HEIGHT
+      )
+    : DEFAULT_EXPANDED_ROW_HEIGHT
+  const expandedHeight = Math.min(
+    railHeight,
+    previewItems.length * expandedRowHeight + EXPANDED_VERTICAL_PADDING * 2
+  )
+  const focusedPreviewIndex = Math.max(
+    0,
+    previewItems.findIndex((item) => item.index === focusIndex)
+  )
+  const expandedTop = getAnchoredStackTop(
+    railHeight,
+    expandedHeight,
+    expandedRowHeight,
+    showFullPreview ? 0 : focusedPreviewIndex
+  )
+  const overviewRowHeight = clamp(
+    Math.floor((railHeight - EXPANDED_VERTICAL_PADDING * 2) / Math.max(markerItems.length, 1)),
+    MIN_OVERVIEW_ROW_HEIGHT,
+    MAX_OVERVIEW_ROW_HEIGHT
+  )
+  const overviewHeight = Math.min(
+    railHeight,
+    markerItems.length > 0
+      ? (markerItems.length - 1) * overviewRowHeight +
+          COLLAPSED_SLOT_HEIGHT +
+          EXPANDED_VERTICAL_PADDING * 2
+      : 0
+  )
+  const overviewTop = getAnchoredStackTop(railHeight, overviewHeight, overviewRowHeight, 0)
+  const surfaceTop = isOpen || showFullPreview ? expandedTop : overviewTop
+  const surfaceHeight = isOpen || showFullPreview ? expandedHeight : overviewHeight
+  const slotRowHeight = isOpen || showFullPreview ? expandedRowHeight : overviewRowHeight
+
+  const visibleSlots = useMemo<NavigatorSlot[]>(() => {
+    if (isOpen || showFullPreview) {
+      return previewItems.map((item, order) => ({
+        item,
+        order
+      }))
+    }
+
+    return markerItems.map(({ item }, order) => ({
+      item,
+      order
+    }))
+  }, [isOpen, markerItems, previewItems, showFullPreview])
+
+  const openPreview = useCallback(() => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
+    }
+    setIsOpen(true)
+  }, [])
+
+  const closePreview = useCallback(() => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current)
+    }
+    closeTimerRef.current = window.setTimeout(() => {
+      setIsOpen(false)
+      setFocusIndex(activeIndex)
+      closeTimerRef.current = null
+    }, CLOSE_DELAY_MS)
+  }, [activeIndex])
+
+  const handleNavigate = useCallback(
     (roundId: string) => {
       onRoundAnchorNavigate?.(roundId)
     },
     [onRoundAnchorNavigate]
   )
 
-  const handleWheel = useCallback(
-    (event: React.WheelEvent) => {
-      event.preventDefault()
-      event.stopPropagation()
-      const delta = event.deltaY > 0 ? 1 : -1
-      setFocusIndex((prev) => clampIndex(prev + delta, rounds.length - 1))
-    },
-    [rounds.length]
-  )
+  const handleWheel = useCallback((event: React.WheelEvent) => {
+    event.stopPropagation()
+  }, [])
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setIsHovered(false)
+        if (closeTimerRef.current !== null) {
+          window.clearTimeout(closeTimerRef.current)
+          closeTimerRef.current = null
+        }
+        setIsOpen(false)
         setFocusIndex(activeIndex)
         return
       }
+
       if (event.key === 'ArrowUp') {
         event.preventDefault()
         setFocusIndex((prev) => clampIndex(prev - 1, rounds.length - 1))
-      } else if (event.key === 'ArrowDown') {
+        return
+      }
+
+      if (event.key === 'ArrowDown') {
         event.preventDefault()
         setFocusIndex((prev) => clampIndex(prev + 1, rounds.length - 1))
-      } else if (event.key === 'Enter' || event.key === ' ') {
+        return
+      }
+
+      if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault()
         const item = rounds[focusIndex]
-        if (item) handleClick(item.id)
+        if (item) handleNavigate(item.id)
       }
     },
-    [activeIndex, rounds, focusIndex, handleClick]
+    [activeIndex, focusIndex, handleNavigate, rounds]
   )
-
-  const handleMouseLeave = useCallback(() => {
-    setIsHovered(false)
-    setFocusIndex(activeIndex)
-  }, [activeIndex])
 
   if (rounds.length <= 1) return null
 
-  // Connector line Y: from active round center to rail center
-  const connectorY = activeRoundY ?? null
-
   return (
-    <>
-      {/* Navigator — sticky in flex row, right of content */}
+    <div
+      className="pointer-events-none sticky top-0 z-30 h-0"
+      data-testid="round-navigator-layer"
+      aria-hidden={rounds.length <= 1}
+    >
       <div
-        ref={railRef}
-        className="sticky top-1/2 z-20 hidden w-6 shrink-0 -translate-y-1/2 self-start lg:block"
+        className="absolute pointer-events-none outline-none"
         data-testid="round-navigator"
-        onMouseEnter={() => setIsHovered(true)}
-        onFocus={() => setIsHovered(true)}
-        onMouseLeave={handleMouseLeave}
-        onWheel={handleWheel}
-        onKeyDown={handleKeyDown}
-        tabIndex={0}
+        data-state={isOpen ? 'open' : 'closed'}
         role="navigation"
         aria-label="Round navigator"
+        tabIndex={0}
+        onFocus={openPreview}
+        onBlur={(event) => {
+          const nextTarget = event.relatedTarget
+          if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return
+          closePreview()
+        }}
+        onPointerDown={(event) => event.stopPropagation()}
+        onWheel={handleWheel}
+        onKeyDown={handleKeyDown}
+        style={{
+          top: `${TOP_GUARD}px`,
+          left: NAVIGATOR_GUTTER_LEFT,
+          height: `${railHeight}px`,
+          width: isOpen ? `${NAVIGATOR_EXPANDED_WIDTH}px` : `${NAVIGATOR_RAIL_WIDTH}px`,
+          transform: isOpen
+            ? `translateX(-${NAVIGATOR_EXPANDED_WIDTH - NAVIGATOR_RAIL_WIDTH}px)`
+            : 'translateX(0)',
+          transformOrigin: 'right center',
+          overflow: 'visible',
+          transition:
+            'width 180ms cubic-bezier(0.16, 1, 0.3, 1), transform 180ms cubic-bezier(0.16, 1, 0.3, 1)',
+          willChange: isOpen ? 'width, transform' : undefined
+        }}
       >
-        {/* Connector line from active round to rail */}
-        {connectorY !== null && (
-          <div
-            aria-hidden="true"
-            className={cn(
-              'absolute right-6 h-px transition-opacity duration-200',
-              isHovered ? 'opacity-60' : 'opacity-0'
-            )}
-            style={{
-              top: `${connectorY}px`,
-              width: '32px',
-              background: 'linear-gradient(to left, color-mix(in srgb, var(--foreground) 20%, transparent), transparent)'
-            }}
-          />
-        )}
-
-        {/* Hairline + markers column */}
-        <div className="relative flex h-full flex-col items-end">
-          {/* 1px vertical hairline — always visible, very faint */}
-          <div
-            aria-hidden="true"
-            className="absolute right-[11px] top-4 bottom-4 w-px"
-            style={{
-              backgroundColor: 'color-mix(in srgb, var(--muted-foreground) 12%, transparent)'
-            }}
-          />
-
-          {/* Active knob — always visible */}
-          <div
-            className="absolute right-[7px]"
-            style={{
-              top: connectorY != null ? `${connectorY}px` : '50%',
-              transform: 'translateY(-50%)'
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => {
-                const item = rounds[activeIndex]
-                if (item) handleClick(item.id)
-              }}
-              className="block h-[9px] w-[9px] rounded-full transition-all duration-150"
+        <div
+          className={cn(
+            'absolute right-0 overflow-hidden',
+            isOpen ? 'pointer-events-auto' : 'pointer-events-none'
+          )}
+          data-testid="round-navigator-track"
+          role={isOpen ? 'listbox' : undefined}
+          aria-label={isOpen ? 'Round list' : undefined}
+          onMouseLeave={closePreview}
+          onWheel={handleWheel}
+          style={{
+            top: `${surfaceTop}px`,
+            height: `${surfaceHeight}px`,
+            width: isOpen ? `${NAVIGATOR_EXPANDED_WIDTH}px` : `${NAVIGATOR_RAIL_WIDTH}px`,
+            background: isOpen
+              ? 'linear-gradient(180deg, color-mix(in srgb, var(--agent-canvas) 58%, transparent), color-mix(in srgb, var(--agent-canvas) 48%, transparent))'
+              : 'transparent',
+            backdropFilter: isOpen ? 'blur(36px) saturate(1.2)' : 'none',
+            WebkitBackdropFilter: isOpen ? 'blur(36px) saturate(1.2)' : 'none',
+            borderRadius: isOpen ? '10px 2px 2px 10px' : '0',
+            boxShadow: isOpen
+              ? 'inset 1px 0 0 color-mix(in srgb, var(--border) 36%, transparent), inset 0 1px 0 rgb(255 255 255 / 0.46), inset 0 -1px 0 color-mix(in srgb, var(--border) 24%, transparent), -18px 0 46px rgb(var(--agent-shadow-rgb) / 0.04), 0 24px 60px rgb(var(--agent-shadow-rgb) / 0.07)'
+              : 'none',
+            transition:
+              'top 180ms cubic-bezier(0.16, 1, 0.3, 1), height 180ms cubic-bezier(0.16, 1, 0.3, 1), width 180ms cubic-bezier(0.16, 1, 0.3, 1), background 160ms ease-out, box-shadow 160ms ease-out, backdrop-filter 160ms ease-out',
+            willChange: isOpen ? 'top, height, width, backdrop-filter' : undefined
+          }}
+        >
+          {isOpen && (
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0"
               style={{
-                backgroundColor: isLatestFallback
-                  ? 'color-mix(in srgb, var(--muted-foreground) 40%, transparent)'
-                  : 'var(--foreground)',
-                boxShadow: isLatestFallback
-                  ? 'none'
-                  : '0 0 8px color-mix(in srgb, var(--foreground) 10%, transparent)'
+                background:
+                  'radial-gradient(120% 90% at 74% 74%, color-mix(in srgb, var(--neon-mint-soft) 40%, transparent), transparent 58%), linear-gradient(90deg, color-mix(in srgb, var(--background) 20%, transparent), color-mix(in srgb, var(--agent-canvas) 44%, transparent))'
               }}
-              title={rounds[activeIndex]?.preview}
-              aria-current="step"
             />
-          </div>
-
-          {/* Neighbor dots — only on hover/focus, fade in */}
-          {isHovered && (
-            <div
-              className="absolute right-[7px] flex flex-col items-center gap-1"
-              style={{
-                top: connectorY != null ? `${connectorY}px` : '50%',
-                transform: 'translateY(-50%)',
-                animation: 'round-navigator-neighbor-fade 120ms ease-out'
-              }}
-            >
-              {rounds
-                .filter((r) => Math.abs(r.index - activeIndex) <= 3 && r.index !== activeIndex)
-                .map((item) => {
-                  const distance = Math.abs(item.index - activeIndex)
-                  const opacity = Math.max(0.15, 0.5 - distance * 0.12)
-
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => handleClick(item.id)}
-                      className="block rounded-full transition-all duration-100"
-                      style={{
-                        width: `${Math.max(3, 5 - distance)}px`,
-                        height: `${Math.max(3, 5 - distance)}px`,
-                        backgroundColor: 'color-mix(in srgb, var(--muted-foreground) 30%, transparent)',
-                        opacity
-                      }}
-                      title={item.preview}
-                    />
-                  )
-                })}
-            </div>
           )}
+          {visibleSlots.map(({ item, order }) => {
+            const isActive = item.index === activeIndex
+            const isFocused = item.index === focusIndex
+            const slotTop =
+              isOpen || showFullPreview
+                ? EXPANDED_VERTICAL_PADDING + order * slotRowHeight
+                : EXPANDED_VERTICAL_PADDING +
+                  order * slotRowHeight +
+                  slotRowHeight / 2 -
+                  COLLAPSED_SLOT_HEIGHT / 2
 
-          {/* Wheel overlay — expands leftward toward content */}
-          {isHovered && (
-            <div
-              className="absolute right-full top-1/2 mr-3 -translate-y-1/2"
-              style={{
-                transformOrigin: 'right center',
-                animation: 'round-navigator-wheel-open 160ms ease-out'
-              }}
-            >
-              <div
-                className="rounded-xl border py-1.5"
-                style={{
-                  backgroundColor: 'color-mix(in srgb, var(--agent-card) 92%, transparent)',
-                  borderColor: 'color-mix(in srgb, var(--border) 80%, transparent)',
-                  boxShadow: '0 4px 24px rgb(var(--agent-shadow-rgb) / 0.14), 0 1px 4px rgb(var(--agent-shadow-rgb) / 0.06)',
-                  backdropFilter: 'blur(16px) saturate(1.05)'
+            return (
+              <button
+                key={item.id}
+                type="button"
+                role={isOpen ? 'option' : undefined}
+                aria-selected={isOpen ? isActive : undefined}
+                aria-current={isActive ? 'step' : undefined}
+                className={cn(
+                  'absolute right-0 flex items-center text-left outline-none transition-[background-color,opacity] duration-100',
+                  isOpen ? 'gap-3 rounded-none pl-4 pr-1.5' : 'justify-end rounded-full px-0'
+                )}
+                data-testid="round-navigator-marker"
+                data-round-index={item.index}
+                title={isOpen ? undefined : item.preview}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  handleNavigate(item.id)
                 }}
-                role="listbox"
-                aria-label="Round list"
+                onMouseEnter={() => {
+                  openPreview()
+                  setFocusIndex(item.index)
+                }}
+                style={{
+                  top: `${slotTop}px`,
+                  height:
+                    isOpen || showFullPreview
+                      ? `${expandedRowHeight}px`
+                      : `${COLLAPSED_SLOT_HEIGHT}px`,
+                  width: isOpen ? '100%' : `${NAVIGATOR_RAIL_WIDTH}px`,
+                  pointerEvents: 'auto',
+                  opacity: isOpen
+                    ? isActive
+                      ? 1
+                      : isFocused
+                        ? 0.96
+                        : 0.76
+                    : isActive
+                      ? 0.98
+                      : 0.58,
+                  background: isOpen
+                    ? isActive
+                      ? 'color-mix(in srgb, var(--neon-mint-soft) 36%, transparent)'
+                      : isFocused
+                        ? 'color-mix(in srgb, var(--agent-hover) 24%, transparent)'
+                        : 'transparent'
+                    : 'transparent'
+                }}
               >
-                {wheelItems.map((item) => {
-                  const isActive = item.index === activeIndex && !isLatestFallback
-                  const isFocused = item.index === focusIndex
-                  const distance = Math.abs(item.index - focusIndex)
-                  const opacity = Math.max(0.35, 1 - distance * 0.12)
-
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      role="option"
-                      aria-selected={isActive}
-                      onClick={() => handleClick(item.id)}
-                      onMouseEnter={() => setFocusIndex(item.index)}
-                      className={cn(
-                        'flex w-full items-center gap-2.5 px-3 py-[5px] text-left transition-colors duration-80',
-                        (isFocused || isActive) && 'rounded-md'
-                      )}
-                      style={{
-                        opacity,
-                        backgroundColor: isActive
-                          ? 'color-mix(in srgb, var(--agent-hover) 50%, transparent)'
-                          : isFocused
-                            ? 'color-mix(in srgb, var(--agent-hover) 30%, transparent)'
-                            : 'transparent'
-                      }}
-                    >
-                      {/* Active indicator: left capsule */}
-                      <span
-                        className="w-[3px] shrink-0 rounded-full transition-all duration-100"
-                        style={{
-                          height: isActive ? '14px' : '0px',
-                          backgroundColor: 'var(--foreground)',
-                          opacity: isActive ? 0.7 : 0
-                        }}
-                      />
-                      <span
-                        className="w-4 shrink-0 text-right text-[9px] tabular-nums"
-                        style={{ color: 'var(--muted-foreground)', opacity: 0.6 }}
-                      >
-                        {item.index + 1}
-                      </span>
-                      <span
-                        className="truncate text-[11px] leading-tight"
-                        style={{
-                          color: isActive || isFocused
-                            ? 'var(--foreground)'
-                            : 'var(--muted-foreground)',
-                          fontWeight: isActive ? 500 : 400
-                        }}
-                      >
-                        {truncatePreview(item.preview, PREVIEW_MAX_CHARS)}
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          )}
+                {isOpen && (
+                  <span
+                    className="min-w-0 flex-1 truncate text-[12.5px] transition-colors duration-100"
+                    data-testid="round-navigator-option-label"
+                    style={{
+                      lineHeight: `${Math.min(20, Math.max(14, expandedRowHeight - 2))}px`,
+                      color: isFocused
+                        ? 'color-mix(in srgb, var(--neon-mint) 82%, var(--foreground))'
+                        : isActive
+                          ? 'var(--foreground)'
+                          : 'var(--muted-foreground)',
+                      fontWeight: isFocused ? 600 : isActive ? 560 : 450
+                    }}
+                  >
+                    {truncatePreview(item.preview, 22)}
+                  </span>
+                )}
+                <span
+                  aria-hidden="true"
+                  data-testid={
+                    isOpen ? 'round-navigator-option-line' : 'round-navigator-marker-line'
+                  }
+                  className={cn(
+                    'shrink-0 rounded-full transition-[width,height,background-color] duration-150',
+                    isOpen ? '' : 'mr-[7px]'
+                  )}
+                  style={{
+                    width: isOpen
+                      ? isActive
+                        ? '20px'
+                        : isFocused
+                          ? '16px'
+                          : '12px'
+                      : isActive
+                        ? '24px'
+                        : isFocused
+                          ? '20px'
+                          : '13px',
+                    height: isActive ? '3px' : '2px',
+                    background: isActive
+                      ? isOpen
+                        ? 'color-mix(in srgb, var(--neon-mint) 74%, var(--foreground))'
+                        : 'linear-gradient(to left, color-mix(in srgb, var(--neon-mint) 72%, var(--foreground)), color-mix(in srgb, var(--neon-mint) 30%, transparent))'
+                      : isFocused
+                        ? 'color-mix(in srgb, var(--muted-foreground) 52%, transparent)'
+                        : 'color-mix(in srgb, var(--muted-foreground) 32%, transparent)'
+                  }}
+                />
+              </button>
+            )
+          })}
         </div>
       </div>
-    </>
+    </div>
   )
 }
