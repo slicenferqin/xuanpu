@@ -95,7 +95,7 @@ describe('AgentTimeline user message actions', () => {
     expect(screen.getByTestId('timeline-clear-screen-spacer')).toHaveStyle({ height: '304px' })
   })
 
-  it('renders round navigator as absolute overlay inside scroll container', () => {
+  it('renders round navigator as sticky overlay in flex row', () => {
     render(
       <AgentTimeline
         timelineMessages={[
@@ -110,10 +110,10 @@ describe('AgentTimeline user message actions', () => {
     )
 
     const nav = screen.getByTestId('round-navigator')
-    // Navigator is absolute overlay inside scroll container, not a flex sibling
-    expect(nav.className).toContain('absolute')
-    expect(nav.className).toContain('right-0')
-    expect(nav.className).toContain('z-20')
+    // Navigator is sticky in flex row, right of content
+    expect(nav.className).toContain('sticky')
+    expect(nav.className).toContain('w-6')
+    expect(nav.className).toContain('top-1/2')
   })
 
   it('shows at most 7 ghost markers for long sessions', () => {
@@ -150,8 +150,9 @@ describe('AgentTimeline user message actions', () => {
     )
 
     const nav = screen.getByTestId('round-navigator')
-    // Navigator is absolute, doesn't participate in flex layout
-    expect(nav.className).toContain('absolute')
+    // Navigator is sticky in flex row, always w-6
+    expect(nav.className).toContain('sticky')
+    expect(nav.className).toContain('w-6')
 
     // Hover to expand
     fireEvent.mouseEnter(nav)
@@ -159,8 +160,8 @@ describe('AgentTimeline user message actions', () => {
     // Wheel should expand leftward (right-full mr-3)
     const wheel = nav.querySelector('[role="listbox"]')
     expect(wheel).toBeTruthy()
-    // Navigator still absolute — timeline width unchanged
-    expect(nav.className).toContain('absolute')
+    // Navigator stays w-6 — timeline width unchanged
+    expect(nav.className).toContain('w-6')
   })
 
   it('shows edit button only when the message is editable', () => {

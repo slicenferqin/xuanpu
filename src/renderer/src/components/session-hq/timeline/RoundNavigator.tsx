@@ -148,24 +148,10 @@ export function RoundNavigator({
 
   return (
     <>
-      {/* Interaction veil: subtle blur on content right edge when wheel open */}
-      {isHovered && (
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute right-0 top-0 bottom-0 z-10"
-          style={{
-            width: '120px',
-            background: 'linear-gradient(to left, color-mix(in srgb, var(--background) 40%, transparent), transparent)',
-            backdropFilter: 'blur(2px) saturate(1.02)',
-            transition: 'opacity 150ms ease-out'
-          }}
-        />
-      )}
-
-      {/* Navigator overlay — absolute inside scroll container, not in flex layout */}
+      {/* Navigator — sticky in flex row, right of content */}
       <div
         ref={railRef}
-        className="absolute right-0 top-0 z-20 h-full"
+        className="sticky top-1/2 z-20 hidden w-6 shrink-0 -translate-y-1/2 self-start lg:block"
         data-testid="round-navigator"
         onMouseEnter={() => setIsHovered(true)}
         onFocus={() => setIsHovered(true)}

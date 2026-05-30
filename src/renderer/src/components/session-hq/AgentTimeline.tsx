@@ -480,15 +480,15 @@ export function AgentTimeline({
               </div>
             )}
           </div>
-        </div>
 
-        {/* Round navigator overlay — absolute positioned inside scroll container */}
-        <RoundNavigator
-          rounds={buildRoundNavigatorItems(rounds)}
-          activeRoundId={activeRoundId}
-          scrollContainerRef={effectiveScrollContainerRef}
-          onRoundAnchorNavigate={onRoundAnchorNavigate}
-        />
+          {/* Round navigator — sticky overlay in flex row, right of content */}
+          <RoundNavigator
+            rounds={buildRoundNavigatorItems(rounds)}
+            activeRoundId={activeRoundId}
+            scrollContainerRef={effectiveScrollContainerRef}
+            onRoundAnchorNavigate={onRoundAnchorNavigate}
+          />
+        </div>
       </div>
       {/* Bottom edge mask: visible when content extends below the viewport */}
       <div
