@@ -26,7 +26,8 @@ import {
   type TimelineNodeIconConfig
 } from '@/components/session-hq/timeline/TimelineNodeFrame'
 import { TimelineNodeRenderer } from '@/components/session-hq/timeline/TimelineNodeRenderer'
-import { RoundRail } from '@/components/session-hq/timeline/RoundRail'
+import { RoundNavigator } from '@/components/session-hq/timeline/RoundNavigator'
+import { buildRoundNavigatorItems } from '@/lib/session-timeline/round-navigator'
 
 import {
   Terminal,
@@ -480,10 +481,9 @@ export function AgentTimeline({
             )}
           </div>
 
-          <RoundRail
-            rounds={rounds}
+          <RoundNavigator
+            rounds={buildRoundNavigatorItems(rounds)}
             activeRoundId={activeRoundId}
-            scrollContainerRef={effectiveScrollContainerRef}
             onRoundAnchorNavigate={onRoundAnchorNavigate}
           />
         </div>
