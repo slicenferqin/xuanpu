@@ -365,11 +365,12 @@ export function AgentTimeline({
       <div
         className="w-[85%] ml-[5%]"
         style={{
-          // SessionShell measures the bottom overlay and passes the readable inset
-          // here, so native scrolling can expose the real tail above the composer.
           paddingTop: '24px',
-          paddingBottom: `${paddingBottom}px`
-        }}
+          paddingBottom: `${paddingBottom}px`,
+          // Expose real timeline content width for .xp-wide-block breakout.
+          // This replaces the old viewport-based calc that broke in 3-column layout.
+          '--xp-reader-wide-max': '100%'
+        } as React.CSSProperties}
       >
         <div className="flex items-start gap-4">
           <div ref={timelineContentRef} className="min-w-0 flex-1">

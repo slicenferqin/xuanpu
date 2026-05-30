@@ -888,16 +888,15 @@
 
 /* ── Wide Block: breaks out of reader measure for code/tables/diffs ── */
 .xp-wide-block {
-  /* Break out of the reader measure container using negative margin */
-  width: min(var(--xp-reader-wide-measure, 1120px), calc(100vw - var(--xp-shell-side-insets, 360px)));
-  max-width: calc(100vw - var(--xp-shell-side-insets, 360px));
-  margin-left: 50%;
-  transform: translateX(-50%);
+  /* Extend rightward from message left boundary. No negative margin or transform —
+     those caused the block to escape the timeline column in 3-column layout. */
+  width: min(var(--xp-reader-wide-measure, 1120px), var(--xp-reader-wide-max, 100%));
+  max-width: var(--xp-reader-wide-max, 100%);
+  margin-left: 0;
   position: relative;
 }
 
 .xp-readable-message {
-  /* Allow wide blocks to overflow visually */
   overflow: visible;
 }
 
