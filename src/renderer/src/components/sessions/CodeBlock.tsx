@@ -7,9 +7,12 @@ import { containsAnsi, stripAnsi } from '@/lib/ansi-utils'
 import { useI18n } from '@/i18n/useI18n'
 import { cn } from '@/lib/utils'
 
+export type CodeBlockVariant = 'reader' | 'terminal'
+
 interface CodeBlockProps {
   code: string
   language?: string
+  variant?: CodeBlockVariant
 }
 
 const SHELL_LANGUAGES = new Set(['bash', 'sh', 'shell', 'zsh', 'fish', 'console', 'terminal'])
@@ -18,22 +21,23 @@ function isShellLanguage(language: string): boolean {
   return SHELL_LANGUAGES.has(language.trim().toLowerCase())
 }
 
-function renderShellRemainder(remainder: string): React.ReactNode {
+function renderShellRemainder(remainder: string, variant: CodeBlockVariant): React.ReactNode {
   const commentStart = remainder.search(/\s#/)
 
   if (commentStart === -1) {
     return remainder
   }
 
+  const mutedVar = variant === 'reader' ? 'var(--xp-reader-code-muted)' : 'var(--code-block-muted)'
   return (
     <>
       {remainder.slice(0, commentStart)}
-      <span className="text-[var(--code-block-muted)]">{remainder.slice(commentStart)}</span>
+      <span style={{ color: mutedVar }}>{remainder.slice(commentStart)}</span>
     </>
   )
 }
 
-function renderShellLine(line: string): React.ReactNode {
+function renderShellLine(line: string, variant: CodeBlockVariant): React.ReactNode {
   const trimmedStart = line.trimStart()
 
   if (trimmedStart.length === 0) {
@@ -41,12 +45,15 @@ function renderShellLine(line: string): React.ReactNode {
   }
 
   const leadingWhitespace = line.slice(0, line.length - trimmedStart.length)
+  const mutedVar = variant === 'reader' ? 'var(--xp-reader-code-muted)' : 'var(--code-block-muted)'
+  const warmVar = variant === 'reader' ? 'var(--xp-reader-code-warm)' : 'var(--code-block-warm)'
+  const accentVar = variant === 'reader' ? 'var(--xp-reader-code-accent)' : 'var(--code-block-accent)'
 
   if (trimmedStart.startsWith('#')) {
     return (
       <>
         {leadingWhitespace}
-        <span className="text-[var(--code-block-muted)]">{trimmedStart}</span>
+        <span style={{ color: mutedVar }}>{trimmedStart}</span>
       </>
     )
   }
@@ -69,43 +76,44 @@ function renderShellLine(line: string): React.ReactNode {
   return (
     <>
       {leadingWhitespace}
-      {prompt && <span className="text-[var(--code-block-warm)]">{prompt}</span>}
-      {modifiers && <span className="text-[var(--code-block-muted)]">{modifiers}</span>}
-      <span className="font-semibold text-[var(--code-block-accent)]">{command}</span>
-      {renderShellRemainder(remainder)}
+      {prompt && <span style={{ color: warmVar }}>{prompt}</span>}
+      {modifiers && <span style={{ color: mutedVar }}>{modifiers}</span>}
+      <span className="font-semibold" style={{ color: accentVar }}>{command}</span>
+      {renderShellRemainder(remainder, variant)}
     </>
   )
 }
 
-function renderShellCode(code: string): React.ReactNode {
+function renderShellCode(code: string, variant: CodeBlockVariant): React.ReactNode {
   const lines = code.split('\n')
 
   return lines.map((line, index) => (
     <Fragment key={`${index}-${line}`}>
-      {renderShellLine(line)}
+      {renderShellLine(line, variant)}
       {index < lines.length - 1 ? '\n' : null}
     </Fragment>
   ))
 }
 
-function renderCodeContent(code: string, language: string): React.ReactNode {
+function renderCodeContent(code: string, language: string, variant: CodeBlockVariant): React.ReactNode {
   if (containsAnsi(code)) {
     return <Ansi>{code}</Ansi>
   }
 
   if (isShellLanguage(language)) {
-    return renderShellCode(code)
+    return renderShellCode(code, variant)
   }
 
   return code
 }
 
-export function CodeBlock({ code, language = 'typescript' }: CodeBlockProps): React.JSX.Element {
+export function CodeBlock({ code, language = 'typescript', variant = 'terminal' }: CodeBlockProps): React.JSX.Element {
   const { t } = useI18n()
   const preRef = useRef<HTMLPreElement>(null)
   const [copied, setCopied] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [isOverflowing, setIsOverflowing] = useState(false)
+  const isReader = variant === 'reader'
 
   useEffect(() => {
     setExpanded(false)
@@ -143,20 +151,41 @@ export function CodeBlock({ code, language = 'typescript' }: CodeBlockProps): Re
     }
   }
 
+  const bgVar = isReader ? 'var(--xp-reader-code-bg)' : 'var(--code-block-bg)'
+  const headerVar = isReader ? 'var(--xp-reader-code-header)' : 'var(--code-block-header)'
+  const borderVar = isReader ? 'var(--xp-reader-code-border)' : 'var(--code-block-border)'
+  const textVar = isReader ? 'var(--xp-reader-code-text)' : 'var(--code-block-text)'
+  const mutedVar = isReader ? 'var(--xp-reader-code-muted)' : 'var(--code-block-muted)'
+  const accentVar = isReader ? 'var(--xp-reader-code-accent)' : 'var(--code-block-accent)'
+
   return (
     <div
-      className="group relative my-4 overflow-hidden rounded-[10px] border border-[color:var(--code-block-border)] bg-[var(--code-block-bg)] shadow-[0_1px_3px_0_rgb(var(--agent-shadow-rgb)_/_0.10)]"
+      className={cn(
+        'group relative my-4 overflow-hidden rounded-[10px] border',
+        isReader ? 'shadow-none' : 'shadow-[0_1px_3px_0_rgb(var(--agent-shadow-rgb)_/_0.10)]'
+      )}
+      style={{
+        backgroundColor: bgVar,
+        borderColor: borderVar
+      }}
       data-testid="code-block"
     >
-      <div className="flex items-center justify-between border-b border-[color:var(--code-block-border)] bg-[var(--code-block-header)] px-4 py-1.5">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-tech-blue">
+      <div
+        className="flex items-center justify-between border-b px-4 py-1.5"
+        style={{ borderColor: borderVar, backgroundColor: headerVar }}
+      >
+        <span
+          className="text-[11px] font-semibold uppercase tracking-[0.04em]"
+          style={{ color: accentVar }}
+        >
           {language}
         </span>
         <Button
           variant="ghost"
           size="sm"
           onClick={handleCopy}
-          className="h-7 px-2 text-[var(--code-block-muted)] opacity-0 transition-opacity hover:bg-white/10 hover:text-[var(--code-block-text)] group-hover:opacity-100"
+          className="h-7 px-2 opacity-0 transition-opacity group-hover:opacity-100"
+          style={{ color: mutedVar }}
           aria-label={t('codeBlock.copyButton')}
           data-testid="copy-code-button"
         >
@@ -170,25 +199,32 @@ export function CodeBlock({ code, language = 'typescript' }: CodeBlockProps): Re
       <pre
         ref={preRef}
         className={cn(
-          'overflow-x-auto p-4 font-mono text-sm leading-relaxed text-[var(--code-block-text)]',
+          'overflow-x-auto p-4 font-mono leading-relaxed',
+          isReader ? 'text-[13px]' : 'text-sm',
           isOverflowing && !expanded ? 'max-h-[320px] overflow-y-hidden' : 'overflow-y-auto'
         )}
+        style={{ color: textVar }}
       >
-        <code>{renderCodeContent(code, language)}</code>
+        <code>{renderCodeContent(code, language, variant)}</code>
       </pre>
       {isOverflowing && !expanded && (
         <div
           className="pointer-events-none absolute bottom-0 left-0 right-0 h-16"
           style={{
             background:
-              'linear-gradient(to top, var(--code-block-bg), color-mix(in srgb, var(--code-block-bg) 92%, transparent), transparent)'
+              `linear-gradient(to top, ${bgVar}, color-mix(in srgb, ${bgVar} 92%, transparent), transparent)`
           }}
         />
       )}
       {isOverflowing && (
         <button
           type="button"
-          className="absolute bottom-2 right-3 z-10 rounded-full border border-white/10 bg-[var(--code-block-header)] px-2.5 py-1 text-[11px] font-medium text-[var(--code-block-text)] shadow-sm transition-colors hover:border-tech-blue/55 hover:bg-white/10 hover:text-[var(--code-block-text)]"
+          className="absolute bottom-2 right-3 z-10 rounded-full border px-2.5 py-1 text-[11px] font-medium shadow-sm transition-colors"
+          style={{
+            borderColor: 'color-mix(in srgb, white 10%, transparent)',
+            backgroundColor: headerVar,
+            color: textVar
+          }}
           aria-expanded={expanded}
           onClick={() => setExpanded((value) => !value)}
         >

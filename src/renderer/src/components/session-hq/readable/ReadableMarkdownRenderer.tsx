@@ -79,7 +79,7 @@ const readableComponents: Components = {
       const code = content.replace(/\n$/, '')
       return (
         <div className="xp-wide-block my-4">
-          <CodeBlock code={code} language={match?.[1] ?? 'text'} />
+          <CodeBlock code={code} language={match?.[1] ?? 'text'} variant="reader" />
         </div>
       )
     }
