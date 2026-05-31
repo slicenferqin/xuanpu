@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { mockCanLaunchOpenCode, mockGetCodexLaunchInfo, mockResolveClaudeBinaryPath } = vi.hoisted(
   () => ({
@@ -39,9 +39,20 @@ vi.mock('../../../src/main/services/logger', () => ({
 
 import { detectAgentSdks } from '../../../src/main/services/system-info'
 
+const previousXuanpuAgentRuntime = process.env.XUANPU_AGENT_RUNTIME
+
 describe('system-info: detectAgentSdks', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    delete process.env.XUANPU_AGENT_RUNTIME
+  })
+
+  afterEach(() => {
+    if (previousXuanpuAgentRuntime === undefined) {
+      delete process.env.XUANPU_AGENT_RUNTIME
+    } else {
+      process.env.XUANPU_AGENT_RUNTIME = previousXuanpuAgentRuntime
+    }
   })
 
   it('returns false for every runtime when no launch capability is available', async () => {
@@ -56,7 +67,8 @@ describe('system-info: detectAgentSdks', () => {
     await expect(detectAgentSdks()).resolves.toEqual({
       opencode: false,
       claude: false,
-      codex: false
+      codex: false,
+      xuanpuAgent: false
     })
   })
 
@@ -73,7 +85,8 @@ describe('system-info: detectAgentSdks', () => {
     await expect(detectAgentSdks()).resolves.toEqual({
       opencode: true,
       claude: true,
-      codex: false
+      codex: false,
+      xuanpuAgent: false
     })
 
     mockGetCodexLaunchInfo.mockResolvedValueOnce({
@@ -85,7 +98,27 @@ describe('system-info: detectAgentSdks', () => {
     await expect(detectAgentSdks()).resolves.toEqual({
       opencode: true,
       claude: true,
-      codex: true
+      codex: true,
+      xuanpuAgent: false
+    })
+  })
+
+  it('reports xuanpu-agent only behind the explicit experimental runtime flag', async () => {
+    mockCanLaunchOpenCode.mockResolvedValue(false)
+    mockGetCodexLaunchInfo.mockResolvedValue({
+      spec: null,
+      version: null,
+      supportsAppServer: false
+    })
+    mockResolveClaudeBinaryPath.mockReturnValue(null)
+
+    process.env.XUANPU_AGENT_RUNTIME = '1'
+
+    await expect(detectAgentSdks()).resolves.toEqual({
+      opencode: false,
+      claude: false,
+      codex: false,
+      xuanpuAgent: true
     })
   })
 
@@ -103,5 +136,6 @@ describe('system-info: detectAgentSdks', () => {
     expect(result).toHaveProperty('opencode', true)
     expect(result).toHaveProperty('claude', true)
     expect(result).toHaveProperty('codex', true)
+    expect(result).toHaveProperty('xuanpuAgent', false)
   })
 })

@@ -397,6 +397,25 @@ export interface DbSessionActivity {
   created_at: string
 }
 
+function compareActivityRows(left: DbSessionActivity, right: DbSessionActivity): number {
+  const leftSequence = left.sequence
+  const rightSequence = right.sequence
+  if (leftSequence != null && rightSequence != null && leftSequence !== rightSequence) {
+    return leftSequence - rightSequence
+  }
+  if (leftSequence != null && rightSequence == null) return -1
+  if (leftSequence == null && rightSequence != null) return 1
+
+  const leftTime = Date.parse(left.created_at)
+  const rightTime = Date.parse(right.created_at)
+  if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
+    return leftTime - rightTime
+  }
+  if (Number.isFinite(leftTime) && !Number.isFinite(rightTime)) return -1
+  if (!Number.isFinite(leftTime) && Number.isFinite(rightTime)) return 1
+  return left.id.localeCompare(right.id)
+}
+
 export function mapDbRowsToTimelineMessages(messages: DbSessionMessage[]): TimelineMessage[] {
   return messages
     .filter((m) => !(m.role === 'user' && isSyntheticUserMessage(m.content)))
@@ -567,15 +586,7 @@ function getOrderedActivityTurnIds(activityRows: DbSessionActivity[]): string[] 
   return [
     ...new Set(
       [...activityRows]
-        .sort((left, right) => {
-          const leftTime = Date.parse(left.created_at)
-          const rightTime = Date.parse(right.created_at)
-          if (leftTime !== rightTime) return leftTime - rightTime
-          // TODO(seq-activities): once session_activities.sequence is backfilled
-          // by a follow-up migration, prefer it over UUID lex order here
-          // (mirrors normalizeCodexMessageRows for session_messages.sequence).
-          return left.id.localeCompare(right.id)
-        })
+        .sort(compareActivityRows)
         .map((activity) => activity.turn_id)
         .filter((turnId): turnId is string => typeof turnId === 'string' && turnId.length > 0)
     )
@@ -634,12 +645,21 @@ function normalizeCodexMessageRows(
     }
 
     if (message.role === 'user') {
-      if (!currentTurnId || userCountWithinTurn > 0) {
+      const hasExistingTurnId = !!currentTurnId && userCountWithinTurn === 0
+      if (!hasExistingTurnId) {
         currentTurnIndex += 1
-        currentTurnId = orderedTurnIds[currentTurnIndex] ?? currentTurnId
+        const nextTurnId = orderedTurnIds[currentTurnIndex]
+        if (!nextTurnId) {
+          // No more turn ids available — use DB row id for a unique identity
+          // instead of reusing the previous turn's id (which causes id collisions)
+          return {
+            ...message,
+            opencode_message_id: `db:${message.id}:user`
+          }
+        }
+        currentTurnId = nextTurnId
         userCountWithinTurn = 0
       }
-      if (!currentTurnId) return message
       assistantCountWithinTurn = 0
       userCountWithinTurn += 1
       return {
@@ -940,15 +960,7 @@ function mergeCodexActivityMessages(
   >()
   const unanchoredSynthetic: Array<TimelineMessage & { syntheticOrder: number }> = []
 
-  const sortedActivities = [...activityRows].sort((left, right) => {
-    const leftTime = Date.parse(left.created_at)
-    const rightTime = Date.parse(right.created_at)
-    if (leftTime !== rightTime) return leftTime - rightTime
-    // TODO(seq-activities): session_activities.sequence exists but is 0% filled
-    // today. Once a follow-up migration backfills it, prefer it over UUID lex
-    // order here (same shape as normalizeCodexMessageRows).
-    return left.id.localeCompare(right.id)
-  })
+  const sortedActivities = [...activityRows].sort(compareActivityRows)
 
   // Pre-scan for plan.resolved activities so plan.ready cards rendered later
   // can be marked as resolved (no more "Requires Approval" badge) and so

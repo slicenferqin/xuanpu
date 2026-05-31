@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 24
+export const CURRENT_SCHEMA_VERSION = 32
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -183,6 +183,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_session_opencode_unique
   WHERE opencode_message_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_session_activities_session_created
   ON session_activities(session_id, created_at, id);
+CREATE INDEX IF NOT EXISTS idx_session_activities_session_seq
+  ON session_activities(session_id, sequence);
 CREATE INDEX IF NOT EXISTS idx_session_activities_session_turn
   ON session_activities(session_id, turn_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_session_pending_messages_session_status
@@ -236,6 +238,34 @@ CREATE TABLE IF NOT EXISTS field_episodic_memory (
 );
 CREATE INDEX IF NOT EXISTS idx_field_episodic_memory_compacted ON field_episodic_memory(compacted_at DESC);
 
+-- xuanpu-agent: immutable managed-context episode blocks.
+CREATE TABLE IF NOT EXISTS field_episode_blocks (
+  id TEXT PRIMARY KEY,
+  worktree_id TEXT NOT NULL,
+  session_id TEXT,
+  created_at INTEGER NOT NULL,
+  source_event_seq_start INTEGER,
+  source_event_seq_end INTEGER,
+  source_message_id_start TEXT,
+  source_message_id_end TEXT,
+  kind TEXT NOT NULL,
+  title TEXT,
+  summary_markdown TEXT NOT NULL,
+  key_facts_json TEXT NOT NULL,
+  constraints_json TEXT NOT NULL,
+  files_json TEXT NOT NULL,
+  commands_json TEXT NOT NULL,
+  failures_json TEXT NOT NULL,
+  raw_refs_json TEXT NOT NULL,
+  token_estimate INTEGER NOT NULL,
+  confidence TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_field_episode_blocks_worktree_created
+  ON field_episode_blocks(worktree_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_field_episode_blocks_session_created
+  ON field_episode_blocks(session_id, created_at DESC)
+  WHERE session_id IS NOT NULL;
+
 -- Phase 24C: Session Checkpoint (per-worktree resume hints)
 -- See docs/prd/phase-24c-session-checkpoint.md
 CREATE TABLE IF NOT EXISTS field_session_checkpoints (
@@ -271,6 +301,64 @@ CREATE TABLE IF NOT EXISTS field_pinned_facts (
   created_at INTEGER NOT NULL
 );
 
+-- xuanpu-agent: auditable managed context packages.
+CREATE TABLE IF NOT EXISTS field_context_packages (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  worktree_id TEXT NOT NULL,
+  runtime_id TEXT NOT NULL,
+  model_provider_id TEXT,
+  model_id TEXT,
+  created_at INTEGER NOT NULL,
+  budget_profile TEXT NOT NULL,
+  approx_tokens INTEGER NOT NULL,
+  sections_json TEXT NOT NULL,
+  rendered_markdown TEXT,
+  decisions_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_field_context_packages_session_created
+  ON field_context_packages(session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_field_context_packages_worktree_created
+  ON field_context_packages(worktree_id, created_at DESC);
+
+-- xuanpu-agent M5: proposal-based, ref-backed memory pages.
+CREATE TABLE IF NOT EXISTS field_memory_pages (
+  id TEXT PRIMARY KEY,
+  scope TEXT NOT NULL CHECK (scope IN ('user', 'project', 'worktree', 'session', 'episode', 'command')),
+  scope_id TEXT NOT NULL,
+  project_id TEXT,
+  worktree_id TEXT,
+  session_id TEXT,
+  episode_id TEXT,
+  command_trace_id TEXT,
+  kind TEXT NOT NULL CHECK (kind IN ('fact', 'decision', 'assumption', 'constraint')),
+  status TEXT NOT NULL CHECK (status IN ('proposed', 'accepted', 'rejected', 'archived')),
+  title TEXT NOT NULL,
+  body_markdown TEXT NOT NULL,
+  entities_json TEXT NOT NULL,
+  raw_refs_json TEXT NOT NULL,
+  retrieval_hints_json TEXT NOT NULL,
+  source TEXT NOT NULL,
+  proposed_by TEXT NOT NULL,
+  proposal_reason TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  accepted_at INTEGER,
+  rejected_at INTEGER,
+  archived_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_field_memory_pages_scope_status
+  ON field_memory_pages(scope, scope_id, status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_field_memory_pages_project_status
+  ON field_memory_pages(project_id, status, updated_at DESC)
+  WHERE project_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_field_memory_pages_worktree_status
+  ON field_memory_pages(worktree_id, status, updated_at DESC)
+  WHERE worktree_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_field_memory_pages_session_status
+  ON field_memory_pages(session_id, status, updated_at DESC)
+  WHERE session_id IS NOT NULL;
+
 -- v1.4.7: Local diff comments anchored to worktree/file/line.
 CREATE TABLE IF NOT EXISTS diff_comments (
   id TEXT PRIMARY KEY,
@@ -289,6 +377,68 @@ CREATE INDEX IF NOT EXISTS idx_diff_comments_worktree_file
   ON diff_comments(worktree_id, file_path, line_number);
 CREATE INDEX IF NOT EXISTS idx_diff_comments_worktree_updated
   ON diff_comments(worktree_id, updated_at DESC);
+
+-- Usage events ledger (event-keyed, for correct Codex persistence)
+CREATE TABLE IF NOT EXISTS usage_events (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  worktree_id TEXT REFERENCES worktrees(id) ON DELETE SET NULL,
+  agent_sdk TEXT NOT NULL,
+  source_kind TEXT NOT NULL,
+  source_event_id TEXT NOT NULL,
+  runtime_session_id TEXT,
+  thread_id TEXT,
+  turn_id TEXT,
+  provider_id TEXT,
+  model_id TEXT,
+  model_label TEXT,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+  total_tokens INTEGER NOT NULL DEFAULT 0,
+  cost_estimate REAL NOT NULL DEFAULT 0,
+  source_payload_json TEXT,
+  occurred_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_events_session_source_event
+  ON usage_events(session_id, source_kind, source_event_id);
+CREATE INDEX IF NOT EXISTS idx_usage_events_session_occurred
+  ON usage_events(session_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_events_project_occurred
+  ON usage_events(project_id, occurred_at DESC);
+
+-- Session usage snapshots (fast path for UI display)
+CREATE TABLE IF NOT EXISTS session_usage_snapshots (
+  session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+  agent_sdk TEXT NOT NULL,
+  runtime_session_id TEXT,
+  thread_id TEXT,
+  provider_id TEXT,
+  model_id TEXT,
+  model_label TEXT,
+  total_input_tokens INTEGER NOT NULL DEFAULT 0,
+  total_output_tokens INTEGER NOT NULL DEFAULT 0,
+  total_reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+  total_cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  total_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+  total_tokens INTEGER NOT NULL DEFAULT 0,
+  total_cost_estimate REAL NOT NULL DEFAULT 0,
+  context_used_tokens INTEGER,
+  context_window_tokens INTEGER,
+  context_percent REAL,
+  source_kind TEXT NOT NULL,
+  source_ref TEXT,
+  source_mtime_ms INTEGER,
+  source_payload_json TEXT,
+  sync_status TEXT NOT NULL DEFAULT 'pending',
+  last_event_at TEXT,
+  updated_at TEXT NOT NULL,
+  last_error TEXT
+);
 `
 
 export interface Migration {
@@ -306,14 +456,24 @@ export const MIGRATIONS: Migration[] = [
     down: `
       DROP INDEX IF EXISTS idx_project_spaces_project;
       DROP INDEX IF EXISTS idx_project_spaces_space;
+      DROP INDEX IF EXISTS idx_field_episode_blocks_session_created;
+      DROP INDEX IF EXISTS idx_field_episode_blocks_worktree_created;
+      DROP INDEX IF EXISTS idx_field_memory_pages_session_status;
+      DROP INDEX IF EXISTS idx_field_memory_pages_worktree_status;
+      DROP INDEX IF EXISTS idx_field_memory_pages_project_status;
+      DROP INDEX IF EXISTS idx_field_memory_pages_scope_status;
+      DROP INDEX IF EXISTS idx_field_context_packages_worktree_created;
+      DROP INDEX IF EXISTS idx_field_context_packages_session_created;
       DROP INDEX IF EXISTS idx_diff_comments_worktree_updated;
       DROP INDEX IF EXISTS idx_diff_comments_worktree_file;
       DROP INDEX IF EXISTS idx_projects_accessed;
       DROP INDEX IF EXISTS idx_sessions_updated;
       DROP INDEX IF EXISTS idx_messages_session_opencode_unique;
       DROP INDEX IF EXISTS idx_messages_session_opencode;
+      DROP INDEX IF EXISTS idx_messages_session_seq;
       DROP INDEX IF EXISTS idx_messages_session;
       DROP INDEX IF EXISTS idx_session_activities_session_turn;
+      DROP INDEX IF EXISTS idx_session_activities_session_seq;
       DROP INDEX IF EXISTS idx_session_activities_session_created;
       DROP INDEX IF EXISTS idx_session_pending_messages_updated;
       DROP INDEX IF EXISTS idx_session_pending_messages_session_status;
@@ -327,6 +487,9 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_worktrees_project;
       DROP TABLE IF EXISTS project_spaces;
       DROP TABLE IF EXISTS spaces;
+      DROP TABLE IF EXISTS field_episode_blocks;
+      DROP TABLE IF EXISTS field_memory_pages;
+      DROP TABLE IF EXISTS field_context_packages;
       DROP TABLE IF EXISTS diff_comments;
       DROP TABLE IF EXISTS settings;
       DROP TABLE IF EXISTS usage_sync_state;
@@ -443,11 +606,14 @@ export const MIGRATIONS: Migration[] = [
 
       CREATE INDEX IF NOT EXISTS idx_session_activities_session_created
         ON session_activities(session_id, created_at, id);
+      CREATE INDEX IF NOT EXISTS idx_session_activities_session_seq
+        ON session_activities(session_id, sequence);
       CREATE INDEX IF NOT EXISTS idx_session_activities_session_turn
         ON session_activities(session_id, turn_id, created_at);
     `,
     down: `
       DROP INDEX IF EXISTS idx_session_activities_session_turn;
+      DROP INDEX IF EXISTS idx_session_activities_session_seq;
       DROP INDEX IF EXISTS idx_session_activities_session_created;
       DROP TABLE IF EXISTS session_activities;
     `
@@ -865,25 +1031,253 @@ export const MIGRATIONS: Migration[] = [
   {
     version: 24,
     name: 'add_session_messages_sequence',
+    up: `-- handled idempotently by ensureSessionMessageSequenceColumn() in database.ts`,
+    down: `-- SQLite cannot DROP COLUMN reliably across versions; this is a no-op for safety`
+  },
+  {
+    version: 25,
+    name: 'add_field_context_packages',
     up: `
-      ALTER TABLE session_messages ADD COLUMN sequence INTEGER;
-      WITH ordered AS (
-        SELECT id,
-               ROW_NUMBER() OVER (
-                 PARTITION BY session_id
-                 ORDER BY created_at ASC, id ASC
-               ) AS seq
-        FROM session_messages
-      )
-      UPDATE session_messages
-         SET sequence = (SELECT seq FROM ordered WHERE ordered.id = session_messages.id)
-       WHERE sequence IS NULL;
-      CREATE INDEX IF NOT EXISTS idx_messages_session_seq
-        ON session_messages(session_id, sequence);
+      -- xuanpu-agent: auditable managed context packages.
+      CREATE TABLE IF NOT EXISTS field_context_packages (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        worktree_id TEXT NOT NULL,
+        runtime_id TEXT NOT NULL,
+        model_provider_id TEXT,
+        model_id TEXT,
+        created_at INTEGER NOT NULL,
+        budget_profile TEXT NOT NULL,
+        approx_tokens INTEGER NOT NULL,
+        sections_json TEXT NOT NULL,
+        rendered_markdown TEXT,
+        decisions_json TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_field_context_packages_session_created
+        ON field_context_packages(session_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_context_packages_worktree_created
+        ON field_context_packages(worktree_id, created_at DESC);
     `,
     down: `
-      DROP INDEX IF EXISTS idx_messages_session_seq;
-      -- SQLite cannot DROP COLUMN reliably across versions; leave the column behind.
+      DROP INDEX IF EXISTS idx_field_context_packages_worktree_created;
+      DROP INDEX IF EXISTS idx_field_context_packages_session_created;
+      DROP TABLE IF EXISTS field_context_packages;
+    `
+  },
+  {
+    version: 26,
+    name: 'add_field_episode_blocks',
+    up: `
+      -- xuanpu-agent: immutable managed-context episode blocks.
+      CREATE TABLE IF NOT EXISTS field_episode_blocks (
+        id TEXT PRIMARY KEY,
+        worktree_id TEXT NOT NULL,
+        session_id TEXT,
+        created_at INTEGER NOT NULL,
+        source_event_seq_start INTEGER,
+        source_event_seq_end INTEGER,
+        source_message_id_start TEXT,
+        source_message_id_end TEXT,
+        kind TEXT NOT NULL,
+        title TEXT,
+        summary_markdown TEXT NOT NULL,
+        key_facts_json TEXT NOT NULL,
+        constraints_json TEXT NOT NULL,
+        files_json TEXT NOT NULL,
+        commands_json TEXT NOT NULL,
+        failures_json TEXT NOT NULL,
+        raw_refs_json TEXT NOT NULL,
+        token_estimate INTEGER NOT NULL,
+        confidence TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_field_episode_blocks_worktree_created
+        ON field_episode_blocks(worktree_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_episode_blocks_session_created
+        ON field_episode_blocks(session_id, created_at DESC)
+        WHERE session_id IS NOT NULL;
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_field_episode_blocks_session_created;
+      DROP INDEX IF EXISTS idx_field_episode_blocks_worktree_created;
+      DROP TABLE IF EXISTS field_episode_blocks;
+    `
+  },
+  {
+    version: 27,
+    name: 'repair_session_messages_sequence',
+    up: `-- handled idempotently by ensureSessionMessageSequenceColumn() in database.ts`,
+    down: `-- SQLite cannot DROP COLUMN reliably across versions; this is a no-op for safety`
+  },
+  {
+    version: 28,
+    name: 'repair_session_activities_sequence',
+    up: `-- handled idempotently by ensureSessionActivitySequenceColumn() in database.ts`,
+    down: `DROP INDEX IF EXISTS idx_session_activities_session_seq;`
+  },
+  {
+    version: 29,
+    name: 'add_command_traces_table',
+    up: `
+      CREATE TABLE IF NOT EXISTS command_traces (
+        id TEXT PRIMARY KEY,
+        session_id TEXT,
+        worktree_id TEXT,
+        command TEXT NOT NULL,
+        cwd TEXT,
+        exit_code INTEGER,
+        duration_ms INTEGER,
+        timed_out INTEGER NOT NULL DEFAULT 0,
+        aborted INTEGER NOT NULL DEFAULT 0,
+        raw_output_ref TEXT NOT NULL,
+        raw_output_bytes INTEGER NOT NULL DEFAULT 0,
+        compressed_output TEXT,
+        compression_ratio REAL,
+        category TEXT,
+        rule_hits TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_command_traces_session
+        ON command_traces(session_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_command_traces_worktree
+        ON command_traces(worktree_id, created_at DESC);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_command_traces_worktree;
+      DROP INDEX IF EXISTS idx_command_traces_session;
+      DROP TABLE IF EXISTS command_traces;
+    `
+  },
+  {
+    version: 30,
+    name: 'repair_command_traces_raw_refs',
+    up: `-- handled idempotently by ensureCommandTracesTable() in database.ts`,
+    down: `-- SQLite cannot DROP COLUMN reliably across versions; this is a no-op for safety`
+  },
+  {
+    version: 31,
+    name: 'add_field_memory_pages',
+    up: `
+      CREATE TABLE IF NOT EXISTS field_memory_pages (
+        id TEXT PRIMARY KEY,
+        scope TEXT NOT NULL CHECK (scope IN ('user', 'project', 'worktree', 'session', 'episode', 'command')),
+        scope_id TEXT NOT NULL,
+        project_id TEXT,
+        worktree_id TEXT,
+        session_id TEXT,
+        episode_id TEXT,
+        command_trace_id TEXT,
+        kind TEXT NOT NULL CHECK (kind IN ('fact', 'decision', 'assumption', 'constraint')),
+        status TEXT NOT NULL CHECK (status IN ('proposed', 'accepted', 'rejected', 'archived')),
+        title TEXT NOT NULL,
+        body_markdown TEXT NOT NULL,
+        entities_json TEXT NOT NULL,
+        raw_refs_json TEXT NOT NULL,
+        retrieval_hints_json TEXT NOT NULL,
+        source TEXT NOT NULL,
+        proposed_by TEXT NOT NULL,
+        proposal_reason TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        accepted_at INTEGER,
+        rejected_at INTEGER,
+        archived_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_field_memory_pages_scope_status
+        ON field_memory_pages(scope, scope_id, status, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_memory_pages_project_status
+        ON field_memory_pages(project_id, status, updated_at DESC)
+        WHERE project_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_field_memory_pages_worktree_status
+        ON field_memory_pages(worktree_id, status, updated_at DESC)
+        WHERE worktree_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_field_memory_pages_session_status
+        ON field_memory_pages(session_id, status, updated_at DESC)
+        WHERE session_id IS NOT NULL;
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_field_memory_pages_session_status;
+      DROP INDEX IF EXISTS idx_field_memory_pages_worktree_status;
+      DROP INDEX IF EXISTS idx_field_memory_pages_project_status;
+      DROP INDEX IF EXISTS idx_field_memory_pages_scope_status;
+      DROP TABLE IF EXISTS field_memory_pages;
+    `
+  },
+  {
+    version: 32,
+    name: 'add_usage_events_and_snapshots',
+    up: `
+      -- Phase: Usage Metrics Accuracy Audit
+      -- Event-keyed ledger for correct Codex usage persistence.
+      -- Each row represents one billable provider usage event, not a turn.
+      CREATE TABLE IF NOT EXISTS usage_events (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        worktree_id TEXT REFERENCES worktrees(id) ON DELETE SET NULL,
+        agent_sdk TEXT NOT NULL,
+        source_kind TEXT NOT NULL,
+        source_event_id TEXT NOT NULL,
+        runtime_session_id TEXT,
+        thread_id TEXT,
+        turn_id TEXT,
+        provider_id TEXT,
+        model_id TEXT,
+        model_label TEXT,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+        total_tokens INTEGER NOT NULL DEFAULT 0,
+        cost_estimate REAL NOT NULL DEFAULT 0,
+        source_payload_json TEXT,
+        occurred_at TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_events_session_source_event
+        ON usage_events(session_id, source_kind, source_event_id);
+      CREATE INDEX IF NOT EXISTS idx_usage_events_session_occurred
+        ON usage_events(session_id, occurred_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_usage_events_project_occurred
+        ON usage_events(project_id, occurred_at DESC);
+
+      -- Durable usage/context snapshot for fast UI display.
+      -- One row per session, updated on every usage event.
+      CREATE TABLE IF NOT EXISTS session_usage_snapshots (
+        session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+        agent_sdk TEXT NOT NULL,
+        runtime_session_id TEXT,
+        thread_id TEXT,
+        provider_id TEXT,
+        model_id TEXT,
+        model_label TEXT,
+        total_input_tokens INTEGER NOT NULL DEFAULT 0,
+        total_output_tokens INTEGER NOT NULL DEFAULT 0,
+        total_reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+        total_cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+        total_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+        total_tokens INTEGER NOT NULL DEFAULT 0,
+        total_cost_estimate REAL NOT NULL DEFAULT 0,
+        context_used_tokens INTEGER,
+        context_window_tokens INTEGER,
+        context_percent REAL,
+        source_kind TEXT NOT NULL,
+        source_ref TEXT,
+        source_mtime_ms INTEGER,
+        source_payload_json TEXT,
+        sync_status TEXT NOT NULL DEFAULT 'pending',
+        last_event_at TEXT,
+        updated_at TEXT NOT NULL,
+        last_error TEXT
+      );
+    `,
+    down: `
+      DROP TABLE IF EXISTS session_usage_snapshots;
+      DROP INDEX IF EXISTS idx_usage_events_project_occurred;
+      DROP INDEX IF EXISTS idx_usage_events_session_occurred;
+      DROP INDEX IF EXISTS idx_usage_events_session_source_event;
+      DROP TABLE IF EXISTS usage_events;
     `
   }
 ]

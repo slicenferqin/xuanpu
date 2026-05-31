@@ -16,7 +16,7 @@ import { z } from 'zod'
 // Shared fragments
 // ---------------------------------------------------------------------------
 
-const runtimeIdSchema = z.enum(['opencode', 'claude-code', 'codex', 'terminal'])
+const runtimeIdSchema = z.enum(['opencode', 'claude-code', 'codex', 'terminal', 'xuanpu-agent'])
 
 const modelRefSchema = z.object({
   providerID: z.string(),

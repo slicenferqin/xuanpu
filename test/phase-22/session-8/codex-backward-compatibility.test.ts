@@ -64,7 +64,12 @@ describe('Backward compatibility: settings without codex field', () => {
   })
 
   it('availableAgentSdks null safely handles codex access via optional chaining', () => {
-    const availableAgentSdks: { opencode: boolean; claude: boolean; codex: boolean } | null = null
+    const availableAgentSdks: {
+      opencode: boolean
+      claude: boolean
+      codex: boolean
+      xuanpuAgent: boolean
+    } | null = null
 
     // This matches how the renderer accesses capabilities: availableAgentSdks?.codex
     const isCodexAvailable = availableAgentSdks?.codex
@@ -162,9 +167,14 @@ describe('All AgentSdkId values are production-stable', () => {
 
   it('each capability object has all required boolean fields', () => {
     const requiredFields = [
-      'supportsUndo', 'supportsRedo', 'supportsCommands',
-      'supportsPermissionRequests', 'supportsQuestionPrompts',
-      'supportsModelSelection', 'supportsReconnect', 'supportsPartialStreaming'
+      'supportsUndo',
+      'supportsRedo',
+      'supportsCommands',
+      'supportsPermissionRequests',
+      'supportsQuestionPrompts',
+      'supportsModelSelection',
+      'supportsReconnect',
+      'supportsPartialStreaming'
     ]
     for (const [sdkId, caps] of Object.entries(SDK_CAPABILITY_MAP)) {
       for (const field of requiredFields) {

@@ -8,10 +8,11 @@ import {
   AlertDialogTitle
 } from '@/components/ui/alert-dialog'
 import { useI18n } from '@/i18n/useI18n'
+import type { AgentSdkAvailability } from '@/stores/useSettingsStore'
 
 interface AgentPickerDialogProps {
   onSelect: (sdk: 'opencode' | 'claude-code' | 'codex') => void
-  availableSdks: { opencode: boolean; claude: boolean; codex: boolean }
+  availableSdks: AgentSdkAvailability
 }
 
 export function AgentPickerDialog({

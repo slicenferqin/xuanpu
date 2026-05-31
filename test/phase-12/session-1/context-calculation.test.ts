@@ -591,7 +591,7 @@ describe('Session 1: Context Calculation Fix', () => {
       expect(resolveRuntimeModelId('anthropic/claude-opus-4-7', 'anthropic')).toBe('opus')
       expect(resolveRuntimeModelId('claude-sonnet-4-6', 'anthropic')).toBe('sonnet')
 
-      expect(getCanonicalModelLabel('opus', 'anthropic')).toBe('Opus 4.7')
+      expect(getCanonicalModelLabel('opus', 'anthropic')).toBe('Opus 4.8')
       expect(getCanonicalModelLabel('claude-opus-4-7', 'anthropic')).toBe('Opus 4.7')
       expect(getCanonicalModelLabel('anthropic/claude-opus-4-7', 'anthropic')).toBe('Opus 4.7')
       expect(getCanonicalModelLabel('claude-sonnet-4-6', 'anthropic')).toBe('Sonnet 4.6')

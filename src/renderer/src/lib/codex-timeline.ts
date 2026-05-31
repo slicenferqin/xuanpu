@@ -112,16 +112,30 @@ function extractRoleOrdinal(messageId: string, role: 'user' | 'assistant'): numb
   return Number.isFinite(numericSuffix) ? Math.max(1, numericSuffix) : 2
 }
 
+function compareActivityRows(left: SessionActivity, right: SessionActivity): number {
+  const leftSequence = left.sequence
+  const rightSequence = right.sequence
+  if (leftSequence != null && rightSequence != null && leftSequence !== rightSequence) {
+    return leftSequence - rightSequence
+  }
+  if (leftSequence != null && rightSequence == null) return -1
+  if (leftSequence == null && rightSequence != null) return 1
+
+  const leftTime = Date.parse(left.created_at)
+  const rightTime = Date.parse(right.created_at)
+  if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
+    return leftTime - rightTime
+  }
+  if (Number.isFinite(leftTime) && !Number.isFinite(rightTime)) return -1
+  if (!Number.isFinite(leftTime) && Number.isFinite(rightTime)) return 1
+  return left.id.localeCompare(right.id)
+}
+
 function getOrderedActivityTurnIds(activityRows: SessionActivity[]): string[] {
   return [
     ...new Set(
       [...activityRows]
-        .sort((left, right) => {
-          const leftTime = Date.parse(left.created_at)
-          const rightTime = Date.parse(right.created_at)
-          if (leftTime !== rightTime) return leftTime - rightTime
-          return left.id.localeCompare(right.id)
-        })
+        .sort(compareActivityRows)
         .map((activity) => activity.turn_id)
         .filter((turnId): turnId is string => typeof turnId === 'string' && turnId.length > 0)
     )
@@ -170,6 +184,13 @@ function normalizeCodexMessageRows(
     const leftTime = Date.parse(left.created_at)
     const rightTime = Date.parse(right.created_at)
     if (leftTime !== rightTime) return leftTime - rightTime
+    const leftSequence = left.sequence
+    const rightSequence = right.sequence
+    if (leftSequence != null && rightSequence != null && leftSequence !== rightSequence) {
+      return leftSequence - rightSequence
+    }
+    if (leftSequence != null && rightSequence == null) return -1
+    if (leftSequence == null && rightSequence != null) return 1
     return left.id.localeCompare(right.id)
   })
 
@@ -329,9 +350,7 @@ export function mapDbSessionMessagesToOpenCodeMessages(
       id: message.opencode_message_id ?? message.id,
       role: message.role,
       content:
-        message.role === 'user'
-          ? stripInjectedContextEnvelope(message.content)
-          : message.content,
+        message.role === 'user' ? stripInjectedContextEnvelope(message.content) : message.content,
       timestamp: message.created_at,
       parts: parts && parts.length > 0 ? parts : undefined
     }
@@ -397,12 +416,7 @@ export function mergeCodexActivityMessages(
   >()
   const unanchoredSynthetic: Array<OpenCodeMessage & { syntheticOrder: number }> = []
 
-  const sortedActivities = [...activityRows].sort((left, right) => {
-    const leftTime = Date.parse(left.created_at)
-    const rightTime = Date.parse(right.created_at)
-    if (leftTime !== rightTime) return leftTime - rightTime
-    return left.id.localeCompare(right.id)
-  })
+  const sortedActivities = [...activityRows].sort(compareActivityRows)
 
   for (const activity of sortedActivities) {
     const activityPart = activity.kind.startsWith('tool.')

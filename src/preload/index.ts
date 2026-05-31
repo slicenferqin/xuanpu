@@ -11,6 +11,10 @@ import type {
   VoiceTranscriptionSessionOptions
 } from '@shared/types/voice'
 
+type PreloadMessagePart =
+  | { type: 'text'; text: string }
+  | { type: 'file'; mime: string; url: string; filename?: string }
+
 // Apply persisted UI zoom level from localStorage before first paint to avoid flash.
 // Ghostty's getContainerRect() has visualViewport.scale compensation for non-100% zoom.
 try {
@@ -85,7 +89,7 @@ const db = {
         name?: string
         status?: 'active' | 'archived'
         last_accessed_at?: string
-        last_agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | null
+        last_agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent' | null
       }
     ) => ipcRenderer.invoke('db:worktree:update', id, data),
     delete: (id: string) => ipcRenderer.invoke('db:worktree:delete', id),
@@ -141,7 +145,7 @@ const db = {
       connection_id?: string | null
       name?: string | null
       opencode_session_id?: string | null
-      agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+      agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
       model_provider_id?: string | null
       model_id?: string | null
       model_variant?: string | null
@@ -158,7 +162,7 @@ const db = {
         name?: string | null
         status?: 'active' | 'completed' | 'error' | 'archived'
         opencode_session_id?: string | null
-        agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+        agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
         mode?: 'build' | 'plan'
         model_provider_id?: string | null
         model_id?: string | null
@@ -508,8 +512,21 @@ const systemOps = {
   isLogMode: (): Promise<boolean> => ipcRenderer.invoke('system:isLogMode'),
 
   // Detect which agent runtimes are installed on the system
-  detectAgentRuntimes: (): Promise<{ opencode: boolean; claude: boolean; codex: boolean }> =>
-    ipcRenderer.invoke('system:detectAgentRuntimes'),
+  detectAgentRuntimes: (): Promise<{
+    opencode: boolean
+    claude: boolean
+    codex: boolean
+    xuanpuAgent: boolean
+  }> => ipcRenderer.invoke('system:detectAgentRuntimes'),
+
+  getXuanpuAgentRuntimeStatus: (
+    modelOverride?: {
+      providerID: string
+      modelID: string
+      variant?: string
+    } | null
+  ): Promise<unknown> =>
+    ipcRenderer.invoke('system:getXuanpuAgentRuntimeStatus', modelOverride ?? null),
 
   setKeepAwakeEnabled: (enabled: boolean): Promise<{ success: boolean }> =>
     ipcRenderer.invoke('system:setKeepAwakeEnabled', enabled),
@@ -518,8 +535,7 @@ const systemOps = {
     ipcRenderer.invoke('system:setSessionQueuedState', sessionId, queued),
 
   // Run the first-launch onboarding doctor
-  runOnboardingDoctor: (): Promise<OnboardingDoctorResult> =>
-    ipcRenderer.invoke('system:runOnboardingDoctor'),
+  runOnboardingDoctor: (): Promise<unknown> => ipcRenderer.invoke('system:runOnboardingDoctor'),
 
   // Detect available VS Code / Cursor keybindings.json files for import
   detectKeybindingImportSources: (): Promise<
@@ -564,6 +580,13 @@ const systemOps = {
 
   // Quit the app (needed for macOS where window.close() doesn't quit)
   quitApp: (): Promise<void> => ipcRenderer.invoke('system:quitApp'),
+
+  // Open DevTools for debugging
+  openDevTools: (): Promise<void> => ipcRenderer.invoke('system:openDevTools'),
+
+  // Write debug log to file
+  writeDebugLog: (message: string): Promise<{ success: boolean; path?: string; error?: string }> =>
+    ipcRenderer.invoke('system:writeDebugLog', message),
 
   // Open a path in an external app (Cursor, Ghostty) or copy to clipboard
   openInApp: (appName: string, path: string): Promise<{ success: boolean; error?: string }> =>
@@ -1314,7 +1337,7 @@ const agentOps = {
 
   // List available models from all configured providers
   listModels: (opts?: {
-    runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+    runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
   }): Promise<{
     success: boolean
     providers: Record<string, unknown>
@@ -1327,7 +1350,7 @@ const agentOps = {
       providerID: string
       modelID: string
       variant?: string
-      runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+      runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
     } | null
   ): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('agent:setModel', model),
 
@@ -1335,7 +1358,7 @@ const agentOps = {
   modelInfo: (
     worktreePath: string,
     modelId: string,
-    runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+    runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
   ): Promise<{
     success: boolean
     model?: { id: string; name: string; limit: { context: number } }
@@ -1353,7 +1376,7 @@ const agentOps = {
   steer: (
     worktreePath: string,
     sessionId: string,
-    messageOrParts: string | MessagePart[],
+    messageOrParts: string | PreloadMessagePart[],
     model?: { providerID: string; modelID: string; variant?: string },
     options?: { codexFastMode?: boolean }
   ): Promise<{ success: boolean; error?: string; errorCode?: string }> =>
@@ -2041,6 +2064,11 @@ const usageAnalyticsOps = {
     ipcRenderer.invoke('usageAnalytics:fetchDashboard', filters),
   fetchSessionSummary: (sessionId: string) =>
     ipcRenderer.invoke('usageAnalytics:fetchSessionSummary', sessionId),
+  fetchScopeSummary: (
+    scopeId: string,
+    scopeType: 'worktree' | 'connection',
+    sessionIds: string[]
+  ) => ipcRenderer.invoke('usageAnalytics:fetchScopeSummary', scopeId, scopeType, sessionIds),
   resync: () => ipcRenderer.invoke('usageAnalytics:resync')
 }
 
@@ -2128,6 +2156,47 @@ const fieldOps = {
         packetHash: string
       } | null
     } | null>,
+  /** Phase 24D debug: list managed context packages for a session/worktree. */
+  listContextPackages: (
+    query: import('../shared/types/field-context-debug').FieldContextPackageDebugQuery
+  ) =>
+    ipcRenderer.invoke('field:listContextPackages', query) as Promise<
+      import('../shared/types/field-context-debug').FieldContextPackageDebugRecord[]
+    >,
+  /** Phase 24D debug: list managed context episode blocks for a worktree. */
+  listEpisodeBlocks: (
+    query: import('../shared/types/field-context-debug').FieldEpisodeBlockDebugQuery
+  ) =>
+    ipcRenderer.invoke('field:listEpisodeBlocks', query) as Promise<
+      import('../shared/types/field-context-debug').FieldEpisodeBlockDebugRecord[]
+    >,
+  /** M5: list proposed/accepted scoped memory pages for a worktree. */
+  listMemoryPages: (query: import('../shared/types/field-memory').FieldMemoryPageListQuery) =>
+    ipcRenderer.invoke('field:listMemoryPages', query) as Promise<
+      import('../shared/types/field-memory').FieldMemoryPageRecord[]
+    >,
+  /** M5: accept a visible memory proposal. */
+  acceptMemoryPageProposal: (
+    input: { id: string } & import('../shared/types/field-memory').FieldMemoryPageUpdate
+  ) =>
+    ipcRenderer.invoke('field:acceptMemoryPageProposal', input) as Promise<
+      import('../shared/types/field-memory').FieldMemoryPageRecord
+    >,
+  /** M5: reject a visible memory proposal. */
+  rejectMemoryPageProposal: (input: { id: string; reason?: string | null }) =>
+    ipcRenderer.invoke('field:rejectMemoryPageProposal', input) as Promise<
+      import('../shared/types/field-memory').FieldMemoryPageRecord
+    >,
+  /** M5: edit an accepted or proposed memory page. */
+  updateMemoryPage: (
+    input: { id: string } & import('../shared/types/field-memory').FieldMemoryPageUpdate
+  ) =>
+    ipcRenderer.invoke('field:updateMemoryPage', input) as Promise<
+      import('../shared/types/field-memory').FieldMemoryPageRecord
+    >,
+  /** M5: delete a memory page. */
+  deleteMemoryPage: (id: string) =>
+    ipcRenderer.invoke('field:deleteMemoryPage', id) as Promise<{ deleted: boolean }>,
   /** v1.4.1: Pinned Facts — read user-authored permanent facts for a worktree. */
   getPinnedFacts: (worktreeId: string) =>
     ipcRenderer.invoke('field:getPinnedFacts', worktreeId) as Promise<{
@@ -2163,6 +2232,15 @@ const fieldOps = {
   /** v1.4.2: Episodic Memory — clear the rolling summary for a worktree. */
   clearEpisodic: (worktreeId: string) =>
     ipcRenderer.invoke('field:clearEpisodic', worktreeId) as Promise<{ deleted: boolean }>
+}
+
+// M3 xuanpu-agent: Context Budget runtime state
+const budgetOps = {
+  getBudgetState: (sessionId: string) =>
+    ipcRenderer.invoke('xuanpu-agent:getBudgetState', sessionId) as Promise<Record<
+      string,
+      unknown
+    > | null>
 }
 
 // Hub mode (#34): mobile / remote-control over Claude Code sessions.
@@ -2217,6 +2295,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('analyticsOps', analyticsOps)
     contextBridge.exposeInMainWorld('skillOps', skillOps)
     contextBridge.exposeInMainWorld('fieldOps', fieldOps)
+    contextBridge.exposeInMainWorld('budgetOps', budgetOps)
     contextBridge.exposeInMainWorld('hubOps', hubOps)
     contextBridge.exposeInMainWorld('voiceOps', voiceOps)
   } catch (error) {
@@ -2261,6 +2340,8 @@ if (process.contextIsolated) {
   window.skillOps = skillOps
   // @ts-expect-error (define in dts)
   window.fieldOps = fieldOps
+  // @ts-expect-error (define in dts)
+  window.budgetOps = budgetOps
   // @ts-expect-error (define in dts)
   window.voiceOps = voiceOps
   // @ts-expect-error (define in dts)

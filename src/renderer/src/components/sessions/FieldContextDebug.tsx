@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState, useCallback } from 'react'
 import { ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { XfpAuditEvent } from '@shared/types/xfp-audit'
+import type {
+  FieldContextPackageDebugRecord,
+  FieldEpisodeBlockDebugRecord
+} from '@shared/types/field-context-debug'
 
 interface LastInjection {
   preview: string
@@ -74,7 +78,7 @@ interface FieldContextDebugProps {
   className?: string
 }
 
-type Tab = 'injection' | 'episodic' | 'semantic' | 'checkpoint'
+type Tab = 'injection' | 'managed' | 'episodes' | 'episodic' | 'semantic' | 'checkpoint'
 type InspectorTab = 'xfp' | Tab
 
 const EMPTY_FALLBACK_SESSION_IDS: Array<string | null | undefined> = []
@@ -98,6 +102,8 @@ export function FieldContextDebug({
   const [tab, setTab] = useState<InspectorTab>('xfp')
   const [xfpAudit, setXfpAudit] = useState<XfpAuditEvent[]>([])
   const [data, setData] = useState<LastInjection | null>(null)
+  const [contextPackages, setContextPackages] = useState<FieldContextPackageDebugRecord[]>([])
+  const [episodeBlocks, setEpisodeBlocks] = useState<FieldEpisodeBlockDebugRecord[]>([])
   const [episodic, setEpisodic] = useState<EpisodicMemoryEntry | null>(null)
   const [semantic, setSemantic] = useState<SemanticMemoryEntry | null>(null)
   const [checkpoint, setCheckpoint] = useState<CheckpointEntry | null>(null)
@@ -140,18 +146,24 @@ export function FieldContextDebug({
       }
       setData(injection)
       if (worktreeId) {
-        const [ep, sem, ck] = await Promise.all([
+        const [ep, sem, ck, packages, blocks] = await Promise.all([
           window.fieldOps.getEpisodicMemory(worktreeId),
           window.fieldOps.getSemanticMemory(worktreeId),
-          window.fieldOps.getCheckpoint(worktreeId)
+          window.fieldOps.getCheckpoint(worktreeId),
+          loadManagedContextPackages(worktreeId, sessionIdCandidates),
+          loadEpisodeBlocks(worktreeId, sessionIdCandidates)
         ])
         setEpisodic(ep)
         setSemantic(sem)
         setCheckpoint(ck)
+        setContextPackages(packages)
+        setEpisodeBlocks(blocks)
       } else {
         setEpisodic(null)
         setSemantic(null)
         setCheckpoint(null)
+        setContextPackages([])
+        setEpisodeBlocks([])
       }
     } finally {
       setLoading(false)
@@ -170,13 +182,12 @@ export function FieldContextDebug({
       ? xfpAudit.length > 0
         ? `${xfpAudit.length} recent events`
         : 'no XFP activity yet'
-      : tab === 'injection'
-        ? data
-          ? `~${data.approxTokens} tokens • ${new Date(data.timestamp).toLocaleTimeString()}`
-          : 'no injection yet'
-        : episodic
-          ? `${episodic.compactorId} • ${new Date(episodic.compactedAt).toLocaleTimeString()}`
-          : 'no episodic summary yet'
+      : getHeaderLabel(tab, {
+          data,
+          episodic,
+          contextPackages,
+          episodeBlocks
+        })
 
   return (
     <div
@@ -191,10 +202,10 @@ export function FieldContextDebug({
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-muted-foreground hover:bg-muted/30 transition-colors"
       >
-        <div className="flex items-center gap-1.5">
+        <div className="flex min-w-0 items-center gap-1.5">
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
           <span>XFP Inspector</span>
-          <span className="text-muted-foreground/70 ml-2">{headerLabel}</span>
+          <span className="text-muted-foreground/70 ml-2 min-w-0 truncate">{headerLabel}</span>
         </div>
         {open && (
           <span
@@ -217,7 +228,7 @@ export function FieldContextDebug({
       {open && (
         <div className="px-3 pb-2 pt-1">
           {/* Tab bar */}
-          <div className="flex items-center gap-1 mb-2 text-[11px]">
+          <div className="flex flex-wrap items-center gap-1 mb-2 text-[11px]">
             <button
               type="button"
               onClick={() => setTab('xfp')}
@@ -241,6 +252,30 @@ export function FieldContextDebug({
               )}
             >
               Legacy Injection
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab('managed')}
+              className={cn(
+                'px-2 py-0.5 rounded',
+                tab === 'managed'
+                  ? 'bg-primary/20 text-foreground'
+                  : 'text-muted-foreground hover:bg-muted/50'
+              )}
+            >
+              Managed Context
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab('episodes')}
+              className={cn(
+                'px-2 py-0.5 rounded',
+                tab === 'episodes'
+                  ? 'bg-primary/20 text-foreground'
+                  : 'text-muted-foreground hover:bg-muted/50'
+              )}
+            >
+              Episode Blocks
             </button>
             <button
               type="button"
@@ -301,6 +336,48 @@ export function FieldContextDebug({
                 <pre className="whitespace-pre-wrap break-words text-[11px] leading-relaxed bg-background/50 rounded p-2 max-h-64 overflow-auto">
                   {data.preview}
                 </pre>
+              )}
+            </>
+          )}
+
+          {tab === 'managed' && (
+            <>
+              {loading && contextPackages.length === 0 && (
+                <div className="text-muted-foreground/60">Loading…</div>
+              )}
+              {!loading && contextPackages.length === 0 && (
+                <div className="text-muted-foreground/60">
+                  No managed context package has been recorded for this session yet. `xuanpu-agent`
+                  records one before each provider call.
+                </div>
+              )}
+              {contextPackages.length > 0 && (
+                <div className="space-y-3">
+                  {contextPackages.map((pkg) => (
+                    <ManagedContextPackageBlock key={pkg.id} pkg={pkg} />
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {tab === 'episodes' && (
+            <>
+              {loading && episodeBlocks.length === 0 && (
+                <div className="text-muted-foreground/60">Loading…</div>
+              )}
+              {!loading && episodeBlocks.length === 0 && (
+                <div className="text-muted-foreground/60">
+                  No managed episode blocks have been frozen for this worktree yet. `xuanpu-agent`
+                  freezes older turns after enough raw messages accumulate.
+                </div>
+              )}
+              {episodeBlocks.length > 0 && (
+                <div className="space-y-3">
+                  {episodeBlocks.map((block) => (
+                    <EpisodeBlock key={block.id} block={block} />
+                  ))}
+                </div>
               )}
             </>
           )}
@@ -455,6 +532,213 @@ function XfpAuditBlock({
       </div>
     </div>
   )
+}
+
+async function loadManagedContextPackages(
+  worktreeId: string,
+  sessionIds: string[]
+): Promise<FieldContextPackageDebugRecord[]> {
+  for (const sessionId of sessionIds) {
+    const packages = await window.fieldOps.listContextPackages({
+      worktreeId,
+      sessionId,
+      runtimeId: 'xuanpu-agent',
+      includeRenderedMarkdown: true,
+      limit: 5
+    })
+    if (packages.length > 0) return packages
+  }
+
+  return await window.fieldOps.listContextPackages({
+    worktreeId,
+    runtimeId: 'xuanpu-agent',
+    includeRenderedMarkdown: true,
+    limit: 5
+  })
+}
+
+async function loadEpisodeBlocks(
+  worktreeId: string,
+  sessionIds: string[]
+): Promise<FieldEpisodeBlockDebugRecord[]> {
+  for (const sessionId of sessionIds) {
+    const blocks = await window.fieldOps.listEpisodeBlocks({
+      worktreeId,
+      sessionId,
+      limit: 5
+    })
+    if (blocks.length > 0) return blocks
+  }
+
+  return await window.fieldOps.listEpisodeBlocks({
+    worktreeId,
+    limit: 5
+  })
+}
+
+function getHeaderLabel(
+  tab: Tab,
+  state: {
+    data: LastInjection | null
+    episodic: EpisodicMemoryEntry | null
+    contextPackages: FieldContextPackageDebugRecord[]
+    episodeBlocks: FieldEpisodeBlockDebugRecord[]
+  }
+): string {
+  if (tab === 'injection') {
+    return state.data
+      ? `~${state.data.approxTokens} tokens • ${new Date(state.data.timestamp).toLocaleTimeString()}`
+      : 'no injection yet'
+  }
+  if (tab === 'managed') {
+    const latest = state.contextPackages[0]
+    return latest
+      ? `${latest.budgetProfile} • ~${latest.approxTokens} tokens • ${formatTime(latest.createdAt)}`
+      : 'no managed package yet'
+  }
+  if (tab === 'episodes') {
+    const latest = state.episodeBlocks[0]
+    return latest
+      ? `${state.episodeBlocks.length} blocks • latest ${formatTime(latest.createdAt)}`
+      : 'no episode blocks yet'
+  }
+  return state.episodic
+    ? `${state.episodic.compactorId} • ${formatTime(state.episodic.compactedAt)}`
+    : 'no episodic summary yet'
+}
+
+function ManagedContextPackageBlock({
+  pkg
+}: {
+  pkg: FieldContextPackageDebugRecord
+}): React.JSX.Element {
+  const includedCount = pkg.sections.filter((section) => section.included).length
+  return (
+    <div className="bg-background/50 rounded p-2 text-[11px] leading-relaxed space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-muted-foreground/70">
+        <span>
+          <strong className="text-foreground">{pkg.runtimeId}</strong>{' '}
+          {pkg.modelProviderId ?? 'provider?'} / {pkg.modelId ?? 'model?'}
+        </span>
+        <span>
+          {pkg.budgetProfile} • ~{pkg.approxTokens} tokens • {formatTime(pkg.createdAt)}
+        </span>
+      </div>
+      <div className="text-[10px] text-muted-foreground/60">
+        id: {shortId(pkg.id)} • session: {shortId(pkg.sessionId)} • sections: {includedCount}/
+        {pkg.sections.length} included
+      </div>
+      <div className="space-y-1">
+        {pkg.sections.map((section) => (
+          <div
+            key={section.id}
+            className={cn(
+              'rounded border px-2 py-1',
+              section.included
+                ? 'border-green-500/30 bg-green-500/5'
+                : 'border-border/50 bg-muted/20 text-muted-foreground'
+            )}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span>
+                <strong>{section.title}</strong>{' '}
+                <span className="text-muted-foreground/70">({section.kind})</span>
+              </span>
+              <span className="text-muted-foreground/70">~{section.approxTokens} tokens</span>
+            </div>
+            {(section.reason || section.source) && (
+              <div className="text-[10px] text-muted-foreground/70">
+                {section.source ? `source: ${section.source}` : null}
+                {section.source && section.reason ? ' • ' : null}
+                {section.reason ? `reason: ${section.reason}` : null}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <details>
+        <summary className="cursor-pointer text-muted-foreground/70">decisions</summary>
+        <pre className="mt-1 whitespace-pre-wrap break-words rounded bg-muted/30 p-2 text-[10px]">
+          {stringifyJson(pkg.decisions)}
+        </pre>
+      </details>
+      <details>
+        <summary className="cursor-pointer text-muted-foreground/70">rendered markdown</summary>
+        {pkg.renderedMarkdown ? (
+          <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/30 p-2 text-[10px]">
+            {pkg.renderedMarkdown}
+          </pre>
+        ) : (
+          <div className="mt-1 text-muted-foreground/60">
+            {pkg.renderedMarkdownStored
+              ? 'Rendered markdown is stored but was not returned by this read.'
+              : 'Rendered markdown was not stored for this package.'}
+          </div>
+        )}
+      </details>
+    </div>
+  )
+}
+
+function EpisodeBlock({ block }: { block: FieldEpisodeBlockDebugRecord }): React.JSX.Element {
+  return (
+    <div className="bg-background/50 rounded p-2 text-[11px] leading-relaxed space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-muted-foreground/70">
+        <span>
+          <strong className="text-foreground">{block.title ?? 'Untitled Episode'}</strong>{' '}
+          {block.kind} / {block.confidence}
+        </span>
+        <span>
+          ~{block.tokenEstimate} tokens • {formatTime(block.createdAt)}
+        </span>
+      </div>
+      <div className="text-[10px] text-muted-foreground/60">
+        id: {shortId(block.id)} • raw refs: {block.rawRefs.length}
+        {block.sourceMessageIdStart && block.sourceMessageIdEnd
+          ? ` • messages ${shortId(block.sourceMessageIdStart)}..${shortId(block.sourceMessageIdEnd)}`
+          : null}
+      </div>
+      <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/30 p-2 text-[10px]">
+        {block.summaryMarkdown}
+      </pre>
+      <TagList label="files" values={block.files} />
+      <TagList label="commands" values={block.commands} />
+      <TagList label="constraints" values={block.constraints} />
+      <TagList label="failures" values={block.failures} />
+      <details>
+        <summary className="cursor-pointer text-muted-foreground/70">raw refs</summary>
+        <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/30 p-2 text-[10px]">
+          {stringifyJson(block.rawRefs)}
+        </pre>
+      </details>
+    </div>
+  )
+}
+
+function TagList({ label, values }: { label: string; values: string[] }): React.JSX.Element | null {
+  if (values.length === 0) return null
+  return (
+    <div className="text-[10px]">
+      <span className="text-muted-foreground/70">{label}:</span>{' '}
+      <span className="break-words">{values.join(', ')}</span>
+    </div>
+  )
+}
+
+function shortId(id: string): string {
+  return id.length <= 8 ? id : id.slice(0, 8)
+}
+
+function formatTime(value: number): string {
+  return new Date(value).toLocaleTimeString()
+}
+
+function stringifyJson(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
 }
 
 function SemanticFileBlock({

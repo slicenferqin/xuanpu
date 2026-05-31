@@ -1,4 +1,11 @@
-import { forwardRef, useImperativeHandle, useMemo, useCallback } from 'react'
+import {
+  forwardRef,
+  useImperativeHandle,
+  useMemo,
+  useCallback,
+  useLayoutEffect,
+  useState
+} from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { MessageRenderer } from './MessageRenderer'
 import type { OpenCodeMessage, StreamingPart } from './SessionView'
@@ -108,6 +115,9 @@ export const VirtualizedMessageList = forwardRef<
     hasVisibleWritingCursor,
     isCompacting
   } = props
+  const [viewportHeight, setViewportHeight] = useState(0)
+  const [shortContentPaddingStart, setShortContentPaddingStart] = useState(0)
+  const bottomPadding = 72
 
   // Build the flat list of virtual items
   const items = useMemo<VirtualListItem[]>(() => {
@@ -160,8 +170,41 @@ export const VirtualizedMessageList = forwardRef<
     getScrollElement: () => scrollContainerRef.current,
     estimateSize: () => 150,
     overscan: 5,
+    paddingStart: shortContentPaddingStart,
+    paddingEnd: bottomPadding,
     measureElement: (element) => element.getBoundingClientRect().height
   })
+
+  useLayoutEffect(() => {
+    const element = scrollContainerRef.current
+    if (!element) return
+
+    const updateViewportHeight = (): void => {
+      setViewportHeight(Math.round(element.clientHeight))
+    }
+
+    updateViewportHeight()
+
+    if (typeof ResizeObserver === 'undefined') return
+
+    const observer = new ResizeObserver(updateViewportHeight)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [scrollContainerRef])
+
+  const totalSize = virtualizer.getTotalSize()
+  const measuredContentHeight = Math.max(0, totalSize - shortContentPaddingStart - bottomPadding)
+
+  useLayoutEffect(() => {
+    const nextPaddingStart =
+      viewportHeight > 0 && measuredContentHeight > 0
+        ? Math.max(0, viewportHeight - measuredContentHeight - bottomPadding - 16)
+        : 0
+
+    setShortContentPaddingStart((current) =>
+      Math.abs(current - nextPaddingStart) < 1 ? current : nextPaddingStart
+    )
+  }, [bottomPadding, measuredContentHeight, viewportHeight])
 
   // Expose scrollToEnd
   useImperativeHandle(
@@ -189,9 +232,7 @@ export const VirtualizedMessageList = forwardRef<
               message={msg}
               showTimestamp={roundTerminalMessageIds.has(msg.id)}
               executionStatus={
-                currentRoundAnchorId === msg.id && !hasStreamingContent
-                  ? executionStatusMeta
-                  : null
+                currentRoundAnchorId === msg.id && !hasStreamingContent ? executionStatusMeta : null
               }
               cwd={worktreePath}
               onForkAssistantMessage={onForkAssistantMessage}
@@ -272,9 +313,7 @@ export const VirtualizedMessageList = forwardRef<
                         })}
                   </p>
                   {sessionRetry!.message && (
-                    <p className="mt-0.5 text-sm text-destructive/90">
-                      {sessionRetry!.message}
-                    </p>
+                    <p className="mt-0.5 text-sm text-destructive/90">{sessionRetry!.message}</p>
                   )}
                 </div>
               </div>
@@ -292,9 +331,7 @@ export const VirtualizedMessageList = forwardRef<
                 parts: streamingParts
               }}
               showTimestamp={false}
-              executionStatus={
-                currentRoundAnchorId === 'streaming' ? executionStatusMeta : null
-              }
+              executionStatus={currentRoundAnchorId === 'streaming' ? executionStatusMeta : null}
               isStreaming={isStreaming}
               cwd={worktreePath}
               onForkAssistantMessage={onForkAssistantMessage}
@@ -364,7 +401,7 @@ export const VirtualizedMessageList = forwardRef<
     <div
       className="py-4"
       style={{
-        height: `${virtualizer.getTotalSize()}px`,
+        height: `${totalSize}px`,
         width: '100%',
         position: 'relative'
       }}

@@ -42,7 +42,7 @@ describeDb('UsageAnalyticsService', () => {
     cleanup = null
   })
 
-  it('aggregates Codex entries into dashboard totals and remains idempotent', async () => {
+  it('preserves runtime-persisted Codex entries across resync (no destructive wipe)', async () => {
     const project = db.createProject({ name: 'Xuanpu', path: '/tmp/xuanpu' })
     const worktree = db.createWorktree({
       project_id: project.id,
@@ -61,6 +61,28 @@ describeDb('UsageAnalyticsService', () => {
       model_id: 'gpt-5.4'
     })
 
+    // 模拟运行时 CodexImplementer.persistCodexTurnUsage 直接写入的一行 turn 增量。
+    // session_messages.opencode_message_json 里没有 token 信息——codex 走的是
+    // tokenUsage/updated → usage_entries 这条直写路径。
+    db.upsertUsageEntry({
+      session_id: session.id,
+      project_id: project.id,
+      worktree_id: worktree.id,
+      agent_sdk: 'codex',
+      source_kind: 'codex-message',
+      source_message_id: 'codex-turn:turn-1',
+      provider_id: 'codex',
+      model_id: 'gpt-5.4',
+      model_label: 'gpt-5.4',
+      input_tokens: 1200,
+      output_tokens: 300,
+      cache_write_tokens: 100,
+      cache_read_tokens: 200,
+      total_tokens: 1800,
+      cost: 0.42,
+      occurred_at: '2026-04-04T08:00:00.000Z'
+    })
+
     db.createSessionMessage({
       session_id: session.id,
       role: 'assistant',
@@ -69,13 +91,6 @@ describeDb('UsageAnalyticsService', () => {
       opencode_message_json: JSON.stringify({
         id: 'msg-1',
         timestamp: '2026-04-04T08:00:00.000Z',
-        cost: 0.42,
-        tokens: {
-          input: 1200,
-          output: 300,
-          cacheRead: 200,
-          cacheWrite: 100
-        },
         model: 'codex/gpt-5.4'
       }),
       created_at: '2026-04-04T08:00:00.000Z'
@@ -87,6 +102,7 @@ describeDb('UsageAnalyticsService', () => {
     const entries = db.getUsageEntriesBySession(session.id)
     expect(entries).toHaveLength(1)
     expect(entries[0].cost).toBe(0.42)
+    expect(entries[0].source_message_id).toBe('codex-turn:turn-1')
 
     const dashboard = await service.fetchDashboard({
       range: 'all',
@@ -165,7 +181,7 @@ describeDb('UsageAnalyticsService', () => {
     expect(summary.success).toBe(true)
     expect(summary.data?.total_cost).toBeCloseTo(0.012625, 10)
     expect(summary.data?.total_tokens).toBe(2375)
-    expect(summary.data?.model_labels).toEqual(['Opus 4.7', 'Sonnet 4.6'])
+    expect(summary.data?.model_labels).toEqual(['Opus 4.8', 'Sonnet 4.6'])
     expect(summary.data?.latest_model_label).toBe('Sonnet 4.6')
     expect(db.getUsageEntriesBySession(session.id)).toHaveLength(3)
   })
@@ -226,8 +242,8 @@ describeDb('UsageAnalyticsService', () => {
     })
 
     expect(dashboard.success).toBe(true)
-    expect(dashboard.data?.sessions[0].model_labels).toEqual(['Sonnet 4.6', 'Opus 4.7'])
-    expect(dashboard.data?.sessions[0].model_label).toBe('Opus 4.7')
+    expect(dashboard.data?.sessions[0].model_labels).toEqual(['Sonnet 4.6', 'Opus 4.8'])
+    expect(dashboard.data?.sessions[0].model_label).toBe('Opus 4.8')
   })
 
   it('marks missing Claude transcript data as partial instead of zero-cost data', async () => {

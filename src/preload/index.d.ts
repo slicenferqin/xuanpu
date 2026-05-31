@@ -60,7 +60,7 @@ interface Worktree {
   last_model_provider_id: string | null
   last_model_id: string | null
   last_model_variant: string | null
-  last_agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | null
+  last_agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent' | null
   attachments: string // JSON array of Attachment objects
   pinned: number // 0 = not pinned, 1 = pinned
   context: string | null
@@ -92,7 +92,7 @@ interface Session {
   name: string | null
   status: 'active' | 'completed' | 'error' | 'archived'
   opencode_session_id: string | null
-  agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+  agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
   mode: 'build' | 'plan'
   model_provider_id: string | null
   model_id: string | null
@@ -240,6 +240,28 @@ interface OnboardingDoctorResult {
   recommendedAgent: 'claude-code' | 'codex' | 'opencode' | 'terminal'
 }
 
+interface XuanpuAgentRuntimeStatus {
+  enabled: boolean
+  status: 'disabled' | 'missing-credentials' | 'mock-ready' | 'ready'
+  runtimeGateEnv: 'XUANPU_AGENT_RUNTIME'
+  mockMode: boolean
+  providerReady: boolean
+  providerID: string
+  modelID: string
+  credential: {
+    providerID: string
+    required: boolean
+    present: boolean
+    envKeys: string[]
+  }
+  toolSurface: {
+    status: 'blocked' | 'ready'
+    toolsEnabled: boolean
+    nativeProcessControlEnabled: boolean
+    unmetGateIds: string[]
+  }
+}
+
 declare global {
   interface GhosttyTerminalConfig {
     fontFamily?: string
@@ -325,7 +347,13 @@ declare global {
             status?: 'active' | 'archived'
             last_message_at?: number | null
             last_accessed_at?: string
-            last_agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | null
+            last_agent_sdk?:
+              | 'opencode'
+              | 'claude-code'
+              | 'codex'
+              | 'terminal'
+              | 'xuanpu-agent'
+              | null
           }
         ) => Promise<Worktree | null>
         delete: (id: string) => Promise<boolean>
@@ -388,7 +416,7 @@ declare global {
           connection_id?: string | null
           name?: string | null
           opencode_session_id?: string | null
-          agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+          agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
           model_provider_id?: string | null
           model_id?: string | null
           model_variant?: string | null
@@ -403,7 +431,7 @@ declare global {
             name?: string | null
             status?: 'active' | 'completed' | 'error' | 'archived'
             opencode_session_id?: string | null
-            agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+            agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
             mode?: 'build' | 'plan'
             model_provider_id?: string | null
             model_id?: string | null
@@ -586,7 +614,19 @@ declare global {
         logs: string
       }>
       isLogMode: () => Promise<boolean>
-      detectAgentRuntimes: () => Promise<{ opencode: boolean; claude: boolean; codex: boolean }>
+      detectAgentRuntimes: () => Promise<{
+        opencode: boolean
+        claude: boolean
+        codex: boolean
+        xuanpuAgent: boolean
+      }>
+      getXuanpuAgentRuntimeStatus: (
+        modelOverride?: {
+          providerID: string
+          modelID: string
+          variant?: string
+        } | null
+      ) => Promise<XuanpuAgentRuntimeStatus>
       setKeepAwakeEnabled: (enabled: boolean) => Promise<{ success: boolean }>
       setSessionQueuedState: (sessionId: string, queued: boolean) => Promise<{ success: boolean }>
       runOnboardingDoctor: () => Promise<OnboardingDoctorResult>
@@ -619,6 +659,10 @@ declare global {
         options?: { cwd?: string }
       ) => Promise<{ success: boolean; error?: string }>
       quitApp: () => Promise<void>
+      openDevTools: () => Promise<void>
+      writeDebugLog: (
+        message: string
+      ) => Promise<{ success: boolean; path?: string; error?: string }>
       openInApp: (appName: string, path: string) => Promise<{ success: boolean; error?: string }>
       openInChrome: (
         url: string,
@@ -699,7 +743,7 @@ declare global {
       ) => Promise<import('../shared/types/agent-ipc').AgentIpcResult<{ messages: unknown[] }>>
       // List available models from all configured providers
       listModels: (opts?: {
-        runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+        runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
       }) => Promise<
         import('../shared/types/agent-ipc').AgentIpcResult<{ providers: Record<string, unknown> }>
       >
@@ -708,13 +752,13 @@ declare global {
         providerID: string
         modelID: string
         variant?: string
-        runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+        runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
       }) => Promise<import('../shared/types/agent-ipc').AgentIpcResult>
       // Get model info (name, context limit)
       modelInfo: (
         worktreePath: string,
         modelId: string,
-        runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+        runtimeId?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
       ) => Promise<
         import('../shared/types/agent-ipc').AgentIpcResult<{
           model?: { id: string; name: string; limit: { context: number } }
@@ -1474,12 +1518,32 @@ declare global {
       fetchSessionSummary: (
         sessionId: string
       ) => Promise<import('../shared/types/usage-analytics').UsageAnalyticsSessionSummaryResult>
+      fetchScopeSummary: (
+        scopeId: string,
+        scopeType: 'worktree' | 'connection',
+        sessionIds: string[]
+      ) => Promise<import('../shared/types/usage-analytics').UsageAnalyticsScopeSummaryResult>
       resync: () => Promise<import('../shared/types/usage-analytics').UsageAnalyticsResyncResult>
     }
     analyticsOps: {
       track: (event: string, properties?: Record<string, unknown>) => Promise<void>
       setEnabled: (enabled: boolean) => Promise<void>
       isEnabled: () => Promise<boolean>
+    }
+    budgetOps: {
+      /** M3: Get Context Budget state for a xuanpu-agent session. */
+      getBudgetState: (sessionId: string) => Promise<{
+        profile: string
+        estimatedTokens: number
+        maxTokens: number
+        fillRatio: number
+        lastShrinkAt: number
+        emergencyShrunk: boolean
+        shrinkCount: number
+        totalBeforeBytes: number
+        totalAfterBytes: number
+        sectionStats: { included: number; omitted: number }
+      } | null>
     }
     fieldOps: {
       reportWorktreeSwitch: (
@@ -1549,6 +1613,33 @@ declare global {
           packetHash: string
         } | null
       } | null>
+      /** Phase 24D debug: list managed context packages for a session/worktree. */
+      listContextPackages: (
+        query: import('../shared/types/field-context-debug').FieldContextPackageDebugQuery
+      ) => Promise<import('../shared/types/field-context-debug').FieldContextPackageDebugRecord[]>
+      /** Phase 24D debug: list managed context episode blocks for a worktree. */
+      listEpisodeBlocks: (
+        query: import('../shared/types/field-context-debug').FieldEpisodeBlockDebugQuery
+      ) => Promise<import('../shared/types/field-context-debug').FieldEpisodeBlockDebugRecord[]>
+      /** M5: list proposed/accepted scoped memory pages for a worktree. */
+      listMemoryPages: (
+        query: import('../shared/types/field-memory').FieldMemoryPageListQuery
+      ) => Promise<import('../shared/types/field-memory').FieldMemoryPageRecord[]>
+      /** M5: accept a visible memory proposal. */
+      acceptMemoryPageProposal: (
+        input: { id: string } & import('../shared/types/field-memory').FieldMemoryPageUpdate
+      ) => Promise<import('../shared/types/field-memory').FieldMemoryPageRecord>
+      /** M5: reject a visible memory proposal. */
+      rejectMemoryPageProposal: (input: {
+        id: string
+        reason?: string | null
+      }) => Promise<import('../shared/types/field-memory').FieldMemoryPageRecord>
+      /** M5: edit an accepted or proposed memory page. */
+      updateMemoryPage: (
+        input: { id: string } & import('../shared/types/field-memory').FieldMemoryPageUpdate
+      ) => Promise<import('../shared/types/field-memory').FieldMemoryPageRecord>
+      /** M5: delete a memory page. */
+      deleteMemoryPage: (id: string) => Promise<{ deleted: boolean }>
       /** v1.4.1: Pinned Facts — read user-authored permanent facts for a worktree. */
       getPinnedFacts: (worktreeId: string) => Promise<{
         worktreeId: string

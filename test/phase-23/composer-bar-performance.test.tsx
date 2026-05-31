@@ -39,6 +39,24 @@ beforeEach(() => {
       commands: vi.fn().mockResolvedValue({ success: true, commands: [] })
     }
   })
+
+  Object.defineProperty(window, 'voiceOps', {
+    writable: true,
+    configurable: true,
+    value: {
+      onRuntimeProgress: vi.fn(() => () => {}),
+      onTranscript: vi.fn(() => () => {}),
+      onVoiceError: vi.fn(() => () => {}),
+      disconnectTranscription: vi.fn().mockResolvedValue(undefined),
+      finishUtterance: vi.fn().mockResolvedValue(undefined),
+      ensureRuntime: vi.fn().mockResolvedValue(undefined),
+      detectRuntime: vi.fn().mockResolvedValue(null),
+      getMicrophonePermissionStatus: vi.fn().mockResolvedValue('granted'),
+      requestMicrophonePermission: vi.fn().mockResolvedValue('granted'),
+      connectTranscription: vi.fn().mockResolvedValue({ sessionId: 'voice-test' }),
+      sendAudioChunk: vi.fn().mockResolvedValue(undefined)
+    }
+  })
 })
 
 describe('ComposerBar input performance', () => {

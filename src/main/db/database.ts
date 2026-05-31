@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3'
 import { app } from 'electron'
-import { dirname } from 'path'
-import { existsSync, mkdirSync } from 'fs'
+import { dirname, join } from 'path'
+import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { randomUUID } from 'crypto'
 import { MIGRATIONS } from './schema'
 import { getActiveAppDatabasePath } from '@shared/app-identity'
@@ -43,6 +43,25 @@ import type {
   ConnectionWithMembers
 } from './types'
 import type { DiffComment, DiffCommentCreate, DiffCommentUpdate } from '@shared/types/git'
+
+export interface CommandTraceSummary {
+  id: string
+  sessionId: string | null
+  worktreeId: string | null
+  command: string
+  cwd: string | null
+  exitCode: number | null
+  durationMs: number | null
+  timedOut: boolean
+  aborted: boolean
+  rawOutputRef: string | null
+  rawOutputBytes: number | null
+  compressedOutput: string | null
+  compressionRatio: number | null
+  category: string | null
+  ruleHits: string | null
+  createdAt: string
+}
 
 export class DatabaseService {
   private db: Database.Database | null = null
@@ -163,12 +182,73 @@ export class DatabaseService {
     // exist. This handles partial migrations, merge conflicts, or version
     // skew between worktree builds.
     this.ensureConnectionTables()
+    this.ensureSessionMessageSequenceColumn()
+    this.ensureSessionActivitySequenceColumn()
     this.ensureUsageAnalyticsTables()
     this.ensureFieldEventsTable()
     this.ensureEpisodicMemoryTable()
+    this.ensureFieldEpisodeBlocksTable()
+    this.ensureFieldMemoryPagesTable()
     this.ensureHubTables()
+    this.ensureFieldContextPackagesTable()
     this.ensureDiffCommentsTable()
     this.ensureSessionPendingMessagesTable()
+    this.ensureCommandTracesTable()
+  }
+
+  private ensureCommandTracesTable(): void {
+    const db = this.getDb()
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS command_traces (
+        id TEXT PRIMARY KEY,
+        session_id TEXT,
+        worktree_id TEXT,
+        command TEXT NOT NULL,
+        cwd TEXT,
+        exit_code INTEGER,
+        duration_ms INTEGER,
+        timed_out INTEGER NOT NULL DEFAULT 0,
+        aborted INTEGER NOT NULL DEFAULT 0,
+        raw_output_ref TEXT NOT NULL,
+        raw_output_bytes INTEGER NOT NULL DEFAULT 0,
+        compressed_output TEXT,
+        compression_ratio REAL,
+        category TEXT,
+        rule_hits TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_command_traces_session
+        ON command_traces(session_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_command_traces_worktree
+        ON command_traces(worktree_id, created_at DESC);
+    `)
+
+    this.safeAddColumn('command_traces', 'raw_output_ref', 'TEXT')
+    this.safeAddColumn('command_traces', 'raw_output_bytes', 'INTEGER')
+  }
+
+  private ensureFieldContextPackagesTable(): void {
+    const db = this.getDb()
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS field_context_packages (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        worktree_id TEXT NOT NULL,
+        runtime_id TEXT NOT NULL,
+        model_provider_id TEXT,
+        model_id TEXT,
+        created_at INTEGER NOT NULL,
+        budget_profile TEXT NOT NULL,
+        approx_tokens INTEGER NOT NULL,
+        sections_json TEXT NOT NULL,
+        rendered_markdown TEXT,
+        decisions_json TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_field_context_packages_session_created
+        ON field_context_packages(session_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_context_packages_worktree_created
+        ON field_context_packages(worktree_id, created_at DESC);
+    `)
   }
 
   /**
@@ -287,6 +367,60 @@ export class DatabaseService {
     }
   }
 
+  private ensureSessionMessageSequenceColumn(): void {
+    const db = this.getDb()
+    if (!this.tableExists('session_messages')) return
+
+    this.safeAddColumn('session_messages', 'sequence', 'INTEGER')
+    db.exec(`
+      WITH ordered AS (
+        SELECT id,
+               ROW_NUMBER() OVER (
+                 PARTITION BY session_id
+                 ORDER BY created_at ASC, id ASC
+               ) AS seq
+        FROM session_messages
+      )
+      UPDATE session_messages
+         SET sequence = (SELECT seq FROM ordered WHERE ordered.id = session_messages.id)
+       WHERE sequence IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_messages_session_seq
+        ON session_messages(session_id, sequence);
+    `)
+  }
+
+  private ensureSessionActivitySequenceColumn(): void {
+    const db = this.getDb()
+    if (!this.tableExists('session_activities')) return
+
+    this.safeAddColumn('session_activities', 'sequence', 'INTEGER')
+    db.exec(`
+      WITH existing_max AS (
+        SELECT session_id,
+               COALESCE(MAX(sequence), 0) AS max_sequence
+          FROM session_activities
+         GROUP BY session_id
+      ),
+      ordered AS (
+        SELECT activity.rowid AS rid,
+               COALESCE(existing_max.max_sequence, 0) +
+               ROW_NUMBER() OVER (
+                 PARTITION BY activity.session_id
+                 ORDER BY activity.created_at ASC, activity.rowid ASC
+               ) AS seq
+          FROM session_activities activity
+          LEFT JOIN existing_max
+            ON existing_max.session_id = activity.session_id
+         WHERE activity.sequence IS NULL
+      )
+      UPDATE session_activities
+         SET sequence = (SELECT seq FROM ordered WHERE ordered.rid = session_activities.rowid)
+       WHERE sequence IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_session_activities_session_seq
+        ON session_activities(session_id, sequence);
+    `)
+  }
+
   /**
    * Idempotently ensure connection-related tables and columns exist.
    * Safe to run multiple times -- uses IF NOT EXISTS and checks column presence.
@@ -362,6 +496,8 @@ export class DatabaseService {
 
       CREATE INDEX IF NOT EXISTS idx_session_activities_session_created
         ON session_activities(session_id, created_at, id);
+      CREATE INDEX IF NOT EXISTS idx_session_activities_session_seq
+        ON session_activities(session_id, sequence);
       CREATE INDEX IF NOT EXISTS idx_session_activities_session_turn
         ON session_activities(session_id, turn_id, created_at);
     `)
@@ -473,6 +609,80 @@ export class DatabaseService {
     `)
   }
 
+  private ensureFieldEpisodeBlocksTable(): void {
+    const db = this.getDb()
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS field_episode_blocks (
+        id TEXT PRIMARY KEY,
+        worktree_id TEXT NOT NULL,
+        session_id TEXT,
+        created_at INTEGER NOT NULL,
+        source_event_seq_start INTEGER,
+        source_event_seq_end INTEGER,
+        source_message_id_start TEXT,
+        source_message_id_end TEXT,
+        kind TEXT NOT NULL,
+        title TEXT,
+        summary_markdown TEXT NOT NULL,
+        key_facts_json TEXT NOT NULL,
+        constraints_json TEXT NOT NULL,
+        files_json TEXT NOT NULL,
+        commands_json TEXT NOT NULL,
+        failures_json TEXT NOT NULL,
+        raw_refs_json TEXT NOT NULL,
+        token_estimate INTEGER NOT NULL,
+        confidence TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_field_episode_blocks_worktree_created
+        ON field_episode_blocks(worktree_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_episode_blocks_session_created
+        ON field_episode_blocks(session_id, created_at DESC)
+        WHERE session_id IS NOT NULL;
+    `)
+  }
+
+  private ensureFieldMemoryPagesTable(): void {
+    const db = this.getDb()
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS field_memory_pages (
+        id TEXT PRIMARY KEY,
+        scope TEXT NOT NULL CHECK (scope IN ('user', 'project', 'worktree', 'session', 'episode', 'command')),
+        scope_id TEXT NOT NULL,
+        project_id TEXT,
+        worktree_id TEXT,
+        session_id TEXT,
+        episode_id TEXT,
+        command_trace_id TEXT,
+        kind TEXT NOT NULL CHECK (kind IN ('fact', 'decision', 'assumption', 'constraint')),
+        status TEXT NOT NULL CHECK (status IN ('proposed', 'accepted', 'rejected', 'archived')),
+        title TEXT NOT NULL,
+        body_markdown TEXT NOT NULL,
+        entities_json TEXT NOT NULL,
+        raw_refs_json TEXT NOT NULL,
+        retrieval_hints_json TEXT NOT NULL,
+        source TEXT NOT NULL,
+        proposed_by TEXT NOT NULL,
+        proposal_reason TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        accepted_at INTEGER,
+        rejected_at INTEGER,
+        archived_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_field_memory_pages_scope_status
+        ON field_memory_pages(scope, scope_id, status, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_field_memory_pages_project_status
+        ON field_memory_pages(project_id, status, updated_at DESC)
+        WHERE project_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_field_memory_pages_worktree_status
+        ON field_memory_pages(worktree_id, status, updated_at DESC)
+        WHERE worktree_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_field_memory_pages_session_status
+        ON field_memory_pages(session_id, status, updated_at DESC)
+        WHERE session_id IS NOT NULL;
+    `)
+  }
+
   // -------------------------------------------------------------------------
   // Episodic Memory CRUD (Phase 22B.1)
   // -------------------------------------------------------------------------
@@ -562,6 +772,141 @@ export class DatabaseService {
    */
   getDbHandle(): Database.Database {
     return this.getDb()
+  }
+
+  // ── Command traces (M2 xuanpu-agent) ──────────────────────────────────
+
+  createCommandTrace(entry: {
+    traceId: string
+    sessionId?: string
+    worktreeId?: string
+    command: string
+    cwd?: string
+    exitCode?: number
+    durationMs?: number
+    timedOut?: boolean
+    aborted?: boolean
+    rawOutput: string
+    compressedOutput?: string
+    compressionRatio?: number
+    category?: string
+    ruleHits?: string
+  }): void {
+    const db = this.getDb()
+    const rawOutputRef = this.writeCommandTraceArtifact(entry.traceId, entry.rawOutput, {
+      sessionId: entry.sessionId,
+      worktreeId: entry.worktreeId
+    })
+    const rawOutputBytes = Buffer.byteLength(entry.rawOutput, 'utf-8')
+    const columns = this.getTableColumns('command_traces')
+    const values: Array<[string, unknown]> = [
+      ['id', entry.traceId],
+      ['session_id', entry.sessionId ?? null],
+      ['worktree_id', entry.worktreeId ?? null],
+      ['command', entry.command],
+      ['cwd', entry.cwd ?? null],
+      ['exit_code', entry.exitCode ?? null],
+      ['duration_ms', entry.durationMs ?? null],
+      ['timed_out', entry.timedOut ? 1 : 0],
+      ['aborted', entry.aborted ? 1 : 0],
+      ['compressed_output', entry.compressedOutput ?? null],
+      ['compression_ratio', entry.compressionRatio ?? null],
+      ['category', entry.category ?? null],
+      ['rule_hits', entry.ruleHits ?? null],
+      ['created_at', new Date().toISOString()]
+    ]
+
+    if (columns.has('raw_output_ref')) values.push(['raw_output_ref', rawOutputRef])
+    if (columns.has('raw_output_bytes')) values.push(['raw_output_bytes', rawOutputBytes])
+    if (columns.has('raw_output')) values.push(['raw_output', ''])
+
+    const columnNames = values.map(([column]) => column).join(', ')
+    const placeholders = values.map(() => '?').join(', ')
+    db.prepare(`INSERT INTO command_traces (${columnNames}) VALUES (${placeholders})`).run(
+      ...values.map(([, value]) => value)
+    )
+  }
+
+  listRecentCommandTraces(input: { sessionId?: string; worktreeId?: string; limit?: number }): {
+    entries: CommandTraceSummary[]
+    totalAvailable: number
+  } {
+    const db = this.getDb()
+    if (!this.tableExists('command_traces')) {
+      return { entries: [], totalAvailable: 0 }
+    }
+
+    const where: string[] = []
+    const params: unknown[] = []
+    if (input.sessionId) {
+      where.push('session_id = ?')
+      params.push(input.sessionId)
+    }
+    if (input.worktreeId) {
+      where.push('worktree_id = ?')
+      params.push(input.worktreeId)
+    }
+    if (where.length === 0) return { entries: [], totalAvailable: 0 }
+
+    const whereSql = where.map((clause) => `(${clause})`).join(' OR ')
+    const totalRow = db
+      .prepare(`SELECT COUNT(*) AS count FROM command_traces WHERE ${whereSql}`)
+      .get(...params) as { count: number } | undefined
+    const limit = Math.max(1, Math.min(input.limit ?? 8, 50))
+    const rows = db
+      .prepare(
+        `SELECT
+           id, session_id, worktree_id, command, cwd, exit_code, duration_ms,
+           timed_out, aborted, raw_output_ref, raw_output_bytes, compressed_output,
+           compression_ratio, category, rule_hits, created_at
+         FROM command_traces
+         WHERE ${whereSql}
+         ORDER BY datetime(created_at) DESC
+         LIMIT ?`
+      )
+      .all(...params, limit) as Array<Record<string, unknown>>
+
+    return {
+      entries: rows.map((row) => ({
+        id: row.id as string,
+        sessionId: (row.session_id as string | null) ?? null,
+        worktreeId: (row.worktree_id as string | null) ?? null,
+        command: row.command as string,
+        cwd: (row.cwd as string | null) ?? null,
+        exitCode: (row.exit_code as number | null) ?? null,
+        durationMs: (row.duration_ms as number | null) ?? null,
+        timedOut: ((row.timed_out as number | null) ?? 0) === 1,
+        aborted: ((row.aborted as number | null) ?? 0) === 1,
+        rawOutputRef: (row.raw_output_ref as string | null) ?? null,
+        rawOutputBytes: (row.raw_output_bytes as number | null) ?? null,
+        compressedOutput: (row.compressed_output as string | null) ?? null,
+        compressionRatio: (row.compression_ratio as number | null) ?? null,
+        category: (row.category as string | null) ?? null,
+        ruleHits: (row.rule_hits as string | null) ?? null,
+        createdAt: row.created_at as string
+      })),
+      totalAvailable: totalRow?.count ?? 0
+    }
+  }
+
+  private writeCommandTraceArtifact(
+    traceId: string,
+    rawOutput: string,
+    scope: { sessionId?: string; worktreeId?: string }
+  ): string {
+    const scopeId = sanitizePathSegment(scope.sessionId ?? scope.worktreeId ?? 'global')
+    const fileName = `${sanitizePathSegment(traceId)}.log`
+    const dir = join(dirname(this.dbPath), 'command-traces', scopeId)
+    mkdirSync(dir, { recursive: true })
+    const filePath = join(dir, fileName)
+    writeFileSync(filePath, rawOutput, 'utf-8')
+    return filePath
+  }
+
+  private getTableColumns(table: string): Set<string> {
+    const db = this.getDb()
+    const columns = db.pragma(`table_info(${table})`) as { name: string }[]
+    return new Set(columns.map((column) => column.name))
   }
 
   // Settings operations
@@ -785,6 +1130,7 @@ export class DatabaseService {
       last_model_provider_id: null,
       last_model_id: null,
       last_model_variant: null,
+      last_agent_sdk: null,
       attachments: '[]',
       pinned: 0,
       context: null,
@@ -1112,6 +1458,7 @@ export class DatabaseService {
       model_provider_id: data.model_provider_id ?? null,
       model_id: data.model_id ?? null,
       model_variant: data.model_variant ?? null,
+      first_message_at: null,
       created_at: now,
       updated_at: now,
       completed_at: null
@@ -1157,12 +1504,12 @@ export class DatabaseService {
 
   getAgentSdkForSession(
     agentSessionId: string
-  ): 'opencode' | 'claude-code' | 'codex' | 'terminal' | null {
+  ): 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent' | null {
     const db = this.getDb()
     const row = db
       .prepare('SELECT agent_sdk FROM sessions WHERE opencode_session_id = ? LIMIT 1')
       .get(agentSessionId) as
-      | { agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' }
+      | { agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent' }
       | undefined
     return row?.agent_sdk ?? null
   }
@@ -1172,7 +1519,7 @@ export class DatabaseService {
    *  cases where the DB hasn't been updated after session materialization. */
   getRuntimeIdForSession(
     agentSessionId: string
-  ): 'opencode' | 'claude-code' | 'codex' | 'terminal' | null {
+  ): 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent' | null {
     // Primary lookup: by opencode_session_id (SDK session ID)
     const byOpcId = this.getAgentSdkForSession(agentSessionId)
     if (byOpcId) return byOpcId
@@ -1182,7 +1529,7 @@ export class DatabaseService {
     const row = db
       .prepare('SELECT agent_sdk FROM sessions WHERE id = ? LIMIT 1')
       .get(agentSessionId) as
-      | { agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' }
+      | { agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent' }
       | undefined
     return row?.agent_sdk ?? null
   }
@@ -1600,6 +1947,15 @@ export class DatabaseService {
     const db = this.getDb()
     const now = data.created_at ?? new Date().toISOString()
     const id = data.id ?? randomUUID()
+    const existing = db.prepare('SELECT sequence FROM session_activities WHERE id = ?').get(id) as
+      | { sequence: number | null }
+      | undefined
+    const seqRow = db
+      .prepare(
+        'SELECT COALESCE(MAX(sequence), 0) + 1 AS next_seq FROM session_activities WHERE session_id = ?'
+      )
+      .get(data.session_id) as { next_seq: number } | undefined
+    const nextSequence = data.sequence ?? existing?.sequence ?? seqRow?.next_seq ?? 1
 
     db.prepare(
       `INSERT INTO session_activities (
@@ -1627,7 +1983,7 @@ export class DatabaseService {
         tone = excluded.tone,
         summary = excluded.summary,
         payload_json = excluded.payload_json,
-        sequence = excluded.sequence,
+        sequence = COALESCE(excluded.sequence, session_activities.sequence),
         created_at = excluded.created_at`
     ).run(
       id,
@@ -1641,7 +1997,7 @@ export class DatabaseService {
       data.tone,
       data.summary,
       data.payload_json ?? null,
-      data.sequence ?? null,
+      nextSequence,
       now
     )
 
@@ -2561,6 +2917,322 @@ export class DatabaseService {
     return !!result
   }
 
+  // ── Usage Events (v2 event-keyed ledger) ──────────────────────────
+
+  insertUsageEvent(data: {
+    session_id: string
+    project_id: string
+    worktree_id?: string | null
+    agent_sdk: string
+    source_kind: string
+    source_event_id: string
+    runtime_session_id?: string | null
+    thread_id?: string | null
+    turn_id?: string | null
+    provider_id?: string | null
+    model_id?: string | null
+    model_label?: string | null
+    input_tokens?: number
+    output_tokens?: number
+    reasoning_tokens?: number
+    cache_write_tokens?: number
+    cache_read_tokens?: number
+    total_tokens?: number
+    cost_estimate?: number
+    source_payload_json?: string | null
+    occurred_at: string
+  }): void {
+    if (!this.tableExists('usage_events')) return
+    const db = this.getDb()
+    const now = new Date().toISOString()
+    const id = randomUUID()
+
+    db.prepare(
+      `INSERT OR IGNORE INTO usage_events (
+        id, session_id, project_id, worktree_id, agent_sdk, source_kind,
+        source_event_id, runtime_session_id, thread_id, turn_id,
+        provider_id, model_id, model_label,
+        input_tokens, output_tokens, reasoning_tokens,
+        cache_write_tokens, cache_read_tokens, total_tokens,
+        cost_estimate, source_payload_json, occurred_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id,
+      data.session_id,
+      data.project_id,
+      data.worktree_id ?? null,
+      data.agent_sdk,
+      data.source_kind,
+      data.source_event_id,
+      data.runtime_session_id ?? null,
+      data.thread_id ?? null,
+      data.turn_id ?? null,
+      data.provider_id ?? null,
+      data.model_id ?? null,
+      data.model_label ?? null,
+      data.input_tokens ?? 0,
+      data.output_tokens ?? 0,
+      data.reasoning_tokens ?? 0,
+      data.cache_write_tokens ?? 0,
+      data.cache_read_tokens ?? 0,
+      data.total_tokens ?? 0,
+      data.cost_estimate ?? 0,
+      data.source_payload_json ?? null,
+      data.occurred_at,
+      now
+    )
+  }
+
+  getUsageEventsBySession(sessionId: string): Array<{
+    id: string
+    session_id: string
+    source_event_id: string
+    turn_id: string | null
+    input_tokens: number
+    output_tokens: number
+    reasoning_tokens: number
+    cache_write_tokens: number
+    cache_read_tokens: number
+    total_tokens: number
+    cost_estimate: number
+    occurred_at: string
+  }> {
+    if (!this.tableExists('usage_events')) return []
+    const db = this.getDb()
+    return db
+      .prepare(
+        `SELECT id, session_id, source_event_id, turn_id,
+                input_tokens, output_tokens, reasoning_tokens,
+                cache_write_tokens, cache_read_tokens, total_tokens,
+                cost_estimate, occurred_at
+         FROM usage_events WHERE session_id = ? ORDER BY occurred_at ASC`
+      )
+      .all(sessionId) as Array<{
+      id: string
+      session_id: string
+      source_event_id: string
+      turn_id: string | null
+      input_tokens: number
+      output_tokens: number
+      reasoning_tokens: number
+      cache_write_tokens: number
+      cache_read_tokens: number
+      total_tokens: number
+      cost_estimate: number
+      occurred_at: string
+    }>
+  }
+
+  listUsageEvents(options?: {
+    agentSdks?: Array<'claude-code' | 'codex'>
+    dateFrom?: string | null
+    dateTo?: string | null
+  }): Array<{
+    id: string
+    session_id: string
+    source_event_id: string
+    turn_id: string | null
+    input_tokens: number
+    output_tokens: number
+    reasoning_tokens: number
+    cache_write_tokens: number
+    cache_read_tokens: number
+    total_tokens: number
+    cost_estimate: number
+    occurred_at: string
+  }> {
+    if (!this.tableExists('usage_events')) return []
+    const db = this.getDb()
+    const conditions: string[] = []
+    const values: (string | number)[] = []
+
+    if (options?.agentSdks?.length) {
+      const placeholders = options.agentSdks.map(() => '?').join(', ')
+      conditions.push(`agent_sdk IN (${placeholders})`)
+      values.push(...options.agentSdks)
+    }
+
+    if (options?.dateFrom) {
+      conditions.push('occurred_at >= ?')
+      values.push(options.dateFrom)
+    }
+
+    if (options?.dateTo) {
+      conditions.push('occurred_at < ?')
+      values.push(options.dateTo)
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+
+    return db
+      .prepare(
+        `SELECT id, session_id, source_event_id, turn_id,
+                input_tokens, output_tokens, reasoning_tokens,
+                cache_write_tokens, cache_read_tokens, total_tokens,
+                cost_estimate, occurred_at
+         FROM usage_events ${where} ORDER BY occurred_at DESC`
+      )
+      .all(...values) as Array<{
+      id: string
+      session_id: string
+      source_event_id: string
+      turn_id: string | null
+      input_tokens: number
+      output_tokens: number
+      reasoning_tokens: number
+      cache_write_tokens: number
+      cache_read_tokens: number
+      total_tokens: number
+      cost_estimate: number
+      occurred_at: string
+    }>
+  }
+
+  // ── Session Usage Snapshots ───────────────────────────────────────
+
+  upsertUsageSnapshot(data: {
+    session_id: string
+    agent_sdk: string
+    runtime_session_id?: string | null
+    thread_id?: string | null
+    provider_id?: string | null
+    model_id?: string | null
+    model_label?: string | null
+    total_input_tokens?: number
+    total_output_tokens?: number
+    total_reasoning_tokens?: number
+    total_cache_write_tokens?: number
+    total_cache_read_tokens?: number
+    total_tokens?: number
+    total_cost_estimate?: number
+    context_used_tokens?: number | null
+    context_window_tokens?: number | null
+    context_percent?: number | null
+    source_kind?: string
+    source_ref?: string | null
+    source_mtime_ms?: number | null
+    source_payload_json?: string | null
+    sync_status?: string
+    last_event_at?: string | null
+    last_error?: string | null
+  }): void {
+    if (!this.tableExists('session_usage_snapshots')) return
+    const db = this.getDb()
+    const now = new Date().toISOString()
+
+    db.prepare(
+      `INSERT INTO session_usage_snapshots (
+        session_id, agent_sdk, runtime_session_id, thread_id,
+        provider_id, model_id, model_label,
+        total_input_tokens, total_output_tokens, total_reasoning_tokens,
+        total_cache_write_tokens, total_cache_read_tokens, total_tokens,
+        total_cost_estimate, context_used_tokens, context_window_tokens,
+        context_percent, source_kind, source_ref, source_mtime_ms,
+        source_payload_json, sync_status, last_event_at, updated_at, last_error
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(session_id) DO UPDATE SET
+        agent_sdk = excluded.agent_sdk,
+        runtime_session_id = excluded.runtime_session_id,
+        thread_id = excluded.thread_id,
+        provider_id = excluded.provider_id,
+        model_id = excluded.model_id,
+        model_label = excluded.model_label,
+        total_input_tokens = excluded.total_input_tokens,
+        total_output_tokens = excluded.total_output_tokens,
+        total_reasoning_tokens = excluded.total_reasoning_tokens,
+        total_cache_write_tokens = excluded.total_cache_write_tokens,
+        total_cache_read_tokens = excluded.total_cache_read_tokens,
+        total_tokens = excluded.total_tokens,
+        total_cost_estimate = excluded.total_cost_estimate,
+        context_used_tokens = excluded.context_used_tokens,
+        context_window_tokens = excluded.context_window_tokens,
+        context_percent = excluded.context_percent,
+        source_kind = excluded.source_kind,
+        source_ref = excluded.source_ref,
+        source_mtime_ms = excluded.source_mtime_ms,
+        source_payload_json = excluded.source_payload_json,
+        sync_status = excluded.sync_status,
+        last_event_at = excluded.last_event_at,
+        updated_at = excluded.updated_at,
+        last_error = excluded.last_error`
+    ).run(
+      data.session_id,
+      data.agent_sdk,
+      data.runtime_session_id ?? null,
+      data.thread_id ?? null,
+      data.provider_id ?? null,
+      data.model_id ?? null,
+      data.model_label ?? null,
+      data.total_input_tokens ?? 0,
+      data.total_output_tokens ?? 0,
+      data.total_reasoning_tokens ?? 0,
+      data.total_cache_write_tokens ?? 0,
+      data.total_cache_read_tokens ?? 0,
+      data.total_tokens ?? 0,
+      data.total_cost_estimate ?? 0,
+      data.context_used_tokens ?? null,
+      data.context_window_tokens ?? null,
+      data.context_percent ?? null,
+      data.source_kind ?? 'unknown',
+      data.source_ref ?? null,
+      data.source_mtime_ms ?? null,
+      data.source_payload_json ?? null,
+      data.sync_status ?? 'pending',
+      data.last_event_at ?? null,
+      now,
+      data.last_error ?? null
+    )
+  }
+
+  getUsageSnapshot(sessionId: string): {
+    session_id: string
+    agent_sdk: string
+    model_label: string | null
+    total_input_tokens: number
+    total_output_tokens: number
+    total_reasoning_tokens: number
+    total_cache_write_tokens: number
+    total_cache_read_tokens: number
+    total_tokens: number
+    total_cost_estimate: number
+    context_used_tokens: number | null
+    context_window_tokens: number | null
+    context_percent: number | null
+    sync_status: string
+    last_event_at: string | null
+  } | undefined {
+    if (!this.tableExists('session_usage_snapshots')) return undefined
+    const db = this.getDb()
+    return db
+      .prepare(
+        `SELECT session_id, agent_sdk, model_label,
+                total_input_tokens, total_output_tokens, total_reasoning_tokens,
+                total_cache_write_tokens, total_cache_read_tokens, total_tokens,
+                total_cost_estimate, context_used_tokens, context_window_tokens,
+                context_percent, sync_status, last_event_at
+         FROM session_usage_snapshots WHERE session_id = ?`
+      )
+      .get(sessionId) as
+      | {
+          session_id: string
+          agent_sdk: string
+          model_label: string | null
+          total_input_tokens: number
+          total_output_tokens: number
+          total_reasoning_tokens: number
+          total_cache_write_tokens: number
+          total_cache_read_tokens: number
+          total_tokens: number
+          total_cost_estimate: number
+          context_used_tokens: number | null
+          context_window_tokens: number | null
+          context_percent: number | null
+          sync_status: string
+          last_event_at: string | null
+        }
+      | undefined
+  }
+
   // Get all indexes
   getIndexes(): { name: string; tbl_name: string }[] {
     const db = this.getDb()
@@ -2594,4 +3266,8 @@ export function closeDatabase(): void {
     dbService.close()
     dbService = null
   }
+}
+
+function sanitizePathSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120) || 'unknown'
 }

@@ -52,7 +52,7 @@ export interface Worktree {
   last_model_provider_id: string | null
   last_model_id: string | null
   last_model_variant: string | null
-  last_agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | null
+  last_agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent' | null
   attachments: string // JSON array of Attachment objects
   pinned: number // 0 = not pinned, 1 = pinned
   context: string | null
@@ -79,7 +79,7 @@ export interface WorktreeUpdate {
   last_model_provider_id?: string | null
   last_model_id?: string | null
   last_model_variant?: string | null
-  last_agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | null
+  last_agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent' | null
   pinned?: number
   github_pr_number?: number | null
   github_pr_url?: string | null
@@ -96,7 +96,7 @@ export interface Session {
   name: string | null
   status: 'active' | 'completed' | 'error' | 'archived'
   opencode_session_id: string | null
-  agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+  agent_sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
   mode: SessionMode
   model_provider_id: string | null
   model_id: string | null
@@ -113,7 +113,7 @@ export interface SessionCreate {
   connection_id?: string | null
   name?: string | null
   opencode_session_id?: string | null
-  agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+  agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
   model_provider_id?: string | null
   model_id?: string | null
   model_variant?: string | null
@@ -123,7 +123,7 @@ export interface SessionUpdate {
   name?: string | null
   status?: 'active' | 'completed' | 'error' | 'archived'
   opencode_session_id?: string | null
-  agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+  agent_sdk?: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
   mode?: SessionMode
   model_provider_id?: string | null
   model_id?: string | null
@@ -310,10 +310,10 @@ export interface UsageEntryCreate {
 export interface UsageSyncState {
   session_id: string
   agent_sdk: 'claude-code' | 'codex'
-  source_kind: 'claude-transcript' | 'codex-message'
+  source_kind: 'claude-transcript' | 'codex-message' | 'codex-token-count'
   source_ref: string | null
   source_mtime_ms: number | null
-  status: 'pending' | 'synced' | 'partial' | 'error'
+  status: 'pending' | 'synced' | 'partial' | 'error' | 'missing-source'
   entry_count: number
   last_synced_at: string | null
   last_error: string | null
@@ -322,10 +322,10 @@ export interface UsageSyncState {
 export interface UsageSyncStateUpsert {
   session_id: string
   agent_sdk: 'claude-code' | 'codex'
-  source_kind: 'claude-transcript' | 'codex-message'
+  source_kind: 'claude-transcript' | 'codex-message' | 'codex-token-count'
   source_ref?: string | null
   source_mtime_ms?: number | null
-  status: 'pending' | 'synced' | 'partial' | 'error'
+  status: 'pending' | 'synced' | 'partial' | 'error' | 'missing-source'
   entry_count?: number
   last_synced_at?: string | null
   last_error?: string | null

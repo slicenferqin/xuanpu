@@ -94,7 +94,7 @@ interface SessionTabProps {
   sessionId: string
   name: string
   isActive: boolean
-  agentSdk: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+  agentSdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
   runtimeSessionId: string | null
   color: string | null
   onClick: () => void
@@ -889,7 +889,7 @@ export function SessionTabs({
 
   // Handle creating a new session with a specific agent SDK (from context menu)
   const handleCreateSessionWithSdk = async (
-    sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal'
+    sdk: 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
   ) => {
     if (isConnectionMode && selectedConnectionId) {
       const result = await createConnectionSession(selectedConnectionId, sdk)
@@ -1146,9 +1146,15 @@ export function SessionTabs({
               {t('sessionTabs.actions.newCodex')}
             </ContextMenuItem>
           )}
+          {availableAgentSdks?.xuanpuAgent && (
+            <ContextMenuItem onSelect={() => handleCreateSessionWithSdk('xuanpu-agent')}>
+              {t('sessionTabs.actions.newXuanpuAgent')}
+            </ContextMenuItem>
+          )}
           {(availableAgentSdks?.opencode ||
             availableAgentSdks?.claude ||
-            availableAgentSdks?.codex) && <ContextMenuSeparator />}
+            availableAgentSdks?.codex ||
+            availableAgentSdks?.xuanpuAgent) && <ContextMenuSeparator />}
           <ContextMenuItem onSelect={() => handleCreateSessionWithSdk('terminal')}>
             <TerminalSquare className="h-4 w-4 mr-2 text-tech-blue" />
             {t('sessionTabs.actions.newTerminal')}

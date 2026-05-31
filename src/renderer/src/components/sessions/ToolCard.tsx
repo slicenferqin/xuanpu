@@ -47,7 +47,7 @@ import { ToolCallContextMenu } from './ToolCallContextMenu'
 import { extractCommandText } from '@/lib/tool-input-utils'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useI18n } from '@/i18n/useI18n'
-import { isTodoWriteTool } from './tools/todo-utils'
+import { isTodoWriteTool } from '@/lib/todo-utils'
 
 export type ToolStatus = 'pending' | 'running' | 'success' | 'error'
 

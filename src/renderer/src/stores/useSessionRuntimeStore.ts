@@ -342,6 +342,38 @@ export function clearStreamingBufferOverlay(
   )
 }
 
+/**
+ * Clear `runStartedAt` after an idle transition's refresh() has completed.
+ * Called by the event subscription to lift the view-model filter only once
+ * the committed message ordering is definitive.
+ */
+export function clearStreamingBufferRunState(sessionId: string): StreamingBuffer {
+  return updateStreamingBuffer(
+    sessionId,
+    (current) => {
+      if (current.runStartedAt === undefined) return current
+      return { ...current, runStartedAt: undefined }
+    },
+    { notify: 'immediate' }
+  )
+}
+
+/**
+ * Clear optimistic messages from the streaming buffer after refresh
+ * confirms committed messages are back. Prevents stale optimistic
+ * bubbles from resurrecting on tab switch / remount.
+ */
+export function clearStreamingBufferOptimisticMessages(sessionId: string): StreamingBuffer {
+  return updateStreamingBuffer(
+    sessionId,
+    (current) => {
+      if (!current.optimisticMessages || current.optimisticMessages.length === 0) return current
+      return { ...current, optimisticMessages: undefined }
+    },
+    { notify: 'immediate' }
+  )
+}
+
 export function syncStreamingBufferGuardState(
   sessionId: string,
   state: SessionEventGuardState,
@@ -592,10 +624,16 @@ export function writeEventToStreamingBuffer(
           // back would show an empty (or near-empty) transcript until the
           // next user message. The next send calls resetLiveOverlay(true)
           // to clear, so there's no need to do it here.
+          //
+          // IMPORTANT: Keep `runStartedAt` alive. The event subscription's
+          // idle handler calls refresh() asynchronously; clearing the filter
+          // cutoff before refresh lands causes committed assistant messages
+          // to flash above the optimistic user message. The event subscription
+          // clears runStartedAt after refresh completes via
+          // clearStreamingBufferRunState().
           return {
             ...current,
-            isStreaming: false,
-            runStartedAt: undefined
+            isStreaming: false
           }
         }
 
@@ -623,10 +661,9 @@ export function writeEventToStreamingBuffer(
       }
 
       if (event.type === 'session.error') {
-        return {
-          ...current,
-          runStartedAt: undefined
-        }
+        // Keep runStartedAt — same rationale as the idle handler.
+        // The event subscription will clear it after refresh completes.
+        return current
       }
 
       return current
@@ -870,7 +907,8 @@ function parsePendingModel(raw: string | null): PendingMessage['model'] {
   try {
     const parsed = JSON.parse(raw) as PendingMessageModelSnapshot
     if (!parsed || typeof parsed !== 'object') return undefined
-    if (typeof parsed.providerID !== 'string' || typeof parsed.modelID !== 'string') return undefined
+    if (typeof parsed.providerID !== 'string' || typeof parsed.modelID !== 'string')
+      return undefined
     return parsed
   } catch {
     return undefined
@@ -1523,3 +1561,72 @@ export const useSessionRuntimeStore = create<SessionRuntimeStore>()((set, get) =
     }
   }
 }))
+
+/**
+ * Start a locally-initiated prompt run before backend stream events arrive.
+ *
+ * The user-visible running state must not depend solely on `session.status`
+ * events from the provider: after resume/reload, the renderer may briefly miss
+ * or reject those events, but the composer should still switch to Stop and the
+ * timeline should show the running row immediately after Send.
+ */
+export function beginLocalSessionRun(sessionId: string): StreamingBuffer {
+  clearSessionEventGuard(sessionId)
+  const runtime = useSessionRuntimeStore.getState()
+  runtime.setRetryInfo(sessionId, null)
+  runtime.setLifecycle(sessionId, 'busy')
+
+  return updateStreamingBuffer(
+    sessionId,
+    (current) => ({
+      ...resetStreamingBufferOverlayState(current, {
+        preserveOptimisticMessages: true,
+        preserveCompactionState: false
+      }),
+      isStreaming: true,
+      runStartedAt: Date.now()
+    }),
+    { notify: 'immediate' }
+  )
+}
+
+/**
+ * Cancel a locally-started run before it produces durable output.
+ * Used when send fails or is rejected.
+ */
+export function cancelLocalSessionRun(sessionId: string): StreamingBuffer {
+  const runtime = useSessionRuntimeStore.getState()
+  runtime.setRetryInfo(sessionId, null)
+  runtime.setLifecycle(sessionId, 'idle')
+
+  return updateStreamingBuffer(
+    sessionId,
+    (current) =>
+      resetStreamingBufferOverlayState(current, {
+        preserveOptimisticMessages: true,
+        preserveCompactionState: false
+      }),
+    { notify: 'immediate' }
+  )
+}
+
+/**
+ * Settle a completed prompt run after durable timeline refresh has had a
+ * chance to land. This is an event-loss backstop; normal idle events still run
+ * through useSessionEventSubscription.
+ */
+export function finishLocalSessionRun(sessionId: string): StreamingBuffer {
+  const runtime = useSessionRuntimeStore.getState()
+  runtime.setRetryInfo(sessionId, null)
+  runtime.setLifecycle(sessionId, 'idle')
+
+  return updateStreamingBuffer(
+    sessionId,
+    (current) => ({
+      ...current,
+      isStreaming: false,
+      runStartedAt: undefined
+    }),
+    { notify: 'immediate' }
+  )
+}

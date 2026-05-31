@@ -5,6 +5,7 @@ import { useSettingsStore, resolveModelForSdk } from '@/stores/useSettingsStore'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { toast } from '@/lib/toast'
 import { useI18n } from '@/i18n/useI18n'
+import { getVariantKeys, resolveModelVariantForSelection } from '@/lib/model-variants'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,6 +20,7 @@ interface ModelInfo {
   name?: string
   providerID: string
   variants?: Record<string, Record<string, unknown>>
+  defaultVariant?: string
 }
 
 interface ProviderModels {
@@ -31,18 +33,13 @@ function getDisplayName(model: ModelInfo): string {
   return model.name || model.id
 }
 
-function getVariantKeys(model: ModelInfo): string[] {
-  if (!model.variants) return []
-  return Object.keys(model.variants)
-}
-
 interface ModelSelectorProps {
   sessionId?: string
   // Controlled mode (for settings)
   value?: { providerID: string; modelID: string; variant?: string } | null
   onChange?: (model: { providerID: string; modelID: string; variant?: string }) => void
   // Override the SDK used for model listing (e.g. force 'opencode' in settings when defaultAgentSdk is 'terminal')
-  agentSdkOverride?: 'opencode' | 'claude-code' | 'codex'
+  agentSdkOverride?: 'opencode' | 'claude-code' | 'codex' | 'xuanpu-agent'
   showProviderPrefix?: boolean
   // Compact capsule style for SessionHeader
   compact?: boolean
@@ -147,7 +144,8 @@ export function ModelSelector({
             id: md?.id || modelID,
             name: md?.name,
             providerID,
-            variants
+            variants,
+            defaultVariant: typeof md?.defaultVariant === 'string' ? md.defaultVariant : undefined
           })
         }
       }
@@ -165,16 +163,10 @@ export function ModelSelector({
   }
 
   function handleSelectModel(model: ModelInfo): void {
-    const variantKeys = getVariantKeys(model)
     const remembered = useSettingsStore
       .getState()
       .getModelVariantDefault(model.providerID, model.id)
-    const variant =
-      remembered && variantKeys.includes(remembered)
-        ? remembered
-        : variantKeys.length > 0
-          ? variantKeys[0]
-          : undefined
+    const variant = resolveModelVariantForSelection(model, remembered)
     const newModel = { providerID: model.providerID, modelID: model.id, variant }
 
     // Use controlled onChange if provided (for settings), otherwise update store

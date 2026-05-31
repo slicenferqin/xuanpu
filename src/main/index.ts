@@ -1,9 +1,13 @@
+// MUST be first import: stubs `require('fsevents')` on macOS so chokidar
+// falls back to fs.watch and the fsevents.node native addon is never loaded.
+// Prevents SIGABRT during V8/Node teardown on app quit. See file for details.
+import './fsevents-patch'
 import { loadShellEnv } from './services/shell-env'
 import { app, shell, BrowserWindow, screen, ipcMain, clipboard } from 'electron'
 import { join } from 'path'
 import { spawn, exec } from 'child_process'
 import { promisify } from 'util'
-import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs'
+import { appendFileSync, existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs'
 import { electronApp, is } from '@electron-toolkit/utils'
 import { getDatabase, closeDatabase } from './db'
 import {
@@ -30,13 +34,14 @@ import {
   registerSkillHandlers,
   registerHubHandlers,
   registerFieldHandlers,
+  registerXuanpuAgentHandlers,
   registerVoiceHandlers,
   cleanupVoiceRuntime
 } from './ipc'
 import { buildMenu, updateMenuState } from './menu'
 import type { MenuState } from './menu'
 import { createLogger, getLogDir } from './services/logger'
-import { detectAgentSdks } from './services/system-info'
+import { detectAgentSdks, getXuanpuAgentRuntimeStatus } from './services/system-info'
 import {
   openCommandInSystemTerminal,
   runOnboardingDoctor
@@ -52,6 +57,7 @@ import { ClaudeCodeImplementer } from './services/claude-code-implementer'
 import { CodexImplementer } from './services/codex-implementer'
 import { openCodeService } from './services/opencode-service'
 import { AgentRuntimeManager } from './services/agent-runtime-manager'
+import type { AgentRuntimeAdapter } from './services/agent-runtime-types'
 import { createHubController } from './services/hub/hub-controller'
 import { resolveClaudeBinaryPath } from './services/claude-binary-resolver'
 import { powerSaveBlockerService } from './services/power-save-blocker'
@@ -276,6 +282,19 @@ function createWindow(): void {
 
   // Intercept Cmd+T (macOS) / Ctrl+T (Windows/Linux) before Chromium consumes it
   mainWindow.webContents.on('before-input-event', (event, input) => {
+    // Cmd+Shift+I / Ctrl+Shift+I — open DevTools
+    if (
+      input.key.toLowerCase() === 'i' &&
+      (input.meta || input.control) &&
+      input.shift &&
+      !input.alt &&
+      input.type === 'keyDown'
+    ) {
+      event.preventDefault()
+      mainWindow!.webContents.toggleDevTools()
+      return
+    }
+
     if (
       input.key.toLowerCase() === 't' &&
       (input.meta || input.control) &&
@@ -475,6 +494,16 @@ function registerSystemHandlers(): void {
     return detectAgentSdks()
   })
 
+  ipcMain.handle(
+    'system:getXuanpuAgentRuntimeStatus',
+    (
+      _event,
+      modelOverride?: { providerID: string; modelID: string; variant?: string } | null
+    ) => {
+      return getXuanpuAgentRuntimeStatus(modelOverride)
+    }
+  )
+
   ipcMain.handle('system:runOnboardingDoctor', () => {
     return runOnboardingDoctor()
   })
@@ -512,6 +541,26 @@ function registerSystemHandlers(): void {
   // Quit the app (needed for macOS where window.close() doesn't quit)
   ipcMain.handle('system:quitApp', () => {
     app.quit()
+  })
+
+  // Open DevTools for debugging
+  ipcMain.handle('system:openDevTools', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.toggleDevTools()
+    }
+  })
+
+  // Write debug log to file
+  ipcMain.handle('system:writeDebugLog', (_event, message: string) => {
+    const logDir = getLogDir()
+    const logFile = join(logDir, 'debug-scroll.log')
+    const logLine = `[${new Date().toISOString()}] ${message}\n`
+    try {
+      appendFileSync(logFile, logLine)
+      return { success: true, path: logFile }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
   })
 
   // Check if the app is running in packaged mode (not dev)
@@ -766,6 +815,7 @@ app.whenReady().then(async () => {
   // getSemanticMemory / getCheckpoint + the renderer-side reportXxx events
   // that the FieldContextDebug panel and others depend on.
   registerFieldHandlers()
+  registerXuanpuAgentHandlers()
 
   // Telemetry IPC
   ipcMain.handle(
@@ -810,8 +860,29 @@ app.whenReady().then(async () => {
     const codexImpl = new CodexImplementer()
     codexImpl.setDatabaseService(getDatabase())
 
+    const runtimeImplementers: AgentRuntimeAdapter[] = [openCodeService, claudeImpl, codexImpl]
+    if (process.env.XUANPU_AGENT_RUNTIME === '1') {
+      try {
+        const { XuanpuAgentImplementer } = await import('./services/xuanpu-agent-implementer')
+        const xuanpuAgentImpl = new XuanpuAgentImplementer()
+        xuanpuAgentImpl.setDatabaseService(getDatabase())
+        runtimeImplementers.push(xuanpuAgentImpl)
+
+        // Register for IPC (Context Budget, etc.)
+        const { setXuanpuAgentRuntime } = await import('./ipc/xuanpu-agent-handlers')
+        setXuanpuAgentRuntime(xuanpuAgentImpl)
+
+        log.info('Experimental xuanpu-agent runtime enabled')
+      } catch (error) {
+        log.error(
+          'Failed to enable experimental xuanpu-agent runtime',
+          error instanceof Error ? error : new Error(String(error))
+        )
+      }
+    }
+
     // Create the canonical runtime manager
-    const runtimeManager = new AgentRuntimeManager([openCodeService, claudeImpl, codexImpl])
+    const runtimeManager = new AgentRuntimeManager(runtimeImplementers)
 
     // Hub mode (#34): wrap mainWindow so agent IPC events fan out to mobile
     // clients. The wrapped window is what runtime implementers call
@@ -880,82 +951,109 @@ app.on('window-all-closed', () => {
 
 // Cleanup when app is about to quit
 app.on('will-quit', async () => {
-  // Phase 24C: capture session checkpoints BEFORE the sink shuts down, so
-  // generators can still query recent events. Hard 2s timeout per PRD —
-  // shutdown safety > completeness.
-  try {
-    const { recordCheckpointsOnShutdown } = await import('./field/checkpoint-hooks')
-    await Promise.race([
-      recordCheckpointsOnShutdown(),
-      new Promise<void>((resolve) => setTimeout(resolve, 2000))
-    ])
-  } catch (err) {
-    log.warn('checkpoint shutdown failed', {
-      error: err instanceof Error ? err.message : String(err)
-    })
-  }
-  // Phase 22B.1: shut down the episodic memory updater first (before the sink),
-  // so it stops scheduling new compactions that would race with sink flush.
-  try {
-    await getEpisodicMemoryUpdater().shutdown()
-  } catch (err) {
-    log.warn('episodic memory updater shutdown failed', {
-      error: err instanceof Error ? err.message : String(err)
-    })
-  }
-  // Phase 21: ensure the field event sink has flushed before we close the DB.
-  // The sink's own `before-quit` hook normally handles this, but we call
-  // shutdown() defensively here too — it's idempotent.
-  try {
-    await getFieldEventSink().shutdown()
-  } catch (err) {
-    log.warn('field event sink shutdown failed', {
-      error: err instanceof Error ? err.message : String(err)
-    })
-  }
-  // Cleanup updater timers
-  updaterService.cleanup()
-  // Cleanup terminal PTYs
-  cleanupTerminals()
-  // Cleanup running scripts
-  cleanupScripts()
-  // Cleanup file tree watchers
-  await cleanupFileTreeWatchers()
-  // Cleanup worktree watchers (git status monitoring)
-  await cleanupWorktreeWatchers()
-  // Cleanup branch watchers (sidebar branch names)
-  await cleanupBranchWatchers()
-  // Cleanup canonical agent handlers
-  await cleanupAgentHandlers(agentRuntimeManager ?? undefined)
-  // Cleanup voice runtime sessions and the managed local sidecar.
-  await cleanupVoiceRuntime()
-  // Cleanup hub controller (stops server + tunnel)
-  try {
-    const { getHubController } = await import('./services/hub/hub-controller')
-    const ctrl = getHubController()
-    if (ctrl) await ctrl.stop()
-  } catch (err) {
-    log.warn('hub cleanup failed', {
-      error: err instanceof Error ? err.message : String(err)
-    })
-  }
-  // Flush telemetry before closing database
-  telemetryService.track('app_session_ended', {
-    session_duration_ms: Date.now() - appStartTime
-  })
-  await telemetryService.shutdown()
-  // Close database
-  closeDatabase()
-
-  // fsevents (chokidar's macOS backend) racey-aborts during node's natural
-  // teardown — its `napi_release_threadsafe_function` runs after libuv's
-  // mutex has been destroyed, producing SIGABRT inside `fse_instance_destroy`
-  // and surfacing as a "玄圃 意外退出" Apple crash dialog every time the
-  // user quits. All renderer-visible cleanup is done at this point (DB
-  // closed, watchers stopped, telemetry flushed), so a synchronous
-  // process.exit(0) here is the well-trodden Electron+chokidar workaround.
-  // Only do this on macOS (the only platform that uses fsevents).
-  if (process.platform === 'darwin') {
+  // Deadman's switch: force process.exit(0) within 3 seconds no matter what,
+  // in case one of the cleanup awaits below hangs (e.g. a watcher.close() that
+  // never resolves, or a subprocess that ignores SIGTERM). The fsevents
+  // SIGABRT this used to also guard against is now neutralized upstream in
+  // `src/main/fsevents-patch.ts`.
+  const exitTimer = setTimeout(() => {
+    log.warn('will-quit deadman triggered, force-exiting')
     process.exit(0)
+  }, 3000)
+  // Don't keep the event loop alive just for this timer.
+  exitTimer.unref()
+
+  try {
+    // Phase 24C: capture session checkpoints BEFORE the sink shuts down, so
+    // generators can still query recent events. Hard 2s timeout per PRD —
+    // shutdown safety > completeness.
+    try {
+      const { recordCheckpointsOnShutdown } = await import('./field/checkpoint-hooks')
+      await Promise.race([
+        recordCheckpointsOnShutdown(),
+        new Promise<void>((resolve) => setTimeout(resolve, 2000))
+      ])
+    } catch (err) {
+      log.warn('checkpoint shutdown failed', {
+        error: err instanceof Error ? err.message : String(err)
+      })
+    }
+    // Phase 22B.1: shut down the episodic memory updater first (before the sink),
+    // so it stops scheduling new compactions that would race with sink flush.
+    try {
+      await getEpisodicMemoryUpdater().shutdown()
+    } catch (err) {
+      log.warn('episodic memory updater shutdown failed', {
+        error: err instanceof Error ? err.message : String(err)
+      })
+    }
+    // Phase 21: ensure the field event sink has flushed before we close the DB.
+    // The sink's own `before-quit` hook normally handles this, but we call
+    // shutdown() defensively here too — it's idempotent.
+    try {
+      await getFieldEventSink().shutdown()
+    } catch (err) {
+      log.warn('field event sink shutdown failed', {
+        error: err instanceof Error ? err.message : String(err)
+      })
+    }
+    // Cleanup updater timers
+    updaterService.cleanup()
+    // Cleanup terminal PTYs
+    cleanupTerminals()
+    // Cleanup running scripts
+    cleanupScripts()
+    // Cleanup file tree watchers
+    await cleanupFileTreeWatchers()
+    // Cleanup worktree watchers (git status monitoring)
+    await cleanupWorktreeWatchers()
+    // Cleanup branch watchers (sidebar branch names)
+    await cleanupBranchWatchers()
+    // Cleanup canonical agent handlers
+    await cleanupAgentHandlers(agentRuntimeManager ?? undefined)
+    // Cleanup voice runtime sessions and the managed local sidecar.
+    await cleanupVoiceRuntime()
+    // Cleanup hub controller (stops server + tunnel)
+    try {
+      const { getHubController } = await import('./services/hub/hub-controller')
+      const ctrl = getHubController()
+      if (ctrl) await ctrl.stop()
+    } catch (err) {
+      log.warn('hub cleanup failed', {
+        error: err instanceof Error ? err.message : String(err)
+      })
+    }
+    // Flush telemetry before closing database
+    telemetryService.track('app_session_ended', {
+      session_duration_ms: Date.now() - appStartTime
+    })
+    await telemetryService.shutdown()
+    // Close database
+    closeDatabase()
+  } catch (err) {
+    log.error('will-quit cleanup failed', {
+      error: err instanceof Error ? err.message : String(err)
+    })
+  } finally {
+    clearTimeout(exitTimer)
+
+    // Defense-in-depth: skip Electron's default exit path on macOS.
+    //
+    // The real fsevents-on-quit SIGABRT root-cause is fixed by
+    // `src/main/fsevents-patch.ts` (the fsevents.node native addon is no
+    // longer loaded into this process). Before that patch, this `process.exit`
+    // was *intended* to dodge the crash but actually didn't — process.exit
+    // still routes through node::FreeEnvironment → napi cleanup, which is
+    // exactly where the fse_instance_destroy abort was firing. The crash
+    // happened anyway, just with a slightly different stack.
+    //
+    // We keep the early exit only as a guard against any *other* native addon
+    // that might in future register a napi finalizer with a similar
+    // mutex-after-teardown race. All renderer-visible cleanup is done by this
+    // point (DB closed, watchers stopped, telemetry flushed) so an immediate
+    // exit costs nothing.
+    if (process.platform === 'darwin') {
+      process.exit(0)
+    }
   }
 })

@@ -50,12 +50,12 @@ import { calculateUsageCost, resolvePricingModelKey } from '@shared/usage/pricin
 const log = createLogger({ component: 'ClaudeCodeImplementer' })
 
 const CLAUDE_EFFORT_VARIANTS = { low: {}, medium: {}, high: {} }
-const CLAUDE_OPUS_EFFORT_VARIANTS = { low: {}, medium: {}, high: {}, max: {} }
+const CLAUDE_OPUS_EFFORT_VARIANTS = { low: {}, medium: {}, high: {}, xhigh: {}, max: {} }
 
 const CLAUDE_MODELS = [
   {
     id: 'opus',
-    name: 'Opus 4.7',
+    name: 'Opus 4.8',
     limit: { context: 200000, output: 32000 },
     variants: CLAUDE_OPUS_EFFORT_VARIANTS,
     defaultVariant: 'high',
@@ -593,6 +593,36 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         }
       } catch (err) {
         log.warn('Reconnect: failed to hydrate from DB', {
+          hiveSessionId,
+          error: err instanceof Error ? err.message : String(err)
+        })
+      }
+    }
+
+    // After hydrating from DB, check whether the on-disk transcript has more
+    // recent messages that were not yet persisted (e.g. the app was closed
+    // while the session was still running).  When the transcript is richer,
+    // replace the in-memory state and persist the full history to DB.
+    if (!isPending) {
+      try {
+        const transcript = await readClaudeTranscript(worktreePath, agentSessionId)
+        if (Array.isArray(transcript) && transcript.length > 0) {
+          const dbCount = state.messages.length
+          const transcriptCount = transcript.length
+          if (transcriptCount !== dbCount) {
+            state.messages = transcript
+            if (this.dbService) {
+              this.persistMessagesToDB(state)
+            }
+            log.info('Reconnect: transcript differs from DB, using transcript', {
+              hiveSessionId,
+              dbCount,
+              transcriptCount
+            })
+          }
+        }
+      } catch (err) {
+        log.debug('Reconnect: transcript sync skipped', {
           hiveSessionId,
           error: err instanceof Error ? err.message : String(err)
         })
@@ -2255,6 +2285,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
               name: m.name,
               limit: m.limit,
               variants: m.variants,
+              defaultVariant: m.defaultVariant,
               ...(m.supportsFastMode ? { supportsFastMode: true } : {})
             }
           ])

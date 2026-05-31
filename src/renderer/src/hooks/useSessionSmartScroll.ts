@@ -5,9 +5,10 @@ import {
   type SessionViewState
 } from '@/lib/session-view-registry'
 
-const NEAR_BOTTOM_THRESHOLD = 80
-const BOTTOM_AREA_COMPENSATE_THRESHOLD = 96
 const DEFAULT_SCROLL_FAB_OFFSET = 16
+const MIN_NEAR_BOTTOM_THRESHOLD = 80
+
+export type TimelineScrollMode = 'history' | 'sticky-bottom' | 'round-focus'
 
 interface UseSessionSmartScrollOptions {
   sessionId: string
@@ -17,7 +18,27 @@ interface UseSessionSmartScrollOptions {
   isStreaming: boolean
   bottomAreaRef?: React.RefObject<HTMLElement | null>
   composerRef?: React.RefObject<HTMLElement | null>
-  clearScreenActive?: boolean
+  /**
+   * Ref to the focus filler height (px). During round-focus, the filler
+   * provides scrollable space so the user message can sit at viewport top.
+   * distanceToContentEnd subtracts this from scrollHeight.
+   */
+  focusFillerHeightRef?: React.RefObject<number>
+  /**
+   * Ref to the current scroll mode. Smart-scroll skips auto-scroll during
+   * 'round-focus' to let the user message stay pinned at the top.
+   */
+  scrollModeRef?: React.RefObject<TimelineScrollMode>
+  /**
+   * Ref indicating the user manually scrolled during round-focus.
+   * Once true, smart-scroll respects 'history' mode and doesn't re-enter.
+   */
+  manualScrollLockedRef?: React.RefObject<boolean>
+  /**
+   * Lets a higher-level controller own overlay-aware auto-follow. Smart scroll
+   * still owns anchor persistence and manual-intent tracking.
+   */
+  disableAutoFollow?: boolean
 }
 
 interface UseSessionSmartScrollResult {
@@ -26,7 +47,6 @@ interface UseSessionSmartScrollResult {
   scrollFabCount: number
   scrollFabBottomOffset: number
   bottomFloatingHeight: number
-  clearScreenBottomInset: number
   handleScroll: () => void
   handleScrollWheel: () => void
   handleScrollPointerDown: () => void
@@ -34,14 +54,30 @@ interface UseSessionSmartScrollResult {
   handleScrollPointerCancel: () => void
   handleScrollToBottomClick: () => void
   scrollToOffset: (top: number, behavior?: ScrollBehavior) => void
+  markProgrammaticScroll: () => void
+  markStickyBottomSeen: (scrollTop?: number) => void
+  canAutoFollow: () => boolean
+  cancelPendingScrollToBottom: () => void
+  cancelPendingRestoreScroll: () => void
 }
 
-function getDistanceFromBottom(element: HTMLDivElement, bottomInset = 0): number {
-  return element.scrollHeight - bottomInset - element.scrollTop - element.clientHeight
+// ── Distance helpers ────────────────────────────────────────────────
+
+/**
+ * Distance to real content end (excludes filler).
+ * Used for FAB, sticky-bottom, streaming auto-follow, unread detection.
+ */
+function getDistanceToContentEnd(element: HTMLDivElement, fillerHeight: number): number {
+  return element.scrollHeight - fillerHeight - element.scrollTop - element.clientHeight
 }
 
-function getBottomScrollTop(element: HTMLDivElement, bottomInset = 0): number {
-  return Math.max(0, element.scrollHeight - element.clientHeight - bottomInset)
+function getBottomScrollTop(element: HTMLDivElement, fillerHeight: number): number {
+  return Math.max(0, element.scrollHeight - element.clientHeight - fillerHeight)
+}
+
+function getNearBottomThreshold(): number {
+  if (typeof window === 'undefined') return MIN_NEAR_BOTTOM_THRESHOLD
+  return Math.max(MIN_NEAR_BOTTOM_THRESHOLD, Math.round(window.innerHeight * 0.06))
 }
 
 function scrollElementTo(element: HTMLDivElement, top: number, behavior: ScrollBehavior): void {
@@ -65,7 +101,10 @@ export function useSessionSmartScroll({
   isStreaming,
   bottomAreaRef,
   composerRef,
-  clearScreenActive = false
+  focusFillerHeightRef,
+  scrollModeRef,
+  manualScrollLockedRef,
+  disableAutoFollow = false
 }: UseSessionSmartScrollOptions): UseSessionSmartScrollResult {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const programmaticScrollResetRef = useRef<number | null>(null)
@@ -76,16 +115,17 @@ export function useSessionSmartScroll({
   const lastScrollTopRef = useRef(0)
   const hasRestoredInitialAnchorRef = useRef(false)
   const latestMirrorVersionRef = useRef(mirrorVersion)
+  const isStreamingRef = useRef(isStreaming)
   const [dockHeight, setDockHeight] = useState(0)
   const [composerHeight, setComposerHeight] = useState(0)
-  const [viewportHeight, setViewportHeight] = useState(0)
   const [viewState, setViewState] = useState<SessionViewState>(() =>
     getSessionViewState(sessionId, mirrorVersion)
   )
   const viewStateRef = useRef(viewState)
-  const clearScreenBottomInset = clearScreenActive
-    ? Math.max((viewportHeight > 0 ? viewportHeight : 456) - 96, 240)
-    : 0
+
+  const getFillerHeight = (): number => focusFillerHeightRef?.current ?? 0
+  const getScrollMode = (): TimelineScrollMode => scrollModeRef?.current ?? 'sticky-bottom'
+  const isManualScrollLocked = (): boolean => manualScrollLockedRef?.current ?? false
 
   const writeViewState = useCallback(
     (
@@ -114,9 +154,10 @@ export function useSessionSmartScroll({
         return current
       }
 
+      // Use content end (excluding filler) for sticky-bottom detection
       const stickyBottom =
         options?.forceStickyBottom ??
-        getDistanceFromBottom(element, clearScreenBottomInset) < NEAR_BOTTOM_THRESHOLD
+        getDistanceToContentEnd(element, getFillerHeight()) < getNearBottomThreshold()
       const shouldMarkSeen = options?.markSeen ?? stickyBottom
 
       const next = writeViewState(
@@ -132,7 +173,7 @@ export function useSessionSmartScroll({
       lastScrollTopRef.current = element.scrollTop
       return next
     },
-    [clearScreenBottomInset, mirrorVersion, writeViewState]
+    [mirrorVersion, writeViewState]
   )
 
   const markProgrammaticScroll = useCallback(() => {
@@ -147,6 +188,34 @@ export function useSessionSmartScroll({
       })
     })
   }, [])
+
+  const markStickyBottomSeen = useCallback(
+    (scrollTop?: number): void => {
+      const element = scrollContainerRef.current
+      const nextTop = Math.max(0, scrollTop ?? element?.scrollTop ?? viewStateRef.current.scrollTop)
+
+      writeViewState(
+        () => ({
+          scrollTop: nextTop,
+          stickyBottom: true,
+          manualScrollLocked: false,
+          lastSeenVersion: mirrorVersion
+        }),
+        { syncState: true }
+      )
+      lastScrollTopRef.current = nextTop
+    },
+    [mirrorVersion, writeViewState]
+  )
+
+  const canAutoFollow = useCallback((): boolean => {
+    const current = viewStateRef.current
+    return (
+      current.stickyBottom &&
+      !current.manualScrollLocked &&
+      !(manualScrollLockedRef?.current ?? false)
+    )
+  }, [manualScrollLockedRef])
 
   const resetInteractionState = useCallback(() => {
     if (programmaticScrollResetRef.current !== null) {
@@ -169,7 +238,7 @@ export function useSessionSmartScroll({
       if (!element) return
 
       markProgrammaticScroll()
-      scrollElementTo(element, getBottomScrollTop(element, clearScreenBottomInset), behavior)
+      scrollElementTo(element, getBottomScrollTop(element, getFillerHeight()), behavior)
 
       const current = viewStateRef.current
       const shouldSyncState =
@@ -183,13 +252,7 @@ export function useSessionSmartScroll({
         markSeen: true
       })
     },
-    [
-      clearScreenBottomInset,
-      isStreaming,
-      markProgrammaticScroll,
-      mirrorVersion,
-      persistCurrentAnchor
-    ]
+    [isStreaming, markProgrammaticScroll, mirrorVersion, persistCurrentAnchor]
   )
 
   const scrollToOffset = useCallback(
@@ -211,6 +274,8 @@ export function useSessionSmartScroll({
     [markProgrammaticScroll, mirrorVersion, writeViewState]
   )
 
+  const restoreScrollRafRef = useRef<number | null>(null)
+
   const restoreScrollAnchor = useCallback(() => {
     if (hasRestoredInitialAnchorRef.current || !ready) return
 
@@ -220,7 +285,11 @@ export function useSessionSmartScroll({
     const current = viewStateRef.current
     hasRestoredInitialAnchorRef.current = true
 
-    requestAnimationFrame(() => {
+    if (restoreScrollRafRef.current !== null) {
+      cancelAnimationFrame(restoreScrollRafRef.current)
+    }
+    restoreScrollRafRef.current = requestAnimationFrame(() => {
+      restoreScrollRafRef.current = null
       if (current.stickyBottom) {
         scrollToBottom('instant')
         return
@@ -249,8 +318,9 @@ export function useSessionSmartScroll({
     }
     viewStateRef.current = current
 
-    const distanceFromBottom = getDistanceFromBottom(element, clearScreenBottomInset)
-    const isNearBottom = distanceFromBottom < NEAR_BOTTOM_THRESHOLD
+    // Use content end for near-bottom detection
+    const distanceFromBottom = getDistanceToContentEnd(element, getFillerHeight())
+    const isNearBottom = distanceFromBottom < getNearBottomThreshold()
     const hasManualIntent = manualScrollIntentRef.current || pointerDownInScrollerRef.current
 
     if (isProgrammaticScrollRef.current) {
@@ -283,7 +353,7 @@ export function useSessionSmartScroll({
       { syncState: current.stickyBottom || !current.manualScrollLocked }
     )
     manualScrollIntentRef.current = false
-  }, [clearScreenBottomInset, mirrorVersion, writeViewState])
+  }, [mirrorVersion, writeViewState])
 
   const handleScrollToBottomClick = useCallback(() => {
     resetInteractionState()
@@ -308,9 +378,27 @@ export function useSessionSmartScroll({
     manualScrollIntentRef.current = false
   }, [])
 
+  const cancelPendingScrollToBottom = useCallback(() => {
+    if (bottomAreaScrollRafRef.current !== null) {
+      cancelAnimationFrame(bottomAreaScrollRafRef.current)
+      bottomAreaScrollRafRef.current = null
+    }
+  }, [])
+
+  const cancelPendingRestoreScroll = useCallback(() => {
+    if (restoreScrollRafRef.current !== null) {
+      cancelAnimationFrame(restoreScrollRafRef.current)
+      restoreScrollRafRef.current = null
+    }
+  }, [])
+
   useEffect(() => {
     latestMirrorVersionRef.current = mirrorVersion
   }, [mirrorVersion])
+
+  useEffect(() => {
+    isStreamingRef.current = isStreaming
+  }, [isStreaming])
 
   useEffect(() => {
     const next = getSessionViewState(sessionId, latestMirrorVersionRef.current)
@@ -343,26 +431,41 @@ export function useSessionSmartScroll({
     restoreScrollAnchor()
   }, [contentVersion, ready, restoreScrollAnchor])
 
+  // Streaming auto-follow + idle sticky-bottom.
+  //
+  // KEY: Skip auto-scroll during 'round-focus' mode. The user message is
+  // pinned at the viewport top; assistant content grows below it, and the
+  // filler shrinks. We should NOT scrollToBottom during this phase.
   useEffect(() => {
-    if (
-      !ready ||
-      clearScreenActive ||
-      !hasRestoredInitialAnchorRef.current ||
-      !viewStateRef.current.stickyBottom
-    ) {
+    if (!ready || !hasRestoredInitialAnchorRef.current) return
+    if (disableAutoFollow) return
+
+    // Round-focus: let the controller manage scroll position
+    if (getScrollMode() === 'round-focus') return
+
+    const element = scrollContainerRef.current
+    if (!element) return
+
+    if (isStreaming) {
+      if (isManualScrollLocked()) return
+      // Use content end (excluding filler) for streaming threshold
+      const distance = getDistanceToContentEnd(element, getFillerHeight())
+      const streamingThreshold = getNearBottomThreshold() * 3
+      if (distance < streamingThreshold) {
+        scrollToBottom('instant')
+      }
       return
     }
-    scrollToBottom()
-  }, [clearScreenActive, contentVersion, mirrorVersion, ready, scrollToBottom])
 
-  // Use useLayoutEffect for the initial sync measurement so the first paint
-  // already has the correct padding-bottom — otherwise the first frame leaves
-  // the last transcript node hidden behind the ComposerBar.
+    if (!viewStateRef.current.stickyBottom) return
+    scrollToBottom()
+  }, [contentVersion, disableAutoFollow, isStreaming, mirrorVersion, ready, scrollToBottom])
+
+  // Bottom area resize compensation.
+  // Skip during round-focus to avoid pulling user message away from top.
   useLayoutEffect(() => {
     const dockElement = bottomAreaRef?.current
     const composerElement = composerRef?.current
-    const scrollElement = scrollContainerRef.current
-    setViewportHeight(scrollElement?.clientHeight ?? 0)
     setDockHeight(dockElement?.getBoundingClientRect().height ?? 0)
     setComposerHeight(composerElement?.getBoundingClientRect().height ?? 0)
   }, [bottomAreaRef, composerRef])
@@ -370,8 +473,6 @@ export function useSessionSmartScroll({
   useEffect(() => {
     const dockElement = bottomAreaRef?.current
     const composerElement = composerRef?.current
-    const scrollElement = scrollContainerRef.current
-    setViewportHeight(scrollElement?.clientHeight ?? 0)
     setDockHeight(dockElement?.getBoundingClientRect().height ?? 0)
     setComposerHeight(composerElement?.getBoundingClientRect().height ?? 0)
 
@@ -379,31 +480,15 @@ export function useSessionSmartScroll({
 
     const observers: ResizeObserver[] = []
     const handleResize = () => {
-      const scrollElement = scrollContainerRef.current
-      if (!scrollElement) return
-      if (clearScreenActive) return
-
-      const distanceFromBottom = getDistanceFromBottom(scrollElement, clearScreenBottomInset)
-      const shouldCompensate =
-        viewStateRef.current.stickyBottom || distanceFromBottom < BOTTOM_AREA_COMPENSATE_THRESHOLD
-
-      if (!shouldCompensate) return
-
-      if (bottomAreaScrollRafRef.current !== null) {
-        cancelAnimationFrame(bottomAreaScrollRafRef.current)
-      }
-
-      bottomAreaScrollRafRef.current = requestAnimationFrame(() => {
-        bottomAreaScrollRafRef.current = null
-        resetInteractionState()
-        scrollToBottom('instant')
-      })
+      // Overlay mode: composer height changes don't affect timeline clientHeight.
+      // bottomReadableInset is handled by SessionShell, and the controller
+      // recomputes filler when inset changes. No need for scrollToBottom here.
+      return
     }
 
     const observedTargets: Array<
       readonly [HTMLElement | null | undefined, (height: number) => void]
     > = [
-      [scrollElement, setViewportHeight],
       [dockElement, setDockHeight],
       [composerElement, setComposerHeight]
     ]
@@ -429,15 +514,7 @@ export function useSessionSmartScroll({
         bottomAreaScrollRafRef.current = null
       }
     }
-  }, [
-    bottomAreaRef,
-    clearScreenActive,
-    clearScreenBottomInset,
-    composerRef,
-    resetInteractionState,
-    scrollToBottom,
-    sessionId
-  ])
+  }, [bottomAreaRef, composerRef, resetInteractionState, scrollToBottom, sessionId])
 
   useEffect(() => {
     return () => {
@@ -449,11 +526,23 @@ export function useSessionSmartScroll({
         cancelAnimationFrame(bottomAreaScrollRafRef.current)
         bottomAreaScrollRafRef.current = null
       }
+      if (restoreScrollRafRef.current !== null) {
+        cancelAnimationFrame(restoreScrollRafRef.current)
+        restoreScrollRafRef.current = null
+      }
     }
   }, [persistCurrentAnchor, resetInteractionState])
 
   const scrollFabCount = Math.max(0, mirrorVersion - viewState.lastSeenVersion)
-  const showScrollFab = !viewState.stickyBottom && scrollFabCount > 0
+  // Use content end for FAB visibility (exclude filler)
+  const showScrollFab = (() => {
+    const element = scrollContainerRef.current
+    if (!element) return !viewState.stickyBottom && scrollFabCount > 0
+    return (
+      getDistanceToContentEnd(element, getFillerHeight()) > getNearBottomThreshold() &&
+      scrollFabCount > 0
+    )
+  })()
 
   const scrollFabBottomOffset = useMemo(() => {
     const bottomChromeHeight = dockHeight + composerHeight
@@ -465,20 +554,18 @@ export function useSessionSmartScroll({
     showScrollFab,
     scrollFabCount,
     scrollFabBottomOffset,
-    clearScreenBottomInset,
-    /**
-     * Measured pixel height of the floating ComposerBar (and any sibling
-     * floating dock). Consumers should use this to size the bottom padding
-     * of their scroll viewport so transcript content doesn't get hidden
-     * behind the composer.
-     */
-    bottomFloatingHeight: Math.max(composerHeight, dockHeight),
+    bottomFloatingHeight: composerHeight + dockHeight,
     handleScroll,
     handleScrollWheel,
     handleScrollPointerDown,
     handleScrollPointerUp,
     handleScrollPointerCancel,
     handleScrollToBottomClick,
-    scrollToOffset
+    scrollToOffset,
+    markProgrammaticScroll,
+    markStickyBottomSeen,
+    canAutoFollow,
+    cancelPendingScrollToBottom,
+    cancelPendingRestoreScroll
   }
 }

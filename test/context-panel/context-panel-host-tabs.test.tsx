@@ -130,7 +130,10 @@ describe('ContextPanelHost', () => {
       configurable: true,
       writable: true,
       value: {
-        fetchSessionSummary: vi.fn().mockResolvedValue({ success: false })
+        fetchDashboard: vi.fn().mockResolvedValue({ success: false }),
+        fetchSessionSummary: vi.fn().mockResolvedValue({ success: false }),
+        fetchScopeSummary: vi.fn().mockResolvedValue({ success: false }),
+        resync: vi.fn().mockResolvedValue({ success: true, synced_session_ids: [], partial_session_ids: [] })
       }
     })
     Object.defineProperty(window, 'db', {
@@ -188,7 +191,9 @@ describe('ContextPanelHost', () => {
         getLastInjection: vi.fn().mockResolvedValue(null),
         getEpisodicMemory: vi.fn().mockResolvedValue(null),
         getSemanticMemory: vi.fn().mockResolvedValue(null),
-        getCheckpoint: vi.fn().mockResolvedValue(null)
+        getCheckpoint: vi.fn().mockResolvedValue(null),
+        listContextPackages: vi.fn().mockResolvedValue([]),
+        listEpisodeBlocks: vi.fn().mockResolvedValue([])
       }
     })
   })
@@ -519,13 +524,14 @@ describe('ContextPanelHost', () => {
   })
 
   it('shows worktree-wide cumulative usage summary in the overview panel', async () => {
+    const user = userEvent.setup()
     const sessions = ['sess-usage-a', 'sess-usage-b'].map((id, index) => ({
       id,
       worktree_id: 'wt-1',
       project_id: 'proj-1',
       connection_id: null,
       name: `Session ${index + 1}`,
-      status: 'active' as const,
+      status: index === 0 ? ('active' as const) : ('archived' as const),
       opencode_session_id: `runtime-${index + 1}`,
       agent_sdk: 'codex' as const,
       mode: 'build' as const,
@@ -544,58 +550,131 @@ describe('ContextPanelHost', () => {
       tabOrderByWorktree: new Map([['wt-1', sessions.map((session) => session.id)]])
     })
     window.db.session.getByWorktree = vi.fn().mockResolvedValue(sessions)
-    window.usageAnalyticsOps.fetchSessionSummary = vi.fn(async (sessionId: string) => {
-      const dataBySession = {
-        'sess-usage-a': {
-          session_id: 'sess-usage-a',
-          engine: 'codex',
-          total_cost: 0.0234,
-          total_tokens: 12_000,
-          input_tokens: 3_000,
-          output_tokens: 7_000,
-          cache_write_tokens: 500,
-          cache_read_tokens: 1_500
-        },
-        'sess-usage-b': {
-          session_id: 'sess-usage-b',
-          engine: 'codex',
-          total_cost: 0.033,
-          total_tokens: 5_500,
-          input_tokens: 1_100,
-          output_tokens: 2_200,
-          cache_write_tokens: 700,
-          cache_read_tokens: 1_500
-        }
-      } as const
-      const data = dataBySession[sessionId as keyof typeof dataBySession]
-      return {
-        success: !!data,
-        data: data
-          ? {
-              ...data,
-              duration_seconds: 120,
-              last_used_at: '2026-05-21T00:00:00.000Z',
-              model_labels: [],
-              latest_model_label: null,
-              partial: false
-            }
-          : undefined
+    // Current session summary
+    window.usageAnalyticsOps.fetchSessionSummary = vi.fn().mockResolvedValue({
+      success: true,
+      data: {
+        session_id: 'sess-usage-a',
+        engine: 'codex',
+        total_cost: 0.03,
+        total_tokens: 8000,
+        input_tokens: 2000,
+        output_tokens: 4500,
+        cache_write_tokens: 500,
+        cache_read_tokens: 1000,
+        duration_seconds: 120,
+        last_used_at: '2026-05-21T00:02:00.000Z',
+        model_labels: ['o3'],
+        latest_model_label: 'o3',
+        partial: false
+      }
+    })
+    // Worktree aggregate
+    window.usageAnalyticsOps.fetchScopeSummary = vi.fn().mockResolvedValue({
+      success: true,
+      data: {
+        scope_id: 'wt-1',
+        scope_type: 'worktree',
+        session_count: 2,
+        active_session_count: 1,
+        total_cost: 0.06,
+        total_tokens: 17500,
+        input_tokens: 4100,
+        output_tokens: 9200,
+        cache_write_tokens: 1200,
+        cache_read_tokens: 3000,
+        context_used_tokens: null,
+        context_window_tokens: null,
+        context_percent: null,
+        coverage: { synced: 2, partial: 0, legacy_undercounted: 0, missing_source: 0, unsupported: 0 },
+        partial_sessions: []
       }
     })
 
     renderHost()
 
     await waitFor(() => {
+      // Current session data appears in primary section
+      expect(screen.getByText('$0.03')).toBeInTheDocument()
+      expect(screen.getByText('8.0K')).toBeInTheDocument()
+      // Worktree aggregate appears in secondary section
       expect(screen.getByText('$0.06')).toBeInTheDocument()
       expect(screen.getByText('17.5K')).toBeInTheDocument()
-      expect(screen.getByText('4.1K')).toBeInTheDocument()
-      expect(screen.getByText('9.2K')).toBeInTheDocument()
-      expect(screen.getByText('3.0K')).toBeInTheDocument()
-      expect(screen.getByText('2 sessions in this Worktree')).toBeInTheDocument()
+      expect(screen.getByText('2')).toBeInTheDocument()
+    })
+
+    const breakdown = screen.getByLabelText('Session breakdown')
+    await user.hover(breakdown)
+    expect(breakdown).toHaveAttribute('title', '1 active sessions\n1 inactive sessions')
+  })
+
+  it('falls back to live tokens when persisted cost has no token counters yet', async () => {
+    const sessions = [
+      {
+        id: 'sess-codex-cost-only',
+        worktree_id: 'wt-1',
+        project_id: 'proj-1',
+        connection_id: null,
+        name: 'Codex cost only',
+        status: 'active' as const,
+        opencode_session_id: 'codex-runtime-1',
+        agent_sdk: 'codex' as const,
+        mode: 'build' as const,
+        model_provider_id: null,
+        model_id: null,
+        model_variant: null,
+        first_message_at: null,
+        created_at: '2026-05-21T00:00:00.000Z',
+        updated_at: '2026-05-21T00:00:00.000Z',
+        completed_at: null
+      }
+    ]
+    useSessionStore.setState({
+      activeSessionId: 'sess-codex-cost-only',
+      activeWorktreeId: 'wt-1',
+      sessionsByWorktree: new Map([['wt-1', sessions]]),
+      tabOrderByWorktree: new Map([['wt-1', ['sess-codex-cost-only']]])
+    })
+    useContextStore.getState().setSessionTokens('sess-codex-cost-only', {
+      input: 3,
+      output: 66,
+      reasoning: 0,
+      cacheRead: 0,
+      cacheWrite: 37_719
+    })
+    useContextStore.getState().setSessionCost('sess-codex-cost-only', 0.1042)
+    window.db.session.getByWorktree = vi.fn().mockResolvedValue(sessions)
+    // Session summary returns 0 cost/tokens → should fall back to live values
+    window.usageAnalyticsOps.fetchSessionSummary = vi.fn().mockResolvedValue({
+      success: true,
+      data: {
+        session_id: 'sess-codex-cost-only',
+        engine: 'codex',
+        total_cost: 0,
+        total_tokens: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_write_tokens: 0,
+        cache_read_tokens: 0,
+        duration_seconds: 60,
+        last_used_at: '2026-05-21T00:01:00.000Z',
+        model_labels: [],
+        latest_model_label: null,
+        partial: true
+      }
+    })
+
+    renderHost()
+
+    await waitFor(() => {
+      // Falls back to live cost
+      expect(screen.getByText('$0.10')).toBeInTheDocument()
+      // Falls back to live tokens (3 + 66 + 0 + 37719 = 37788)
+      expect(screen.getByText('37.8K')).toBeInTheDocument()
     })
   })
 
-  it('does not use live context tokens as worktree session totals once a summary exists', async () => {
+  it('keeps the larger visible token snapshot without double-counting summary plus live', async () => {
     const sessions = [
       {
         id: 'sess-claude-syncing',
@@ -623,40 +702,159 @@ describe('ContextPanelHost', () => {
       tabOrderByWorktree: new Map([['wt-1', ['sess-claude-syncing']]])
     })
     useContextStore.getState().setSessionTokens('sess-claude-syncing', {
-      input: 3,
-      output: 66,
+      input: 300,
+      output: 200,
       reasoning: 0,
-      cacheRead: 0,
-      cacheWrite: 37_719
+      cacheRead: 100,
+      cacheWrite: 50
     })
     window.db.session.getByWorktree = vi.fn().mockResolvedValue(sessions)
+    // Current session summary — returns higher tokens than live
     window.usageAnalyticsOps.fetchSessionSummary = vi.fn().mockResolvedValue({
       success: true,
       data: {
         session_id: 'sess-claude-syncing',
         engine: 'claude-code',
         total_cost: 0,
-        total_tokens: 0,
-        input_tokens: 0,
-        output_tokens: 0,
-        cache_write_tokens: 0,
-        cache_read_tokens: 0,
-        duration_seconds: 0,
-        last_used_at: null,
-        model_labels: [],
-        latest_model_label: null,
-        partial: true
+        total_tokens: 1_200,
+        input_tokens: 700,
+        output_tokens: 300,
+        cache_write_tokens: 100,
+        cache_read_tokens: 100,
+        duration_seconds: 30,
+        last_used_at: '2026-05-21T00:00:30.000Z',
+        model_labels: ['claude-sonnet-4-20250514'],
+        latest_model_label: 'claude-sonnet-4-20250514',
+        partial: false
+      }
+    })
+    window.usageAnalyticsOps.fetchScopeSummary = vi.fn().mockResolvedValue({
+      success: true,
+      data: {
+        scope_id: 'wt-1',
+        scope_type: 'worktree',
+        session_count: 1,
+        active_session_count: 1,
+        total_cost: 0,
+        total_tokens: 1_200,
+        input_tokens: 700,
+        output_tokens: 300,
+        cache_write_tokens: 100,
+        cache_read_tokens: 100,
+        context_used_tokens: null,
+        context_window_tokens: null,
+        context_percent: null,
+        coverage: { synced: 0, partial: 1, legacy_undercounted: 0, missing_source: 0, unsupported: 0 },
+        partial_sessions: ['sess-claude-syncing']
       }
     })
 
     renderHost()
 
     await waitFor(() => {
-      expect(window.usageAnalyticsOps.fetchSessionSummary).toHaveBeenCalledWith(
-        'sess-claude-syncing'
+      expect(window.usageAnalyticsOps.fetchScopeSummary).toHaveBeenCalledWith(
+        'wt-1',
+        'worktree',
+        ['sess-claude-syncing']
       )
-      expect(screen.queryByText('37.8K')).not.toBeInTheDocument()
-      expect(screen.queryByText('37.7K')).not.toBeInTheDocument()
+      // Current session and worktree aggregate both show 1.2K
+      const elements = screen.getAllByText('1.2K')
+      expect(elements.length).toBeGreaterThanOrEqual(1)
+      // The higher value (1.2K) wins over live (650)
+      expect(screen.queryByText('650')).not.toBeInTheDocument()
+    })
+  })
+
+  it('does not double-count when scope has no contribution for active session', async () => {
+    const sessions = [
+      {
+        id: 'sess-no-contrib',
+        worktree_id: 'wt-1',
+        project_id: 'proj-1',
+        connection_id: null,
+        name: 'No contrib session',
+        status: 'active' as const,
+        opencode_session_id: 'runtime-no-contrib',
+        agent_sdk: 'codex' as const,
+        mode: 'build' as const,
+        model_provider_id: null,
+        model_id: null,
+        model_variant: null,
+        first_message_at: null,
+        created_at: '2026-05-21T00:00:00.000Z',
+        updated_at: '2026-05-21T00:00:00.000Z',
+        completed_at: null
+      }
+    ]
+    useSessionStore.setState({
+      activeSessionId: 'sess-no-contrib',
+      activeWorktreeId: 'wt-1',
+      sessionsByWorktree: new Map([['wt-1', sessions]]),
+      tabOrderByWorktree: new Map([['wt-1', ['sess-no-contrib']]])
+    })
+    // Live tokens: 418K
+    useContextStore.getState().setSessionTokens('sess-no-contrib', {
+      input: 280000,
+      output: 3000,
+      reasoning: 0,
+      cacheRead: 135294,
+      cacheWrite: 0
+    })
+    useContextStore.getState().setSessionCost('sess-no-contrib', 1.036941)
+    window.db.session.getByWorktree = vi.fn().mockResolvedValue(sessions)
+    window.usageAnalyticsOps.fetchSessionSummary = vi.fn().mockResolvedValue({
+      success: true,
+      data: {
+        session_id: 'sess-no-contrib',
+        engine: 'codex',
+        total_cost: 1.036941,
+        total_tokens: 418294,
+        input_tokens: 280000,
+        output_tokens: 3000,
+        cache_write_tokens: 0,
+        cache_read_tokens: 135294,
+        duration_seconds: 120,
+        last_used_at: '2026-05-21T00:02:00.000Z',
+        model_labels: ['o3'],
+        latest_model_label: 'o3',
+        partial: false,
+        context_used_tokens: null,
+        context_window_tokens: null,
+        context_percent: null
+      }
+    })
+    // Scope has NO session_contributions — simulates missing contribution
+    window.usageAnalyticsOps.fetchScopeSummary = vi.fn().mockResolvedValue({
+      success: true,
+      data: {
+        scope_id: 'wt-1',
+        scope_type: 'worktree',
+        session_count: 1,
+        active_session_count: 1,
+        total_cost: 0.79,
+        total_tokens: 239172,
+        input_tokens: 147269,
+        output_tokens: 383,
+        cache_write_tokens: 0,
+        cache_read_tokens: 91520,
+        context_used_tokens: null,
+        context_window_tokens: null,
+        context_percent: null,
+        coverage: { synced: 1, partial: 0, legacy_undercounted: 0, missing_source: 0, unsupported: 0 },
+        partial_sessions: []
+        // No session_contributions — renderer must NOT do base - 0 + live
+      }
+    })
+
+    renderHost()
+
+    await waitFor(() => {
+      // Current session shows 418K / $1.04
+      expect(screen.getByText('$1.04')).toBeInTheDocument()
+      expect(screen.getByText('418.3K')).toBeInTheDocument()
+      // Worktree aggregate should be Math.max(239K, 418K) = 418K, NOT 239K + 418K = 657K
+      expect(screen.queryByText('657.5K')).not.toBeInTheDocument()
+      expect(screen.queryByText('783.5K')).not.toBeInTheDocument()
     })
   })
 })

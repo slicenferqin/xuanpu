@@ -2,8 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   ACTIVITY_TOUCH_THROTTLE_MS,
   PENDING_MESSAGE_SEND_RECOVERY_MS,
+  acceptSessionEvent,
+  beginLocalSessionRun,
+  cancelLocalSessionRun,
   clearStreamingBuffer,
   clearStreamingBufferOverlay,
+  finishLocalSessionRun,
   getStreamingBufferSnapshot,
   getStreamingBuffer,
   resetStreamingBuffersForTests,
@@ -765,6 +769,73 @@ describe('useSessionRuntimeStore', () => {
         timestamp: 789
       })
     })
+
+    it('starts and settles a local prompt run without waiting for stream events', () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(5_000)
+
+      expect(
+        acceptSessionEvent({
+          sessionId: 'sess-local',
+          runEpoch: 9,
+          sessionSequence: 4,
+          eventId: 'old-run'
+        })
+      ).toMatchObject({ accepted: true, advancedRun: true })
+      expect(
+        acceptSessionEvent({
+          sessionId: 'sess-local',
+          runEpoch: 1,
+          sessionSequence: 1,
+          eventId: 'would-be-stale'
+        })
+      ).toMatchObject({ accepted: false })
+
+      beginLocalSessionRun('sess-local')
+
+      const started = getStreamingBufferSnapshot('sess-local')
+      expect(useSessionRuntimeStore.getState().getSession('sess-local').lifecycle).toBe('busy')
+      expect(started.isStreaming).toBe(true)
+      expect(started.runStartedAt).toBe(5_000)
+      expect(started.streamingContent).toBe('')
+      expect(started.parts).toEqual([])
+      expect(
+        acceptSessionEvent({
+          sessionId: 'sess-local',
+          runEpoch: 1,
+          sessionSequence: 1,
+          eventId: 'fresh-after-local-start'
+        })
+      ).toMatchObject({ accepted: true, advancedRun: true })
+
+      finishLocalSessionRun('sess-local')
+      const finished = getStreamingBufferSnapshot('sess-local')
+      expect(useSessionRuntimeStore.getState().getSession('sess-local').lifecycle).toBe('idle')
+      expect(finished.isStreaming).toBe(false)
+      expect(finished.runStartedAt).toBeUndefined()
+    })
+
+    it('cancels a local prompt run and clears the transient overlay', () => {
+      beginLocalSessionRun('sess-cancel')
+      updateStreamingBuffer(
+        'sess-cancel',
+        (current) => ({
+          ...current,
+          streamingContent: 'partial',
+          parts: [{ type: 'text', text: 'partial' }]
+        }),
+        { notify: 'none' }
+      )
+
+      cancelLocalSessionRun('sess-cancel')
+
+      const snapshot = getStreamingBufferSnapshot('sess-cancel')
+      expect(useSessionRuntimeStore.getState().getSession('sess-cancel').lifecycle).toBe('idle')
+      expect(snapshot.isStreaming).toBe(false)
+      expect(snapshot.runStartedAt).toBeUndefined()
+      expect(snapshot.streamingContent).toBe('')
+      expect(snapshot.parts).toEqual([])
+    })
   })
 
   describe('per-session event callbacks', () => {
@@ -947,10 +1018,9 @@ describe('useSessionRuntimeStore', () => {
       })
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
-      useSessionRuntimeStore.getState().queueMessage(
-        'sess-1',
-        makePendingMessage({ id: 'pending-create-fail' })
-      )
+      useSessionRuntimeStore
+        .getState()
+        .queueMessage('sess-1', makePendingMessage({ id: 'pending-create-fail' }))
 
       await Promise.resolve()
       await Promise.resolve()

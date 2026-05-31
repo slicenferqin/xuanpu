@@ -29,10 +29,11 @@ import { asNumber, asObject, asString, toDebugSnapshot } from './codex-utils'
 import { generateCodexSessionTitle } from './codex-session-title'
 import { getCodexConfiguredContextWindow, getCodexConfiguredModel } from './codex-config'
 import type { DatabaseService } from '../db/database'
+import type { SessionActivityCreate } from '../db'
 import { autoRenameWorktreeBranch } from './git-service'
 import { beginSessionRun, emitAgentEvent } from '@shared/lib/normalize-agent-event'
 import { stripFieldContextEnvelope } from '@shared/lib/field-context-envelope'
-import { calculateUsageCost } from '@shared/usage/pricing'
+import { calculateUsageCost, resolvePricingModelKey } from '@shared/usage/pricing'
 import { notificationService } from './notification-service'
 import { buildXfpFallbackContext } from '../xfp/fallback-context'
 import { xfpProvider } from '../xfp/provider'
@@ -55,7 +56,7 @@ export interface CodexSessionState {
   revertDiff: string | null
   titleGenerated: boolean
   titleGenerationStarted: boolean
-  tokenUsageCostByTurn?: Map<string, number>
+  tokenUsageCostByEvent?: Map<string, number>
   /**
    * Per-session mapper state. Codex commandExecution streams stdout via
    * outputDelta chunks; the mapper aggregates them into state.output here so
@@ -139,6 +140,24 @@ interface CodexJsonlTurnTimeline {
   assistantMessages: CodexJsonlTextTimestamp[]
   reasoningMessages: CodexJsonlTextTimestamp[]
   toolCallTimestampsById: Map<string, string>
+}
+
+interface CodexJsonlSupplementalMessage {
+  message: unknown
+  timestamp: string
+  normalizedText: string
+  role: 'user' | 'assistant'
+}
+
+interface CodexJsonlToolCall {
+  callId: string
+  name: string
+  input: unknown
+  turnId: string | null
+  startedAt: string
+  completedAt: string | null
+  output: unknown
+  failed: boolean
 }
 
 // ── Pending HITL entry (shared by questions and approvals) ────────
@@ -233,6 +252,23 @@ function normalizeCodexTimelineText(text: string): string {
   return text.trim().replace(/\s+/g, ' ')
 }
 
+function normalizeCodexJsonlTimestamp(timestamp: string | undefined): string | null {
+  if (!timestamp) return null
+  const parsed = Date.parse(timestamp)
+  if (!Number.isFinite(parsed)) return null
+  return new Date(parsed).toISOString()
+}
+
+function stripCodexMemoryCitation(text: string): string {
+  return text.replace(/\n*<oai-mem-citation>[\s\S]*?<\/oai-mem-citation>\s*$/i, '').trim()
+}
+
+function extractCodexJsonlPath(snapshot: unknown): string | null {
+  const obj = asObject(snapshot)
+  const threadObj = asObject(obj?.thread) ?? obj
+  return asString(threadObj?.path) ?? null
+}
+
 function extractCodexJsonlContentText(content: unknown): string {
   if (!Array.isArray(content)) return ''
 
@@ -242,6 +278,148 @@ function extractCodexJsonlContentText(content: unknown): string {
     .filter(Boolean)
     .join('\n')
     .trim()
+}
+
+function parseCodexJsonlArguments(value: unknown): unknown {
+  if (typeof value !== 'string') return value
+  try {
+    return JSON.parse(value) as unknown
+  } catch {
+    return value
+  }
+}
+
+function parseCodexJsonlOutputExitCode(output: unknown): number | undefined {
+  if (typeof output !== 'string') return undefined
+  const match = output.match(/^Exit code:\s*(-?\d+)/m)
+  if (!match?.[1]) return undefined
+  const parsed = Number.parseInt(match[1], 10)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+function parseCodexJsonlOutputDurationMs(output: unknown): number | undefined {
+  if (typeof output !== 'string') return undefined
+  const match = output.match(/^Wall time:\s*([0-9.]+)\s*seconds?/m)
+  if (!match?.[1]) return undefined
+  const parsed = Number.parseFloat(match[1])
+  return Number.isFinite(parsed) ? Math.round(parsed * 1000) : undefined
+}
+
+function inferCodexJsonlOutputFailed(output: unknown): boolean {
+  const exitCode = parseCodexJsonlOutputExitCode(output)
+  return exitCode !== undefined && exitCode !== 0
+}
+
+function extractCodexJsonlToolName(name: string): string {
+  const parts = name.split('.').filter(Boolean)
+  return parts[parts.length - 1] ?? name
+}
+
+function extractPatchChangesFromCodexJsonlInput(input: unknown): unknown[] {
+  const patch = typeof input === 'string' ? input : asString(asObject(input)?.patch)
+  if (!patch) return []
+
+  const changes: Array<Record<string, unknown>> = []
+  let current: { path: string; operation: string; lines: string[] } | null = null
+
+  const flush = (): void => {
+    if (!current) return
+    changes.push({
+      path: current.path,
+      kind: { type: current.operation },
+      diff: current.lines.join('\n').trim()
+    })
+    current = null
+  }
+
+  for (const line of patch.split(/\r?\n/)) {
+    const match = line.match(/^\*\*\* (Update|Add|Delete) File: (.+)$/)
+    if (match?.[1] && match[2]) {
+      flush()
+      current = {
+        path: match[2].trim(),
+        operation: match[1].toLowerCase(),
+        lines: []
+      }
+      continue
+    }
+
+    if (current) {
+      current.lines.push(line)
+    }
+  }
+
+  flush()
+  return changes
+}
+
+function buildCodexJsonlToolItem(call: CodexJsonlToolCall): Record<string, unknown> {
+  const toolName = extractCodexJsonlToolName(call.name)
+  const inputRecord = asObject(call.input)
+  const output = call.output
+  const exitCode = parseCodexJsonlOutputExitCode(output)
+  const durationMs = parseCodexJsonlOutputDurationMs(output)
+  const status = call.failed || inferCodexJsonlOutputFailed(output) ? 'failed' : 'completed'
+
+  if (
+    toolName === 'shell_command' ||
+    toolName === 'bash' ||
+    toolName === 'exec_command' ||
+    toolName === 'run_command'
+  ) {
+    const command = asString(inputRecord?.command) ?? asString(inputRecord?.script) ?? ''
+    const cwd = asString(inputRecord?.workdir) ?? asString(inputRecord?.cwd)
+    return {
+      type: 'commandExecution',
+      id: call.callId,
+      command,
+      ...(cwd ? { cwd } : {}),
+      commandActions: [],
+      status,
+      ...(typeof output === 'string' ? { aggregatedOutput: output } : {}),
+      ...(exitCode !== undefined ? { exitCode } : {}),
+      ...(durationMs !== undefined ? { durationMs } : {})
+    }
+  }
+
+  if (toolName === 'apply_patch' || toolName === 'patch_apply') {
+    const changes = extractPatchChangesFromCodexJsonlInput(call.input)
+    return {
+      type: 'fileChange',
+      id: call.callId,
+      status,
+      changes,
+      ...(typeof call.input === 'string' ? { patch: call.input } : { input: call.input }),
+      ...(typeof output === 'string' ? { output } : {})
+    }
+  }
+
+  if (toolName === 'web_search' || toolName === 'web_search_call' || toolName === 'search') {
+    const query =
+      asString(inputRecord?.query) ??
+      (Array.isArray(inputRecord?.queries) ? asString(inputRecord.queries[0]) : undefined)
+    return {
+      type: 'webSearch',
+      id: call.callId,
+      status,
+      ...(query ? { query } : {}),
+      action: {
+        type: 'search',
+        ...(query ? { query } : {}),
+        ...(Array.isArray(inputRecord?.queries) ? { queries: inputRecord.queries } : {})
+      }
+    }
+  }
+
+  return {
+    type: 'mcpToolCall',
+    id: call.callId,
+    server: 'codex-jsonl',
+    tool: call.name,
+    status,
+    arguments: call.input,
+    ...(output !== undefined ? { result: output } : {})
+  }
 }
 
 function extractCodexJsonlReasoningText(payload: Record<string, unknown>): string {
@@ -262,10 +440,21 @@ function shiftMatchingCodexJsonlTextTimestamp(
   entries: CodexJsonlTextTimestamp[],
   text: string
 ): string | null {
-  const target = normalizeCodexTimelineText(text)
+  const target = normalizeCodexTimelineText(stripCodexMemoryCitation(text))
   if (!target) return null
 
-  const index = entries.findIndex((entry) => normalizeCodexTimelineText(entry.text) === target)
+  const index = entries.findIndex((entry) => {
+    const candidate = normalizeCodexTimelineText(stripCodexMemoryCitation(entry.text))
+    if (!candidate) return false
+    if (candidate === target) return true
+
+    // `thread/read` may return assistant text with the trailing memory-citation
+    // block already stripped while JSONL keeps the raw final response. Treat
+    // containment as a match only for substantial text so short status updates
+    // do not accidentally steal a later timestamp.
+    if (candidate.length < 80 || target.length < 80) return false
+    return candidate.startsWith(target) || target.startsWith(candidate)
+  })
   if (index < 0) return null
 
   const [entry] = entries.splice(index, 1)
@@ -357,6 +546,23 @@ function hasRenderableAssistantMessage(messages: unknown[]): boolean {
       return false
     })
   })
+}
+
+function extractCodexTimelineMessageText(message: unknown): string {
+  const record = asObject(message)
+  if (!record) return ''
+
+  if (typeof record.content === 'string') {
+    return record.content
+  }
+
+  const parts = Array.isArray(record.parts) ? record.parts : []
+  return parts
+    .map((part) => asObject(part))
+    .map((part) => asString(part?.text) ?? '')
+    .filter(Boolean)
+    .join('\n')
+    .trim()
 }
 
 // ── Immediate title helpers ────────────────────────────────────────────────
@@ -523,29 +729,237 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     session: CodexSessionState,
     turnId: string | undefined,
     modelID: string,
-    tokens: { input: number; cacheRead: number; cacheWrite: number; output: number }
+    tokens: { input: number; cacheRead: number; cacheWrite: number; output: number },
+    totals?: {
+      totalInputTokens: number
+      totalCachedInputTokens: number
+      totalOutputTokens: number
+      totalReasoningTokens: number
+    }
   ): { cost?: number; requestId?: string } {
     if (!turnId) return {}
 
-    const costByTurn =
-      session.tokenUsageCostByTurn ?? (session.tokenUsageCostByTurn = new Map<string, number>())
-    const totalCost = calculateUsageCost(modelID, tokens, 'codex')
-    const previousCost = costByTurn.get(turnId) ?? 0
-    costByTurn.set(turnId, Math.max(previousCost, totalCost))
+    // Use event-keyed dedup instead of per-turn max.
+    // Each unique token-count event should only be counted once.
+    const costByEvent =
+      session.tokenUsageCostByEvent ?? (session.tokenUsageCostByEvent = new Map<string, number>())
 
-    const delta = Math.max(0, totalCost - previousCost)
-    if (delta <= 0) return {}
+    // Build event key matching the DB sourceEventId fingerprint.
+    // Use cumulative totals when available (same as persistCodexTokenCountEvent),
+    // fall back to delta values for backward compat.
+    const eventKey = totals
+      ? [
+          session.threadId ?? 'unknown',
+          turnId,
+          totals.totalInputTokens,
+          totals.totalCachedInputTokens,
+          totals.totalOutputTokens,
+          totals.totalReasoningTokens
+        ].join(':')
+      : [
+          turnId,
+          tokens.input,
+          tokens.cacheRead,
+          tokens.cacheWrite,
+          tokens.output
+        ].join(':')
+
+    const totalCost = calculateUsageCost(modelID, tokens, 'codex')
+
+    if (costByEvent.has(eventKey)) {
+      // Already counted this exact event
+      return {}
+    }
+
+    costByEvent.set(eventKey, totalCost)
 
     return {
-      cost: delta,
+      cost: totalCost,
       requestId: [
         'codex-context-usage',
-        turnId,
-        tokens.input,
-        tokens.cacheRead,
-        tokens.cacheWrite,
-        tokens.output
+        eventKey
       ].join(':')
+    }
+  }
+
+  /**
+   * Persist a codex turn's token usage to `usage_entries`.
+   *
+   * Per-turn rows are keyed by `(session_id, source_message_id='codex-turn:<turnId>')`,
+   * Persist a single Codex token-count event to the v2 event-keyed ledger.
+   *
+   * Each tokenUsage/updated notification gets its own row, keyed by a fingerprint
+   * of the cumulative totals. This ensures:
+   * - Duplicate notifications with the same cumulative total are ignored
+   * - Multiple events in the same turn each get their own row
+   * - Summing event deltas reconstructs the correct thread total
+   */
+  private persistCodexTokenCountEvent(
+    session: CodexSessionState,
+    turnId: string | undefined,
+    modelID: string,
+    lastTokens: { input: number; cacheRead: number; cacheWrite: number; output: number; reasoning: number },
+    totals: {
+      totalInputTokens: number
+      totalCachedInputTokens: number
+      totalOutputTokens: number
+      totalReasoningTokens: number
+      lastInputTokens: number
+      lastCachedInputTokens: number
+      lastOutputTokens: number
+      lastReasoningTokens: number
+    },
+    contextWindow: number
+  ): void {
+    if (!this.dbService || !turnId) return
+
+    // total_tokens = input + output + cacheRead + cacheWrite
+    // reasoning is a subset of output, NOT additive
+    const total =
+      lastTokens.input + lastTokens.output + lastTokens.cacheRead + lastTokens.cacheWrite
+    if (total <= 0) return
+
+    try {
+      const dbSession = this.dbService.getSession(session.hiveSessionId)
+      if (!dbSession) return
+
+      // Build a stable event fingerprint from cumulative totals.
+      // If Codex ever exposes a native event id, use that instead.
+      const sourceEventId = [
+        session.threadId ?? 'unknown',
+        turnId,
+        totals.totalInputTokens,
+        totals.totalCachedInputTokens,
+        totals.totalOutputTokens,
+        totals.totalReasoningTokens
+      ].join(':')
+
+      // Cost uses input + output + cache (reasoning is subset of output)
+      const costTokens = {
+        input: lastTokens.input,
+        cacheRead: lastTokens.cacheRead,
+        cacheWrite: lastTokens.cacheWrite,
+        output: lastTokens.output
+      }
+      const cost = calculateUsageCost(modelID, costTokens, 'codex')
+      const pricingModelKey = resolvePricingModelKey(modelID, 'codex')
+
+      this.dbService.insertUsageEvent({
+        session_id: session.hiveSessionId,
+        project_id: dbSession.project_id,
+        worktree_id: dbSession.worktree_id ?? null,
+        agent_sdk: 'codex',
+        source_kind: 'codex-token-count',
+        source_event_id: sourceEventId,
+        runtime_session_id: session.threadId ?? null,
+        thread_id: session.threadId ?? null,
+        turn_id: turnId,
+        provider_id: 'codex',
+        model_id: pricingModelKey,
+        model_label: modelID,
+        input_tokens: lastTokens.input,
+        output_tokens: lastTokens.output,
+        reasoning_tokens: lastTokens.reasoning,
+        cache_write_tokens: lastTokens.cacheWrite,
+        cache_read_tokens: lastTokens.cacheRead,
+        total_tokens: total,
+        cost_estimate: cost,
+        occurred_at: new Date().toISOString()
+      })
+
+      // Update the session usage snapshot with cumulative totals
+      // total_tokens = input + output (reasoning is subset of output)
+      const snapshotTotalTokens = totals.totalInputTokens + totals.totalOutputTokens
+      this.dbService.upsertUsageSnapshot({
+        session_id: session.hiveSessionId,
+        agent_sdk: 'codex',
+        runtime_session_id: session.threadId ?? null,
+        thread_id: session.threadId ?? null,
+        provider_id: 'codex',
+        model_id: pricingModelKey,
+        model_label: modelID,
+        total_input_tokens: totals.totalInputTokens - totals.totalCachedInputTokens,
+        total_output_tokens: totals.totalOutputTokens,
+        total_reasoning_tokens: totals.totalReasoningTokens,
+        total_cache_write_tokens: 0,
+        total_cache_read_tokens: totals.totalCachedInputTokens,
+        total_tokens: snapshotTotalTokens,
+        total_cost_estimate: calculateUsageCost(
+          modelID,
+          {
+            input: totals.totalInputTokens - totals.totalCachedInputTokens,
+            cacheRead: totals.totalCachedInputTokens,
+            cacheWrite: 0,
+            output: totals.totalOutputTokens
+          },
+          'codex'
+        ),
+        context_used_tokens: totals.lastInputTokens,
+        context_window_tokens: contextWindow,
+        context_percent: contextWindow > 0 ? (totals.lastInputTokens / contextWindow) * 100 : 0,
+        source_kind: 'codex-token-count',
+        sync_status: 'synced',
+        last_event_at: new Date().toISOString()
+      })
+
+      // Also persist to legacy usage_entries for backward compatibility
+      this.persistCodexTurnUsageLegacy(session, turnId, modelID, lastTokens)
+    } catch (error) {
+      log.warn('Failed to persist codex token-count event', {
+        hiveSessionId: session.hiveSessionId,
+        turnId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
+  }
+
+  /**
+   * Legacy persistence to usage_entries for backward compatibility.
+   * This keeps the old behavior of one row per turn for existing consumers.
+   */
+  private persistCodexTurnUsageLegacy(
+    session: CodexSessionState,
+    turnId: string | undefined,
+    modelID: string,
+    lastTokens: { input: number; cacheRead: number; cacheWrite: number; output: number }
+  ): void {
+    if (!this.dbService || !turnId) return
+
+    const total =
+      lastTokens.input + lastTokens.output + lastTokens.cacheRead + lastTokens.cacheWrite
+    if (total <= 0) return
+
+    try {
+      const dbSession = this.dbService.getSession(session.hiveSessionId)
+      if (!dbSession) return
+
+      const cost = calculateUsageCost(modelID, lastTokens, 'codex')
+      const pricingModelKey = resolvePricingModelKey(modelID, 'codex')
+
+      this.dbService.upsertUsageEntry({
+        session_id: session.hiveSessionId,
+        project_id: dbSession.project_id,
+        worktree_id: dbSession.worktree_id ?? null,
+        agent_sdk: 'codex',
+        source_kind: 'codex-message',
+        source_message_id: `codex-turn:${turnId}`,
+        provider_id: 'codex',
+        model_id: pricingModelKey,
+        model_label: modelID,
+        input_tokens: lastTokens.input,
+        output_tokens: lastTokens.output,
+        cache_write_tokens: lastTokens.cacheWrite,
+        cache_read_tokens: lastTokens.cacheRead,
+        total_tokens: total,
+        cost,
+        occurred_at: new Date().toISOString()
+      })
+    } catch (error) {
+      log.warn('Failed to persist codex turn usage (legacy)', {
+        hiveSessionId: session.hiveSessionId,
+        turnId,
+        error: error instanceof Error ? error.message : String(error)
+      })
     }
   }
 
@@ -700,7 +1114,38 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         targetSession,
         turnId,
         modelID,
-        lastTokens
+        lastTokens,
+        {
+          totalInputTokens,
+          totalCachedInputTokens,
+          totalOutputTokens,
+          totalReasoningTokens
+        }
+      )
+
+      // Persist this token-count event to the v2 event-keyed ledger.
+      //
+      // Previous behavior: one row per turnId, upserted on each tokenUsage/updated.
+      // This lost ~90% of data because a single turn can have many token-count events.
+      //
+      // New behavior: one row per unique token-count event, keyed by a fingerprint
+      // of the cumulative totals. This allows correct aggregation by summing deltas.
+      this.persistCodexTokenCountEvent(
+        targetSession,
+        turnId,
+        modelID,
+        lastTokens,
+        {
+          totalInputTokens,
+          totalCachedInputTokens,
+          totalOutputTokens,
+          totalReasoningTokens,
+          lastInputTokens,
+          lastCachedInputTokens,
+          lastOutputTokens,
+          lastReasoningTokens
+        },
+        contextWindow
       )
 
       emitAgentEvent(this.mainWindow, {
@@ -968,7 +1413,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       revertDiff: null,
       titleGenerated: false,
       titleGenerationStarted: false,
-      tokenUsageCostByTurn: new Map(),
+      tokenUsageCostByEvent: new Map(),
       mapperState: createCodexMapperState(),
       itemTimestampsByTurn: new Map(),
       recordedItemIdsByTurn: new Map()
@@ -1009,6 +1454,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         hiveSessionId,
         sessionStatus
       })
+      this.hydrateTokenUsageFromThread(existing).catch(() => {})
       return { success: true, sessionId: existing.threadId, sessionStatus, revertMessageID: null }
     }
 
@@ -1045,7 +1491,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         revertDiff: null,
         titleGenerated: true,
         titleGenerationStarted: true,
-        tokenUsageCostByTurn: new Map(),
+        tokenUsageCostByEvent: new Map(),
         mapperState: createCodexMapperState(),
         itemTimestampsByTurn: new Map(),
         recordedItemIdsByTurn: new Map()
@@ -1161,6 +1607,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     // Inject synthetic user message so getMessages() returns it
     const syntheticTimestamp = new Date().toISOString()
     session.messages.push({
+      id: `client:${session.runId ?? Date.now()}:user`,
       role: 'user',
       parts: displayParts.map((part) => withCodexPartTimestamp(part, syntheticTimestamp)),
       timestamp: syntheticTimestamp
@@ -1470,6 +1917,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
           return
         }
         const parsed = this.parseThreadSnapshot(threadSnapshot, session.itemTimestampsByTurn)
+        this.persistJsonlSupplementalActivities(session, threadSnapshot)
         const snapshotMatchesPrompt = this.parsedMessagesContainUserText(parsed, [
           displayText,
           runtimeText,
@@ -1477,6 +1925,11 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         ])
         if (parsed.length > 0 && snapshotMatchesPrompt) {
           session.messages = parsed
+          // The snapshot is the canonical source once it matches the prompt.
+          // Clear the live draft instead of materializing it — keeping both
+          // would duplicate messages (live draft has id `codex-live-*` while
+          // snapshot items have `${turnId}:assistant:item-*`).
+          session.liveAssistantDraft = null
         } else if (parsed.length > 0) {
           log.warn(
             'prompt: stale or mismatched thread/read snapshot ignored, preserving live draft',
@@ -1857,6 +2310,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       try {
         const threadSnapshot = await this.manager.readThread(session.threadId)
         const parsed = this.parseThreadSnapshot(threadSnapshot, session.itemTimestampsByTurn)
+        this.persistJsonlSupplementalActivities(session, threadSnapshot)
         if (parsed.length > 0) {
           session.messages = parsed
           this.persistCanonicalMessages(session)
@@ -2407,7 +2861,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       for (let i = lines.length - 1; i >= 0; i--) {
         try {
           const entry = JSON.parse(lines[i]) as Record<string, unknown>
-          const msg = asObject(entry.msg)
+          const msg = asObject(entry.payload) ?? asObject(entry.msg)
           if (msg?.type === 'token_count') {
             lastTokenCount = asObject(msg.info)
             break
@@ -2774,10 +3228,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     return false
   }
 
-  private shouldRefreshCollapsedTimeline(
-    session: CodexSessionState,
-    messages: unknown[]
-  ): boolean {
+  private shouldRefreshCollapsedTimeline(session: CodexSessionState, messages: unknown[]): boolean {
     if (!this.dbService || session.status === 'running' || session.status === 'closed') return false
 
     try {
@@ -3290,7 +3741,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         revertDiff: null,
         titleGenerated: true,
         titleGenerationStarted: true,
-        tokenUsageCostByTurn: new Map(),
+        tokenUsageCostByEvent: new Map(),
         mapperState: createCodexMapperState(),
         itemTimestampsByTurn: new Map(),
         recordedItemIdsByTurn: new Map()
@@ -3444,9 +3895,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
   }
 
   private readJsonlItemTimelineByTurn(snapshot: unknown): Map<string, CodexJsonlTurnTimeline> {
-    const obj = asObject(snapshot)
-    const threadObj = asObject(obj?.thread) ?? obj
-    const jsonlPath = asString(threadObj?.path)
+    const jsonlPath = extractCodexJsonlPath(snapshot)
     if (!jsonlPath) return new Map()
 
     const result = new Map<string, CodexJsonlTurnTimeline>()
@@ -3468,16 +3917,9 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       const lines = readFileSync(jsonlPath, 'utf-8').split('\n')
       let currentTurnId: string | null = null
 
-      const normalizeTimestamp = (timestamp: string | undefined): string | null => {
-        if (!timestamp) return null
-        const parsed = Date.parse(timestamp)
-        if (!Number.isFinite(parsed)) return null
-        return new Date(parsed).toISOString()
-      }
-
       const pushPositional = (timestamp: string | undefined): string | null => {
         if (!currentTurnId || !timestamp) return null
-        const normalized = normalizeTimestamp(timestamp)
+        const normalized = normalizeCodexJsonlTimestamp(timestamp)
         if (!normalized) return null
         getTurnTimeline(currentTurnId).positional.push(normalized)
         return normalized
@@ -3492,7 +3934,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         timestamp: string | undefined
       ): void => {
         if (!currentTurnId || !text.trim()) return
-        const normalized = normalizeTimestamp(timestamp)
+        const normalized = normalizeCodexJsonlTimestamp(timestamp)
         if (!normalized) return
         getTurnTimeline(currentTurnId)[collection].push({ text, timestamp: normalized })
       }
@@ -3509,6 +3951,11 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         const entryType = asString(entry.type)
         const payload = asObject(entry.payload)
         const timestamp = asString(entry.timestamp)
+
+        if (entryType === 'turn_context') {
+          currentTurnId = asString(payload?.turn_id) ?? currentTurnId
+          continue
+        }
 
         if (entryType === 'event_msg') {
           const payloadType = asString(payload?.type)
@@ -3558,6 +4005,355 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     }
 
     return result
+  }
+
+  private readJsonlSupplementalMessages(snapshot: unknown): CodexJsonlSupplementalMessage[] {
+    const jsonlPath = extractCodexJsonlPath(snapshot)
+    if (!jsonlPath) return []
+
+    const messages: CodexJsonlSupplementalMessage[] = []
+    const responseMessages: CodexJsonlSupplementalMessage[] = []
+    let currentTurnId: string | null = null
+    let messageOrdinal = 0
+
+    const pushSupplementalMessage = (
+      target: CodexJsonlSupplementalMessage[],
+      role: 'user' | 'assistant',
+      text: string,
+      timestamp: string | undefined
+    ): void => {
+      const trimmed = stripCodexMemoryCitation(text)
+      const normalizedText = normalizeCodexTimelineText(trimmed)
+      if (!normalizedText) return
+      if (
+        target.some(
+          (message) =>
+            (message.role === role && message.normalizedText === normalizedText) ||
+            (message.role === role &&
+              (message.normalizedText.startsWith(normalizedText) ||
+                normalizedText.startsWith(message.normalizedText)))
+        )
+      ) {
+        return
+      }
+
+      const normalizedTimestamp =
+        normalizeCodexJsonlTimestamp(timestamp) ?? new Date().toISOString()
+      messageOrdinal += 1
+      const idBase = currentTurnId ?? `jsonl-${messageOrdinal}`
+      const roleSuffix = role === 'assistant' ? 'assistant' : 'user'
+      target.push({
+        role,
+        normalizedText,
+        timestamp: normalizedTimestamp,
+        message: {
+          id: `${idBase}:${roleSuffix}:jsonl-${messageOrdinal}`,
+          role,
+          parts: [
+            {
+              type: 'text',
+              text: trimmed,
+              timestamp: normalizedTimestamp
+            }
+          ],
+          timestamp: normalizedTimestamp
+        }
+      })
+    }
+
+    try {
+      const lines = readFileSync(jsonlPath, 'utf-8').split('\n')
+      for (const line of lines) {
+        if (!line.trim()) continue
+
+        let entry: Record<string, unknown>
+        try {
+          entry = JSON.parse(line) as Record<string, unknown>
+        } catch {
+          continue
+        }
+
+        const entryType = asString(entry.type)
+        const payload = asObject(entry.payload)
+        const timestamp = asString(entry.timestamp)
+
+        if (entryType === 'turn_context') {
+          currentTurnId = asString(payload?.turn_id) ?? currentTurnId
+          continue
+        }
+
+        if (entryType === 'event_msg') {
+          const payloadType = asString(payload?.type)
+          if (payloadType === 'task_started') {
+            currentTurnId = asString(payload?.turn_id) ?? null
+            continue
+          }
+
+          if (payloadType === 'user_message') {
+            pushSupplementalMessage(messages, 'user', asString(payload?.message) ?? '', timestamp)
+          } else if (payloadType === 'agent_message') {
+            pushSupplementalMessage(
+              messages,
+              'assistant',
+              asString(payload?.message) ?? '',
+              timestamp
+            )
+          }
+          continue
+        }
+
+        if (
+          entryType === 'response_item' &&
+          asString(payload?.type) === 'message' &&
+          asString(payload?.role) === 'assistant'
+        ) {
+          pushSupplementalMessage(
+            responseMessages,
+            'assistant',
+            extractCodexJsonlContentText(payload?.content),
+            timestamp
+          )
+        }
+
+        // Recover reasoning content from JSONL when thread/read hasn't returned it yet.
+        // Same structure as the reasoning items in parseThreadSnapshot.
+        if (
+          entryType === 'response_item' &&
+          asString(payload?.type) === 'reasoning'
+        ) {
+          const summary = Array.isArray(payload?.summary)
+            ? (payload.summary as string[]).filter((s): s is string => typeof s === 'string')
+            : []
+          const content = Array.isArray(payload?.content)
+            ? (payload.content as string[]).filter((s): s is string => typeof s === 'string')
+            : []
+          const reasoningText = [...summary, ...content].join('\n').trim()
+          if (reasoningText) {
+            pushSupplementalMessage(
+              responseMessages,
+              'assistant',
+              reasoningText,
+              timestamp
+            )
+          }
+        }
+      }
+    } catch (error) {
+      log.debug('parseThreadSnapshot: failed to read Codex JSONL supplemental messages', {
+        jsonlPath,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
+
+    return [
+      ...messages,
+      ...responseMessages.filter(
+        (responseMessage) =>
+          !messages.some(
+            (message) =>
+              responseMessage.role === message.role &&
+              (responseMessage.normalizedText === message.normalizedText ||
+                responseMessage.normalizedText.startsWith(message.normalizedText) ||
+                message.normalizedText.startsWith(responseMessage.normalizedText))
+          )
+      )
+    ]
+  }
+
+  private readJsonlSupplementalActivities(
+    session: CodexSessionState,
+    snapshot: unknown
+  ): SessionActivityCreate[] {
+    const jsonlPath = extractCodexJsonlPath(snapshot)
+    if (!jsonlPath) return []
+
+    const calls = new Map<string, CodexJsonlToolCall>()
+    let currentTurnId: string | null = null
+
+    const getOrCreateCall = (
+      callId: string,
+      name: string,
+      timestamp: string | undefined
+    ): CodexJsonlToolCall => {
+      const normalizedTimestamp =
+        normalizeCodexJsonlTimestamp(timestamp) ?? new Date().toISOString()
+      const existing = calls.get(callId)
+      if (existing) {
+        if (!existing.name && name) existing.name = name
+        if (!existing.turnId && currentTurnId) existing.turnId = currentTurnId
+        return existing
+      }
+
+      const created: CodexJsonlToolCall = {
+        callId,
+        name,
+        input: {},
+        turnId: currentTurnId,
+        startedAt: normalizedTimestamp,
+        completedAt: null,
+        output: undefined,
+        failed: false
+      }
+      calls.set(callId, created)
+      return created
+    }
+
+    const recordToolCall = (
+      callId: string | undefined,
+      name: string | undefined,
+      input: unknown,
+      timestamp: string | undefined
+    ): void => {
+      if (!callId || !name) return
+      const call = getOrCreateCall(callId, name, timestamp)
+      call.input = parseCodexJsonlArguments(input)
+      call.startedAt = normalizeCodexJsonlTimestamp(timestamp) ?? call.startedAt
+      call.turnId = call.turnId ?? currentTurnId
+    }
+
+    const recordToolOutput = (
+      callId: string | undefined,
+      output: unknown,
+      timestamp: string | undefined
+    ): void => {
+      if (!callId) return
+      const call = getOrCreateCall(callId, 'unknown', timestamp)
+      call.output = output
+      call.completedAt = normalizeCodexJsonlTimestamp(timestamp) ?? call.completedAt
+      call.failed = call.failed || inferCodexJsonlOutputFailed(output)
+      call.turnId = call.turnId ?? currentTurnId
+    }
+
+    try {
+      const lines = readFileSync(jsonlPath, 'utf-8').split('\n')
+      for (const line of lines) {
+        if (!line.trim()) continue
+
+        let entry: Record<string, unknown>
+        try {
+          entry = JSON.parse(line) as Record<string, unknown>
+        } catch {
+          continue
+        }
+
+        const entryType = asString(entry.type)
+        const payload = asObject(entry.payload)
+        const timestamp = asString(entry.timestamp)
+
+        if (entryType === 'turn_context') {
+          currentTurnId = asString(payload?.turn_id) ?? currentTurnId
+          continue
+        }
+
+        if (entryType === 'event_msg') {
+          const payloadType = asString(payload?.type)
+          if (payloadType === 'task_started') {
+            currentTurnId = asString(payload?.turn_id) ?? null
+          } else if (payloadType === 'patch_apply_end') {
+            const stdout = asString(payload?.stdout)
+            const stderr = asString(payload?.stderr)
+            recordToolOutput(
+              asString(payload?.call_id),
+              [stdout, stderr].filter(Boolean).join('\n'),
+              timestamp
+            )
+          }
+          continue
+        }
+
+        if (entryType !== 'response_item') continue
+
+        const itemType = asString(payload?.type)
+        if (itemType === 'function_call' || itemType === 'custom_tool_call') {
+          recordToolCall(
+            asString(payload?.call_id) ?? asString(payload?.id),
+            asString(payload?.name),
+            payload?.arguments ?? payload?.input,
+            timestamp
+          )
+        } else if (itemType === 'function_call_output' || itemType === 'custom_tool_call_output') {
+          recordToolOutput(asString(payload?.call_id), payload?.output, timestamp)
+        } else if (
+          itemType === 'local_shell_call' ||
+          itemType === 'web_search_call' ||
+          itemType === 'tool_search_call' ||
+          itemType === 'image_generation_call'
+        ) {
+          recordToolCall(
+            asString(payload?.call_id) ?? asString(payload?.id),
+            itemType,
+            payload,
+            timestamp
+          )
+          const callId = asString(payload?.call_id) ?? asString(payload?.id)
+          if (callId && asString(payload?.status) === 'completed') {
+            const call = getOrCreateCall(callId, itemType, timestamp)
+            call.completedAt = normalizeCodexJsonlTimestamp(timestamp) ?? call.completedAt
+          }
+        }
+      }
+    } catch (error) {
+      log.debug('parseThreadSnapshot: failed to read Codex JSONL supplemental activities', {
+        jsonlPath,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
+
+    return Array.from(calls.values())
+      .filter((call) => call.name !== 'unknown' || call.output !== undefined)
+      .map((call) => {
+        const item = buildCodexJsonlToolItem(call)
+        const createdAt = call.completedAt ?? call.startedAt
+        const failed = asString(item.status) === 'failed'
+        return {
+          id: `codex-jsonl:${session.hiveSessionId}:${call.callId}`,
+          session_id: session.hiveSessionId,
+          agent_session_id: session.threadId,
+          thread_id: session.threadId,
+          turn_id: call.turnId,
+          item_id: call.callId,
+          request_id: null,
+          kind: failed ? 'tool.failed' : 'tool.completed',
+          tone: failed ? 'error' : 'tool',
+          summary: extractCodexJsonlToolName(call.name),
+          payload_json: JSON.stringify({ item, source: 'codex-jsonl' }),
+          created_at: createdAt
+        } satisfies SessionActivityCreate
+      })
+  }
+
+  private persistJsonlSupplementalActivities(session: CodexSessionState, snapshot: unknown): void {
+    if (!this.dbService) return
+
+    const activities = this.readJsonlSupplementalActivities(session, snapshot)
+    const scannedAt = new Date().toISOString()
+
+    try {
+      for (const activity of activities) {
+        this.dbService.upsertSessionActivity(activity)
+      }
+
+      this.dbService.upsertSessionActivity({
+        id: `codex-jsonl-recovery:${session.hiveSessionId}:${session.threadId}`,
+        session_id: session.hiveSessionId,
+        agent_session_id: session.threadId,
+        thread_id: session.threadId,
+        kind: 'session.info',
+        tone: 'info',
+        summary: `Codex JSONL recovery scanned ${activities.length} tool activities`,
+        payload_json: JSON.stringify({
+          kind: 'codex_jsonl_recovery',
+          toolActivityCount: activities.length
+        }),
+        created_at: scannedAt
+      })
+    } catch (error) {
+      log.warn('Failed to persist Codex JSONL supplemental activities', {
+        hiveSessionId: session.hiveSessionId,
+        count: activities.length,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
   }
 
   private getJsonlTimestampForThreadItem(
@@ -3617,11 +4413,10 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
 
     const threadObj = asObject(obj.thread) ?? obj
     const turns = threadObj.turns as unknown[] | undefined
-    if (!Array.isArray(turns)) return []
-
     const messages: Array<{ message: unknown; sortTime: number; order: number }> = []
     let order = 0
     const jsonlTimelineByTurn = this.readJsonlItemTimelineByTurn(snapshot)
+    const jsonlSupplementalMessages = this.readJsonlSupplementalMessages(snapshot)
     const pushMessage = (message: unknown, timestamp: string | null | undefined): void => {
       const parsedTimestamp = timestamp ? Date.parse(timestamp) : Number.NaN
       messages.push({
@@ -3631,7 +4426,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       })
     }
 
-    for (const turn of turns) {
+    for (const turn of Array.isArray(turns) ? turns : []) {
       const turnObj = asObject(turn)
       if (!turnObj) continue
 
@@ -3864,6 +4659,21 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
             timestamp
           )
         }
+      }
+    }
+
+    for (const supplementalMessage of jsonlSupplementalMessages) {
+      const alreadyPresent = messages.some((entry) => {
+        const record = asObject(entry.message)
+        if (record?.role !== supplementalMessage.role) return false
+        return (
+          normalizeCodexTimelineText(extractCodexTimelineMessageText(entry.message)) ===
+          supplementalMessage.normalizedText
+        )
+      })
+
+      if (!alreadyPresent) {
+        pushMessage(supplementalMessage.message, supplementalMessage.timestamp)
       }
     }
 

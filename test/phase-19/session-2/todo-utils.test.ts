@@ -3,7 +3,7 @@ import {
   isTodoWriteTool,
   parseTodoItems,
   shouldShowTodoTracker
-} from '@/components/sessions/tools/todo-utils'
+} from '@/lib/todo-utils'
 
 describe('todo utils', () => {
   test('recognizes TodoWrite tool names', () => {

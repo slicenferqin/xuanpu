@@ -1,4 +1,8 @@
 import { describe, test, expect, beforeEach, afterEach, beforeAll } from 'vitest'
+import { randomUUID } from 'crypto'
+import { existsSync, mkdirSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import { CURRENT_SCHEMA_VERSION } from '../../src/main/db/schema'
 import {
   createTestDatabase,
@@ -75,6 +79,275 @@ describeIf('Session 3: Database', () => {
   test('Schema version is tracked', () => {
     const version = db.getSchemaVersion()
     expect(version).toBe(CURRENT_SCHEMA_VERSION)
+  })
+
+  test('repairs session_messages sequence column after migration version skew', () => {
+    const testDir = join(tmpdir(), 'hive-skew-test-' + randomUUID())
+    mkdirSync(testDir, { recursive: true })
+    const dbPath = join(testDir, 'test.db')
+
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const Database = require('better-sqlite3')
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { DatabaseService } = require('../../src/main/db/database')
+      const raw = new Database(dbPath)
+      raw.exec(`
+        CREATE TABLE settings (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        );
+        INSERT INTO settings (key, value) VALUES ('schema_version', '26');
+
+        CREATE TABLE projects (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          path TEXT NOT NULL UNIQUE,
+          created_at TEXT NOT NULL,
+          last_accessed_at TEXT NOT NULL
+        );
+        CREATE TABLE worktrees (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          branch_name TEXT NOT NULL,
+          path TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'active',
+          created_at TEXT NOT NULL,
+          last_accessed_at TEXT NOT NULL
+        );
+        CREATE TABLE sessions (
+          id TEXT PRIMARY KEY,
+          worktree_id TEXT,
+          project_id TEXT NOT NULL,
+          name TEXT,
+          status TEXT NOT NULL DEFAULT 'active',
+          opencode_session_id TEXT,
+          mode TEXT NOT NULL DEFAULT 'build',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          completed_at TEXT
+        );
+        CREATE TABLE session_messages (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          role TEXT NOT NULL,
+          content TEXT NOT NULL,
+          opencode_message_id TEXT,
+          opencode_message_json TEXT,
+          opencode_parts_json TEXT,
+          opencode_timeline_json TEXT,
+          created_at TEXT NOT NULL
+        );
+        INSERT INTO projects (id, name, path, created_at, last_accessed_at)
+          VALUES ('p1', 'Project', '/project', '2026-05-24T00:00:00.000Z', '2026-05-24T00:00:00.000Z');
+        INSERT INTO worktrees (id, project_id, name, branch_name, path, created_at, last_accessed_at)
+          VALUES ('w1', 'p1', 'main', 'main', '/project', '2026-05-24T00:00:00.000Z', '2026-05-24T00:00:00.000Z');
+        INSERT INTO sessions (id, worktree_id, project_id, name, created_at, updated_at)
+          VALUES ('s1', 'w1', 'p1', 'Session', '2026-05-24T00:00:00.000Z', '2026-05-24T00:00:00.000Z');
+        INSERT INTO session_messages (id, session_id, role, content, created_at)
+          VALUES
+            ('m2', 's1', 'assistant', 'second', '2026-05-24T00:00:02.000Z'),
+            ('m1', 's1', 'user', 'first', '2026-05-24T00:00:01.000Z');
+      `)
+      raw.close()
+
+      const skewedDb = new DatabaseService(dbPath)
+      skewedDb.init()
+
+      const columns = skewedDb.getDb().pragma('table_info(session_messages)') as {
+        name: string
+      }[]
+      const indexes = skewedDb.getIndexes().map((index: { name: string }) => index.name)
+      const messages = skewedDb.getSessionMessages('s1')
+
+      expect(columns.some((column) => column.name === 'sequence')).toBe(true)
+      expect(indexes).toContain('idx_messages_session_seq')
+      expect(
+        messages.map((message: { id: string; sequence: number }) => [message.id, message.sequence])
+      ).toEqual([
+        ['m1', 1],
+        ['m2', 2]
+      ])
+
+      skewedDb.close()
+    } finally {
+      if (existsSync(testDir)) {
+        rmSync(testDir, { recursive: true, force: true })
+      }
+    }
+  })
+
+  test('assigns and preserves session activity sequence values', () => {
+    const project = db.createProject({
+      name: 'Activity Project',
+      path: `/tmp/activity-project-${randomUUID()}`
+    })
+    const worktree = db.createWorktree({
+      project_id: project.id,
+      name: 'main',
+      branch_name: 'main',
+      path: `/tmp/activity-worktree-${randomUUID()}`
+    })
+    const session = db.createSession({
+      project_id: project.id,
+      worktree_id: worktree.id,
+      agent_sdk: 'codex'
+    })
+    const timestamp = '2026-05-24T00:00:00.000Z'
+
+    const first = db.upsertSessionActivity({
+      id: 'activity-b',
+      session_id: session.id,
+      kind: 'tool.completed',
+      tone: 'tool',
+      summary: 'First insert',
+      item_id: 'tool-b',
+      payload_json: JSON.stringify({ item: { toolName: 'Read', output: 'ok' } }),
+      created_at: timestamp
+    })
+    const second = db.upsertSessionActivity({
+      id: 'activity-a',
+      session_id: session.id,
+      kind: 'tool.completed',
+      tone: 'tool',
+      summary: 'Second insert',
+      item_id: 'tool-a',
+      payload_json: JSON.stringify({ item: { toolName: 'Write', output: 'ok' } }),
+      created_at: timestamp
+    })
+
+    expect(first.sequence).toBe(1)
+    expect(second.sequence).toBe(2)
+
+    const updated = db.upsertSessionActivity({
+      id: 'activity-b',
+      session_id: session.id,
+      kind: 'tool.completed',
+      tone: 'tool',
+      summary: 'Updated first insert',
+      item_id: 'tool-b',
+      payload_json: JSON.stringify({ item: { toolName: 'Read', output: 'updated' } }),
+      created_at: '2026-05-24T00:00:01.000Z'
+    })
+
+    expect(updated.sequence).toBe(1)
+    expect(
+      db
+        .getSessionActivities(session.id)
+        .map((activity: { id: string; sequence: number; summary: string }) => [
+          activity.id,
+          activity.sequence,
+          activity.summary
+        ])
+    ).toEqual([
+      ['activity-b', 1, 'Updated first insert'],
+      ['activity-a', 2, 'Second insert']
+    ])
+  })
+
+  test('repairs session_activities sequence column after migration version skew', () => {
+    const testDir = join(tmpdir(), 'hive-activity-skew-test-' + randomUUID())
+    mkdirSync(testDir, { recursive: true })
+    const dbPath = join(testDir, 'test.db')
+
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const Database = require('better-sqlite3')
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { DatabaseService } = require('../../src/main/db/database')
+      const raw = new Database(dbPath)
+      raw.exec(`
+        CREATE TABLE settings (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        );
+        INSERT INTO settings (key, value) VALUES ('schema_version', '27');
+
+        CREATE TABLE projects (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          path TEXT NOT NULL UNIQUE,
+          created_at TEXT NOT NULL,
+          last_accessed_at TEXT NOT NULL
+        );
+        CREATE TABLE worktrees (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          branch_name TEXT NOT NULL,
+          path TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'active',
+          created_at TEXT NOT NULL,
+          last_accessed_at TEXT NOT NULL
+        );
+        CREATE TABLE sessions (
+          id TEXT PRIMARY KEY,
+          worktree_id TEXT,
+          project_id TEXT NOT NULL,
+          name TEXT,
+          status TEXT NOT NULL DEFAULT 'active',
+          opencode_session_id TEXT,
+          mode TEXT NOT NULL DEFAULT 'build',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          completed_at TEXT
+        );
+        CREATE TABLE session_activities (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          agent_session_id TEXT,
+          thread_id TEXT,
+          turn_id TEXT,
+          item_id TEXT,
+          request_id TEXT,
+          kind TEXT NOT NULL,
+          tone TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          payload_json TEXT,
+          created_at TEXT NOT NULL
+        );
+        INSERT INTO projects (id, name, path, created_at, last_accessed_at)
+          VALUES ('p1', 'Project', '/project-activities', '2026-05-24T00:00:00.000Z', '2026-05-24T00:00:00.000Z');
+        INSERT INTO worktrees (id, project_id, name, branch_name, path, created_at, last_accessed_at)
+          VALUES ('w1', 'p1', 'main', 'main', '/project-activities', '2026-05-24T00:00:00.000Z', '2026-05-24T00:00:00.000Z');
+        INSERT INTO sessions (id, worktree_id, project_id, name, created_at, updated_at)
+          VALUES ('s1', 'w1', 'p1', 'Session', '2026-05-24T00:00:00.000Z', '2026-05-24T00:00:00.000Z');
+        INSERT INTO session_activities (
+          id, session_id, kind, tone, summary, payload_json, created_at
+        ) VALUES
+          ('activity-z', 's1', 'tool.completed', 'tool', 'inserted first', '{}', '2026-05-24T00:00:00.000Z'),
+          ('activity-a', 's1', 'tool.completed', 'tool', 'inserted second', '{}', '2026-05-24T00:00:00.000Z');
+      `)
+      raw.close()
+
+      const skewedDb = new DatabaseService(dbPath)
+      skewedDb.init()
+
+      const columns = skewedDb.getDb().pragma('table_info(session_activities)') as {
+        name: string
+      }[]
+      const indexes = skewedDb.getIndexes().map((index: { name: string }) => index.name)
+      const activities = skewedDb.getSessionActivities('s1')
+
+      expect(columns.some((column) => column.name === 'sequence')).toBe(true)
+      expect(indexes).toContain('idx_session_activities_session_seq')
+      expect(
+        activities.map((activity: { id: string; sequence: number }) => [
+          activity.id,
+          activity.sequence
+        ])
+      ).toEqual([
+        ['activity-z', 1],
+        ['activity-a', 2]
+      ])
+
+      skewedDb.close()
+    } finally {
+      if (existsSync(testDir)) {
+        rmSync(testDir, { recursive: true, force: true })
+      }
+    }
   })
 
   describe('Settings operations', () => {

@@ -6,7 +6,7 @@ import { ReasoningBlock } from './ReasoningBlock'
 import { CompactionPill } from './CompactionPill'
 import { cn } from '@/lib/utils'
 import type { StreamingPart } from './SessionView'
-import { isTodoWriteTool } from './tools/todo-utils'
+import { isTodoWriteTool } from '@/lib/todo-utils'
 import { stripTaskNotifications } from '@/lib/content-sanitizer'
 import { useMemo } from 'react'
 

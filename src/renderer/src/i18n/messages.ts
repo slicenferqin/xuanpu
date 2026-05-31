@@ -517,10 +517,10 @@ export const messages: Record<AppLocale, MessageTree> = {
           averageCostPerSession: 'Avg Cost / Session'
         },
         tokens: {
-          input: 'Input Tokens',
+          input: 'Input (uncached)',
           output: 'Output Tokens',
           cacheWrite: 'Cache Write',
-          cacheRead: 'Cache Read'
+          cacheRead: 'Input (cached)'
         },
         tabs: {
           overview: 'Overview',
@@ -1449,10 +1449,11 @@ export const messages: Record<AppLocale, MessageTree> = {
         totalCost: 'Total Cost',
         totalTokens: 'Total Tokens',
         totalsSyncing: 'Session totals are syncing…',
-        input: 'Input',
+        input: 'Input (uncached)',
         output: 'Output',
         cacheWrite: 'Cache Write',
-        cacheRead: 'Cache Read',
+        cacheRead: 'Input (cached)',
+        cacheHitRate: 'Cache Hit Rate',
         model: 'Model',
         duration: 'Duration',
         partialData: 'Some historical data could not be synchronized yet.'
@@ -1571,6 +1572,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         emptyTitle: 'No messages yet',
         emptySubtitle: 'Send a message to start the conversation',
         steered: 'STEERED',
+        scrollIndicatorText: 'New messages',
         genericToolStatus: {
           running: 'Running...',
           error: 'Error',
@@ -1777,6 +1779,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         newOpenCode: 'New OpenCode Session',
         newClaudeCode: 'New Claude Code Session',
         newCodex: 'New Codex Session',
+        newXuanpuAgent: 'New Xuanpu Agent Session',
         newTerminal: 'New Terminal'
       },
       empty: {
@@ -1851,15 +1854,35 @@ export const messages: Record<AppLocale, MessageTree> = {
       overview: {
         cost: 'Cost',
         tokens: 'Tokens',
-        input: 'Input',
+        input: 'Input (uncached)',
         output: 'Output',
-        cacheRead: 'Cache Read',
+        cacheRead: 'Input (cached)',
         cacheWrite: 'Cache Write',
+        cacheHitRate: 'Cache Hit Rate',
         sessions: 'Sessions',
         sessionCount: '{count} sessions in this {scope}',
+        sessionBreakdownLabel: 'Session breakdown',
+        activeSessions: '{count} active sessions',
+        inactiveSessions: '{count} inactive sessions',
         contextLimit: '{used} / {limit}',
+        contextPressure: 'Context Pressure',
+        dataQuality: 'Data Quality',
         worktree: 'Worktree',
         connection: 'Connection'
+      },
+      inspector: {
+        currentSession: 'Current Session',
+        aggregate: 'Aggregate',
+        partial: 'partial',
+        model: 'Model',
+        duration: 'Duration',
+        tokenBreakdown: 'Token Breakdown',
+        contextUsed: 'Context Used',
+        totalCost: 'Total Cost',
+        totalTokens: 'Total Tokens',
+        sessions: 'Sessions',
+        noAggregateData: 'Syncing aggregate data…',
+        aggregateError: 'Aggregate data unavailable — try restarting to complete migration',
       },
       tasks: {
         emptyTitle: 'No tasks yet',
@@ -2006,17 +2029,28 @@ export const messages: Record<AppLocale, MessageTree> = {
       title: 'Memory',
       pinnedSection: 'Pinned Facts',
       observedSection: 'Observed (Episodic)',
+      graphSection: 'Memory Graph',
       semanticSection: 'Semantic',
       regenerate: 'Regenerate',
       refresh: 'Refresh',
       clear: 'Clear',
+      save: 'Save',
+      accept: 'Accept',
+      reject: 'Reject',
       open: 'Open',
       create: 'Create',
+      proposed: 'Proposed',
+      accepted: 'Accepted',
+      memoryProposals: 'Proposals',
+      acceptedMemory: 'Accepted Memory',
+      graphStatus: '{proposed} proposed, {accepted} accepted',
+      rawRefs: '{count} raw refs',
       compactedAt: 'compacted {ago} ago',
       compactor: 'compactor: {id} v{version}',
       eventCount: 'from {count} events',
       empty: {
         pinned: 'No pinned facts yet.',
+        graph: 'No memory pages yet.',
         observed: 'No summary yet — about 20 events will trigger one automatically.',
         semantic: 'No memory.md found. Create one to give the agent permanent project rules.',
         checkpoint: 'Aborting the current session will record a checkpoint here for next time.'
@@ -2036,7 +2070,12 @@ export const messages: Record<AppLocale, MessageTree> = {
         regenerateSkipped: 'Compactor declined (insufficient activity or privacy disabled)',
         regenerateError: 'Failed to regenerate episodic summary',
         clearOk: 'Episodic summary cleared',
-        clearError: 'Failed to clear episodic summary'
+        clearError: 'Failed to clear episodic summary',
+        memoryAccepted: 'Memory proposal accepted',
+        memoryRejected: 'Memory proposal rejected',
+        memorySaved: 'Memory page saved',
+        memoryDeleted: 'Memory page deleted',
+        memoryActionError: 'Failed to update memory page'
       }
     },
     codexFastToggle: {
@@ -3412,10 +3451,10 @@ export const messages: Record<AppLocale, MessageTree> = {
           averageCostPerSession: '平均成本 / 会话'
         },
         tokens: {
-          input: '输入 Tokens',
-          output: '输出 Tokens',
-          cacheWrite: 'Cache 写入',
-          cacheRead: 'Cache 读取'
+          input: '输入（未命中缓存）',
+          output: '输出',
+          cacheWrite: '缓存写入',
+          cacheRead: '输入（命中缓存）'
         },
         tabs: {
           overview: '概览',
@@ -4332,10 +4371,11 @@ export const messages: Record<AppLocale, MessageTree> = {
         totalCost: '总成本',
         totalTokens: '总 Tokens',
         totalsSyncing: '会话总量正在汇总…',
-        input: '输入',
+        input: '输入（未命中缓存）',
         output: '输出',
-        cacheWrite: 'Cache 写入',
-        cacheRead: 'Cache 读取',
+        cacheWrite: '缓存写入',
+        cacheRead: '输入（命中缓存）',
+        cacheHitRate: '缓存命中率',
         model: '模型',
         duration: '时长',
         partialData: '部分历史数据尚未完成同步。'
@@ -4453,6 +4493,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         emptyTitle: '暂无消息',
         emptySubtitle: '发送一条消息以开始对话',
         steered: '已引导',
+        scrollIndicatorText: '新消息',
         genericToolStatus: {
           running: '运行中...',
           error: '错误',
@@ -4659,6 +4700,7 @@ export const messages: Record<AppLocale, MessageTree> = {
         newOpenCode: '新建 OpenCode 会话',
         newClaudeCode: '新建 Claude Code 会话',
         newCodex: '新建 Codex 会话',
+        newXuanpuAgent: '新建 Xuanpu Agent 会话',
         newTerminal: '新建终端'
       },
       empty: {
@@ -4733,15 +4775,35 @@ export const messages: Record<AppLocale, MessageTree> = {
       overview: {
         cost: '花费',
         tokens: 'Tokens',
-        input: '输入',
+        input: '输入（未命中缓存）',
         output: '输出',
-        cacheRead: '缓存读取',
+        cacheRead: '输入（命中缓存）',
         cacheWrite: '缓存写入',
+        cacheHitRate: '缓存命中率',
         sessions: '会话数',
         sessionCount: '此{scope}下 {count} 个会话',
+        sessionBreakdownLabel: '会话构成',
+        activeSessions: '{count} 个活跃会话',
+        inactiveSessions: '{count} 个非活跃会话',
         contextLimit: '{used} / {limit}',
+        contextPressure: '上下文压力',
+        dataQuality: '数据质量',
         worktree: 'Worktree',
         connection: '连接'
+      },
+      inspector: {
+        currentSession: '当前会话',
+        aggregate: '聚合',
+        partial: '不完整',
+        model: '模型',
+        duration: '时长',
+        tokenBreakdown: 'Token 明细',
+        contextUsed: '上下文占用',
+        totalCost: '总花费',
+        totalTokens: '总 Tokens',
+        sessions: '会话数',
+        noAggregateData: '正在同步聚合数据…',
+        aggregateError: '聚合数据不可用 — 请重启以完成迁移',
       },
       tasks: {
         emptyTitle: '暂无任务',
@@ -4884,17 +4946,28 @@ export const messages: Record<AppLocale, MessageTree> = {
       title: '记忆',
       pinnedSection: 'Pinned Facts',
       observedSection: '观察记忆（Episodic）',
+      graphSection: '记忆图谱',
       semanticSection: '语义记忆（Semantic）',
       regenerate: '重新压缩',
       refresh: '刷新',
       clear: '清空',
+      save: '保存',
+      accept: '接受',
+      reject: '拒绝',
       open: '打开',
       create: '创建',
+      proposed: '待确认',
+      accepted: '已接受',
+      memoryProposals: '待确认提议',
+      acceptedMemory: '已接受记忆',
+      graphStatus: '{proposed} 条待确认，{accepted} 条已接受',
+      rawRefs: '{count} 个 raw ref',
       compactedAt: '{ago}前压缩',
       compactor: 'compactor: {id} v{version}',
       eventCount: '基于 {count} 个事件',
       empty: {
         pinned: '还没有任何 Pinned Facts。',
+        graph: '还没有 memory page。',
         observed: '还没有摘要——大约 20 个事件后会自动压缩。',
         semantic: '还没有 memory.md。创建一个，把项目永恒规则交给 AI。',
         checkpoint: 'abort 当前 session 时会自动记录现场，方便下次接着干。'
@@ -4914,7 +4987,12 @@ export const messages: Record<AppLocale, MessageTree> = {
         regenerateSkipped: '压缩器跳过（事件不足或隐私已关闭）',
         regenerateError: '重新压缩失败',
         clearOk: '观察记忆已清空',
-        clearError: '清空观察记忆失败'
+        clearError: '清空观察记忆失败',
+        memoryAccepted: '已接受记忆提议',
+        memoryRejected: '已拒绝记忆提议',
+        memorySaved: '记忆已保存',
+        memoryDeleted: '记忆已删除',
+        memoryActionError: '更新记忆失败'
       }
     },
     codexFastToggle: {

@@ -416,6 +416,10 @@ function shouldSkipEntry(entry: ClaudeJsonlEntry): boolean {
     const trimmed = text.trimStart()
     if (
       trimmed.startsWith('<local-command-stdout>') ||
+      trimmed.startsWith('<local-command-caveat>') ||
+      trimmed.startsWith('<command-name>') ||
+      trimmed.startsWith('<command-message>') ||
+      trimmed.startsWith('<command-args>') ||
       trimmed.startsWith('<system-reminder>') ||
       trimmed === '/goal' ||
       trimmed.startsWith('/goal ')

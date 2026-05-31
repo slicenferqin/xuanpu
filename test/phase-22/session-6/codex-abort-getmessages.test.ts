@@ -2,6 +2,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 
 // Mock logger
 vi.mock('../../../src/main/services/logger', () => ({
@@ -441,6 +444,79 @@ describe('Codex Abort & getMessages', () => {
     })
   })
 
+  describe('CodexImplementer token usage hydration', () => {
+    it('hydrates token_count events from current Codex JSONL payload records', async () => {
+      const { CodexImplementer } = await import('../../../src/main/services/codex-implementer')
+      const tempDir = mkdtempSync(path.join(tmpdir(), 'codex-token-usage-'))
+      const jsonlPath = path.join(tempDir, 'session.jsonl')
+      writeFileSync(
+        jsonlPath,
+        `${JSON.stringify({
+          type: 'event_msg',
+          payload: {
+            type: 'token_count',
+            info: {
+              total_token_usage: {
+                input_tokens: 1000,
+                cached_input_tokens: 800,
+                output_tokens: 50,
+                reasoning_output_tokens: 10,
+                total_tokens: 1050
+              },
+              last_token_usage: {
+                input_tokens: 300,
+                cached_input_tokens: 200,
+                output_tokens: 50,
+                reasoning_output_tokens: 10,
+                total_tokens: 350
+              },
+              model_context_window: 2000
+            }
+          }
+        })}\n`
+      )
+
+      try {
+        const impl = new CodexImplementer()
+        const internalManager = impl.getManager() as any
+        const mockWindow = {
+          isDestroyed: () => false,
+          webContents: { send: vi.fn() }
+        }
+        impl.setMainWindow(mockWindow as any)
+        internalManager.readThread = vi.fn().mockResolvedValue({
+          thread: {
+            id: 'thread-token-1',
+            path: jsonlPath
+          }
+        })
+
+        await (impl as any).hydrateTokenUsageFromThread({
+          threadId: 'thread-token-1',
+          hiveSessionId: 'hive-token-1'
+        })
+
+        const event = mockWindow.webContents.send.mock.calls
+          .map((call: any[]) => call[1])
+          .find((item: any) => item.type === 'session.context_usage')
+
+        expect(event).toBeDefined()
+        expect(event.sessionId).toBe('hive-token-1')
+        expect(event.data.tokens).toEqual({
+          input: 200,
+          cacheRead: 800,
+          cacheWrite: 0,
+          output: 50,
+          reasoning: 10
+        })
+        expect(event.data.breakdown.usedTokens).toBe(300)
+        expect(event.data.contextWindow).toBe(2000)
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true })
+      }
+    })
+  })
+
   // ── CodexImplementer.getMessages ────────────────────────────────
 
   describe('CodexImplementer.getMessages', () => {
@@ -833,6 +909,273 @@ describe('Codex Abort & getMessages', () => {
       expect((messages[1] as any).id).toBe('turn-1:assistant')
       expect((messages[1] as any).role).toBe('assistant')
       expect((messages[1] as any).parts[0].text).toBe('Saved assistant reply')
+    })
+
+    it('supplements Codex final answers from JSONL when thread/read omits them', async () => {
+      const { CodexImplementer } = await import('../../../src/main/services/codex-implementer')
+      const impl = new CodexImplementer()
+      const internalManager = impl.getManager() as any
+      const tmp = mkdtempSync(path.join(tmpdir(), 'xuanpu-codex-jsonl-'))
+      const jsonlPath = path.join(tmp, 'rollout.jsonl')
+
+      try {
+        writeFileSync(
+          jsonlPath,
+          [
+            JSON.stringify({
+              timestamp: '2026-01-01T00:00:00.000Z',
+              type: 'event_msg',
+              payload: {
+                type: 'task_started',
+                turn_id: 'turn-1'
+              }
+            }),
+            JSON.stringify({
+              timestamp: '2026-01-01T00:00:02.000Z',
+              type: 'response_item',
+              payload: {
+                type: 'message',
+                role: 'assistant',
+                phase: 'commentary',
+                content: [{ type: 'output_text', text: 'Working...' }]
+              }
+            }),
+            JSON.stringify({
+              timestamp: '2026-01-01T00:00:03.000Z',
+              type: 'event_msg',
+              payload: {
+                type: 'agent_message',
+                phase: 'final_answer',
+                message: 'Final answer shown to the user.',
+                memory_citation: {
+                  entries: [{ path: 'MEMORY.md', lineStart: 1, lineEnd: 1, note: 'hidden' }]
+                }
+              }
+            }),
+            JSON.stringify({
+              timestamp: '2026-01-01T00:00:03.001Z',
+              type: 'response_item',
+              payload: {
+                type: 'message',
+                role: 'assistant',
+                phase: 'final_answer',
+                content: [
+                  {
+                    type: 'output_text',
+                    text: 'Final answer shown to the user.\\n<oai-mem-citation>hidden</oai-mem-citation>'
+                  }
+                ]
+              }
+            })
+          ].join('\n')
+        )
+
+        impl.getSessions().set('/test::thread-msg-1', {
+          threadId: 'thread-msg-1',
+          hiveSessionId: 'hive-msg-1',
+          worktreePath: '/test',
+          status: 'ready',
+          messages: [],
+          liveAssistantDraft: null,
+          revertMessageID: null,
+          revertDiff: null,
+          titleGenerated: false
+        })
+
+        internalManager.readThread = vi.fn().mockResolvedValue({
+          thread: {
+            id: 'thread-msg-1',
+            path: jsonlPath,
+            turns: [
+              {
+                id: 'turn-1',
+                items: [
+                  {
+                    type: 'userMessage',
+                    id: 'user-1',
+                    content: [{ type: 'text', text: 'Saved user message' }]
+                  },
+                  {
+                    type: 'agentMessage',
+                    id: 'assistant-1',
+                    text: 'Working...'
+                  }
+                ]
+              }
+            ]
+          }
+        })
+
+        const messages = await impl.getMessages('/test', 'thread-msg-1')
+
+        expect(messages.map((message: any) => message.parts?.[0]?.text)).toEqual([
+          'Saved user message',
+          'Working...',
+          'Final answer shown to the user.'
+        ])
+        expect(JSON.stringify(messages)).not.toContain('<oai-mem-citation>')
+      } finally {
+        rmSync(tmp, { recursive: true, force: true })
+      }
+    })
+
+    it('persists Codex JSONL tool calls as durable timeline activities', async () => {
+      const { CodexImplementer } = await import('../../../src/main/services/codex-implementer')
+      const impl = new CodexImplementer()
+      const internalManager = impl.getManager() as any
+      const tmp = mkdtempSync(path.join(tmpdir(), 'xuanpu-codex-jsonl-'))
+      const jsonlPath = path.join(tmp, 'rollout.jsonl')
+      const activities: any[] = []
+
+      impl.setDatabaseService({
+        getSessionMessages: vi.fn(() => []),
+        replaceSessionMessages: vi.fn(),
+        upsertSessionActivity: vi.fn((activity: any) => {
+          activities.push(activity)
+          return activity
+        })
+      } as any)
+
+      try {
+        writeFileSync(
+          jsonlPath,
+          [
+            JSON.stringify({
+              timestamp: '2026-01-01T00:00:00.000Z',
+              type: 'turn_context',
+              payload: { turn_id: 'turn-1' }
+            }),
+            JSON.stringify({
+              timestamp: '2026-01-01T00:00:00.100Z',
+              type: 'event_msg',
+              payload: {
+                type: 'task_started',
+                turn_id: 'turn-1'
+              }
+            }),
+            JSON.stringify({
+              timestamp: '2026-01-01T00:00:01.000Z',
+              type: 'response_item',
+              payload: {
+                type: 'function_call',
+                name: 'shell_command',
+                call_id: 'call-shell',
+                arguments: JSON.stringify({
+                  command: 'pnpm test',
+                  workdir: '/repo'
+                })
+              }
+            }),
+            JSON.stringify({
+              timestamp: '2026-01-01T00:00:03.000Z',
+              type: 'response_item',
+              payload: {
+                type: 'function_call_output',
+                call_id: 'call-shell',
+                output: 'Exit code: 0\nWall time: 1.5 seconds\nOutput:\nok\n'
+              }
+            }),
+            JSON.stringify({
+              timestamp: '2026-01-01T00:00:04.000Z',
+              type: 'response_item',
+              payload: {
+                type: 'custom_tool_call',
+                name: 'apply_patch',
+                call_id: 'call-patch',
+                input:
+                  '*** Begin Patch\n*** Update File: src/app.ts\n@@\n-old\n+new\n*** End Patch\n'
+              }
+            }),
+            JSON.stringify({
+              timestamp: '2026-01-01T00:00:05.000Z',
+              type: 'response_item',
+              payload: {
+                type: 'custom_tool_call_output',
+                call_id: 'call-patch',
+                output: 'Exit code: 0\nWall time: 0 seconds\nOutput:\nSuccess.\n'
+              }
+            }),
+            JSON.stringify({
+              timestamp: '2026-01-01T00:00:06.000Z',
+              type: 'event_msg',
+              payload: {
+                type: 'agent_message',
+                phase: 'final_answer',
+                message: 'Done.'
+              }
+            })
+          ].join('\n')
+        )
+
+        impl.getSessions().set('/test::thread-msg-1', {
+          threadId: 'thread-msg-1',
+          hiveSessionId: 'hive-msg-1',
+          worktreePath: '/test',
+          status: 'ready',
+          messages: [],
+          liveAssistantDraft: null,
+          revertMessageID: null,
+          revertDiff: null,
+          titleGenerated: false
+        })
+
+        internalManager.readThread = vi.fn().mockResolvedValue({
+          thread: {
+            id: 'thread-msg-1',
+            path: jsonlPath,
+            turns: [
+              {
+                id: 'turn-1',
+                items: [
+                  {
+                    type: 'userMessage',
+                    id: 'user-1',
+                    content: [{ type: 'text', text: 'Run tests and edit file' }]
+                  }
+                ]
+              }
+            ]
+          }
+        })
+
+        const messages = await impl.getMessages('/test', 'thread-msg-1')
+
+        expect(messages.map((message: any) => message.parts?.[0]?.text)).toContain('Done.')
+
+        const shellActivity = activities.find((activity) => activity.item_id === 'call-shell')
+        const patchActivity = activities.find((activity) => activity.item_id === 'call-patch')
+        const markerActivity = activities.find((activity) =>
+          String(activity.id).startsWith('codex-jsonl-recovery:')
+        )
+
+        expect(shellActivity?.kind).toBe('tool.completed')
+        expect(shellActivity?.turn_id).toBe('turn-1')
+        expect(JSON.parse(shellActivity.payload_json).item).toMatchObject({
+          type: 'commandExecution',
+          command: 'pnpm test',
+          cwd: '/repo',
+          aggregatedOutput: expect.stringContaining('ok'),
+          durationMs: 1500
+        })
+
+        expect(patchActivity?.kind).toBe('tool.completed')
+        expect(JSON.parse(patchActivity.payload_json).item).toMatchObject({
+          type: 'fileChange',
+          changes: [
+            {
+              path: 'src/app.ts',
+              kind: { type: 'update' },
+              diff: expect.stringContaining('+new')
+            }
+          ]
+        })
+        expect(JSON.parse(markerActivity.payload_json)).toMatchObject({
+          kind: 'codex_jsonl_recovery',
+          toolActivityCount: 2
+        })
+      } finally {
+        rmSync(tmp, { recursive: true, force: true })
+      }
     })
 
     it('returns recovered Codex messages in chronological order', async () => {

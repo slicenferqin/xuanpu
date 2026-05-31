@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { TerminalSquare, Lock } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { getEnabledSessionAgentSdks, type SessionAgentSdk } from '@/lib/agent-sdk-availability'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -24,13 +25,14 @@ import { useWorktreeStore } from '@/stores/useWorktreeStore'
 import { useI18n } from '@/i18n/useI18n'
 import { toast } from '@/lib/toast'
 
-type AgentSdk = 'opencode' | 'claude-code' | 'codex' | 'terminal'
+type AgentSdk = SessionAgentSdk
 
 const PROVIDER_LABELS: Record<AgentSdk, string> = {
   'claude-code': 'Claude Code',
   opencode: 'OpenCode',
   codex: 'Codex',
-  terminal: 'Terminal'
+  terminal: 'Terminal',
+  'xuanpu-agent': 'Xuanpu Agent'
 }
 
 interface NewSessionDialogProps {
@@ -68,18 +70,13 @@ export function NewSessionDialog({
   }, [worktreeId, worktreesByProject])
 
   const enabledSdks = useMemo<AgentSdk[]>(() => {
-    const list: AgentSdk[] = []
-    if (availableAgentSdks?.opencode) list.push('opencode')
-    if (availableAgentSdks?.claude) list.push('claude-code')
-    if (availableAgentSdks?.codex) list.push('codex')
-    list.push('terminal')
-    return list
+    return getEnabledSessionAgentSdks(availableAgentSdks)
   }, [availableAgentSdks])
 
   const initialSdk = useMemo<AgentSdk>(() => {
     const fallback = defaultAgentSdk ?? 'opencode'
     const candidate = worktreeLastAgentSdk ?? fallback
-    return enabledSdks.includes(candidate) ? candidate : enabledSdks[0] ?? 'opencode'
+    return enabledSdks.includes(candidate) ? candidate : (enabledSdks[0] ?? 'opencode')
   }, [worktreeLastAgentSdk, defaultAgentSdk, enabledSdks])
 
   const [name, setName] = useState('')
@@ -126,7 +123,7 @@ export function NewSessionDialog({
         if (cancelled || !result?.success) return
         const providers = Array.isArray(result.providers)
           ? result.providers
-          : (result.providers as { providers?: unknown[] } | null)?.providers ?? []
+          : ((result.providers as { providers?: unknown[] } | null)?.providers ?? [])
         for (const provider of providers as Array<Record<string, unknown>>) {
           const providerID = (provider?.id as string) ?? null
           const models = provider?.models as Record<string, Record<string, unknown>> | undefined
@@ -153,9 +150,7 @@ export function NewSessionDialog({
   }, [agentSdk, open])
 
   const isTerminal = agentSdk === 'terminal'
-  const placeholder = isTerminal
-    ? `Terminal ${defaultIndex}`
-    : `Session ${defaultIndex}`
+  const placeholder = isTerminal ? `Terminal ${defaultIndex}` : `Session ${defaultIndex}`
 
   async function handleCreate(): Promise<void> {
     if (submitting) return
@@ -186,9 +181,7 @@ export function NewSessionDialog({
       }
       onOpenChange(false)
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : t('sessionTabs.errors.createSession')
-      )
+      toast.error(error instanceof Error ? error.message : t('sessionTabs.errors.createSession'))
       setSubmitting(false)
     }
   }
@@ -266,7 +259,7 @@ export function NewSessionDialog({
               <ModelSelector
                 value={model}
                 onChange={(m) => setModel(m)}
-                agentSdkOverride={agentSdk === 'terminal' ? 'opencode' : agentSdk}
+                agentSdkOverride={agentSdk}
                 showProviderPrefix={false}
                 compact
               />

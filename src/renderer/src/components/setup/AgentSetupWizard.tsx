@@ -112,6 +112,8 @@ export function AgentSetupWizard({
 
   const defaultAgentSdk = useSettingsStore((s) => s.defaultAgentSdk)
   const updateSetting = useSettingsStore((s) => s.updateSetting)
+  const wizardDefaultAgentSdk: WizardAgentId =
+    defaultAgentSdk === 'xuanpu-agent' ? 'opencode' : defaultAgentSdk
 
   const activePreset = useShortcutStore((s) => s.activePreset)
   const setActivePreset = useShortcutStore((s) => s.setActivePreset)
@@ -144,8 +146,8 @@ export function AgentSetupWizard({
   const hasReadyAgent = useMemo(
     () =>
       AGENT_ORDER.some((id) => agentsById.get(id)?.status === 'ready') ||
-      defaultAgentSdk === 'terminal',
-    [agentsById, defaultAgentSdk]
+      wizardDefaultAgentSdk === 'terminal',
+    [agentsById, wizardDefaultAgentSdk]
   )
   const canFinish = hasReadyAgent
 
@@ -321,7 +323,7 @@ export function AgentSetupWizard({
                 result={result}
                 loading={loading}
                 error={error}
-                defaultAgentSdk={defaultAgentSdk}
+                defaultAgentSdk={wizardDefaultAgentSdk}
                 busyAction={busyAction}
                 onSetDefault={handleSetDefault}
                 onRunCommand={runCommand}
@@ -362,10 +364,10 @@ export function AgentSetupWizard({
                 variant="outline"
                 onClick={() => handleSetDefault('terminal')}
                 className="rounded-xl border-border/70 bg-background"
-                disabled={defaultAgentSdk === 'terminal'}
+                disabled={wizardDefaultAgentSdk === 'terminal'}
               >
                 <TerminalSquare className="size-4" />
-                {defaultAgentSdk === 'terminal'
+                {wizardDefaultAgentSdk === 'terminal'
                   ? t('onboardingWizard.providers.terminal.isFallback')
                   : t('onboardingWizard.actions.useTerminal')}
               </Button>
