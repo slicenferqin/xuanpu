@@ -334,6 +334,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Download release artifacts
         uses: actions/download-artifact@v4
         with:
@@ -457,10 +459,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          REPO="${GITHUB_REPOSITORY}"
           TAG="${GITHUB_REF_NAME}"
 
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --draft --verify-tag --title "$TAG" --notes "Automated release for $TAG"
+          if ! gh release view --repo "$REPO" "$TAG" >/dev/null 2>&1; then
+            gh release create --repo "$REPO" "$TAG" --draft --verify-tag --title "$TAG" --notes "Automated release for $TAG"
           fi
 
-          gh release upload "$TAG" release-assets/* --clobber
+          gh release upload --repo "$REPO" "$TAG" release-assets/* --clobber
