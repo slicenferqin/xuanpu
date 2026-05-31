@@ -289,7 +289,7 @@ export function getXuanpuAgentOpenAIBaseUrlOverride(
   return null
 }
 
-function applyProviderBaseUrlOverride(
+export function applyProviderBaseUrlOverride(
   providerID: string,
   model: unknown,
   config?: XuanpuAgentConfig

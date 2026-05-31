@@ -5,7 +5,7 @@
  * Priority: explicit config > provider-auto candidate > rule-based fallback.
  */
 import type { XuanpuAgentModelRef } from '../model-config'
-import { resolveConfiguredApiKey } from '../model-config'
+import { resolveConfiguredApiKey, applyProviderBaseUrlOverride } from '../model-config'
 import type { XuanpuAgentConfig } from '../config-loader'
 import { loadPiAiModule } from '../pi-agent-core-loader'
 
@@ -77,7 +77,7 @@ export async function resolveCompactionModel(
         kind: 'model',
         source: 'explicit',
         modelRef: { ...configuredCompactionModel, providerID },
-        model: probed.model,
+        model: applyProviderBaseUrlOverride(providerID, probed.model, config),
         streamFn: probed.streamFn,
         resolvedApiKey: resolveConfiguredApiKey(providerID, config)
       }
@@ -100,7 +100,7 @@ export async function resolveCompactionModel(
             kind: 'model',
             source: 'provider-default',
             modelRef: { providerID, modelID: candidateModelID },
-            model: probed.model,
+            model: applyProviderBaseUrlOverride(providerID, probed.model, config),
             streamFn: probed.streamFn,
             resolvedApiKey: resolveConfiguredApiKey(providerID, config),
             degradedReason
@@ -118,7 +118,7 @@ export async function resolveCompactionModel(
         kind: 'model',
         source: 'provider-default',
         modelRef: { providerID: 'anthropic', modelID: 'claude-haiku-4-5' },
-        model: probed.model,
+        model: applyProviderBaseUrlOverride('anthropic', probed.model, config),
         streamFn: probed.streamFn,
         resolvedApiKey: resolveConfiguredApiKey('anthropic', config),
         degradedReason

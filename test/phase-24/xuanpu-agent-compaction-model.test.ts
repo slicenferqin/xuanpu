@@ -205,4 +205,44 @@ describe('resolveCompactionModel', () => {
       process.env.OPENAI_API_KEY = previousKey
     }
   })
+
+  it('applies providers.openai.baseUrl from config to compaction model', async () => {
+    const mockModel = { id: 'gpt-mini' }
+    mockGetBundledModel.mockImplementation((provider: string, modelId: string) => {
+      if (provider === 'openai' && modelId === 'gpt-5.4-mini') return mockModel
+      return null
+    })
+
+    const previousBaseUrl1 = process.env.XUANPU_AGENT_OPENAI_BASE_URL
+    const previousBaseUrl2 = process.env.OPENAI_BASE_URL
+    delete process.env.XUANPU_AGENT_OPENAI_BASE_URL
+    delete process.env.OPENAI_BASE_URL
+
+    const config = {
+      enabled: true,
+      mainModel: { providerID: 'openai', modelID: 'gpt-5.5' },
+      providers: {
+        openai: { baseUrl: 'https://config.example.com/v1' }
+      }
+    }
+
+    const result = await resolveCompactionModel(
+      null,
+      { providerID: 'openai', modelID: 'gpt-5.5' },
+      config
+    )
+
+    expect(result.kind).toBe('model')
+    expect(result.model).toEqual({
+      id: 'gpt-mini',
+      baseUrl: 'https://config.example.com/v1'
+    })
+
+    if (previousBaseUrl1 !== undefined) {
+      process.env.XUANPU_AGENT_OPENAI_BASE_URL = previousBaseUrl1
+    }
+    if (previousBaseUrl2 !== undefined) {
+      process.env.OPENAI_BASE_URL = previousBaseUrl2
+    }
+  })
 })
