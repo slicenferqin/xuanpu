@@ -32,7 +32,7 @@ function makeAssistantTextMessage(id: string, content: string): TimelineMessage 
 
 describe('AgentTimeline connector rendering', () => {
   it('uses the real timeline scroller for containment and short-content alignment', () => {
-    render(
+    const { container } = render(
       <AgentTimeline
         timelineMessages={[makeAssistantTextMessage('a-scroll', 'final assistant reply')]}
         streamingContent=""
@@ -43,6 +43,10 @@ describe('AgentTimeline connector rendering', () => {
     )
 
     expect(screen.getByTestId('hq-agent-timeline-scroll')).toHaveClass('overscroll-contain')
+
+    const timelineColumn = container.querySelector('[style*="--xp-reader-wide-measure"]')
+    expect(timelineColumn).toHaveStyle('--xp-reader-wide-measure: 100%')
+    expect(timelineColumn).toHaveStyle('--xp-reader-wide-max: 100%')
   })
 
   it('keeps the connector for the last committed assistant text node after streaming ends', () => {

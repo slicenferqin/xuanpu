@@ -17,7 +17,7 @@ export function ReadableMessage({
     <div
       className={cn(
         'xp-readable-message',
-        'max-w-[var(--xp-reader-measure)]',
+        'w-full max-w-full',
         'text-xp-reader-text',
         'text-[length:var(--xp-reader-font-size)]',
         'leading-[var(--xp-reader-line-height)]',

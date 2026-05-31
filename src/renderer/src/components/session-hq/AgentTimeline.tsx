@@ -376,9 +376,9 @@ export function AgentTimeline({
           {
             paddingTop: '24px',
             paddingBottom: `${paddingBottom}px`,
-            // Expose real timeline content width for .xp-wide-block breakout.
-            // This replaces the old viewport-based calc that broke in 3-column layout.
-            '--xp-reader-wide-max': '100%'
+            // Keep assistant prose and wide markdown blocks within the timeline column.
+            '--xp-reader-wide-max': '100%',
+            '--xp-reader-wide-measure': '100%'
           } as React.CSSProperties
         }
       >
