@@ -72,7 +72,8 @@ describe('SessionShell plan implement flow (source verification)', () => {
     expect(source).toContain(
       'window.agentOps.prompt(wp, sid, messageParts ?? c, requestModel, promptOptions)'
     )
-    expect(source).toContain('window.agentOps.prompt(wp, sid, c, requestModel, promptOptions)')
+    // Plan implement uses implementOptions (forced build mode), not stale promptOptions
+    expect(source).toContain('window.agentOps.prompt(wp, sid, c, requestModel, implementOptions)')
   })
 
   test('new UI auto-sends pending initial messages with launch-specific options', async () => {

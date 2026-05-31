@@ -345,7 +345,7 @@ describe('SessionShell xuanpu-agent dogfood path', () => {
           providerID: 'anthropic',
           modelID: 'claude-haiku-4-5'
         },
-        undefined
+        { mode: 'build' }
       )
     })
     expect(

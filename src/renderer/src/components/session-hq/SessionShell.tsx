@@ -255,7 +255,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     if (supportsSessionGoalMode) {
       return { goalMode, successCriteria }
     }
-    if (agentSdk === 'opencode') {
+    if (agentSdk === 'opencode' || agentSdk === 'xuanpu-agent') {
       return { mode }
     }
     return undefined
@@ -269,7 +269,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         }
       }
 
-      if (agentSdk === 'opencode') {
+      if (agentSdk === 'opencode' || agentSdk === 'xuanpu-agent') {
         return { mode: options?.mode ?? mode }
       }
 

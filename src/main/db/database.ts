@@ -2329,7 +2329,7 @@ export class DatabaseService {
   }
 
   listUsageEntries(options?: {
-    agentSdks?: Array<'claude-code' | 'codex'>
+    agentSdks?: Array<'claude-code' | 'codex' | 'xuanpu-agent'>
     dateFrom?: string | null
     dateTo?: string | null
   }): UsageEntry[] {
@@ -2361,7 +2361,7 @@ export class DatabaseService {
   }
 
   getUsageAnalyticsSessions(
-    agentSdks?: Array<'claude-code' | 'codex'>,
+    agentSdks?: Array<'claude-code' | 'codex' | 'xuanpu-agent'>,
     sessionStatus: 'all' | 'active' | 'archived' = 'all'
   ): Array<
     Session & {

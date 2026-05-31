@@ -587,6 +587,126 @@ describe('getSessionTimeline', () => {
     })
   })
 
+  describe('xuanpu-agent sessions', () => {
+    it('merges plan.ready activity with item_id to produce single PlanCard on reload', () => {
+      mockGetSession.mockReturnValue(makeSession({ agent_sdk: 'xuanpu-agent' }))
+      mockGetSessionMessages.mockReturnValue([
+        makeMessageRow({
+          id: 'msg-plan-1',
+          role: 'assistant',
+          content: '<proposed_plan>\n## Steps\n1. Fix auth\n2. Add tests\n</proposed_plan>'
+        })
+      ])
+      mockGetSessionActivities.mockReturnValue([
+        {
+          id: 'xuanpu-agent-plan:sess-1:1000',
+          session_id: 'sess-1',
+          agent_session_id: 'sess-1',
+          thread_id: 'sess-1',
+          turn_id: 'msg-plan-1',
+          item_id: 'msg-plan-1',
+          request_id: 'xuanpu-agent-plan:sess-1:1000',
+          kind: 'plan.ready',
+          tone: 'info',
+          summary: 'Plan ready',
+          payload_json: JSON.stringify({
+            plan: '## Steps\n1. Fix auth\n2. Add tests',
+            toolUseID: 'msg-plan-1',
+            requestId: 'xuanpu-agent-plan:sess-1:1000'
+          }),
+          sequence: null,
+          created_at: '2024-01-01T00:00:01.000Z'
+        }
+      ])
+
+      const result = getSessionTimeline('sess-1')
+      expect(result.messages).toHaveLength(1)
+
+      const parts = result.messages[0].parts ?? []
+      // Plan card should be present
+      const planPart = parts.find(
+        (p) => p.type === 'tool_use' && p.toolUse?.name === 'ExitPlanMode'
+      )
+      expect(planPart).toBeDefined()
+      expect(planPart?.toolUse?.input).toMatchObject({
+        plan: '## Steps\n1. Fix auth\n2. Add tests'
+      })
+      expect(planPart?.toolUse?.status).toBe('pending')
+
+      // No bare <proposed_plan> text should remain
+      const textParts = parts.filter((p) => p.type === 'text')
+      const hasRawPlan = textParts.some(
+        (p) => p.text?.includes('<proposed_plan>') || p.text?.includes('</proposed_plan>')
+      )
+      expect(hasRawPlan).toBe(false)
+    })
+
+    it('fetches activities for xuanpu-agent sessions', () => {
+      mockGetSession.mockReturnValue(makeSession({ agent_sdk: 'xuanpu-agent' }))
+      mockGetSessionMessages.mockReturnValue([])
+      mockGetSessionActivities.mockReturnValue([])
+
+      getSessionTimeline('sess-1')
+
+      expect(mockGetSessionActivities).toHaveBeenCalledWith('sess-1')
+    })
+
+    it('marks xuanpu-agent plan as approved when plan.resolved has resolution=approved', () => {
+      const reqId = 'xuanpu-agent-plan:sess-1:2000'
+      mockGetSession.mockReturnValue(makeSession({ agent_sdk: 'xuanpu-agent' }))
+      mockGetSessionMessages.mockReturnValue([
+        makeMessageRow({
+          id: 'msg-plan-2',
+          role: 'assistant',
+          content: '## My Plan\n- step 1'
+        })
+      ])
+      mockGetSessionActivities.mockReturnValue([
+        {
+          id: reqId,
+          session_id: 'sess-1',
+          agent_session_id: 'sess-1',
+          thread_id: 'sess-1',
+          turn_id: 'msg-plan-2',
+          item_id: 'msg-plan-2',
+          request_id: reqId,
+          kind: 'plan.ready',
+          tone: 'info',
+          summary: 'Plan ready',
+          payload_json: JSON.stringify({
+            plan: '## My Plan\n- step 1',
+            toolUseID: 'msg-plan-2',
+            requestId: reqId
+          }),
+          sequence: null,
+          created_at: '2024-01-01T00:00:01.000Z'
+        },
+        {
+          id: `${reqId}:resolved`,
+          session_id: 'sess-1',
+          agent_session_id: 'sess-1',
+          thread_id: 'sess-1',
+          turn_id: null,
+          item_id: null,
+          request_id: reqId,
+          kind: 'plan.resolved',
+          tone: 'info',
+          summary: 'Plan approved by user',
+          payload_json: JSON.stringify({ resolution: 'approved', requestId: reqId }),
+          sequence: null,
+          created_at: '2024-01-01T00:00:02.000Z'
+        }
+      ])
+
+      const result = getSessionTimeline('sess-1')
+      const planPart = result.messages[0].parts?.find(
+        (p) => p.type === 'tool_use' && p.toolUse?.name === 'ExitPlanMode'
+      )
+      // Timeline mapper uses 'success' for approved plans (not 'approved')
+      expect(planPart?.toolUse?.status).toBe('success')
+    })
+  })
+
   describe('result shape', () => {
     it('always returns TimelineResult shape', () => {
       mockGetSession.mockReturnValue(makeSession())

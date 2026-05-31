@@ -403,4 +403,105 @@ describe('XuanpuPiAgentSession', () => {
     expect(fakeRuntime.prompts).toEqual([])
     expect(fakeRuntime.setToolsCalls).toEqual([])
   })
+
+  it('first plan prompt sets read-only tools after agent creation, then restores full tools', async () => {
+    process.env.XUANPU_AGENT_MOCK_RESPONSE = 'plan response'
+
+    const { XuanpuPiAgentSession } = await import('../../src/main/services/xuanpu-agent/runtime')
+    const session = new XuanpuPiAgentSession('test-plan-session')
+
+    // First prompt with toolMode='plan' — agent doesn't exist yet
+    const result = await session.prompt(
+      'make a plan',
+      { providerID: 'anthropic', modelID: 'claude-haiku-4-5' },
+      {},
+      'plan'
+    )
+
+    expect(result.text).toBe('plan response')
+
+    // setTools calls:
+    // 0. Full tools during getOrCreateAgent (inside getOrCreateAgent)
+    // 1. Plan-only tools (in prompt() after getOrCreateAgent)
+    // 2. Full tools restored (in finally block)
+    const allToolSets = recordedToolNames()
+
+    // Find the plan-only tool set (one that doesn't contain write_file)
+    const planToolSets = allToolSets.filter(
+      (tools) => !tools.includes('write_file') && tools.includes('read_file')
+    )
+    expect(planToolSets.length).toBeGreaterThanOrEqual(1)
+
+    const planTools = planToolSets[0]
+    expect(planTools).toContain('git_status')
+    expect(planTools).toContain('read_file')
+    expect(planTools).toContain('rg_search')
+    expect(planTools).toContain('list_files')
+    expect(planTools).toContain('git_log')
+    expect(planTools).toContain('git_diff')
+    // XFP field tools should be included
+    expect(planTools).toContain('xfp_get_current_focus')
+    expect(planTools).toContain('xfp_get_last_terminal_activity')
+    expect(planTools).toContain('xfp_get_recent_activity')
+    expect(planTools).toContain('xfp_get_worktree_summary')
+    expect(planTools).toContain('xfp_get_pinned_facts')
+    // Write/subtask tools should NOT be in plan mode
+    expect(planTools).not.toContain('apply_patch')
+    expect(planTools).not.toContain('write_file')
+    expect(planTools).not.toContain('edit_file')
+    expect(planTools).not.toContain('run_test')
+    expect(planTools).not.toContain('format_file')
+    expect(planTools).not.toContain('xfp_delegate_subtask')
+
+    // The last call should restore full tools
+    const restoredTools = allToolSets[allToolSets.length - 1]
+    expect(restoredTools).toEqual(EXPECTED_TOOL_NAMES)
+
+    session.dispose()
+  })
+
+  it('plan prompt after model change also sets read-only tools correctly', async () => {
+    process.env.XUANPU_AGENT_MOCK_RESPONSE = 'plan after model change'
+
+    const { XuanpuPiAgentSession } = await import('../../src/main/services/xuanpu-agent/runtime')
+    const session = new XuanpuPiAgentSession('test-model-change')
+
+    // First prompt to create the agent with full tools
+    await session.prompt('build something', {
+      providerID: 'anthropic',
+      modelID: 'claude-haiku-4-5'
+    })
+
+    fakeRuntime.reset()
+
+    // Second prompt with different model (triggers agent rebuild) and plan mode
+    const result = await session.prompt(
+      'plan something',
+      { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
+      {},
+      'plan'
+    )
+
+    expect(result.text).toBe('plan after model change')
+
+    const allToolSets = recordedToolNames()
+    // After reset, only 2 setTools calls: plan-only tools, then full tools restored.
+    // (Agent is NOT recreated because model key is unchanged.)
+    expect(allToolSets.length).toBe(2)
+
+    // Find the plan-only tool set (one that doesn't contain write_file)
+    const planToolSets = allToolSets.filter(
+      (tools) => !tools.includes('write_file') && tools.includes('read_file')
+    )
+    expect(planToolSets.length).toBe(1)
+    const planTools = planToolSets[0]
+    expect(planTools).not.toContain('apply_patch')
+    expect(planTools).not.toContain('write_file')
+    expect(planTools).not.toContain('edit_file')
+    expect(planTools).not.toContain('run_test')
+    expect(planTools).not.toContain('format_file')
+    expect(planTools).not.toContain('xfp_delegate_subtask')
+
+    session.dispose()
+  })
 })

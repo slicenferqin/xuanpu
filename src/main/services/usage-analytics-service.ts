@@ -81,7 +81,7 @@ function toRangeBounds(range: UsageAnalyticsFilters['range']): {
 }
 
 function toSupportedAgentSdks(filter: UsageAnalyticsEngineFilter): UsageAnalyticsEngine[] {
-  return filter === 'all' ? ['claude-code', 'codex'] : [filter]
+  return filter === 'all' ? ['claude-code', 'codex', 'xuanpu-agent'] : [filter]
 }
 
 function appendUnique(target: string[], value: string | null | undefined): void {
@@ -112,7 +112,7 @@ export class UsageAnalyticsService {
   async fetchDashboard(filters: UsageAnalyticsFilters): Promise<UsageAnalyticsDashboardResult> {
     try {
       const sessionStatus: UsageAnalyticsSessionStatusFilter = filters.sessionStatus ?? 'all'
-      const sessions = this.db.getUsageAnalyticsSessions(['claude-code', 'codex'], sessionStatus)
+      const sessions = this.db.getUsageAnalyticsSessions(['claude-code', 'codex', 'xuanpu-agent'], sessionStatus)
       const syncStates = new Map(
         this.db.getUsageSyncStates().map((state) => [state.session_id, state] as const)
       )
@@ -388,7 +388,7 @@ export class UsageAnalyticsService {
   async fetchSessionSummary(sessionId: string): Promise<UsageAnalyticsSessionSummaryResult> {
     try {
       const session = this.db
-        .getUsageAnalyticsSessions(['claude-code', 'codex'], 'all')
+        .getUsageAnalyticsSessions(['claude-code', 'codex', 'xuanpu-agent'], 'all')
         .find((item) => item.id === sessionId)
 
       if (!session) {
@@ -447,7 +447,7 @@ export class UsageAnalyticsService {
   }
 
   async resync(): Promise<UsageAnalyticsResyncResult> {
-    const sessions = this.db.getUsageAnalyticsSessions(['claude-code', 'codex'], 'all')
+    const sessions = this.db.getUsageAnalyticsSessions(['claude-code', 'codex', 'xuanpu-agent'], 'all')
     const syncStates = new Map(
       this.db.getUsageSyncStates().map((state) => [state.session_id, state] as const)
     )
@@ -546,6 +546,10 @@ export class UsageAnalyticsService {
       return this.syncClaudeSession(session)
     }
 
+    if (session.agent_sdk === 'xuanpu-agent') {
+      return this.syncXuanpuAgentSession(session)
+    }
+
     return this.syncCodexSession(session)
   }
 
@@ -640,6 +644,26 @@ export class UsageAnalyticsService {
       agent_sdk: 'codex',
       source_kind: 'codex-message',
       source_ref: session.opencode_session_id ?? session.id,
+      source_mtime_ms: new Date(session.updated_at).getTime(),
+      status: 'synced',
+      entry_count: existingEntries.length,
+      last_synced_at: new Date().toISOString(),
+      last_error: null
+    })
+
+    return 'synced'
+  }
+
+  private syncXuanpuAgentSession(session: SupportedSession): 'synced' {
+    const existingEntries = this.db
+      .getUsageEntriesBySession(session.id)
+      .filter((entry) => entry.source_kind === 'xuanpu-agent-message')
+
+    this.db.upsertUsageSyncState({
+      session_id: session.id,
+      agent_sdk: 'xuanpu-agent',
+      source_kind: 'xuanpu-agent-message',
+      source_ref: session.id,
       source_mtime_ms: new Date(session.updated_at).getTime(),
       status: 'synced',
       entry_count: existingEntries.length,

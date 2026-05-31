@@ -1,4 +1,4 @@
-export type UsageAnalyticsEngine = 'claude-code' | 'codex'
+export type UsageAnalyticsEngine = 'claude-code' | 'codex' | 'xuanpu-agent'
 
 export type UsageAnalyticsEngineFilter = 'all' | UsageAnalyticsEngine
 

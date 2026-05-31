@@ -4,6 +4,10 @@ import type { DatabaseService } from '../../src/main/db/database'
 // ── Mocks ──
 
 const packContextMock = vi.hoisted(() => vi.fn())
+const emitAgentEventMock = vi.hoisted(() => vi.fn())
+const capturedEmittedEvents = vi.hoisted(() => [] as Array<{ type: string; sessionId: string; data: unknown }>)
+const capturedUsageEntries = vi.hoisted(() => [] as Array<Record<string, unknown>>)
+const capturedActivities = vi.hoisted(() => [] as Array<Record<string, unknown>>)
 
 vi.mock('electron', () => ({ app: undefined }))
 
@@ -14,6 +18,20 @@ vi.mock('../../src/main/services/logger', () => ({
     warn: vi.fn(),
     error: vi.fn()
   })
+}))
+
+vi.mock('@shared/lib/normalize-agent-event', () => ({
+  emitAgentEvent: (...args: unknown[]) => {
+    emitAgentEventMock(...args)
+    const event = args[1] as { type: string; sessionId: string; data: unknown }
+    capturedEmittedEvents.push(event)
+  },
+  beginSessionRun: vi.fn()
+}))
+
+vi.mock('@shared/usage/pricing', () => ({
+  calculateUsageCost: vi.fn(() => 0.005),
+  resolvePricingModelKey: vi.fn((model: string) => model)
 }))
 
 vi.mock('../../src/main/services/xuanpu-agent/context/context-packer', () => ({
@@ -123,6 +141,8 @@ const mockPiSession = {
   recordBudgetSections: vi.fn(),
   configureCompression: vi.fn(),
   abort: vi.fn(),
+  setPlanModeTools: vi.fn(),
+  setBuildModeTools: vi.fn(),
   prompt: vi.fn(async (messages: unknown[]) => {
     capturedPromptMessages = messages as unknown[]
     return {
@@ -150,6 +170,9 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     capturedPromptMessages = []
+    capturedEmittedEvents.length = 0
+    capturedUsageEntries.length = 0
+    capturedActivities.length = 0
     packContextMock.mockReturnValue({
       messages: [
         {
@@ -184,7 +207,10 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     const implementer = new XuanpuAgentImplementer()
     implementer.setDatabaseService({
       getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
-      getSetting: vi.fn(() => null)
+      getSetting: vi.fn(() => null),
+      getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' })),
+      upsertUsageEntry: vi.fn((entry: Record<string, unknown>) => { capturedUsageEntries.push(entry) }),
+      upsertSessionActivity: vi.fn((activity: Record<string, unknown>) => { capturedActivities.push(activity) })
     } as unknown as DatabaseService)
 
     const { listFieldEpisodeBlocks } = await import(
@@ -243,7 +269,11 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     // Verify piSession.prompt() receives packer output
     expect(capturedPromptMessages.length).toBe(2)
     const allText = capturedPromptMessages
-      .flatMap((m: any) => m.content?.map((c: any) => c.text) ?? [])
+      .flatMap((m: Record<string, unknown>) =>
+        ((m.content as Array<Record<string, unknown>> | undefined) ?? []).map(
+          (c: Record<string, unknown>) => (c.text as string) ?? ''
+        )
+      )
       .join('\n')
     expect(allText).toContain('<xuanpu-context-anchor>')
   })
@@ -343,5 +373,110 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     expect(firstPrefixSeed).not.toContain('test-packet-')
     // prefixSeed should still contain version
     expect(firstPrefixSeed).toContain('version="1.0"')
+  })
+
+  it('emits session.context_usage after prompt with packer breakdown', async () => {
+    const { XuanpuAgentImplementer } = await import(
+      '../../src/main/services/xuanpu-agent-implementer'
+    )
+    const implementer = new XuanpuAgentImplementer()
+    implementer.setDatabaseService({
+      getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
+      getSetting: vi.fn(() => null),
+      getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' })),
+      upsertUsageEntry: vi.fn()
+    } as unknown as DatabaseService)
+
+    const { sessionId } = await implementer.connect('/repo', 'session-1')
+    await implementer.prompt('/repo', sessionId, 'test request')
+
+    const contextEvent = capturedEmittedEvents.find((e) => e.type === 'session.context_usage')
+    expect(contextEvent).toBeDefined()
+    // sessionId in the event is the hiveSessionId ('s-1'), not the runtime sessionId
+    const data = contextEvent!.data as Record<string, unknown>
+    expect(data.model).toEqual({ providerID: 'anthropic', modelID: 'claude-sonnet-4-6' })
+    expect(data.contextWindow).toBe(150_000)
+    expect((data.breakdown as Record<string, unknown>).maxTokens).toBe(150_000)
+    expect((data.breakdown as Record<string, unknown>).usedTokens).toBe(100)
+  })
+
+  it('persists usage entry for cost tracking after prompt', async () => {
+    const { XuanpuAgentImplementer } = await import(
+      '../../src/main/services/xuanpu-agent-implementer'
+    )
+    const implementer = new XuanpuAgentImplementer()
+    implementer.setDatabaseService({
+      getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
+      getSetting: vi.fn(() => null),
+      getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' })),
+      upsertUsageEntry: vi.fn((entry: Record<string, unknown>) => { capturedUsageEntries.push(entry) })
+    } as unknown as DatabaseService)
+
+    const { sessionId } = await implementer.connect('/repo', 'session-1')
+    await implementer.prompt('/repo', sessionId, 'test request')
+
+    expect(capturedUsageEntries.length).toBe(1)
+    const entry = capturedUsageEntries[0]
+    expect(entry.agent_sdk).toBe('xuanpu-agent')
+    expect(entry.source_kind).toBe('xuanpu-agent-message')
+    expect(entry.provider_id).toBe('anthropic')
+    expect(entry.model_id).toBe('claude-sonnet-4-6')
+    expect(entry.input_tokens).toBe(100)
+    expect(entry.output_tokens).toBe(50)
+  })
+
+  it('emits plan.ready event when sessionMode is plan', async () => {
+    mockPiSession.prompt.mockResolvedValueOnce({
+      messageId: 'resp-plan',
+      text: '<proposed_plan>\n## Steps\n1. Do thing\n2. Verify\n</proposed_plan>',
+      modelRef: { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
+      usage: { inputTokens: 100, outputTokens: 50 },
+      rawMessage: null,
+      harnessMetrics: null
+    })
+
+    const { XuanpuAgentImplementer } = await import(
+      '../../src/main/services/xuanpu-agent-implementer'
+    )
+    const implementer = new XuanpuAgentImplementer()
+    implementer.setDatabaseService({
+      getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
+      getSetting: vi.fn(() => null),
+      getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' })),
+      upsertUsageEntry: vi.fn(),
+      upsertSessionActivity: vi.fn((activity: Record<string, unknown>) => { capturedActivities.push(activity) })
+    } as unknown as DatabaseService)
+
+    const { sessionId } = await implementer.connect('/repo', 'session-1')
+    await implementer.prompt('/repo', sessionId, 'make a plan', undefined, { mode: 'plan' })
+
+    const planEvent = capturedEmittedEvents.find((e) => e.type === 'plan.ready')
+    expect(planEvent).toBeDefined()
+    const data = planEvent!.data as Record<string, unknown>
+    expect(data.plan).toContain('## Steps')
+    expect(data.plan).not.toContain('<proposed_plan>')
+    expect(data.requestId).toContain('xuanpu-agent-plan:')
+
+    expect(capturedActivities.length).toBe(1)
+    expect(capturedActivities[0].kind).toBe('plan.ready')
+  })
+
+  it('does not emit plan.ready when sessionMode is build', async () => {
+    const { XuanpuAgentImplementer } = await import(
+      '../../src/main/services/xuanpu-agent-implementer'
+    )
+    const implementer = new XuanpuAgentImplementer()
+    implementer.setDatabaseService({
+      getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
+      getSetting: vi.fn(() => null),
+      getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' })),
+      upsertUsageEntry: vi.fn()
+    } as unknown as DatabaseService)
+
+    const { sessionId } = await implementer.connect('/repo', 'session-1')
+    await implementer.prompt('/repo', sessionId, 'just build it', undefined, { mode: 'build' })
+
+    const planEvent = capturedEmittedEvents.find((e) => e.type === 'plan.ready')
+    expect(planEvent).toBeUndefined()
   })
 })

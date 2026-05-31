@@ -2,7 +2,25 @@ import { describe, expect, it } from 'vitest'
 
 import { buildXuanpuAgentPromptMessages } from '../../src/main/services/xuanpu-agent/context-transform'
 import type { FieldEpisodeBlockRecord } from '../../src/main/field/episode-block-repository'
-import type { FieldTurn } from '../../src/main/services/xuanpu-agent/field/provider'
+
+interface MockPacket {
+  version: string
+  identity: { packetId: string; capturedAt: number; worktreeId: string }
+  worktree: { id: string; name: string; path: string; branch: string; context: null }
+  git: { branch: string; ahead: number; behind: number; dirty: boolean; stashes: number }
+  session: { id: string; turnCount: number }
+  field: { currentFile: null; recentCommands: never[]; recentEvents: never[] }
+  budget: { profile: string; fillRatio: number }
+  checkpoints: never[]
+  memory: null
+}
+
+interface MockDecisions {
+  contextTransform: string
+  zones?: Record<string, unknown>
+  totalTokens?: number
+  fillRatio?: number
+}
 
 function makeEpisode(overrides: Partial<FieldEpisodeBlockRecord> = {}): FieldEpisodeBlockRecord {
   return {
@@ -109,7 +127,7 @@ describe('buildXuanpuAgentPromptMessages — M7 Context Packer path', () => {
           budget: { profile: 'balanced', fillRatio: 0 },
           checkpoints: [],
           memory: null
-        } as any,
+        } as MockPacket,
         log: {
           entries: [],
           appendAndPersist: () => {},
@@ -134,7 +152,7 @@ describe('buildXuanpuAgentPromptMessages — M7 Context Packer path', () => {
     })
 
     expect(result.decisions.contextTransform).toBe('m7-context-packer')
-    const decisions = result.decisions as any
+    const decisions = result.decisions as MockDecisions
     expect(decisions.zones).toBeDefined()
     expect(decisions.zones.anchor).toBeDefined()
     expect(decisions.zones.currentField).toBeDefined()

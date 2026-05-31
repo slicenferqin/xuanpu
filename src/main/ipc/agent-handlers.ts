@@ -869,7 +869,7 @@ export function registerAgentHandlers(
       schema: planApproveSchema,
       handler: async ([{ worktreePath, hiveSessionId, requestId }], c) => {
         log.info('IPC: agent:plan:approve', { hiveSessionId, requestId })
-        // TODO(codex): Generalize when Codex implements this HITL flow
+        // Claude Code: has a real pending plan that blocks the SDK
         const claudeImpl = c.runtimeManager.getImplementer('claude-code') as ClaudeCodeImplementer
         if (
           (requestId && claudeImpl.hasPendingPlan(requestId)) ||
@@ -878,7 +878,35 @@ export function registerAgentHandlers(
           await claudeImpl.planApprove(worktreePath, hiveSessionId, requestId)
           return {}
         }
-        throw new Error('No pending plan found')
+        // xuanpu-agent / codex: plan.ready is synthetic (turn already completed),
+        // so there's no SDK to unblock. Just persist plan.resolved activity.
+        try {
+          const session = c.dbService.getSession(hiveSessionId)
+          if (session && requestId) {
+            c.dbService.upsertSessionActivity({
+              id: `${requestId}:resolved`,
+              session_id: hiveSessionId,
+              agent_session_id: session.opencode_session_id ?? hiveSessionId,
+              thread_id: session.opencode_session_id ?? hiveSessionId,
+              turn_id: null,
+              item_id: null,
+              request_id: requestId,
+              kind: 'plan.resolved',
+              tone: 'info',
+              summary: 'Plan approved by user',
+              payload_json: JSON.stringify({
+                resolution: 'approved',
+                requestId
+              })
+            })
+          }
+        } catch (err) {
+          log.warn('agent:plan:approve persistence failed', {
+            hiveSessionId,
+            error: err instanceof Error ? err.message : String(err)
+          })
+        }
+        return {}
       }
     })
   )

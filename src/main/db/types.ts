@@ -270,8 +270,8 @@ export interface UsageEntry {
   session_id: string
   project_id: string
   worktree_id: string | null
-  agent_sdk: 'claude-code' | 'codex'
-  source_kind: 'claude-transcript' | 'codex-message'
+  agent_sdk: 'claude-code' | 'codex' | 'xuanpu-agent'
+  source_kind: 'claude-transcript' | 'codex-message' | 'xuanpu-agent-message'
   source_message_id: string
   provider_id: string | null
   model_id: string | null
@@ -291,8 +291,8 @@ export interface UsageEntryCreate {
   session_id: string
   project_id: string
   worktree_id?: string | null
-  agent_sdk: 'claude-code' | 'codex'
-  source_kind: 'claude-transcript' | 'codex-message'
+  agent_sdk: 'claude-code' | 'codex' | 'xuanpu-agent'
+  source_kind: 'claude-transcript' | 'codex-message' | 'xuanpu-agent-message'
   source_message_id: string
   provider_id?: string | null
   model_id?: string | null
@@ -309,8 +309,8 @@ export interface UsageEntryCreate {
 
 export interface UsageSyncState {
   session_id: string
-  agent_sdk: 'claude-code' | 'codex'
-  source_kind: 'claude-transcript' | 'codex-message'
+  agent_sdk: 'claude-code' | 'codex' | 'xuanpu-agent'
+  source_kind: 'claude-transcript' | 'codex-message' | 'xuanpu-agent-message'
   source_ref: string | null
   source_mtime_ms: number | null
   status: 'pending' | 'synced' | 'partial' | 'error'
@@ -321,8 +321,8 @@ export interface UsageSyncState {
 
 export interface UsageSyncStateUpsert {
   session_id: string
-  agent_sdk: 'claude-code' | 'codex'
-  source_kind: 'claude-transcript' | 'codex-message'
+  agent_sdk: 'claude-code' | 'codex' | 'xuanpu-agent'
+  source_kind: 'claude-transcript' | 'codex-message' | 'xuanpu-agent-message'
   source_ref?: string | null
   source_mtime_ms?: number | null
   status: 'pending' | 'synced' | 'partial' | 'error'

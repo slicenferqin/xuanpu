@@ -11,6 +11,7 @@ import {
   getXuanpuAgentSystemPromptLines,
   isXuanpuAgentParallelSafeTool
 } from './tool-policy'
+import { READ_ONLY_TOOLS, XFP_FIELD_TOOLS } from './tools'
 import { StormDetector } from './harness/tool-call-repair/storm'
 import { ToolOutputTruncator, type ArchivePayload } from './harness/tool-call-repair/truncation'
 import { buildXuanpuAgentHarnessMetrics, type XuanpuAgentHarnessMetrics } from './harness/metrics'
@@ -164,7 +165,8 @@ export class XuanpuPiAgentSession {
   async prompt(
     input: string | XuanpuPiPromptMessage[],
     modelRef: XuanpuAgentModelRef,
-    handlers: XuanpuAgentPromptEventHandlers = {}
+    handlers: XuanpuAgentPromptEventHandlers = {},
+    toolMode?: 'build' | 'plan'
   ): Promise<XuanpuAgentPromptResult> {
     if (this.prompting) {
       throw new Error('xuanpu-agent: overlapping prompt() calls are not allowed on the same session')
@@ -174,6 +176,11 @@ export class XuanpuPiAgentSession {
     const resolved = await resolvePiModel(modelRef)
     assertXuanpuAgentProviderCredential(resolved.modelRef)
     const agent = await this.getOrCreateAgent(resolved.modelRef, resolved.model, resolved.streamFn)
+
+    // Apply tool mode AFTER agent creation so it's not a no-op on first prompt
+    if (toolMode === 'plan') {
+      agent.setTools([...READ_ONLY_TOOLS, ...XFP_FIELD_TOOLS])
+    }
 
     let streamedText = ''
     const stateMessageCountBeforePrompt = agent.state.messages?.length ?? 0
@@ -274,8 +281,22 @@ export class XuanpuPiAgentSession {
       harnessMetrics
     }
     } finally {
+      // Restore full tool set after plan mode prompt
+      if (toolMode === 'plan') {
+        agent.setTools(getXuanpuAgentAllowedTools())
+      }
       this.prompting = false
     }
+  }
+
+  /** Switch agent to plan mode: read-only tools only (no writes, no subtasks). */
+  setPlanModeTools(): void {
+    this.agent?.setTools([...READ_ONLY_TOOLS, ...XFP_FIELD_TOOLS])
+  }
+
+  /** Restore full tool set (call after plan mode completes). */
+  setBuildModeTools(): void {
+    this.agent?.setTools(getXuanpuAgentAllowedTools())
   }
 
   abort(): void {

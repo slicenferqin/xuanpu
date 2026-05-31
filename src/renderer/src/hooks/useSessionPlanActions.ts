@@ -83,20 +83,23 @@ export function useSessionPlanActions({
     useWorktreeStatusStore.getState().clearSessionStatus(sessionId)
 
     try {
-      if (isClaudeCode) {
-        const result = await window.agentOps.planApprove(
-          worktreePath,
-          sessionId,
-          pendingBeforeAction.requestId
-        )
-        if (!result.success) {
-          toast.error(`Plan approve failed: ${result.error ?? 'Unknown error'}`)
-          if (!(result.error ?? '').toLowerCase().includes('no pending plan')) {
-            useSessionStore.getState().setPendingPlan(sessionId, pendingBeforeAction)
-            useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'plan_ready')
-          }
-          return
+      // Always call planApprove to persist plan.resolved activity.
+      // For claude-code this also unblocks the SDK; for xuanpu-agent/codex
+      // it persists a plan.resolved activity so the durable timeline flips
+      // from "Requires Approval" to approved on next read.
+      const result = await window.agentOps.planApprove(
+        worktreePath,
+        sessionId,
+        pendingBeforeAction.requestId
+      )
+      // Only claude-code needs to handle approve failure (SDK unblock)
+      if (isClaudeCode && !result.success) {
+        toast.error(`Plan approve failed: ${result.error ?? 'Unknown error'}`)
+        if (!(result.error ?? '').toLowerCase().includes('no pending plan')) {
+          useSessionStore.getState().setPendingPlan(sessionId, pendingBeforeAction)
+          useWorktreeStatusStore.getState().setSessionStatus(sessionId, 'plan_ready')
         }
+        return
       }
 
       if (pendingBeforeAction.toolUseID) {
@@ -127,14 +130,18 @@ export function useSessionPlanActions({
         createOptimisticUserMessage({ content: implementPrompt })
       )
 
+      // Force build mode for implement — do not reuse stale promptOptions from
+      // the closure which may still contain { mode: 'plan' } from the plan phase.
+      const implementOptions: PendingMessagePromptOptions | undefined = { mode: 'build' }
+
       await executeSendAction('send', implementPrompt, [], {
         worktreePath,
         sessionId: runtimeSessionId,
         queueSessionId: sessionId,
         runtimeId: agentSdk ?? undefined,
         model: requestModel,
-        promptOptions,
-        prompt: (wp, sid, c) => window.agentOps.prompt(wp, sid, c, requestModel, promptOptions),
+        promptOptions: implementOptions,
+        prompt: (wp, sid, c) => window.agentOps.prompt(wp, sid, c, requestModel, implementOptions),
         abort: (wp, sid) => window.agentOps.abort(wp, sid),
         queueMessage: (sid, msg) => useSessionRuntimeStore.getState().queueMessage(sid, msg)
       })
@@ -154,8 +161,7 @@ export function useSessionPlanActions({
     optimisticTimeline,
     resetLiveOverlay,
     transitionToolStatus,
-    requestModel,
-    promptOptions
+    requestModel
   ])
 
   const handlePlanHandoff = useCallback(async () => {

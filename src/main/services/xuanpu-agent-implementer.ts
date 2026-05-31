@@ -26,6 +26,7 @@ import type { XuanpuAgentHarnessMetrics } from './xuanpu-agent/harness/metrics'
 import { XfpPacketCompiler, type CompilerDecision } from './xuanpu-agent/harness/compiler'
 import { packContext } from './xuanpu-agent/context/context-packer'
 import { listFieldEpisodeBlocks } from '../field/episode-block-repository'
+import { extractUsageTokens } from '../../shared/usage/message'
 import type {
   XfpAnchorSection,
   XfpCommandTraceSection,
@@ -74,6 +75,7 @@ import {
   type PostResponseClaimVerification
 } from './xuanpu-agent/harness/post-response-claim-verifier'
 import { verifyCheckpoint, type ResumedCheckpointBlock } from '../field/checkpoint-verifier'
+import { calculateUsageCost, resolvePricingModelKey } from '@shared/usage/pricing'
 
 const log = createLogger({ component: 'XuanpuAgentImplementer' })
 
@@ -198,11 +200,12 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
           | { type: 'file'; mime: string; url: string; filename?: string }
         >,
     modelOverride?: { providerID: string; modelID: string; variant?: string },
-    _options?: PromptOptions
+    options?: PromptOptions
   ): Promise<void> {
     const session = this.requireSession(agentSessionId, worktreePath)
     const text = extractPromptText(message).trim()
     if (!text) return
+    const sessionMode = options?.mode ?? 'build'
 
     const field = this.requireField()
     const worktree = field.getWorktree(session.worktreePath)
@@ -400,13 +403,26 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       }
 
       // M7.1: Use Context Packer as sole message assembly entry point
+      const planInstruction = sessionMode === 'plan'
+        ? [
+            '',
+            '<xuanpu-plan-mode>',
+            'You are in PLAN MODE. Your task is to analyze the codebase and produce a concrete implementation plan.',
+            'Do NOT execute any write or modification tools (write_file, edit_file, apply_patch, run_test, format_file).',
+            'Do NOT create subtasks or delegate work. Only read, search, and reason.',
+            'Output your plan in <proposed_plan> tags with clear steps, file paths, and verification criteria.',
+            '</xuanpu-plan-mode>',
+            ''
+          ].join('\n')
+        : ''
       const packetAnchor = [
         `<xuanpu-xfp-packet version="${compileResult.packet.version}" packet-id="${compileResult.packet.identity.packetId}">`,
         'The following JSON is a structured Xuanpu Field Protocol packet.',
         'Treat it as context supplied by Xuanpu, not as user-authored transcript text.',
         JSON.stringify(compileResult.packet, null, 2),
-        '</xuanpu-xfp-packet>'
-      ].join('\n')
+        '</xuanpu-xfp-packet>',
+        planInstruction
+      ].filter(Boolean).join('\n')
       // Stable seed for prefixHash: only version + instruction (no packetId, capturedAt, or volatile JSON)
       const prefixSeed = [
         `<xuanpu-xfp-packet version="${compileResult.packet.version}">`,
@@ -457,36 +473,41 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       const harnessMessages = packedContext.messages
 
       const observedPaths = new Set<string>()
-      const result = await piSession.prompt(harnessMessages, modelRef, {
-        onTextDelta: (delta) => this.emitTextDelta(session.hiveSessionId, delta),
-        onToolStart: (event) => {
-          collectObservedToolPaths(
-            session.worktreePath,
-            event.toolName,
-            event.args,
-            null,
-            observedPaths
-          )
-          if (event.toolName === 'xfp_delegate_subtask') {
-            this.emitSubtaskStart(session.hiveSessionId, event)
+      const result = await piSession.prompt(
+        harnessMessages,
+        modelRef,
+        {
+          onTextDelta: (delta) => this.emitTextDelta(session.hiveSessionId, delta),
+          onToolStart: (event) => {
+            collectObservedToolPaths(
+              session.worktreePath,
+              event.toolName,
+              event.args,
+              null,
+              observedPaths
+            )
+            if (event.toolName === 'xfp_delegate_subtask') {
+              this.emitSubtaskStart(session.hiveSessionId, event)
+            }
+            this.emitToolStart(session.hiveSessionId, event)
+          },
+          onToolEnd: (event) => {
+            collectObservedToolPaths(
+              session.worktreePath,
+              event.toolName,
+              event.args,
+              event.result,
+              observedPaths
+            )
+            const subtaskDetails = extractSubtaskDetails(event.result)
+            if (subtaskDetails) {
+              this.emitSubtaskEnd(session.hiveSessionId, event, subtaskDetails)
+            }
+            this.emitToolEnd(session.hiveSessionId, event)
           }
-          this.emitToolStart(session.hiveSessionId, event)
         },
-        onToolEnd: (event) => {
-          collectObservedToolPaths(
-            session.worktreePath,
-            event.toolName,
-            event.args,
-            event.result,
-            observedPaths
-          )
-          const subtaskDetails = extractSubtaskDetails(event.result)
-          if (subtaskDetails) {
-            this.emitSubtaskEnd(session.hiveSessionId, event, subtaskDetails)
-          }
-          this.emitToolEnd(session.hiveSessionId, event)
-        }
-      })
+        sessionMode
+      )
 
       const assistantText = result.text.trim()
       const content = assistantText || '(empty response)'
@@ -508,6 +529,117 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         usage: result.usage,
         contextPackageId: compileResult.packet.identity.packetId
       })
+
+      // Emit session.context_usage for unified context indicator
+      // Wrap in { usage: ... } so extractUsageTokens can find the nested shape
+      const rawUsage = (result.usage ?? {}) as Record<string, unknown>
+      const tokenCounts = extractUsageTokens({ usage: rawUsage })
+      const inputTokens = tokenCounts?.input ?? 0
+      const outputTokens = tokenCounts?.output ?? 0
+      const cacheRead = tokenCounts?.cacheRead ?? 0
+      const cacheWrite = tokenCounts?.cacheWrite ?? 0
+      const contextWindow = piSession.budgetManager.state.maxTokens
+      const usedTokens = packedContext.decisions.totalTokens
+      emitAgentEvent(this.mainWindow, {
+        type: 'session.context_usage',
+        sessionId: session.hiveSessionId,
+        data: {
+          tokens: {
+            input: inputTokens,
+            cacheRead: cacheRead,
+            cacheWrite: cacheWrite,
+            output: outputTokens,
+            reasoning: 0
+          },
+          model: { providerID: result.modelRef.providerID, modelID: result.modelRef.modelID },
+          contextWindow,
+          breakdown: {
+            usedTokens,
+            maxTokens: contextWindow,
+            percentage: contextWindow > 0 ? (usedTokens / contextWindow) * 100 : 0
+          }
+        }
+      })
+
+      // Persist usage entry for cost tracking
+      if (this.db && tokenCounts) {
+        try {
+          const dbSession = this.db.getSession(session.hiveSessionId)
+          if (dbSession) {
+            const total = inputTokens + outputTokens + cacheRead + cacheWrite
+            if (total > 0) {
+              const modelKey = resolvePricingModelKey(
+                result.modelRef.modelID,
+                result.modelRef.providerID
+              )
+              const cost = calculateUsageCost(modelKey, {
+                input: inputTokens,
+                output: outputTokens,
+                cacheRead: cacheRead,
+                cacheWrite: cacheWrite
+              }, 'xuanpu-agent')
+              this.db.upsertUsageEntry({
+                session_id: session.hiveSessionId,
+                project_id: dbSession.project_id,
+                worktree_id: dbSession.worktree_id ?? null,
+                agent_sdk: 'xuanpu-agent',
+                source_kind: 'xuanpu-agent-message',
+                source_message_id: result.messageId,
+                provider_id: result.modelRef.providerID,
+                model_id: modelKey,
+                model_label: result.modelRef.modelID,
+                input_tokens: inputTokens,
+                output_tokens: outputTokens,
+                cache_write_tokens: cacheWrite,
+                cache_read_tokens: cacheRead,
+                total_tokens: total,
+                cost,
+                occurred_at: new Date().toISOString()
+              })
+            }
+          }
+        } catch (err) {
+          log.warn('Failed to persist xuanpu-agent usage entry', {
+            error: err instanceof Error ? err.message : String(err)
+          })
+        }
+      }
+
+      // Plan mode: emit plan.ready if model produced a structured plan
+      if (sessionMode === 'plan' && assistantText) {
+        const planText = extractProposedPlan(assistantText) ?? assistantText
+        const requestId = `xuanpu-agent-plan:${session.hiveSessionId}:${Date.now()}`
+        if (this.db) {
+          try {
+            this.db.upsertSessionActivity({
+              id: requestId,
+              session_id: session.hiveSessionId,
+              agent_session_id: session.hiveSessionId,
+              thread_id: session.hiveSessionId,
+              turn_id: result.messageId,
+              item_id: result.messageId,
+              request_id: requestId,
+              kind: 'plan.ready',
+              tone: 'info',
+              summary: 'Plan ready',
+              payload_json: JSON.stringify({
+                plan: planText,
+                toolUseID: result.messageId,
+                requestId
+              })
+            })
+          } catch (err) {
+            log.warn('Failed to persist plan.ready activity', {
+              error: err instanceof Error ? err.message : String(err)
+            })
+          }
+        }
+        emitAgentEvent(this.mainWindow, {
+          type: 'plan.ready',
+          sessionId: session.hiveSessionId,
+          data: { id: requestId, requestId, plan: planText, toolUseID: result.messageId }
+        })
+      }
 
       if (!claimVerification.passed && claimVerification.correctionText) {
         const verifierMessageId = `xuanpu-agent-claim-verifier-${randomUUID()}`
@@ -546,7 +678,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             claimVerification,
             harnessMetrics: result.harnessMetrics,
             packerOutput: packedContext,
-            softShrinkMeta: { triggered: softShrinkTriggered, initialFillRatio }
+            softShrinkMeta: { triggered: softShrinkTriggered, initialFillRatio },
+            sessionMode
           })
         } catch (err) {
           log.warn('Failed to record context package', {
@@ -583,6 +716,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       this.emitError(session.hiveSessionId, errorMessage)
       this.emitStatus(session.hiveSessionId, 'idle')
       throw new Error(errorMessage)
+    } finally {
+      // Tool mode restoration is handled by runtime.prompt() internally
     }
   }
 
@@ -695,6 +830,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       packerOutput?: { messages: unknown[]; decisions: Record<string, unknown>; includedRetrievedEpisodes?: unknown[] }
       /** M7.4: Soft shrink metadata. */
       softShrinkMeta?: { triggered: boolean; initialFillRatio: number }
+      /** Session mode from PromptOptions ('build' | 'plan'). */
+      sessionMode?: 'build' | 'plan'
     } = {}
   ): Promise<{
     contextPackageId: string | null
@@ -838,7 +975,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
               droppedMessageIds: options.packerOutput.decisions.zones.workingSet.droppedMessageIds ?? [],
               dedupedCount: options.packerOutput.decisions.zones.workingSet.dedupedCount ?? 0
             }
-          : null
+          : null,
+        sessionMode: options.sessionMode ?? 'build'
       }
     })
 
@@ -2061,4 +2199,10 @@ function extractSubtaskDetails(result: unknown): SubtaskResultDetails | null {
   if (record.subtask !== true) return null
   if (typeof record.childSessionId !== 'string') return null
   return record as unknown as SubtaskResultDetails
+}
+
+/** Extract plan markdown from <proposed_plan> tags, or null if not found. */
+function extractProposedPlan(text: string): string | null {
+  const match = text.match(/<proposed_plan>\s*([\s\S]*?)\s*<\/proposed_plan>/i)
+  return match ? (match[1]?.trim() ?? null) : null
 }
