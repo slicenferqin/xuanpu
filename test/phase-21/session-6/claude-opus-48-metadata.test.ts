@@ -49,11 +49,11 @@ describe('Claude model metadata for Opus 4.8', () => {
     expect(variantKeys).toContain('max')
   })
 
-  it('Opus default variant remains high (via getModelInfo)', async () => {
-    const info = await impl.getModelInfo('any', 'opus')
-    expect(info).toBeDefined()
-    expect(info!.id).toBe('opus')
-    expect(info!.name).toBe('Opus 4.8')
+  it('Opus default variant remains high', async () => {
+    const providers = (await impl.getAvailableModels()) as any[]
+    const opus = providers[0].models.opus
+    expect(opus).toBeDefined()
+    expect(opus.defaultVariant).toBe('high')
   })
 
   it('no ultracode variant is emitted', async () => {

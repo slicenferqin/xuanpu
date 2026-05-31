@@ -22,7 +22,7 @@ describe('Session 5: Variant Persistence', () => {
       configurable: true
     })
 
-    Object.defineProperty(window, 'opencodeOps', {
+    Object.defineProperty(window, 'agentOps', {
       value: {
         listModels: vi.fn().mockResolvedValue({
           success: true,
@@ -36,7 +36,9 @@ describe('Session 5: Variant Persistence', () => {
 
     // Reset store state
     useSettingsStore.setState({
+      defaultAgentSdk: 'opencode',
       selectedModel: null,
+      selectedModelByProvider: {},
       modelVariantDefaults: {},
       favoriteModels: [],
       isLoading: false
@@ -157,11 +159,13 @@ describe('Session 5: Variant Persistence', () => {
   describe('ModelSelector variant persistence via Alt+T', () => {
     test('Alt+T cycling persists the variant choice', async () => {
       useSettingsStore.setState({
+        defaultAgentSdk: 'opencode',
         selectedModel: {
           providerID: 'anthropic',
           modelID: 'claude-opus-4-5-20251101',
           variant: 'high'
-        }
+        },
+        selectedModelByProvider: {}
       })
 
       const { ModelSelector } =
@@ -182,17 +186,19 @@ describe('Session 5: Variant Persistence', () => {
 
       // Verify it cycled to 'max' and persisted
       const state = useSettingsStore.getState()
-      expect(state.selectedModel?.variant).toBe('max')
+      expect(state.selectedModelByProvider.opencode?.variant).toBe('max')
       expect(state.getModelVariantDefault('anthropic', 'claude-opus-4-5-20251101')).toBe('max')
     })
 
     test('Alt+T cycling wraps and persists', async () => {
       useSettingsStore.setState({
+        defaultAgentSdk: 'opencode',
         selectedModel: {
           providerID: 'anthropic',
           modelID: 'claude-opus-4-5-20251101',
           variant: 'max'
-        }
+        },
+        selectedModelByProvider: {}
       })
 
       const { ModelSelector } =
@@ -212,13 +218,15 @@ describe('Session 5: Variant Persistence', () => {
 
       // Should wrap to 'high' and persist
       const state = useSettingsStore.getState()
-      expect(state.selectedModel?.variant).toBe('high')
+      expect(state.selectedModelByProvider.opencode?.variant).toBe('high')
       expect(state.getModelVariantDefault('anthropic', 'claude-opus-4-5-20251101')).toBe('high')
     })
 
     test('Alt+T on model without variants does not persist anything', async () => {
       useSettingsStore.setState({
-        selectedModel: { providerID: 'openai', modelID: 'gpt-4o' }
+        defaultAgentSdk: 'opencode',
+        selectedModel: { providerID: 'openai', modelID: 'gpt-4o' },
+        selectedModelByProvider: {}
       })
 
       const { ModelSelector } =
@@ -258,12 +266,15 @@ describe('Session 5: Variant Persistence', () => {
         .getModelVariantDefault('anthropic', 'claude-opus-4-5-20251101')
       const variantKeys = ['high', 'max']
 
+      const defaultVariant: string | undefined = undefined
       const variant =
         remembered && variantKeys.includes(remembered)
           ? remembered
-          : variantKeys.length > 0
-            ? variantKeys[0]
-            : undefined
+          : defaultVariant && variantKeys.includes(defaultVariant)
+            ? defaultVariant
+            : variantKeys.length > 0
+              ? variantKeys[0]
+              : undefined
 
       expect(variant).toBe('max')
     })
@@ -278,12 +289,15 @@ describe('Session 5: Variant Persistence', () => {
         .getModelVariantDefault('anthropic', 'claude-opus-4-5-20251101')
       const variantKeys = ['high', 'max']
 
+      const defaultVariant: string | undefined = undefined
       const variant =
         remembered && variantKeys.includes(remembered)
           ? remembered
-          : variantKeys.length > 0
-            ? variantKeys[0]
-            : undefined
+          : defaultVariant && variantKeys.includes(defaultVariant)
+            ? defaultVariant
+            : variantKeys.length > 0
+              ? variantKeys[0]
+              : undefined
 
       expect(variant).toBe('high')
     })
@@ -292,12 +306,15 @@ describe('Session 5: Variant Persistence', () => {
       const remembered = useSettingsStore.getState().getModelVariantDefault('openai', 'gpt-4o')
       const variantKeys: string[] = []
 
+      const defaultVariant: string | undefined = undefined
       const variant =
         remembered && variantKeys.includes(remembered)
           ? remembered
-          : variantKeys.length > 0
-            ? variantKeys[0]
-            : undefined
+          : defaultVariant && variantKeys.includes(defaultVariant)
+            ? defaultVariant
+            : variantKeys.length > 0
+              ? variantKeys[0]
+              : undefined
 
       expect(variant).toBeUndefined()
     })
@@ -308,12 +325,32 @@ describe('Session 5: Variant Persistence', () => {
         .getModelVariantDefault('anthropic', 'claude-opus-4-5-20251101')
       const variantKeys = ['high', 'max']
 
+      const defaultVariant: string | undefined = undefined
       const variant =
         remembered && variantKeys.includes(remembered)
           ? remembered
-          : variantKeys.length > 0
-            ? variantKeys[0]
-            : undefined
+          : defaultVariant && variantKeys.includes(defaultVariant)
+            ? defaultVariant
+            : variantKeys.length > 0
+              ? variantKeys[0]
+              : undefined
+
+      expect(variant).toBe('high')
+    })
+
+    test('uses model default variant before first variant when no remembered default exists', () => {
+      const remembered = useSettingsStore.getState().getModelVariantDefault('anthropic', 'opus')
+      const variantKeys = ['low', 'medium', 'high', 'xhigh', 'max']
+      const defaultVariant = 'high'
+
+      const variant =
+        remembered && variantKeys.includes(remembered)
+          ? remembered
+          : defaultVariant && variantKeys.includes(defaultVariant)
+            ? defaultVariant
+            : variantKeys.length > 0
+              ? variantKeys[0]
+              : undefined
 
       expect(variant).toBe('high')
     })

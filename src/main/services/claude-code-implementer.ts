@@ -2285,6 +2285,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
               name: m.name,
               limit: m.limit,
               variants: m.variants,
+              defaultVariant: m.defaultVariant,
               ...(m.supportsFastMode ? { supportsFastMode: true } : {})
             }
           ])

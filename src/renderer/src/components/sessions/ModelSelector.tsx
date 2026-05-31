@@ -5,6 +5,7 @@ import { useSettingsStore, resolveModelForSdk } from '@/stores/useSettingsStore'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { toast } from '@/lib/toast'
 import { useI18n } from '@/i18n/useI18n'
+import { getVariantKeys, resolveModelVariantForSelection } from '@/lib/model-variants'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,6 +20,7 @@ interface ModelInfo {
   name?: string
   providerID: string
   variants?: Record<string, Record<string, unknown>>
+  defaultVariant?: string
 }
 
 interface ProviderModels {
@@ -29,11 +31,6 @@ interface ProviderModels {
 
 function getDisplayName(model: ModelInfo): string {
   return model.name || model.id
-}
-
-function getVariantKeys(model: ModelInfo): string[] {
-  if (!model.variants) return []
-  return Object.keys(model.variants)
 }
 
 interface ModelSelectorProps {
@@ -147,7 +144,8 @@ export function ModelSelector({
             id: md?.id || modelID,
             name: md?.name,
             providerID,
-            variants
+            variants,
+            defaultVariant: typeof md?.defaultVariant === 'string' ? md.defaultVariant : undefined
           })
         }
       }
@@ -165,16 +163,10 @@ export function ModelSelector({
   }
 
   function handleSelectModel(model: ModelInfo): void {
-    const variantKeys = getVariantKeys(model)
     const remembered = useSettingsStore
       .getState()
       .getModelVariantDefault(model.providerID, model.id)
-    const variant =
-      remembered && variantKeys.includes(remembered)
-        ? remembered
-        : variantKeys.length > 0
-          ? variantKeys[0]
-          : undefined
+    const variant = resolveModelVariantForSelection(model, remembered)
     const newModel = { providerID: model.providerID, modelID: model.id, variant }
 
     // Use controlled onChange if provided (for settings), otherwise update store
