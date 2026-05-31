@@ -57,7 +57,7 @@ function createMockClaudeImpl(): AgentRuntimeAdapter {
     getAvailableModels: vi.fn().mockResolvedValue([{ id: 'claude-code', models: {} }]),
     getModelInfo: vi.fn().mockResolvedValue({
       id: 'opus',
-      name: 'Opus 4.7',
+      name: 'Opus 4.8',
       limit: { context: 200000, output: 32000 }
     }),
     setSelectedModel: vi.fn(),
@@ -98,7 +98,7 @@ function createMockOpenCodeImpl(): AgentRuntimeAdapter {
     getAvailableModels: vi.fn().mockResolvedValue([{ id: 'opencode', models: {} }]),
     getModelInfo: vi.fn().mockResolvedValue({
       id: 'opus',
-      name: 'Opus 4.7',
+      name: 'Opus 4.8',
       limit: { context: 200000, output: 32000 }
     }),
     setSelectedModel: vi.fn(),

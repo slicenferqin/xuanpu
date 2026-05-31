@@ -371,7 +371,7 @@ describe('Header mode pill', () => {
               id: 'anthropic',
               name: 'Anthropic',
               models: {
-                opus: { id: 'opus', name: 'Opus 4.7' }
+                opus: { id: 'opus', name: 'Opus 4.8' }
               }
             }
           ]

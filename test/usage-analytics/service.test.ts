@@ -181,7 +181,7 @@ describeDb('UsageAnalyticsService', () => {
     expect(summary.success).toBe(true)
     expect(summary.data?.total_cost).toBeCloseTo(0.012625, 10)
     expect(summary.data?.total_tokens).toBe(2375)
-    expect(summary.data?.model_labels).toEqual(['Opus 4.7', 'Sonnet 4.6'])
+    expect(summary.data?.model_labels).toEqual(['Opus 4.8', 'Sonnet 4.6'])
     expect(summary.data?.latest_model_label).toBe('Sonnet 4.6')
     expect(db.getUsageEntriesBySession(session.id)).toHaveLength(3)
   })
@@ -242,8 +242,8 @@ describeDb('UsageAnalyticsService', () => {
     })
 
     expect(dashboard.success).toBe(true)
-    expect(dashboard.data?.sessions[0].model_labels).toEqual(['Sonnet 4.6', 'Opus 4.7'])
-    expect(dashboard.data?.sessions[0].model_label).toBe('Opus 4.7')
+    expect(dashboard.data?.sessions[0].model_labels).toEqual(['Sonnet 4.6', 'Opus 4.8'])
+    expect(dashboard.data?.sessions[0].model_label).toBe('Opus 4.8')
   })
 
   it('marks missing Claude transcript data as partial instead of zero-cost data', async () => {

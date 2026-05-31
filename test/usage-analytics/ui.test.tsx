@@ -53,7 +53,7 @@ describe('usage analytics UI', () => {
           cache_read_tokens: 100,
           duration_seconds: 125,
           last_used_at: '2026-04-04T12:00:00.000Z',
-          model_labels: ['Opus 4.7', 'Sonnet 4.6'],
+          model_labels: ['Opus 4.8', 'Sonnet 4.6'],
           latest_model_label: 'Sonnet 4.6',
           partial: false
         }}
@@ -66,7 +66,7 @@ describe('usage analytics UI', () => {
     await user.click(screen.getByTestId('session-cost-pill'))
 
     expect(screen.getByText('Session Cost')).toBeTruthy()
-    expect(screen.getByText('Opus 4.7 + Sonnet 4.6')).toBeTruthy()
+    expect(screen.getByText('Opus 4.8 + Sonnet 4.6')).toBeTruthy()
     expect(screen.getByText('2m 5s')).toBeTruthy()
   })
 
@@ -203,7 +203,7 @@ describe('usage analytics UI', () => {
             project_path: '/tmp/xuanpu',
             worktree_name: 'bloodhound',
             model_label: 'Sonnet 4.6',
-            model_labels: ['Opus 4.7', 'Sonnet 4.6'],
+            model_labels: ['Opus 4.8', 'Sonnet 4.6'],
             total_cost: 12.34,
             total_tokens: 34000,
             input_tokens: 22000,
