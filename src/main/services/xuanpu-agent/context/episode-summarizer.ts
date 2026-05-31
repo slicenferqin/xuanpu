@@ -158,7 +158,7 @@ export async function summarizeEpisode(
           }
         ]
       },
-      undefined
+      resolution.resolvedApiKey ? { apiKey: resolution.resolvedApiKey } : undefined
     )
 
     const textParts = result.content

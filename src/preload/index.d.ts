@@ -242,7 +242,7 @@ interface OnboardingDoctorResult {
 
 interface XuanpuAgentRuntimeStatus {
   enabled: boolean
-  status: 'disabled' | 'missing-credentials' | 'mock-ready' | 'ready'
+  status: 'disabled' | 'missing-credentials' | 'mock-ready' | 'ready' | 'config-error'
   runtimeGateEnv: 'XUANPU_AGENT_RUNTIME'
   mockMode: boolean
   providerReady: boolean
@@ -253,13 +253,20 @@ interface XuanpuAgentRuntimeStatus {
     required: boolean
     present: boolean
     envKeys: string[]
+    source: 'env' | 'auth-file' | 'missing'
+    maskedKey: string | null
   }
   toolSurface: {
-    status: 'blocked' | 'ready'
+    status: 'blocked' | 'read-only' | 'controlled-write' | 'ready'
     toolsEnabled: boolean
     nativeProcessControlEnabled: boolean
     unmetGateIds: string[]
   }
+  configPath: string
+  configLoaded: boolean
+  configSource: 'xuanpu-agent-json' | 'env-only' | 'config-error'
+  baseUrl: string | null
+  baseUrlSource: 'env' | 'config' | null
 }
 
 declare global {

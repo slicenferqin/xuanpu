@@ -19,6 +19,7 @@ import { selectRetrievedEpisodesForContext } from '../episode-retrieval'
 import { selectMessagesForEpisodeFreeze } from '../episode-freezer'
 import { summarizeEpisode } from '../context/episode-summarizer'
 import type { XuanpuAgentModelRef } from '../model-config'
+import { loadXuanpuAgentConfig } from '../config-loader'
 import { createLogger } from '../../logger'
 import type {
   FieldProvider,
@@ -331,7 +332,33 @@ export class IdeFieldProvider implements FieldProvider {
       // Settings read failure — proceed with nulls (will fall back to rule-based)
     }
 
-    return resolveCompactionModel(compactionModel, mainModel ?? undefined)
+    // Priority 2: Config file compactionModel (if DB settings didn't specify one)
+    let agentConfig: XuanpuAgentConfig | undefined
+    if (!compactionModel) {
+      try {
+        const { config } = loadXuanpuAgentConfig()
+        agentConfig = config
+        if (config.compactionModel) {
+          compactionModel = config.compactionModel
+        }
+        // Also use config mainModel if DB settings didn't specify one
+        if (!mainModel) {
+          mainModel = config.mainModel
+        }
+      } catch {
+        // Config load failure — proceed with DB values
+      }
+    } else {
+      // Still load config for API key resolution even if compactionModel came from DB
+      try {
+        const { config } = loadXuanpuAgentConfig()
+        agentConfig = config
+      } catch {
+        // Config load failure — proceed without config-based API keys
+      }
+    }
+
+    return resolveCompactionModel(compactionModel, mainModel ?? undefined, agentConfig)
   }
 }
 

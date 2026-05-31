@@ -10,7 +10,10 @@ import {
 import type { TimelineMessage } from '@shared/lib/timeline-types'
 import { mapRawTranscriptToTimeline } from '@shared/lib/timeline-mappers'
 import type { MessagePart } from '@shared/types/opencode'
-import { getStreamingBuffer } from '@/stores/useSessionRuntimeStore'
+import {
+  clearStreamingBufferRunState,
+  getStreamingBuffer
+} from '@/stores/useSessionRuntimeStore'
 
 export interface UseSessionTimelineOptions {
   worktreePath?: string | null
@@ -146,6 +149,10 @@ export function useSessionTimeline(
             })
           : restored
       setMessages(merged)
+      const currentBuffer = getStreamingBuffer(sessionId)
+      if (currentBuffer?.runStartedAt !== undefined && !currentBuffer.isStreaming) {
+        clearStreamingBufferRunState(sessionId)
+      }
       return merged
     } catch (err) {
       console.warn('[useSessionTimeline] getTimeline failed:', err)

@@ -861,7 +861,17 @@ app.whenReady().then(async () => {
     codexImpl.setDatabaseService(getDatabase())
 
     const runtimeImplementers: AgentRuntimeAdapter[] = [openCodeService, claudeImpl, codexImpl]
-    if (process.env.XUANPU_AGENT_RUNTIME === '1') {
+    let xuanpuAgentEnabled = process.env.XUANPU_AGENT_RUNTIME === '1'
+    if (!xuanpuAgentEnabled) {
+      try {
+        const { loadXuanpuAgentConfig } = await import('./services/xuanpu-agent/config-loader')
+        const xuanpuAgentConfig = loadXuanpuAgentConfig()
+        xuanpuAgentEnabled = xuanpuAgentConfig.config.enabled
+      } catch {
+        // Config load error — xuanpu-agent stays disabled via env gate
+      }
+    }
+    if (xuanpuAgentEnabled) {
       try {
         const { XuanpuAgentImplementer } = await import('./services/xuanpu-agent-implementer')
         const xuanpuAgentImpl = new XuanpuAgentImplementer()

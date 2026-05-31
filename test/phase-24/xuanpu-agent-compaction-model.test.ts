@@ -1,5 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
+vi.mock('electron', () => ({
+  app: {
+    getPath: vi.fn(() => '/tmp'),
+    getVersion: vi.fn(() => '0.0.0-test')
+  }
+}))
+
 // Mock pi-ai module
 const mockGetBundledModel = vi.fn()
 
@@ -143,5 +150,59 @@ describe('resolveCompactionModel', () => {
 
     expect(result.kind).toBe('model')
     expect(result.modelRef?.providerID).toBe('anthropic')
+  })
+
+  it('populates resolvedApiKey from config when env var is set', async () => {
+    const mockModel = { id: 'haiku' }
+    mockGetBundledModel.mockImplementation((provider: string, modelId: string) => {
+      if (provider === 'anthropic' && modelId === 'claude-haiku-4-5') return mockModel
+      return null
+    })
+
+    const previousKey = process.env.ANTHROPIC_API_KEY
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-test-key'
+
+    const config = {
+      enabled: true,
+      mainModel: { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' }
+    }
+
+    const result = await resolveCompactionModel(
+      { providerID: 'anthropic', modelID: 'claude-haiku-4-5' },
+      undefined,
+      config
+    )
+
+    expect(result.kind).toBe('model')
+    expect(result.resolvedApiKey).toBe('sk-ant-test-key')
+
+    if (previousKey === undefined) {
+      delete process.env.ANTHROPIC_API_KEY
+    } else {
+      process.env.ANTHROPIC_API_KEY = previousKey
+    }
+  })
+
+  it('sets resolvedApiKey to undefined when no credential found', async () => {
+    const mockModel = { id: 'gpt-mini' }
+    mockGetBundledModel.mockImplementation((provider: string, modelId: string) => {
+      if (provider === 'openai' && modelId === 'gpt-5.4-mini') return mockModel
+      return null
+    })
+
+    const previousKey = process.env.OPENAI_API_KEY
+    delete process.env.OPENAI_API_KEY
+
+    const result = await resolveCompactionModel(
+      null,
+      { providerID: 'openai', modelID: 'gpt-5.5' }
+    )
+
+    expect(result.kind).toBe('model')
+    expect(result.resolvedApiKey).toBeUndefined()
+
+    if (previousKey !== undefined) {
+      process.env.OPENAI_API_KEY = previousKey
+    }
   })
 })

@@ -5,6 +5,8 @@
  * Priority: explicit config > provider-auto candidate > rule-based fallback.
  */
 import type { XuanpuAgentModelRef } from '../model-config'
+import { resolveConfiguredApiKey } from '../model-config'
+import type { XuanpuAgentConfig } from '../config-loader'
 import { loadPiAiModule } from '../pi-agent-core-loader'
 
 export interface CompactionModelResolution {
@@ -13,6 +15,8 @@ export interface CompactionModelResolution {
   modelRef?: XuanpuAgentModelRef
   model?: unknown
   streamFn?: unknown
+  /** API key resolved from config (env or auth file) for this model's provider. */
+  resolvedApiKey?: string
   /** Set when explicit config was requested but not honored (probe failed). */
   degradedReason?: string
 }
@@ -57,7 +61,8 @@ function probeModel(providerID: string, modelID: string): { model: unknown; stre
 
 export async function resolveCompactionModel(
   configuredCompactionModel?: XuanpuAgentModelRef | null,
-  mainModelRef?: XuanpuAgentModelRef
+  mainModelRef?: XuanpuAgentModelRef,
+  config?: XuanpuAgentConfig
 ): Promise<CompactionModelResolution> {
   await ensurePiAi()
 
@@ -73,7 +78,8 @@ export async function resolveCompactionModel(
         source: 'explicit',
         modelRef: { ...configuredCompactionModel, providerID },
         model: probed.model,
-        streamFn: probed.streamFn
+        streamFn: probed.streamFn,
+        resolvedApiKey: resolveConfiguredApiKey(providerID, config)
       }
     }
     // Explicit model not available — mark degraded, fall through to auto-detect
@@ -96,6 +102,7 @@ export async function resolveCompactionModel(
             modelRef: { providerID, modelID: candidateModelID },
             model: probed.model,
             streamFn: probed.streamFn,
+            resolvedApiKey: resolveConfiguredApiKey(providerID, config),
             degradedReason
           }
         }
@@ -113,6 +120,7 @@ export async function resolveCompactionModel(
         modelRef: { providerID: 'anthropic', modelID: 'claude-haiku-4-5' },
         model: probed.model,
         streamFn: probed.streamFn,
+        resolvedApiKey: resolveConfiguredApiKey('anthropic', config),
         degradedReason
       }
     }

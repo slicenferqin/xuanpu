@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TimelineMessage } from '../../src/shared/lib/timeline-types'
 import { useSessionTimeline } from '../../src/renderer/src/hooks/useSessionTimeline'
 import {
+  getStreamingBuffer,
   resetStreamingBuffersForTests,
   updateStreamingBuffer
 } from '../../src/renderer/src/stores/useSessionRuntimeStore'
@@ -162,5 +163,74 @@ describe('useSessionTimeline', () => {
       }
     ])
     expect(result.current.optimisticRef.current).toEqual([])
+  })
+
+  it('clears stale run cutoff after loading a completed remounted session', async () => {
+    const sessionId = 'timeline-stale-run-cutoff-session'
+    const runStartedAt = Date.parse('2026-05-26T00:00:01.000Z')
+    const durableUser = makeUserMessage('user-1', 'inspect', '2026-05-26T00:00:00.000Z')
+    const durableAssistant = makeAssistantMessage(
+      'assistant-1',
+      'completed answer',
+      '2026-05-26T00:00:02.000Z'
+    )
+
+    updateStreamingBuffer(
+      sessionId,
+      (current) => ({
+        ...current,
+        isStreaming: false,
+        runStartedAt,
+        parts: [
+          {
+            type: 'tool_use',
+            toolUse: {
+              id: 'tool-1',
+              name: 'Bash',
+              input: {},
+              status: 'success',
+              startTime: runStartedAt
+            }
+          }
+        ]
+      }),
+      { notify: 'none' }
+    )
+    installAgentOps({
+      getTimeline: vi.fn().mockResolvedValue({ messages: [durableUser, durableAssistant] })
+    })
+
+    const { result } = renderHook(() => useSessionTimeline(sessionId))
+
+    await waitFor(() => {
+      expect(result.current.messages).toEqual([durableUser, durableAssistant])
+    })
+    expect(getStreamingBuffer(sessionId)?.runStartedAt).toBeUndefined()
+  })
+
+  it('keeps run cutoff while a remounted session is still streaming', async () => {
+    const sessionId = 'timeline-active-run-cutoff-session'
+    const runStartedAt = Date.parse('2026-05-26T00:00:01.000Z')
+
+    updateStreamingBuffer(
+      sessionId,
+      (current) => ({
+        ...current,
+        isStreaming: true,
+        runStartedAt
+      }),
+      { notify: 'none' }
+    )
+    installAgentOps({
+      getTimeline: vi.fn().mockResolvedValue({
+        messages: [makeUserMessage('user-1', 'inspect', '2026-05-26T00:00:00.000Z')]
+      })
+    })
+
+    renderHook(() => useSessionTimeline(sessionId))
+
+    await waitFor(() => {
+      expect(getStreamingBuffer(sessionId)?.runStartedAt).toBe(runStartedAt)
+    })
   })
 })

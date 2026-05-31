@@ -9,6 +9,7 @@ interface CodexConfigSection {
 export interface CodexConfig {
   model?: string
   modelContextWindow?: number
+  modelReasoningEffort?: string
   activeProfile?: string
   profiles: Record<string, CodexConfigSection>
 }
@@ -49,7 +50,8 @@ function parseTomlScalar(value: string): string {
 
 function toPositiveInteger(value: string | undefined): number | undefined {
   if (!value) return undefined
-  const parsed = Number(value)
+  const normalized = value.replace(/_/g, '')
+  const parsed = Number(normalized)
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : undefined
 }
 
@@ -94,6 +96,7 @@ export function parseCodexConfigToml(raw: string): CodexConfig {
     modelContextWindow:
       toPositiveInteger(profileValues?.model_context_window) ??
       toPositiveInteger(root.model_context_window),
+    modelReasoningEffort: profileValues?.model_reasoning_effort ?? root.model_reasoning_effort,
     activeProfile,
     profiles
   }
@@ -115,4 +118,8 @@ export function getCodexConfiguredModel(): string | undefined {
 
 export function getCodexConfiguredContextWindow(): number | undefined {
   return readCodexConfig()?.modelContextWindow
+}
+
+export function getCodexConfiguredReasoningEffort(): string | undefined {
+  return readCodexConfig()?.modelReasoningEffort
 }

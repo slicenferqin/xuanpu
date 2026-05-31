@@ -27,7 +27,7 @@ import {
 import { ensureCodexAppServerLaunchSpec } from './codex-binary-resolver'
 import { asNumber, asObject, asString, toDebugSnapshot } from './codex-utils'
 import { generateCodexSessionTitle } from './codex-session-title'
-import { getCodexConfiguredContextWindow, getCodexConfiguredModel } from './codex-config'
+import { getCodexConfiguredContextWindow, getCodexConfiguredModel, getCodexConfiguredReasoningEffort } from './codex-config'
 import type { DatabaseService } from '../db/database'
 import type { SessionActivityCreate } from '../db'
 import { autoRenameWorktreeBranch } from './git-service'
@@ -1747,16 +1747,31 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       const model = resolveCodexModelSlug(modelOverride?.modelID ?? this.selectedModel)
 
       // Determine interaction mode from DB session mode (same pattern as claude-code-implementer)
+      // Also read model_variant for reasoning effort resolution.
+      let dbSessionForMode: { mode?: string; model_variant?: string } | null = null
       if (this.dbService) {
         try {
-          const dbSession = this.dbService.getSession(session.hiveSessionId)
-          if (dbSession?.mode === 'plan') {
+          dbSessionForMode = this.dbService.getSession(session.hiveSessionId)
+          if (dbSessionForMode?.mode === 'plan') {
             interactionMode = 'plan'
           }
         } catch {
           // Fall through to default mode
         }
       }
+
+      // Resolve reasoning effort with precedence:
+      // 1. modelOverride.variant (per-call)
+      // 2. DB session model_variant (persisted)
+      // 3. this.selectedVariant (in-memory from setSelectedModel)
+      // 4. getCodexConfiguredReasoningEffort() (TOML config)
+      // 5. undefined (let CodexAppServerManager default to 'medium')
+      const reasoningEffort =
+        modelOverride?.variant ??
+        dbSessionForMode?.model_variant ??
+        this.selectedVariant ??
+        getCodexConfiguredReasoningEffort() ??
+        undefined
 
       let turnText = runtimeText
       let fallbackChars = 0
@@ -1850,6 +1865,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       const turnStart = await this.manager.sendTurn(session.threadId, {
         text: turnText,
         model,
+        ...(reasoningEffort ? { reasoningEffort } : {}),
         ...(options?.codexFastMode ? { serviceTier: 'fast' } : {}),
         interactionMode
       })

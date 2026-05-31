@@ -1,9 +1,11 @@
 import { loadPiAgentCoreModule } from './pi-agent-core-loader'
 import {
   assertXuanpuAgentProviderCredential,
+  resolveConfiguredApiKey,
   resolvePiModel,
   type XuanpuAgentModelRef
 } from './model-config'
+import type { XuanpuAgentConfig } from './config-loader'
 import type { XuanpuPiPromptMessage } from './context-transform'
 import {
   assertXuanpuAgentAllowedTools,
@@ -122,7 +124,10 @@ export class XuanpuPiAgentSession {
   /** M3: 上下文自动收缩管理器。挂载为 transformContext 钩子。 */
   readonly budgetManager = new ContextBudgetManager()
 
-  constructor(private readonly sessionId: string) {}
+  constructor(
+    private readonly sessionId: string,
+    private readonly agentConfig?: XuanpuAgentConfig
+  ) {}
 
   /** Set the current worktree path for tool context resolution. */
   setWorktreePath(worktreePath: string): void {
@@ -173,9 +178,17 @@ export class XuanpuPiAgentSession {
     }
     this.prompting = true
     const messageId = `xuanpu-agent-${Date.now()}`
-    const resolved = await resolvePiModel(modelRef)
-    assertXuanpuAgentProviderCredential(resolved.modelRef)
-    const agent = await this.getOrCreateAgent(resolved.modelRef, resolved.model, resolved.streamFn)
+    const resolved = await resolvePiModel(modelRef, this.agentConfig)
+    assertXuanpuAgentProviderCredential(resolved.modelRef, this.agentConfig)
+
+    const agentConfig = this.agentConfig
+    const getApiKey = agentConfig
+      ? (provider: string) => resolveConfiguredApiKey(provider, agentConfig)
+      : undefined
+
+    const agent = await this.getOrCreateAgent(
+      resolved.modelRef, resolved.model, resolved.streamFn, getApiKey
+    )
 
     // Apply tool mode AFTER agent creation so it's not a no-op on first prompt
     if (toolMode === 'plan') {
@@ -314,7 +327,8 @@ export class XuanpuPiAgentSession {
   private async getOrCreateAgent(
     modelRef: XuanpuAgentModelRef,
     model: unknown,
-    streamFn?: unknown
+    streamFn?: unknown,
+    getApiKey?: (provider: string) => string | undefined
   ): Promise<PiAgentLike> {
     const modelKey = `${modelRef.providerID}/${modelRef.modelID}/${modelRef.variant ?? ''}`
 
@@ -328,6 +342,7 @@ export class XuanpuPiAgentSession {
 
       this.agent = new Agent({
         sessionId: this.sessionId,
+        ...(getApiKey ? { getApiKey } : {}),
         beforeToolCall: this.stormDetector.hook,
         afterToolCall: this.toolTruncator.hook,
         transformContext: this.budgetManager.transformContext,

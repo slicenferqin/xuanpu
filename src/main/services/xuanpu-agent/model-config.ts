@@ -1,4 +1,6 @@
+import { readFileSync } from 'fs'
 import { loadPiAiModule } from './pi-agent-core-loader'
+import { expandTilde, type XuanpuAgentConfig } from './config-loader'
 
 export interface XuanpuAgentModelRef {
   providerID: string
@@ -12,10 +14,14 @@ export interface ResolvedPiModel {
   streamFn?: unknown
 }
 
+export type CredentialSource = 'env' | 'auth-file' | 'missing'
+
 export interface XuanpuAgentProviderCredentialRequirement {
   providerID: string
   envKeys: string[]
   present: boolean
+  source: CredentialSource
+  maskedKey: string | null
 }
 
 const DEFAULT_MODEL_REF: XuanpuAgentModelRef = {
@@ -37,35 +43,135 @@ const PROVIDER_CREDENTIAL_ENV_KEYS: Record<string, string[]> = {
 const OPENAI_BASE_URL_ENV_KEYS = ['XUANPU_AGENT_OPENAI_BASE_URL', 'OPENAI_BASE_URL'] as const
 
 export interface XuanpuAgentBaseUrlOverride {
-  envKey: (typeof OPENAI_BASE_URL_ENV_KEYS)[number]
+  envKey?: (typeof OPENAI_BASE_URL_ENV_KEYS)[number]
   baseUrl: string
+  source: 'env' | 'config'
+}
+
+function maskKey(key: string | undefined): string | null {
+  if (!key) return null
+  if (key.length <= 8) return '****'
+  return `${key.slice(0, 4)}...${key.slice(-4)}`
+}
+
+function readAuthFileKey(
+  authFile: string,
+  authKey: string
+): string | null {
+  try {
+    const expanded = expandTilde(authFile)
+    const content = readFileSync(expanded, 'utf-8')
+    const parsed = JSON.parse(content) as Record<string, unknown>
+    const value = parsed[authKey]
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim()
+    }
+    return null
+  } catch {
+    return null
+  }
 }
 
 export function resolveXuanpuAgentModelRef(
   modelOverride?: XuanpuAgentModelRef,
-  selectedModel?: XuanpuAgentModelRef | null
+  selectedModel?: XuanpuAgentModelRef | null,
+  config?: XuanpuAgentConfig
 ): XuanpuAgentModelRef {
-  return modelOverride ?? selectedModel ?? DEFAULT_MODEL_REF
+  return modelOverride ?? selectedModel ?? config?.mainModel ?? DEFAULT_MODEL_REF
 }
 
+interface ResolvedCredential {
+  key: string | undefined
+  envKeys: string[]
+  source: CredentialSource
+}
+
+/**
+ * Internal credential resolver shared by getXuanpuAgentProviderCredentialRequirement
+ * and resolveConfiguredApiKey. Returns the actual key value + metadata.
+ *
+ * Decision chain:
+ * 1. Canonicalize providerID
+ * 2. Find provider config
+ * 3. Read env (config apiKeyEnv or provider defaults)
+ * 4. Read auth file (config authFile + authKey)
+ * 5. Return undefined/missing
+ */
+function resolveCredential(
+  providerID: string,
+  config?: XuanpuAgentConfig
+): ResolvedCredential | null {
+  const canonicalProviderID = PROVIDER_ALIASES[providerID] ?? providerID
+  const defaultEnvKeys = PROVIDER_CREDENTIAL_ENV_KEYS[canonicalProviderID]
+  if (!defaultEnvKeys) return null
+
+  const providerConfig = config?.providers?.[canonicalProviderID]
+  const envKeys = providerConfig?.apiKeyEnv
+    ? [providerConfig.apiKeyEnv]
+    : defaultEnvKeys
+
+  // Step 3: env var
+  for (const key of envKeys) {
+    const value = process.env[key]?.trim()
+    if (value) return { key: value, envKeys, source: 'env' }
+  }
+
+  // Step 4: auth file
+  if (providerConfig?.authFile && providerConfig?.authKey) {
+    const keyValue = readAuthFileKey(providerConfig.authFile, providerConfig.authKey)
+    if (keyValue) return { key: keyValue, envKeys, source: 'auth-file' }
+  }
+
+  // Step 5: missing
+  return { key: undefined, envKeys, source: 'missing' }
+}
+
+/**
+ * Resolve the actual API key value for a provider from config (env or auth file).
+ * Returns the key string, or undefined if not found.
+ */
+export function resolveConfiguredApiKey(
+  providerID: string,
+  config?: XuanpuAgentConfig
+): string | undefined {
+  return resolveCredential(providerID, config)?.key
+}
+
+/**
+ * Credential decision chain (per plan):
+ *
+ * 1. Canonicalize providerID
+ * 2. Find provider config from config.providers[canonicalProviderID]
+ * 3. Read env: use config apiKeyEnv if present, else provider default env keys.
+ *    Non-empty value → credential present, source=env.
+ * 4. Read auth file: if env has no value and config specifies authFile,
+ *    expand ~, read JSON, use authKey. Non-empty → present, source=auth-file.
+ * 5. Neither → missing, source=missing.
+ */
 export function getXuanpuAgentProviderCredentialRequirement(
-  providerID: string
+  providerID: string,
+  config?: XuanpuAgentConfig
 ): XuanpuAgentProviderCredentialRequirement | null {
   const canonicalProviderID = PROVIDER_ALIASES[providerID] ?? providerID
-  const envKeys = PROVIDER_CREDENTIAL_ENV_KEYS[canonicalProviderID]
-  if (!envKeys) return null
+  const resolved = resolveCredential(providerID, config)
+  if (!resolved) return null
 
   return {
     providerID: canonicalProviderID,
-    envKeys,
-    present: envKeys.some((key) => Boolean(process.env[key]?.trim()))
+    envKeys: resolved.envKeys,
+    present: resolved.source !== 'missing',
+    source: resolved.source,
+    maskedKey: maskKey(resolved.key)
   }
 }
 
-export function assertXuanpuAgentProviderCredential(modelRef: XuanpuAgentModelRef): void {
+export function assertXuanpuAgentProviderCredential(
+  modelRef: XuanpuAgentModelRef,
+  config?: XuanpuAgentConfig
+): void {
   if (process.env.XUANPU_AGENT_MOCK_RESPONSE !== undefined) return
 
-  const requirement = getXuanpuAgentProviderCredentialRequirement(modelRef.providerID)
+  const requirement = getXuanpuAgentProviderCredentialRequirement(modelRef.providerID, config)
   if (!requirement || requirement.present) return
 
   throw new Error(
@@ -77,7 +183,10 @@ export function assertXuanpuAgentProviderCredential(modelRef: XuanpuAgentModelRe
   )
 }
 
-export async function resolvePiModel(modelRef: XuanpuAgentModelRef): Promise<ResolvedPiModel> {
+export async function resolvePiModel(
+  modelRef: XuanpuAgentModelRef,
+  config?: XuanpuAgentConfig
+): Promise<ResolvedPiModel> {
   const mockResponse = process.env.XUANPU_AGENT_MOCK_RESPONSE
   const piAi = await loadPiAiModule()
 
@@ -120,7 +229,7 @@ export async function resolvePiModel(modelRef: XuanpuAgentModelRef): Promise<Res
   if (model) {
     return {
       modelRef: { ...modelRef, providerID },
-      model: applyProviderBaseUrlOverride(providerID, model)
+      model: applyProviderBaseUrlOverride(providerID, model, config)
     }
   }
 
@@ -136,7 +245,16 @@ export async function resolvePiModel(modelRef: XuanpuAgentModelRef): Promise<Res
   )
 }
 
-export function getXuanpuAgentOpenAIBaseUrlOverride(): XuanpuAgentBaseUrlOverride | null {
+/**
+ * OpenAI base URL priority:
+ * 1. env XUANPU_AGENT_OPENAI_BASE_URL
+ * 2. env OPENAI_BASE_URL
+ * 3. config.providers.openai.baseUrl
+ */
+export function getXuanpuAgentOpenAIBaseUrlOverride(
+  config?: XuanpuAgentConfig
+): XuanpuAgentBaseUrlOverride | null {
+  // Priority 1-2: env vars
   for (const envKey of OPENAI_BASE_URL_ENV_KEYS) {
     const raw = process.env[envKey]?.trim()
     if (!raw) continue
@@ -154,17 +272,31 @@ export function getXuanpuAgentOpenAIBaseUrlOverride(): XuanpuAgentBaseUrlOverrid
 
     return {
       envKey,
-      baseUrl: raw.replace(/\/+$/, '')
+      baseUrl: raw.replace(/\/+$/, ''),
+      source: 'env'
+    }
+  }
+
+  // Priority 3: config file
+  const configBaseUrl = config?.providers?.openai?.baseUrl
+  if (configBaseUrl) {
+    return {
+      baseUrl: configBaseUrl,
+      source: 'config'
     }
   }
 
   return null
 }
 
-function applyProviderBaseUrlOverride(providerID: string, model: unknown): unknown {
+function applyProviderBaseUrlOverride(
+  providerID: string,
+  model: unknown,
+  config?: XuanpuAgentConfig
+): unknown {
   if (providerID !== 'openai') return model
 
-  const override = getXuanpuAgentOpenAIBaseUrlOverride()
+  const override = getXuanpuAgentOpenAIBaseUrlOverride(config)
   if (!override) return model
   if (!model || typeof model !== 'object') return model
 

@@ -17,6 +17,7 @@ import type {
 import { XUANPU_AGENT_CAPABILITIES } from './agent-runtime-types'
 import { createLogger } from './logger'
 import { resolveXuanpuAgentModelRef, type XuanpuAgentModelRef } from './xuanpu-agent/model-config'
+import { loadXuanpuAgentConfig, type XuanpuAgentConfig } from './xuanpu-agent/config-loader'
 import {
   XuanpuPiAgentSession,
   type XuanpuAgentToolEndEvent,
@@ -115,6 +116,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
   private field: FieldProvider | null = null
   private sessions = new Map<string, XuanpuAgentSessionState>()
   private selectedModelRef: { providerID: string; modelID: string; variant?: string } | null = null
+  private agentConfig: XuanpuAgentConfig | null = null
 
   setMainWindow(window: BrowserWindow): void {
     this.mainWindow = window
@@ -123,6 +125,13 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
   setDatabaseService(db: DatabaseService): void {
     this.db = db
     this.field = new IdeFieldProvider(db)
+  }
+
+  private getAgentConfig(): XuanpuAgentConfig | undefined {
+    if (this.agentConfig) return this.agentConfig
+    const result = loadXuanpuAgentConfig()
+    this.agentConfig = result.config
+    return result.config
   }
 
   async connect(worktreePath: string, hiveSessionId: string): Promise<{ sessionId: string }> {
@@ -220,7 +229,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     session.abortController = new AbortController()
     this.emitStatus(session.hiveSessionId, 'busy')
 
-    const modelRef = resolveXuanpuAgentModelRef(modelOverride, this.selectedModelRef)
+    const modelRef = resolveXuanpuAgentModelRef(modelOverride, this.selectedModelRef, this.getAgentConfig())
 
     // ── Build field context via FieldProvider (IDE or CLI) ──
     const gitState = await this.buildGitStateForWorktree(session.worktreePath)
@@ -742,7 +751,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     const modelRef =
       process.env.XUANPU_AGENT_MOCK_RESPONSE !== undefined
         ? { providerID: 'xuanpu-agent', modelID: 'xuanpu-agent-mock' }
-        : resolveXuanpuAgentModelRef(undefined, this.selectedModelRef)
+        : resolveXuanpuAgentModelRef(undefined, this.selectedModelRef, this.getAgentConfig())
     const providerName =
       modelRef.providerID === 'xuanpu-agent'
         ? 'Xuanpu Agent'
@@ -1381,7 +1390,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
 
   private getOrCreatePiSession(session: XuanpuAgentSessionState): XuanpuPiAgentSession {
     if (!session.piSession) {
-      session.piSession = new XuanpuPiAgentSession(session.sessionId)
+      session.piSession = new XuanpuPiAgentSession(session.sessionId, this.getAgentConfig())
     }
     return session.piSession
   }

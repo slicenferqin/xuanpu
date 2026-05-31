@@ -40,7 +40,8 @@ vi.mock('../../../src/main/services/codex-session-title', () => ({
 
 vi.mock('../../../src/main/services/codex-config', () => ({
   getCodexConfiguredModel: vi.fn(() => undefined),
-  getCodexConfiguredContextWindow: vi.fn(() => undefined)
+  getCodexConfiguredContextWindow: vi.fn(() => undefined),
+  getCodexConfiguredReasoningEffort: vi.fn(() => undefined)
 }))
 
 vi.mock('../../../src/main/xfp/fallback-context', () => ({
@@ -90,6 +91,7 @@ import {
   normalizeCodexMessageTimestamps,
   type CodexSessionState
 } from '../../../src/main/services/codex-implementer'
+import { getCodexConfiguredReasoningEffort } from '../../../src/main/services/codex-config'
 import { __resetXfpAuditForTest, listXfpAuditEvents } from '../../../src/main/xfp/audit'
 
 describe('CodexImplementer.prompt()', () => {
@@ -1134,6 +1136,153 @@ describe('CodexImplementer.prompt()', () => {
       serviceTier: 'fast',
       interactionMode: 'default'
     })
+  })
+
+  // ── Reasoning effort propagation ───────────────────────────────
+
+  it('sends reasoningEffort from modelOverride.variant', async () => {
+    seedSession()
+
+    simulateManagerEvents([
+      {
+        id: 'e1',
+        kind: 'notification',
+        provider: 'codex',
+        threadId: 'thread-1',
+        createdAt: new Date().toISOString(),
+        method: 'turn/completed',
+        payload: { turn: { status: 'completed' } }
+      }
+    ])
+
+    await impl.prompt('/test/project', 'thread-1', 'test', {
+      providerID: 'codex',
+      modelID: 'gpt-5.4',
+      variant: 'xhigh'
+    })
+
+    expect(mockManager.sendTurn).toHaveBeenCalledWith('thread-1', {
+      text: 'test',
+      model: 'gpt-5.4',
+      reasoningEffort: 'xhigh',
+      interactionMode: 'default'
+    })
+  })
+
+  it('sends reasoningEffort from DB session model_variant when no override', async () => {
+    seedSession()
+
+    const mockDbService = {
+      getSession: vi.fn().mockReturnValue({ id: 'hive-session-1', model_variant: 'xhigh' }),
+      updateSession: vi.fn()
+    }
+    impl.setDatabaseService(mockDbService as any)
+
+    simulateManagerEvents([
+      {
+        id: 'e1',
+        kind: 'notification',
+        provider: 'codex',
+        threadId: 'thread-1',
+        createdAt: new Date().toISOString(),
+        method: 'turn/completed',
+        payload: { turn: { status: 'completed' } }
+      }
+    ])
+
+    await impl.prompt('/test/project', 'thread-1', 'test')
+
+    expect(mockManager.sendTurn).toHaveBeenCalledWith('thread-1', {
+      text: 'test',
+      model: 'gpt-5.4',
+      reasoningEffort: 'xhigh',
+      interactionMode: 'default'
+    })
+  })
+
+  it('sends reasoningEffort from selectedVariant when DB has no variant', async () => {
+    seedSession()
+    impl.setSelectedModel({ providerID: 'codex', modelID: 'gpt-5.4', variant: 'xhigh' })
+
+    const mockDbService = {
+      getSession: vi.fn().mockReturnValue({ id: 'hive-session-1' }),
+      updateSession: vi.fn()
+    }
+    impl.setDatabaseService(mockDbService as any)
+
+    simulateManagerEvents([
+      {
+        id: 'e1',
+        kind: 'notification',
+        provider: 'codex',
+        threadId: 'thread-1',
+        createdAt: new Date().toISOString(),
+        method: 'turn/completed',
+        payload: { turn: { status: 'completed' } }
+      }
+    ])
+
+    await impl.prompt('/test/project', 'thread-1', 'test')
+
+    expect(mockManager.sendTurn).toHaveBeenCalledWith('thread-1', {
+      text: 'test',
+      model: 'gpt-5.4',
+      reasoningEffort: 'xhigh',
+      interactionMode: 'default'
+    })
+  })
+
+  it('sends reasoningEffort from codex config when no override/DB/selected', async () => {
+    seedSession()
+
+    vi.mocked(getCodexConfiguredReasoningEffort).mockReturnValue('high')
+
+    simulateManagerEvents([
+      {
+        id: 'e1',
+        kind: 'notification',
+        provider: 'codex',
+        threadId: 'thread-1',
+        createdAt: new Date().toISOString(),
+        method: 'turn/completed',
+        payload: { turn: { status: 'completed' } }
+      }
+    ])
+
+    await impl.prompt('/test/project', 'thread-1', 'test')
+
+    expect(mockManager.sendTurn).toHaveBeenCalledWith('thread-1', {
+      text: 'test',
+      model: 'gpt-5.4',
+      reasoningEffort: 'high',
+      interactionMode: 'default'
+    })
+
+    vi.mocked(getCodexConfiguredReasoningEffort).mockReturnValue(undefined)
+  })
+
+  it('sends no explicit reasoningEffort when all sources are absent', async () => {
+    seedSession()
+
+    vi.mocked(getCodexConfiguredReasoningEffort).mockReturnValue(undefined)
+
+    simulateManagerEvents([
+      {
+        id: 'e1',
+        kind: 'notification',
+        provider: 'codex',
+        threadId: 'thread-1',
+        createdAt: new Date().toISOString(),
+        method: 'turn/completed',
+        payload: { turn: { status: 'completed' } }
+      }
+    ])
+
+    await impl.prompt('/test/project', 'thread-1', 'test')
+
+    const callArgs = mockManager.sendTurn.mock.calls[0][1]
+    expect(callArgs.reasoningEffort).toBeUndefined()
+    expect(callArgs).not.toHaveProperty('reasoningEffort')
   })
 
   // ── goal mode ─────────────────────────────────────────────────
