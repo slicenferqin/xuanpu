@@ -14,9 +14,9 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.ref_name, '-canary.') }}
     strategy:
       fail-fast: false
-      # Each matrix job uploads into the same GitHub Release. Running them
-      # one at a time avoids duplicate draft-release creation races on tags.
-      max-parallel: 1
+      # Matrix jobs only build and upload Actions artifacts. The publish job
+      # serializes GitHub Release creation/upload after every architecture has
+      # produced its artifacts, so release asset names cannot race or clobber.
       matrix:
         include:
           # macOS ARM64 — native build on ARM64 runner
@@ -248,8 +248,8 @@ jobs:
             fail=1
           fi
 
-          # Setup installer / zip artifact must exist
-          if ! ls dist/Xuanpu-Setup-*.exe >/dev/null 2>&1 && ! ls dist/Xuanpu-*-${{ matrix.arch }}-win.zip >/dev/null 2>&1; then
+          # Setup installer / zip artifact must exist for this architecture
+          if ! ls dist/Xuanpu-Setup-*-${{ matrix.arch }}.exe >/dev/null 2>&1 && ! ls dist/Xuanpu-*-${{ matrix.arch }}-win.zip >/dev/null 2>&1; then
             echo "::error::no Windows installer or zip found in dist/"
             fail=1
           fi
@@ -267,39 +267,200 @@ jobs:
           echo "=== dist contents ==="
           ls -lh dist/ 2>/dev/null || echo "dist/ not found"
 
-      # ── Publish (after verify) ──
-      # Only runs if all previous steps succeeded — verify acts as a gate.
-      # We upload the artifacts that electron-builder produced under dist/,
-      # plus the auto-update metadata YAML files (latest-mac.yml /
-      # latest.yml) so the in-app updater keeps working.
-      - name: Publish to GitHub Release
+      - name: Stage release artifacts
         if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          staged="release-upload"
+          rm -rf "$staged"
+          mkdir -p "$staged"
+
+          require_one() {
+            local label="$1"
+            local pattern="$2"
+            local matches=( $pattern )
+            if [ ${#matches[@]} -eq 0 ]; then
+              echo "::error::missing $label: $pattern"
+              return 1
+            fi
+            cp "${matches[@]}" "$staged/"
+          }
+
+          copy_optional() {
+            local pattern="$1"
+            local matches=( $pattern )
+            if [ ${#matches[@]} -gt 0 ]; then
+              cp "${matches[@]}" "$staged/"
+            fi
+          }
+
+          if [ "${{ matrix.platform }}" = "mac" ]; then
+            require_one "macOS DMG" "dist/Xuanpu-*-${{ matrix.arch }}-mac.dmg"
+            require_one "macOS ZIP" "dist/Xuanpu-*-${{ matrix.arch }}-mac.zip"
+            copy_optional "dist/Xuanpu-*-${{ matrix.arch }}-mac.zip.blockmap"
+            if [ ! -f dist/latest-mac.yml ]; then
+              echo "::error::missing macOS updater metadata: dist/latest-mac.yml"
+              exit 1
+            fi
+            cp dist/latest-mac.yml "$staged/latest-mac-${{ matrix.arch }}.yml"
+          else
+            require_one "Windows setup" "dist/Xuanpu-Setup-*-${{ matrix.arch }}.exe"
+            require_one "Windows ZIP" "dist/Xuanpu-*-${{ matrix.arch }}-win.zip"
+            copy_optional "dist/Xuanpu-Setup-*-${{ matrix.arch }}.exe.blockmap"
+            copy_optional "dist/Xuanpu-*-${{ matrix.arch }}-win.zip.blockmap"
+            if [ ! -f dist/latest.yml ]; then
+              echo "::error::missing Windows updater metadata: dist/latest.yml"
+              exit 1
+            fi
+            cp dist/latest.yml "$staged/latest-${{ matrix.arch }}.yml"
+          fi
+
+          echo "=== staged release artifacts ==="
+          ls -lh "$staged"
+
+      - name: Upload release artifacts
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}-${{ matrix.arch }}
+          path: release-upload/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Assemble updater metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby <<'RUBY'
+          require 'yaml'
+          require 'date'
+
+          def read_update_info(path)
+            YAML.safe_load(
+              File.read(path),
+              permitted_classes: [Time, Date],
+              aliases: false
+            )
+          end
+
+          def combine_update_info(output, inputs, preferred_arch)
+            missing = inputs.reject { |path| File.file?(path) }
+            unless missing.empty?
+              abort "missing updater metadata: #{missing.join(', ')}"
+            end
+
+            infos = inputs.map { |path| [path, read_update_info(path)] }
+            preferred = infos.find { |path, _info| File.basename(path).include?(preferred_arch) } || infos.first
+            combined = preferred[1].dup
+            files = []
+
+            infos.each do |_path, info|
+              entries = info['files']
+              if entries.is_a?(Array) && !entries.empty?
+                files.concat(entries)
+              elsif info['path'] && info['sha512']
+                files << { 'url' => info['path'], 'sha512' => info['sha512'] }
+              end
+            end
+
+            deduped = files.each_with_object({}) do |entry, result|
+              url = entry['url']
+              result[url] = entry if url
+            end.values
+
+            abort "no updater file entries for #{output}" if deduped.empty?
+
+            preferred_file = deduped.find { |entry| entry['url'].to_s.include?(preferred_arch) } || deduped.first
+            combined['files'] = deduped
+            combined['path'] = preferred_file['url']
+            combined['sha512'] = preferred_file['sha512']
+            File.write(output, combined.to_yaml)
+          end
+
+          combine_update_info(
+            'release-assets/latest-mac.yml',
+            ['release-assets/latest-mac-x64.yml', 'release-assets/latest-mac-arm64.yml'],
+            'x64'
+          )
+          combine_update_info(
+            'release-assets/latest.yml',
+            ['release-assets/latest-x64.yml', 'release-assets/latest-arm64.yml'],
+            'x64'
+          )
+          RUBY
+
+      - name: Inspect release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          required=(
+            "Xuanpu-*-arm64-mac.dmg"
+            "Xuanpu-*-arm64-mac.zip"
+            "Xuanpu-*-x64-mac.dmg"
+            "Xuanpu-*-x64-mac.zip"
+            "Xuanpu-Setup-*-arm64.exe"
+            "Xuanpu-Setup-*-x64.exe"
+            "Xuanpu-*-arm64-win.zip"
+            "Xuanpu-*-x64-win.zip"
+            "latest-mac-arm64.yml"
+            "latest-mac-x64.yml"
+            "latest-arm64.yml"
+            "latest-x64.yml"
+            "latest-mac.yml"
+            "latest.yml"
+          )
+
+          fail=0
+          for pattern in "${required[@]}"; do
+            matches=( release-assets/$pattern )
+            if [ ${#matches[@]} -eq 0 ]; then
+              echo "::error::missing release asset: $pattern"
+              fail=1
+              continue
+            fi
+            for file in "${matches[@]}"; do
+              if [ ! -s "$file" ]; then
+                echo "::error::empty release asset: $file"
+                fail=1
+              fi
+            done
+          done
+
+          ruby -e "require 'yaml'; require 'date'; %w[release-assets/latest-mac.yml release-assets/latest.yml].each { |p| y = YAML.safe_load(File.read(p), permitted_classes: [Time, Date], aliases: false); abort \"#{p}: missing files\" unless y['files'].is_a?(Array) && y['files'].size >= 2 }"
+
+          if [ "$fail" -ne 0 ]; then
+            exit 1
+          fi
+
+          echo "=== release assets ready ==="
+          ls -lh release-assets
+
+      - name: Publish draft GitHub Release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
-          # Create the release if it doesn't exist yet (first matrix job to land wins).
+
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --draft --title "$TAG" --notes "Automated release for $TAG"
+            gh release create "$TAG" --draft --verify-tag --title "$TAG" --notes "Automated release for $TAG"
           fi
-          # Collect platform-relevant artifacts.
-          shopt -s nullglob
-          files=()
-          if [ "${{ matrix.platform }}" = "mac" ]; then
-            files+=(dist/Xuanpu-*-${{ matrix.arch }}-mac.dmg dist/Xuanpu-*-${{ matrix.arch }}-mac.zip dist/latest-mac.yml dist/latest-mac-${{ matrix.arch }}.yml)
-          else
-            files+=(dist/Xuanpu-Setup-*.exe dist/Xuanpu-*-${{ matrix.arch }}-win.zip dist/latest.yml dist/latest-${{ matrix.arch }}.yml)
-          fi
-          # Filter to existing files only.
-          existing=()
-          for f in "${files[@]}"; do
-            [ -f "$f" ] && existing+=("$f")
-          done
-          if [ ${#existing[@]} -eq 0 ]; then
-            echo "::error::No artifacts to upload for ${{ matrix.platform }} ${{ matrix.arch }}"
-            exit 1
-          fi
-          echo "Uploading: ${existing[*]}"
-          gh release upload "$TAG" "${existing[@]}" --clobber
+
+          gh release upload "$TAG" release-assets/* --clobber

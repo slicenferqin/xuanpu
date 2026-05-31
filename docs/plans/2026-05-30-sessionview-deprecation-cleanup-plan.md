@@ -279,4 +279,3 @@ The immediate next practical task is:
    `SessionView.tsx`.
 4. Remove the Settings fallback only after Session HQ passes the validation
    matrix.
-

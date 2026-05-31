@@ -59,6 +59,9 @@ describeIf('Usage Events (v2 ledger)', () => {
       source_kind: 'codex-token-count',
       source_event_id: 'thread1:turn1:1000:500:200:300',
       turn_id: 'turn1',
+      provider_id: 'codex',
+      model_id: 'gpt-5.4',
+      model_label: 'gpt-5.4',
       input_tokens: 100,
       output_tokens: 50,
       cache_read_tokens: 200,
@@ -100,6 +103,10 @@ describeIf('Usage Events (v2 ledger)', () => {
     const events = db.getUsageEventsBySession(session.id)
     expect(events).toHaveLength(3)
     expect(events[0].turn_id).toBe('turn1')
+    expect(events[0].agent_sdk).toBe('codex')
+    expect(events[0].provider_id).toBe('codex')
+    expect(events[0].model_id).toBe('gpt-5.4')
+    expect(events[0].model_label).toBe('gpt-5.4')
     expect(events[1].turn_id).toBe('turn1')
     expect(events[2].turn_id).toBe('turn1')
   })
@@ -206,6 +213,9 @@ describeIf('Usage Events (v2 ledger)', () => {
       source_kind: 'codex-token-count',
       source_event_id: 'thread1:turn1:1000:500:200:300',
       turn_id: 'turn1',
+      provider_id: 'codex',
+      model_id: 'gpt-5.4',
+      model_label: 'gpt-5.4',
       input_tokens: 100,
       output_tokens: 50,
       cache_read_tokens: 200,
@@ -333,6 +343,10 @@ describeIf('Usage Events (v2 ledger)', () => {
     })
     expect(filtered).toHaveLength(1)
     expect(filtered[0].total_tokens).toBe(350)
+    expect(filtered[0].agent_sdk).toBe('codex')
+    expect(filtered[0].provider_id).toBe('codex')
+    expect(filtered[0].model_id).toBe('gpt-5.4')
+    expect(filtered[0].model_label).toBe('gpt-5.4')
   })
 })
 

@@ -785,7 +785,7 @@ Agent 跑完任务 → 生成 execution trace（工具调用 DAG + 分支决策 
   - 预算上限（token 或估算成本）
   - 超时限制
   - 验收标准（可选的测试/检查）
-  
+
 Agent 运行时:
   - 规划阶段预估 token 消耗
   - 执行中实时追踪消耗（Context Budget 已有基础）
@@ -819,42 +819,42 @@ M5 做规划阶段 token 预估 + 超预算告警（不自动降级），M6 做�
 M0:  Runtime 收口（已在进行）
      → 修 session 重取 bug、稳定 no-tools runtime
      → 加入 max-lines ESLint 规则
-     
+
 M1:  XFP v1 + Command Profiler 接口预留
      → XFP packet compiler / validator
      → CommandProfiler + CommandCompressor 接口定义（不实现）
      → 成本地形不变量（INV-COST-*）写入 invariants 文档
-     
+
 M1.5: Tool-Call Repair 接口
      → flatten / scavenge / truncation / storm 四件套 interface
      → flatten 和 storm 出 working implementation
      → 单元测试覆盖
-     
+
 M2:  只读 Harness + 压缩 MVP
      → git_status / git_log / git_diff / read_file / rg_search / list_files
      → 高频 10 命令压缩 profile（git / vitest / tsc / eslint / rg / cat / ls）
      → parallelSafe 调度
      ★ 压缩 MVP 必须与只读工具同期上线，否则上下文稳态直接崩
-     
+
 M3:  压缩 profile 扩展 + Context Budget 可视化
      → 扩展到 30+ 命令 profile
      → Context Budget UI 展示压缩比、included/omitted、token 估算
      → per-turn auto-compaction（单条 tool result >3000 token 自动压缩 + 上下文窗口填充率达 40% 触发主动 shrink / 80% 紧急 shrink）
      → 300K 稳态验证
-     
+
 M4:  受控写入 Harness
      → apply_patch / write_file / edit_file / run_test / format_file
      → diff preview + trust mode
      → 写入工具压缩 profile
      → Session HQ 顶栏暴露 cache hit / budget 使用率 / 压缩比
-     
+
 M5:  Memory Graph + Trace 物化
      → 六层 scope memory page schema
      → memory write proposal → 用户确认 → 落库
      → episode retrieval 增强
      → 高频路径 → 参数化 workflow 模板
      → NEEDS_TIER 自报升级协议
-     
+
 M6:  高级 Harness
      → MCP / subtask delegation / checkpoint-resume
      → multi-worktree awareness

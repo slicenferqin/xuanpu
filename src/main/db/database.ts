@@ -27,6 +27,7 @@ import type {
   SessionPendingMessageStatus,
   UsageEntry,
   UsageEntryCreate,
+  UsageEvent,
   UsageSyncState,
   UsageSyncStateUpsert,
   Setting,
@@ -2983,64 +2984,22 @@ export class DatabaseService {
     )
   }
 
-  getUsageEventsBySession(sessionId: string): Array<{
-    id: string
-    session_id: string
-    source_event_id: string
-    turn_id: string | null
-    input_tokens: number
-    output_tokens: number
-    reasoning_tokens: number
-    cache_write_tokens: number
-    cache_read_tokens: number
-    total_tokens: number
-    cost_estimate: number
-    occurred_at: string
-  }> {
+  getUsageEventsBySession(sessionId: string): UsageEvent[] {
     if (!this.tableExists('usage_events')) return []
     const db = this.getDb()
     return db
       .prepare(
-        `SELECT id, session_id, source_event_id, turn_id,
-                input_tokens, output_tokens, reasoning_tokens,
-                cache_write_tokens, cache_read_tokens, total_tokens,
-                cost_estimate, occurred_at
+        `SELECT *
          FROM usage_events WHERE session_id = ? ORDER BY occurred_at ASC`
       )
-      .all(sessionId) as Array<{
-      id: string
-      session_id: string
-      source_event_id: string
-      turn_id: string | null
-      input_tokens: number
-      output_tokens: number
-      reasoning_tokens: number
-      cache_write_tokens: number
-      cache_read_tokens: number
-      total_tokens: number
-      cost_estimate: number
-      occurred_at: string
-    }>
+      .all(sessionId) as UsageEvent[]
   }
 
   listUsageEvents(options?: {
     agentSdks?: Array<'claude-code' | 'codex'>
     dateFrom?: string | null
     dateTo?: string | null
-  }): Array<{
-    id: string
-    session_id: string
-    source_event_id: string
-    turn_id: string | null
-    input_tokens: number
-    output_tokens: number
-    reasoning_tokens: number
-    cache_write_tokens: number
-    cache_read_tokens: number
-    total_tokens: number
-    cost_estimate: number
-    occurred_at: string
-  }> {
+  }): UsageEvent[] {
     if (!this.tableExists('usage_events')) return []
     const db = this.getDb()
     const conditions: string[] = []
@@ -3066,26 +3025,10 @@ export class DatabaseService {
 
     return db
       .prepare(
-        `SELECT id, session_id, source_event_id, turn_id,
-                input_tokens, output_tokens, reasoning_tokens,
-                cache_write_tokens, cache_read_tokens, total_tokens,
-                cost_estimate, occurred_at
+        `SELECT *
          FROM usage_events ${where} ORDER BY occurred_at DESC`
       )
-      .all(...values) as Array<{
-      id: string
-      session_id: string
-      source_event_id: string
-      turn_id: string | null
-      input_tokens: number
-      output_tokens: number
-      reasoning_tokens: number
-      cache_write_tokens: number
-      cache_read_tokens: number
-      total_tokens: number
-      cost_estimate: number
-      occurred_at: string
-    }>
+      .all(...values) as UsageEvent[]
   }
 
   // ── Session Usage Snapshots ───────────────────────────────────────

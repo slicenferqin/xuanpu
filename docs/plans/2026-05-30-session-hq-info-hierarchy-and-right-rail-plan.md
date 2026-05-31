@@ -228,4 +228,3 @@
 3. 把右侧 inspector 的“当前会话”和“worktree aggregate”权重分开，继续压低 aggregate。
 4. 为多会话增加 overflow / search switcher。
 5. 最后再做右侧和 header 的视觉再平衡。
-

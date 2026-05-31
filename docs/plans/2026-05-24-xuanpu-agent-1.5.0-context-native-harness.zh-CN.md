@@ -112,8 +112,8 @@ OpenClaude clone
 第一个完整实现 XFP 的 Agent。
 ```
 
-oh-my-pi / pi 负责薄模型运行时。  
-OpenClaude / Claude Code harness 可以作为参考和能力来源。  
+oh-my-pi / pi 负责薄模型运行时。
+OpenClaude / Claude Code harness 可以作为参考和能力来源。
 但真正的上下文、权限、事件、记忆、worktree 编排，应该归玄圃自己所有。
 
 ## 版本范围与不做什么

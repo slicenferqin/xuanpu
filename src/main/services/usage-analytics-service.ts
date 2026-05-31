@@ -342,10 +342,10 @@ export class UsageAnalyticsService {
       for (const event of v2Events) {
         accumulateEntry({
           sessionId: event.session_id,
-          agentSdk: 'codex', // v2 events are currently only codex
-          modelId: null, // resolved from session below
-          modelLabel: null,
-          providerId: 'codex',
+          agentSdk: event.agent_sdk,
+          modelId: event.model_id,
+          modelLabel: event.model_label,
+          providerId: event.provider_id,
           cost: event.cost_estimate,
           totalTokens: event.total_tokens,
           inputTokens: event.input_tokens,
@@ -498,6 +498,7 @@ export class UsageAnalyticsService {
       let cacheWriteTokens = 0
       let cacheReadTokens = 0
       let lastUsedAt: string | null = null
+      let latestEvent: (typeof events)[number] | null = null
       const modelLabels: string[] = []
 
       for (const event of events) {
@@ -509,10 +510,22 @@ export class UsageAnalyticsService {
         cacheReadTokens += event.cache_read_tokens
         if (!lastUsedAt || event.occurred_at > lastUsedAt) {
           lastUsedAt = event.occurred_at
+          latestEvent = event
+        }
+        if (event.model_id || event.model_label) {
+          appendUnique(
+            modelLabels,
+            getEntryModelLabel({
+              agent_sdk: event.agent_sdk,
+              model_id: event.model_id,
+              model_label: event.model_label,
+              provider_id: event.provider_id
+            })
+          )
         }
       }
 
-      // Model label from snapshot (metadata, not totals)
+      // Snapshot can still carry model metadata for older event rows.
       if (snapshot?.model_label) {
         appendUnique(modelLabels, snapshot.model_label)
       }
@@ -530,9 +543,9 @@ export class UsageAnalyticsService {
           agent_sdk: snapshot.agent_sdk,
           runtime_session_id: snapshot.session_id,
           thread_id: snapshot.session_id,
-          provider_id: 'codex',
-          model_id: snapshot.model_label ?? null,
-          model_label: snapshot.model_label ?? null,
+          provider_id: latestEvent?.provider_id ?? 'codex',
+          model_id: latestEvent?.model_id ?? snapshot.model_label ?? null,
+          model_label: latestEvent?.model_label ?? snapshot.model_label ?? null,
           total_input_tokens: inputTokens,
           total_output_tokens: outputTokens,
           total_reasoning_tokens: 0,
@@ -1104,6 +1117,7 @@ export class UsageAnalyticsService {
       let cacheWriteTokens = 0
       let cacheReadTokens = 0
       let lastEventAt: string | null = null
+      let latestEvent: (typeof existingEvents)[number] | null = null
 
       for (const event of existingEvents) {
         totalCost += event.cost_estimate
@@ -1114,6 +1128,7 @@ export class UsageAnalyticsService {
         cacheReadTokens += event.cache_read_tokens
         if (!lastEventAt || event.occurred_at > lastEventAt) {
           lastEventAt = event.occurred_at
+          latestEvent = event
         }
       }
 
@@ -1122,9 +1137,9 @@ export class UsageAnalyticsService {
         agent_sdk: 'codex',
         runtime_session_id: session.opencode_session_id ?? null,
         thread_id: session.opencode_session_id ?? null,
-        provider_id: 'codex',
-        model_id: session.model_id ?? null,
-        model_label: session.model_id ?? null,
+        provider_id: latestEvent?.provider_id ?? 'codex',
+        model_id: latestEvent?.model_id ?? session.model_id ?? null,
+        model_label: latestEvent?.model_label ?? session.model_id ?? null,
         total_input_tokens: inputTokens,
         total_output_tokens: outputTokens,
         total_reasoning_tokens: 0,

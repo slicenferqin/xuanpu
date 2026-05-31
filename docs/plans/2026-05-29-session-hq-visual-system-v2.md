@@ -720,4 +720,3 @@ reviewable checkpoints.
 - [ ] Add Focus Mode.
 - [ ] Add reading density preference.
 - [ ] Add screenshot fixture and Playwright visual checks.
-

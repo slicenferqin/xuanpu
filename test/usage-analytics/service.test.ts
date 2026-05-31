@@ -118,6 +118,63 @@ describeDb('UsageAnalyticsService', () => {
     expect(dashboard.data?.sessions[0].model_labels).toEqual(['GPT-5.4'])
   })
 
+  it('aggregates v2 usage events by their persisted model metadata', async () => {
+    const project = db.createProject({ name: 'V2 Models', path: '/tmp/v2-models' })
+    const worktree = db.createWorktree({
+      project_id: project.id,
+      path: '/tmp/v2-models',
+      name: 'main',
+      branch_name: 'main',
+      is_default: true
+    })
+    const session = db.createSession({
+      worktree_id: worktree.id,
+      project_id: project.id,
+      name: 'V2 model event session',
+      opencode_session_id: 'codex-v2-models',
+      agent_sdk: 'codex',
+      model_provider_id: 'codex',
+      model_id: 'gpt-5.4'
+    })
+
+    db.insertUsageEvent({
+      session_id: session.id,
+      project_id: project.id,
+      worktree_id: worktree.id,
+      agent_sdk: 'codex',
+      source_kind: 'codex-token-count',
+      source_event_id: 'thread1:turn1:100:50:0:0',
+      runtime_session_id: 'thread1',
+      thread_id: 'thread1',
+      turn_id: 'turn1',
+      provider_id: 'codex',
+      model_id: 'gpt-5.4',
+      model_label: 'gpt-5.4',
+      input_tokens: 100,
+      output_tokens: 50,
+      cache_write_tokens: 0,
+      cache_read_tokens: 0,
+      total_tokens: 150,
+      cost_estimate: 0.12,
+      occurred_at: '2026-04-04T08:00:00.000Z'
+    })
+
+    const dashboard = await service.fetchDashboard({
+      range: 'all',
+      engine: 'all',
+      sessionStatus: 'all'
+    })
+    const summary = await service.fetchSessionSummary(session.id)
+
+    expect(dashboard.success).toBe(true)
+    expect(dashboard.data?.by_model).toHaveLength(1)
+    expect(dashboard.data?.by_model[0].model_label).toBe('GPT-5.4')
+    expect(dashboard.data?.by_model[0].total_cost).toBe(0.12)
+    expect(dashboard.data?.sessions[0].model_labels).toEqual(['GPT-5.4'])
+    expect(summary.data?.model_labels).toEqual(['GPT-5.4'])
+    expect(summary.data?.latest_model_label).toBe('GPT-5.4')
+  })
+
   it('syncs Claude transcript usage into session summary totals', async () => {
     const project = db.createProject({ name: 'Claude Project', path: '/tmp/claude-project' })
     const worktree = db.createWorktree({
