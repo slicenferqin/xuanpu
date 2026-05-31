@@ -31,6 +31,7 @@ vi.mock('../../../src/main/services/opencode-service', () => ({
 }))
 
 import { registerAgentHandlers } from '../../../src/main/ipc/agent-handlers'
+import type { DatabaseService } from '../../../src/main/db/database'
 import type { AgentRuntimeManager } from '../../../src/main/services/agent-runtime-manager'
 import type { AgentRuntimeAdapter } from '../../../src/main/services/agent-runtime-types'
 
@@ -57,7 +58,7 @@ function createMockClaudeImpl(): AgentRuntimeAdapter {
     getAvailableModels: vi.fn().mockResolvedValue([{ id: 'claude-code', models: {} }]),
     getModelInfo: vi.fn().mockResolvedValue({
       id: 'opus',
-      name: 'Opus 4.7',
+      name: 'Opus 4.8',
       limit: { context: 200000, output: 32000 }
     }),
     setSelectedModel: vi.fn(),
@@ -98,7 +99,7 @@ function createMockOpenCodeImpl(): AgentRuntimeAdapter {
     getAvailableModels: vi.fn().mockResolvedValue([{ id: 'opencode', models: {} }]),
     getModelInfo: vi.fn().mockResolvedValue({
       id: 'opus',
-      name: 'Opus 4.7',
+      name: 'Opus 4.8',
       limit: { context: 200000, output: 32000 }
     }),
     setSelectedModel: vi.fn(),
@@ -121,6 +122,7 @@ function createMockRuntimeManager(
   claudeImpl: AgentRuntimeAdapter
 ): AgentRuntimeManager {
   return {
+    setMainWindow: vi.fn(),
     getImplementer: vi.fn((id: string) => {
       if (id === 'opencode') return openCodeImpl
       if (id === 'claude-code') return claudeImpl
@@ -129,6 +131,10 @@ function createMockRuntimeManager(
     getCapabilities: vi.fn(),
     cleanupAll: vi.fn()
   } as unknown as AgentRuntimeManager
+}
+
+function createMockDbService(): DatabaseService {
+  return {} as unknown as DatabaseService
 }
 
 const mockEvent = {} as any
@@ -146,9 +152,10 @@ describe('IPC agent:models runtime-aware routing', () => {
 
   it('agent:models without runtimeId routes to OpenCode', async () => {
     const runtimeManager = createMockRuntimeManager(openCodeImpl, claudeImpl)
+    const dbService = createMockDbService()
     const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
 
-    registerAgentHandlers(mainWindow, runtimeManager)
+    registerAgentHandlers(mainWindow, runtimeManager, dbService)
 
     const handler = handlers.get('agent:models')!
     expect(handler).toBeDefined()
@@ -162,9 +169,10 @@ describe('IPC agent:models runtime-aware routing', () => {
 
   it('agent:models with runtimeId claude-code routes to Claude', async () => {
     const runtimeManager = createMockRuntimeManager(openCodeImpl, claudeImpl)
+    const dbService = createMockDbService()
     const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
 
-    registerAgentHandlers(mainWindow, runtimeManager)
+    registerAgentHandlers(mainWindow, runtimeManager, dbService)
 
     const handler = handlers.get('agent:models')!
     await handler(mockEvent, { runtimeId: 'claude-code' })
@@ -188,9 +196,10 @@ describe('IPC agent:setModel runtime-aware routing', () => {
 
   it('agent:setModel without runtimeId routes to OpenCode', async () => {
     const runtimeManager = createMockRuntimeManager(openCodeImpl, claudeImpl)
+    const dbService = createMockDbService()
     const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
 
-    registerAgentHandlers(mainWindow, runtimeManager)
+    registerAgentHandlers(mainWindow, runtimeManager, dbService)
 
     const handler = handlers.get('agent:setModel')!
     expect(handler).toBeDefined()
@@ -207,9 +216,10 @@ describe('IPC agent:setModel runtime-aware routing', () => {
 
   it('agent:setModel with runtimeId claude-code routes to Claude', async () => {
     const runtimeManager = createMockRuntimeManager(openCodeImpl, claudeImpl)
+    const dbService = createMockDbService()
     const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
 
-    registerAgentHandlers(mainWindow, runtimeManager)
+    registerAgentHandlers(mainWindow, runtimeManager, dbService)
 
     const handler = handlers.get('agent:setModel')!
     await handler(mockEvent, {
@@ -241,9 +251,10 @@ describe('IPC agent:modelInfo runtime-aware routing', () => {
 
   it('agent:modelInfo without runtimeId routes to OpenCode', async () => {
     const runtimeManager = createMockRuntimeManager(openCodeImpl, claudeImpl)
+    const dbService = createMockDbService()
     const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
 
-    registerAgentHandlers(mainWindow, runtimeManager)
+    registerAgentHandlers(mainWindow, runtimeManager, dbService)
 
     const handler = handlers.get('agent:modelInfo')!
     expect(handler).toBeDefined()
@@ -257,9 +268,10 @@ describe('IPC agent:modelInfo runtime-aware routing', () => {
 
   it('agent:modelInfo with runtimeId claude-code routes to Claude', async () => {
     const runtimeManager = createMockRuntimeManager(openCodeImpl, claudeImpl)
+    const dbService = createMockDbService()
     const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
 
-    registerAgentHandlers(mainWindow, runtimeManager)
+    registerAgentHandlers(mainWindow, runtimeManager, dbService)
 
     const handler = handlers.get('agent:modelInfo')!
     await handler(mockEvent, {
@@ -274,24 +286,17 @@ describe('IPC agent:modelInfo runtime-aware routing', () => {
   })
 })
 
-describe('IPC agent:models failure when runtimeManager is missing', () => {
-  let claudeImpl: AgentRuntimeAdapter
-
+describe('IPC agent handler registration failure when dependencies are missing', () => {
   beforeEach(() => {
     handlers.clear()
     vi.clearAllMocks()
-    claudeImpl = createMockClaudeImpl()
   })
 
-  it('agent:models returns an error when runtimeManager is null', async () => {
+  it('throws during registration when runtimeManager is null', () => {
     const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
 
-    registerAgentHandlers(mainWindow, undefined, undefined)
-
-    const handler = handlers.get('agent:models')!
-    const result = await handler(mockEvent, { runtimeId: 'claude-code' })
-
-    expect(claudeImpl.getAvailableModels).not.toHaveBeenCalled()
-    expect(result).toMatchObject({ success: false })
+    expect(() => registerAgentHandlers(mainWindow, undefined, undefined)).toThrow(
+      'registerAgentHandlers requires runtimeManager + dbService'
+    )
   })
 })

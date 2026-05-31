@@ -20,13 +20,14 @@ import { ThreadStatusRow, type ThreadStatusRowData } from '@/components/session-
 import type { SessionTask } from '@/lib/session-tasks'
 import { buildTimelineViewModel, type TimelineNode } from '@/lib/session-timeline/view-model'
 import type { TimelineCardType } from '@/lib/session-timeline/card-type'
-import { getTimelineSafeBottomPadding } from '@/lib/session-timeline/geometry'
+
 import {
   TimelineNodeFrame,
   type TimelineNodeIconConfig
 } from '@/components/session-hq/timeline/TimelineNodeFrame'
 import { TimelineNodeRenderer } from '@/components/session-hq/timeline/TimelineNodeRenderer'
-import { RoundRail } from '@/components/session-hq/timeline/RoundRail'
+import { RoundNavigator } from '@/components/session-hq/timeline/RoundNavigator'
+import { buildRoundNavigatorItems } from '@/lib/session-timeline/round-navigator'
 
 import {
   Terminal,
@@ -40,8 +41,7 @@ import {
   Users,
   MessageSquare,
   User,
-  Loader2,
-  ChevronDown
+  Loader2
 } from 'lucide-react'
 
 // ---------------------------------------------------------------------------
@@ -156,30 +156,25 @@ export interface AgentTimelineProps {
    * to the content div; scroll geometry remains outside this renderer.
    */
   timelineContentRef?: React.RefObject<HTMLDivElement | null>
+  /**
+   * Ref for the tail sentinel element. Used by IntersectionObserver to
+   * determine tail readability against the bottom overlay.
+   */
+  tailSentinelRef?: React.RefObject<HTMLDivElement | null>
   onScroll?: () => void
   onWheel?: () => void
   onPointerDown?: () => void
   onPointerUp?: () => void
   onPointerCancel?: () => void
   /**
-   * Measured pixel height of the floating ComposerBar / dock so the scroll
-   * viewport can reserve enough bottom padding. The previous static value
-   * (`pb-[14.5rem]` = 232px) wasn't enough once the composer expanded
-   * (attachments preview, multi-line draft, slash popover, queue dropdown),
-   * causing the last few transcript nodes to render BEHIND the composer.
-  */
-  bottomFloatingHeight?: number
+   * Measured bottom readable inset (overlay height + breathing room).
+   * Used as paddingBottom so content is readable above the overlay.
+   */
+  bottomReadableInset?: number
   /** Spacer height computed by useTimelineScrollController for clear-screen rounds. */
   clearScreenSpacerHeight?: number
   activeRoundId?: string | null
   onRoundAnchorNavigate?: (roundId: string) => void
-  /**
-   * When true, shows a Telegram-style scroll-down indicator at the bottom of the
-   * timeline when streaming output extends beyond the viewport (indicated by
-   * showBottomGradient). Clicking it scrolls to the latest content.
-   */
-  showScrollIndicator?: boolean
-  onScrollIndicatorClick?: () => void
 }
 
 export function AgentTimeline({
@@ -209,17 +204,16 @@ export function AgentTimeline({
   forkingMessageId,
   scrollContainerRef,
   timelineContentRef: externalTimelineContentRef,
+  tailSentinelRef,
   onScroll,
   onWheel,
   onPointerDown,
   onPointerUp,
   onPointerCancel,
-  bottomFloatingHeight = 0,
+  bottomReadableInset = 72,
   clearScreenSpacerHeight = 0,
   activeRoundId = null,
-  onRoundAnchorNavigate,
-  showScrollIndicator = false,
-  onScrollIndicatorClick
+  onRoundAnchorNavigate
 }: AgentTimelineProps): React.JSX.Element {
   const { t } = useI18n()
   const internalScrollContainerRef = React.useRef<HTMLDivElement | null>(null)
@@ -270,25 +264,9 @@ export function AgentTimeline({
     }
   }, [effectiveScrollContainerRef])
 
-  // SessionShell 通过 CSS Grid 的 row-2 给 ComposerBar 留出了物理空间，
-  // 但 ComposerBar 自身的 `crisp-floating-surface` box-shadow 会向上扩散
-  // ~15px、`crisp-composer-veil` 渐变末段（70-100% 区段）浓度高达 ~82%，
-  // 这一带视觉上仍然在「压」transcript 最后一行。原先 hardcoded 的 24px
-  // 不够 breathing room，流式输出滚到底时最后一行紧贴这条视觉边界，
-  // 直观感受就是「输出跑到了输入框下面」。
-  //
-  // 这里改成跟随测量值 `bottomFloatingHeight`（composerHeight + dockHeight）
-  // 动态计算：保底 56px（容纳阴影 + veil + 一点呼吸），并按 0.3 比例随
-  // composer 扩展（attachments / voice / slash popover / 多行草稿）增长；
-  // 封顶 96px 避免内容很短时拉出过多空白。
-  //
-  // 数值落点示例：
-  //   60px (单行 composer, 无 dock) → 56px
-  //  160px (展开 composer, 无 dock) → 80px
-  //  280px (展开 + InterruptDock)   → 96px
-  const safeBottomPadding = getTimelineSafeBottomPadding(bottomFloatingHeight)
-
-  const shortContentTopSpacer = clearScreenSpacerHeight
+  // Overlay model: use the measured bottomReadableInset directly.
+  // This replaces the old safeBottomPadding heuristic.
+  const paddingBottom = bottomReadableInset
 
   const renderNodeContent = (node: TimelineNode): React.JSX.Element | null => (
     <TimelineNodeRenderer
@@ -385,69 +363,80 @@ export function AgentTimeline({
           showTopGradient ? 'opacity-100' : 'opacity-0'
         )}
       />
+      <RoundNavigator
+        rounds={buildRoundNavigatorItems(rounds)}
+        activeRoundId={activeRoundId}
+        bottomReadableInset={bottomReadableInset}
+        scrollContainerRef={effectiveScrollContainerRef}
+        onRoundAnchorNavigate={onRoundAnchorNavigate}
+      />
       <div
         className="w-[85%] ml-[5%]"
-        style={{
-          // SessionShell reserves real layout space for the floating composer.
-          // Keep only breathing room here so the final transcript node does not
-          // feel glued to that boundary.
-          paddingTop: `${24 + shortContentTopSpacer}px`,
-          paddingBottom: `${safeBottomPadding}px`
-        }}
+        style={
+          {
+            paddingTop: '24px',
+            paddingBottom: `${paddingBottom}px`,
+            // Keep assistant prose and wide markdown blocks within the timeline column.
+            '--xp-reader-wide-max': '100%',
+            '--xp-reader-wide-measure': '100%'
+          } as React.CSSProperties
+        }
       >
-        <div className="flex items-start gap-4">
-          <div ref={timelineContentRef} className="min-w-0 flex-1">
-            {preludeNodes.map((node, index) =>
-              renderCommittedTimelineNode(node, preludeNodes[index + 1])
-            )}
+        <div ref={timelineContentRef} className="min-w-0">
+          {preludeNodes.map((node, index) =>
+            renderCommittedTimelineNode(node, preludeNodes[index + 1])
+          )}
 
-            {rounds.map((round) => {
-              return (
-                <section
-                  key={round.id}
-                  id={round.anchorId}
-                  data-round-anchor="true"
-                  data-round-id={round.id}
-                  className="mb-7 scroll-mt-8"
-                >
-                  {round.nodes.map((node, nodeIndex) =>
-                    renderCommittedTimelineNode(node, round.nodes[nodeIndex + 1])
-                  )}
-                </section>
-              )
-            })}
+          {rounds.map((round) => {
+            return (
+              <section
+                key={round.id}
+                id={round.anchorId}
+                data-round-anchor="true"
+                data-round-id={round.id}
+                className="mb-7 scroll-mt-8"
+              >
+                {round.nodes.map((node, nodeIndex) =>
+                  renderCommittedTimelineNode(node, round.nodes[nodeIndex + 1])
+                )}
+              </section>
+            )
+          })}
 
-            {/* Inflight 压缩 marker：永远落在 rounds 之后、streaming 之前。 */}
-            {inflightCompaction && (
-              <ThreadStatusRow key={inflightCompaction.id} status={inflightCompaction} />
-            )}
+          {/* Inflight 压缩 marker：永远落在 rounds 之后、streaming 之前。 */}
+          {inflightCompaction && (
+            <ThreadStatusRow key={inflightCompaction.id} status={inflightCompaction} />
+          )}
 
-            {/* Final aggregated TodoCard — rendered only when a parent explicitly passes it. */}
-            {finalTodoTasks && finalTodoTasks.length > 0 && (
-              <div className="relative pl-10 mb-4">
-                <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border opacity-60" />
-                <div
-                  className={cn(
-                    'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
-                    'flex items-center justify-center z-10',
-                    ICON_MAP.todo.bgClass,
-                    ICON_MAP.todo.colorClass
-                  )}
-                >
-                  <CheckSquare className="h-3 w-3" />
-                </div>
-                <TodoCard tasks={finalTodoTasks} />
+          {/* Final aggregated TodoCard — rendered only when a parent explicitly passes it. */}
+          {finalTodoTasks && finalTodoTasks.length > 0 && (
+            <div className="relative pl-10 mb-4">
+              <div className="absolute left-[15px] top-0 bottom-0 w-[2px] bg-border opacity-60" />
+              <div
+                className={cn(
+                  'absolute left-[4px] top-2.5 w-[24px] h-[24px] rounded-full',
+                  'flex items-center justify-center z-10',
+                  ICON_MAP.todo.bgClass,
+                  ICON_MAP.todo.colorClass
+                )}
+              >
+                <CheckSquare className="h-3 w-3" />
               </div>
-            )}
+              <TodoCard tasks={finalTodoTasks} />
+            </div>
+          )}
 
-            {/* Live streaming parts — real-time tool/text/reasoning rendering.
+          {/* Live streaming parts — real-time tool/text/reasoning rendering.
                 Render from buffer regardless of streaming state so content survives
                 session switches: the buffer holds what thread/read hasn't persisted yet. */}
-            {streamingNodes.length > 0 &&
-              streamingNodes.map((node, index) => renderStreamingTimelineNode(node, index))}
+          {streamingNodes.length > 0 &&
+            streamingNodes.map((node, index) => renderStreamingTimelineNode(node, index))}
 
-            {/* Streaming with no content yet — show pulse */}
-            {isStreaming && streamingNodes.length === 0 && !streamingContent && (
+          {/* Streaming with no content yet — show pulse */}
+          {isStreaming &&
+            streamingNodes.length === 0 &&
+            !streamingContent &&
+            ephemeralStatusRows.length === 0 && (
               <div className="relative pl-10 mb-4">
                 <div
                   className={cn(
@@ -464,37 +453,40 @@ export function AgentTimeline({
               </div>
             )}
 
-            {ephemeralStatusRows.map((status) => (
-              <ThreadStatusRow key={status.id} status={status} />
-            ))}
+          {ephemeralStatusRows.map((status) => (
+            <ThreadStatusRow key={status.id} status={status} />
+          ))}
 
-            {/* Clear-screen spacer: value is computed by useTimelineScrollController,
-                which is the single owner of timeline scroll geometry. */}
-            {shortContentTopSpacer > 0 && nodes.length > 0 && (
-              <div
-                aria-hidden="true"
-                data-clear-screen-spacer="true"
-                data-testid="timeline-clear-screen-spacer"
-                style={{ height: `${shortContentTopSpacer}px` }}
-              />
-            )}
-
-            {/* Empty state */}
-            {nodes.length === 0 && ephemeralStatusRows.length === 0 && !isStreaming && (
-              <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-                <MessageSquare className="h-10 w-10 mb-3 opacity-30" />
-                <div className="text-sm font-medium">{t('sessionHq.timeline.emptyTitle')}</div>
-                <div className="text-xs mt-1">{t('sessionHq.timeline.emptySubtitle')}</div>
-              </div>
-            )}
-          </div>
-
-          <RoundRail
-            rounds={rounds}
-            activeRoundId={activeRoundId}
-            scrollContainerRef={effectiveScrollContainerRef}
-            onRoundAnchorNavigate={onRoundAnchorNavigate}
+          {/* Tail sentinel: represents the real content tail.
+                Must be before the clear-screen/focus filler, because filler
+                is a layout affordance, not real content. */}
+          <div
+            ref={tailSentinelRef}
+            data-timeline-tail-sentinel="true"
+            data-testid="timeline-tail-sentinel"
+            className="h-px w-full"
+            aria-hidden="true"
           />
+
+          {/* Clear-screen spacer: value is computed by useTimelineScrollController,
+                which is the single owner of timeline scroll geometry. */}
+          {clearScreenSpacerHeight > 0 && nodes.length > 0 && (
+            <div
+              aria-hidden="true"
+              data-clear-screen-spacer="true"
+              data-testid="timeline-clear-screen-spacer"
+              style={{ height: `${clearScreenSpacerHeight}px` }}
+            />
+          )}
+
+          {/* Empty state */}
+          {nodes.length === 0 && ephemeralStatusRows.length === 0 && !isStreaming && (
+            <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+              <MessageSquare className="h-10 w-10 mb-3 opacity-30" />
+              <div className="text-sm font-medium">{t('sessionHq.timeline.emptyTitle')}</div>
+              <div className="text-xs mt-1">{t('sessionHq.timeline.emptySubtitle')}</div>
+            </div>
+          )}
         </div>
       </div>
       {/* Bottom edge mask: visible when content extends below the viewport */}
@@ -505,21 +497,6 @@ export function AgentTimeline({
           showBottomGradient ? 'opacity-100' : 'opacity-0'
         )}
       />
-      {/* Telegram-style scroll indicator: shown during streaming when content extends below.
-          Appears above the bottom gradient, pointing downward to indicate more content. */}
-      {isStreaming && showScrollIndicator && showBottomGradient && (
-        <button
-          type="button"
-          onClick={onScrollIndicatorClick}
-          className="absolute bottom-8 left-1/2 z-20 -translate-x-1/2 cursor-pointer rounded-full bg-primary/90 px-4 py-2 shadow-lg transition-all duration-200 hover:bg-primary hover:scale-105 active:scale-95"
-          data-testid="scroll-to-bottom-indicator"
-        >
-          <div className="flex items-center gap-1.5 text-xs font-medium text-primary-foreground">
-            <span>{t('sessionHq.timeline.scrollIndicatorText')}</span>
-            <ChevronDown className="h-3.5 w-3.5 animate-bounce" />
-          </div>
-        </button>
-      )}
     </div>
   )
 }

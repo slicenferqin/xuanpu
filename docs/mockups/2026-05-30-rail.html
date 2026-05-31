@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>会话锚点导航 Demo · 20 轮对话</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{font-family:-apple-system,'Segoe UI',Roboto,'PingFang SC','Microsoft YaHei',sans-serif;background:#e9ede9;color:#1f2421;display:flex;align-items:center;justify-content:center;padding:24px;}
+  #chatApp{width:100%;max-width:920px;height:calc(100vh - 48px);display:flex;background:linear-gradient(160deg,#f3f6f3,#eef1ef);border:1px solid #e2e6e2;border-radius:14px;overflow:hidden;position:relative;box-shadow:0 8px 30px rgba(0,0,0,.06);}
+  #chatScroll{flex:1;overflow-y:auto;padding:62px 64px 28px 40px;scroll-behavior:smooth;}
+  #chatScroll::-webkit-scrollbar{width:0;}
+  .turn{margin-bottom:26px;}
+  .bubbleUser{background:#dceed9;border:1px solid #c5e2c0;border-radius:14px 14px 4px 14px;padding:11px 15px;max-width:78%;margin-left:auto;font-size:14px;line-height:1.55;color:#23351f;box-shadow:0 1px 2px rgba(0,0,0,.03);}
+  .bubbleAI{background:#fff;border:1px solid #e8ece8;border-radius:14px 14px 14px 4px;padding:12px 16px;max-width:88%;margin-top:10px;font-size:14px;line-height:1.65;color:#2a302b;box-shadow:0 1px 3px rgba(0,0,0,.04);}
+  .role{font-size:11px;letter-spacing:.5px;color:#8a948a;margin-bottom:5px;font-weight:600;}
+  /* 锚点条 */
+  #anchorRail{position:absolute;top:46px;right:0;bottom:0;width:30px;display:flex;flex-direction:column;justify-content:center;align-items:flex-end;gap:9px;padding:8px 11px 8px 0;overflow-y:auto;z-index:20;transition:width .22s ease,background .22s ease;}
+  #anchorRail::-webkit-scrollbar{width:0;}
+  #anchorRail.open{width:310px;background:linear-gradient(270deg,rgba(255,255,255,.97) 72%,rgba(255,255,255,0));justify-content:flex-start;}
+  .anchor{display:flex;align-items:center;justify-content:flex-end;gap:10px;width:100%;cursor:pointer;flex:0 0 auto;}
+  .anchorLine{height:2px;width:16px;background:#c5cbc5;border-radius:2px;flex:0 0 auto;transition:all .2s ease;}
+  .anchor.active .anchorLine{background:#3bbf6b;width:22px;height:3px;}
+  .anchorText{font-size:12.5px;color:#3a423a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:0;opacity:0;transition:max-width .22s ease,opacity .2s ease;text-align:right;flex:1;}
+  #anchorRail.open .anchorText{max-width:255px;opacity:1;}
+  #anchorRail.open .anchorLine{width:14px;}
+  #anchorRail.open .anchor.active .anchorLine{width:18px;background:#3bbf6b;}
+  .anchor:hover .anchorText{color:#16803d;font-weight:600;}
+  .anchor:hover .anchorLine{background:#9aa39a;}
+  .anchor.active:hover .anchorLine{background:#3bbf6b;}
+  /* 移动端展开触发钮 */
+  #railToggle{position:absolute;top:54px;right:6px;width:30px;height:30px;border-radius:8px;background:rgba(255,255,255,.85);border:1px solid #e0e5e0;display:none;align-items:center;justify-content:center;cursor:pointer;z-index:30;font-size:15px;color:#5a655a;}
+  #topbar{position:absolute;top:0;left:0;right:0;height:46px;background:rgba(255,255,255,.6);backdrop-filter:blur(6px);border-bottom:1px solid #e6eae6;display:flex;align-items:center;padding:0 20px;font-size:13.5px;font-weight:600;color:#2c332c;z-index:10;}
+  @media (hover:none){ #railToggle{display:flex;} #chatScroll{padding-right:44px;} }
+</style>
+</head>
+<body>
+<div id="chatApp">
+  <div id="topbar">企业AI落地新方式：workflows 与 agent 分析 · 会话锚点导航</div>
+  <div id="railToggle">≡</div>
+  <div id="chatScroll"></div>
+  <div id="anchorRail"></div>
+</div>
+
+<script>
+(function(){
+  var scroll = document.getElementById('chatScroll');
+  var rail = document.getElementById('anchorRail');
+  var toggle = document.getElementById('railToggle');
+  var supportsHover = window.matchMedia('(hover:hover)').matches;
+
+  var turns = [
+    ["我准备写一篇微信公众号，主题是企业 AI 落地的新方式。","好的，建议从 workflow 到 agent 的演进切入，这是当下最有张力的叙事。"],
+    ["workflow 泛滥，现在 cl 系列模型把 agent 推到了台前，怎么区分？","workflow 是预定义路径，agent 是模型自主决策路径——核心差别在控制权归谁。"],
+    ["那我们尝试推演，下一代企业应用形态会是什么？","会是'workflow 兜底 + agent 灵活'的混合体，确定性环节走 workflow，开放环节交给 agent。"],
+    ["你说起评估，我想到 agent 最难的就是不可控，怎么评测？","用轨迹评估而非结果评估：看它的每一步决策是否合理，而不仅看最终答案。"],
+    ["所以，下一代 agent 会内置自评估能力吗？","趋势如此，self-reflection 和 critic 模型会成为 agent 的标配组件。"],
+    ["我基于 oh-my-pi 去构建了一个内部工具链，算 agent 吗？","如果它能自主选择调用哪个工具、并根据结果调整，就已经是轻量 agent 了。"],
+    ["你遇到不了解的知识时会怎么处理？","会显式标注不确定，并建议检索或交叉验证，而不是硬编一个答案。"],
+    ["所以，我该在实际场景里先上 workflow 还是 agent？","先 workflow 稳住业务，再在高价值、高变化的环节灰度引入 agent。"],
+    ["我也倾向于 C，写进去这条作为落地建议。","很合适，这条最贴近读者的真实决策路径，可信度高。"],
+    ["封面图我纠结要不要配很多 AI 抽象图。","建议克制——一张极简封面足矣，真实截图比金色凤凰更有现场感。"],
+    ["正文里 workflow 和 agent 的关系要不要画图？","值得画一张：workflow 是骨架，agent 是流动态，skill 是可复用的肌肉。"],
+    ["标题我用了'藏了多月的伏线'这个版本。","钩子够强，开头反差 + 信任锚点三连，符合前 1/3 抓人的要求。"],
+    ["字数我想控制在 2600 字左右。","刚好落在技术长文的舒适区间，信息密度和阅读耐心能平衡。"],
+    ["团队细节要暴露到什么程度？","点到为止：说'让它调 Dify 生成 SOP'即可，既可信又不泄露业务。"],
+    ["排版上我不想加花哨样式。","对，引用块 + 表格 + 小标题 + 适度加粗，干净模板最高级。"],
+    ["收尾我改成了'我只是表达观察、不一定对'。","这个平视姿态比任何金句都管用，最后留白是有意的。"],
+    ["要不要补一段 Opus 4.8 的官宣解读？","可以放真实官宣截图，信息可信度比 AI 配图强得多。"],
+    ["那三个 GitHub 仓库要不要都贴页面截图？","贴，它们和你'扒工程痕迹'的内容直接咬合，增强现场感。"],
+    ["AI 抽象插图最多留几张比较合适？","最多一张，放在'agent 是 workflow 流动态'那段，当视觉喘息。"],
+    ["最终定稿了，帮我再过一遍整体结构。","结构完整：钩子前置、论点递进、落地建议收尾，克制而有锋芒，可以发了。"]
+  ];
+
+  turns.forEach(function(t,i){
+    var turn = document.createElement('div');
+    turn.className='turn'; turn.id='turn'+i;
+    turn.innerHTML='<div class="bubbleUser">'+t[0]+'</div>'+
+      '<div class="bubbleAI"><div class="role">AI</div>'+t[1]+'</div>';
+    scroll.appendChild(turn);
+
+    var a = document.createElement('div');
+    a.className='anchor';
+    a.innerHTML='<span class="anchorText">'+(i+1)+'. '+t[0]+'</span><span class="anchorLine"></span>';
+    a.addEventListener('click',function(){
+      document.getElementById('turn'+i).scrollIntoView({behavior:'smooth',block:'start'});
+      if(!supportsHover) rail.classList.remove('open');
+    });
+    rail.appendChild(a);
+  });
+
+  var anchors = Array.prototype.slice.call(rail.querySelectorAll('.anchor'));
+  function setActive(idx){
+    anchors.forEach(function(a,j){ a.classList.toggle('active', j===idx); });
+  }
+  setActive(0);
+
+  // 桌面端 hover 展开
+  if(supportsHover){
+    rail.addEventListener('mouseenter',function(){ rail.classList.add('open'); });
+    rail.addEventListener('mouseleave',function(){ rail.classList.remove('open'); });
+  }
+  // 移动端点击展开
+  toggle.addEventListener('click',function(){ rail.classList.toggle('open'); });
+
+  scroll.addEventListener('scroll',function(){
+    var st = scroll.scrollTop + scroll.clientHeight*0.35;
+    var cur=0;
+    turns.forEach(function(_,i){
+      var el=document.getElementById('turn'+i);
+      if(el.offsetTop<=st) cur=i;
+    });
+    setActive(cur);
+  });
+})();
+</script>
+</body>
+</html>

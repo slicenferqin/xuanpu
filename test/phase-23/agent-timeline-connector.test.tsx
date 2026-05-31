@@ -32,7 +32,7 @@ function makeAssistantTextMessage(id: string, content: string): TimelineMessage 
 
 describe('AgentTimeline connector rendering', () => {
   it('uses the real timeline scroller for containment and short-content alignment', () => {
-    render(
+    const { container } = render(
       <AgentTimeline
         timelineMessages={[makeAssistantTextMessage('a-scroll', 'final assistant reply')]}
         streamingContent=""
@@ -43,6 +43,10 @@ describe('AgentTimeline connector rendering', () => {
     )
 
     expect(screen.getByTestId('hq-agent-timeline-scroll')).toHaveClass('overscroll-contain')
+
+    const timelineColumn = container.querySelector('[style*="--xp-reader-wide-measure"]')
+    expect(timelineColumn).toHaveStyle('--xp-reader-wide-measure: 100%')
+    expect(timelineColumn).toHaveStyle('--xp-reader-wide-max: 100%')
   })
 
   it('keeps the connector for the last committed assistant text node after streaming ends', () => {
@@ -172,5 +176,29 @@ describe('AgentTimeline connector rendering', () => {
     expect(screen.getByTestId('bash-card')).toHaveTextContent(
       'mcp__xuanpu__bash:git status --short'
     )
+  })
+
+  it('uses the agent running row instead of the empty thinking pulse', () => {
+    render(
+      <AgentTimeline
+        timelineMessages={[]}
+        streamingContent=""
+        streamingParts={[]}
+        isStreaming
+        lifecycle="busy"
+        ephemeralStatusRows={[
+          {
+            id: 'running-session',
+            kind: 'running',
+            timestamp: Date.now(),
+            startedAt: Date.now(),
+            ephemeral: true
+          }
+        ]}
+      />
+    )
+
+    expect(screen.getByTestId('thread-status-running')).toBeInTheDocument()
+    expect(screen.queryByText(/Thinking|思考中/)).not.toBeInTheDocument()
   })
 })

@@ -1,17 +1,16 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type RefObject
-} from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { useSessionSmartScroll } from '@/hooks/useSessionSmartScroll'
-import {
-  CLEAR_SCREEN_SPACER_SELECTOR,
-  getClearScreenBottomInset,
-  getTimelineSafeBottomPadding
-} from '@/lib/session-timeline/geometry'
+import { CLEAR_SCREEN_SPACER_SELECTOR } from '@/lib/session-timeline/geometry'
+
+/**
+ * Scroll mode state machine.
+ *
+ * - 'history': user is browsing past messages; program does not take over scroll
+ * - 'sticky-bottom': normal pinned-to-bottom for streaming / idle follow
+ * - 'round-focus': new turn just sent; user message pinned to viewport top
+ *                   with tail filler providing scrollable space
+ */
+export type TimelineScrollMode = 'history' | 'sticky-bottom' | 'round-focus'
 
 interface PendingRoundScroll {
   type: 'clear-screen'
@@ -25,6 +24,11 @@ interface UseTimelineScrollControllerOptions {
   metricsVersion?: number | string
   mirrorVersion: number
   isStreaming: boolean
+  /**
+   * Measured bottom readable inset (overlay height + breathing room).
+   * Replaces the old safeBottomPadding heuristic.
+   */
+  bottomReadableInset?: number
   bottomAreaRef?: RefObject<HTMLElement | null>
   composerRef?: RefObject<HTMLElement | null>
 }
@@ -32,11 +36,12 @@ interface UseTimelineScrollControllerOptions {
 interface UseTimelineScrollControllerResult {
   scrollContainerRef: RefObject<HTMLDivElement | null>
   timelineContentRef: RefObject<HTMLDivElement | null>
-  showScrollFab: boolean
-  scrollFabCount: number
-  scrollFabBottomOffset: number
-  bottomFloatingHeight: number
-  clearScreenBottomInset: number
+  tailSentinelRef: RefObject<HTMLDivElement | null>
+  scrollMode: TimelineScrollMode
+  tailReadable: boolean
+  showJumpToBottom: boolean
+  unreadCount: number
+  focusFillerHeight: number
   activeRoundId: string | null
   handleScroll: () => void
   handleScrollWheel: () => void
@@ -45,7 +50,11 @@ interface UseTimelineScrollControllerResult {
   handleScrollPointerCancel: () => void
   handleScrollToBottomClick: () => void
   scrollToOffset: (top: number, behavior?: ScrollBehavior) => void
-  scrollToRound: (roundId: string, options?: { behavior?: ScrollBehavior; topPadding?: number }) => void
+  scrollToTailReadable: (behavior?: ScrollBehavior) => void
+  scrollToRound: (
+    roundId: string,
+    options?: { behavior?: ScrollBehavior; topPadding?: number }
+  ) => void
   requestClearScreenScroll: (roundId: string) => void
 }
 
@@ -68,6 +77,63 @@ function getContainerRelativeTop(container: HTMLElement, target: HTMLElement): n
   return container.scrollTop + targetRect.top - containerRect.top
 }
 
+function scrollElementTo(element: HTMLDivElement, top: number, behavior: ScrollBehavior): void {
+  if (typeof element.scrollTo === 'function') {
+    try {
+      element.scrollTo({ top, behavior })
+      return
+    } catch {
+      // Fall back to direct assignment for test environments and older runtimes.
+    }
+  }
+  element.scrollTop = top
+}
+
+/**
+ * Compute the filler height needed to make `roundTop` a valid scrollTop.
+ *
+ * fillerHeight = max(0, viewportHeight - topGap - bottomReadableInset - heightFromRoundTopToEnd)
+ *
+ * The filler sits at the tail of the content and shrinks as real content grows.
+ */
+function computeFocusFillerHeight(
+  viewportHeight: number,
+  topGap: number,
+  bottomReadableInset: number,
+  roundOffsetTop: number,
+  realContentHeight: number
+): number {
+  if (viewportHeight <= 0) return 0
+  const heightFromRoundToEnd = realContentHeight - roundOffsetTop
+  return Math.max(
+    0,
+    Math.round(viewportHeight - topGap - bottomReadableInset - heightFromRoundToEnd)
+  )
+}
+
+const ROUND_FOCUS_TOP_GAP = 24
+const TAIL_READABLE_EPSILON = 1
+
+function isTailReadableByGeometry(
+  scrollElement: HTMLElement,
+  sentinel: HTMLElement,
+  bottomReadableInset: number
+): boolean {
+  if (scrollElement.scrollHeight <= scrollElement.clientHeight + TAIL_READABLE_EPSILON) {
+    return true
+  }
+
+  const containerRect = scrollElement.getBoundingClientRect()
+  const sentinelRect = sentinel.getBoundingClientRect()
+  if (containerRect.height <= 0) return true
+
+  const readableBottom = containerRect.bottom - bottomReadableInset
+  // The FAB should mean "real content continues below the readable area".
+  // If the sentinel is above the viewport, the user is in spacer/padding, not
+  // missing content hidden under the composer.
+  return sentinelRect.bottom <= readableBottom + TAIL_READABLE_EPSILON
+}
+
 export function useTimelineScrollController({
   sessionId,
   ready,
@@ -75,19 +141,60 @@ export function useTimelineScrollController({
   metricsVersion = contentVersion,
   mirrorVersion,
   isStreaming,
+  bottomReadableInset = 72,
   bottomAreaRef,
   composerRef
 }: UseTimelineScrollControllerOptions): UseTimelineScrollControllerResult {
-  const clearScreenBottomInsetRef = useRef(0)
   const timelineContentRef = useRef<HTMLDivElement | null>(null)
+  const tailSentinelRef = useRef<HTMLDivElement | null>(null)
   const pendingRoundScrollRef = useRef<PendingRoundScroll | null>(null)
   const activeRoundIdRef = useRef<string | null>(null)
   const suppressActiveRoundFromScrollRef = useRef(false)
-  const [timelineViewportHeight, setTimelineViewportHeight] = useState(0)
-  const [timelineContentHeight, setTimelineContentHeight] = useState(0)
-  const [activeRoundOffsetTop, setActiveRoundOffsetTop] = useState(0)
+
+  // ── Scroll mode state machine ─────────────────────────────────────
+  const scrollModeRef = useRef<TimelineScrollMode>('sticky-bottom')
+  const [scrollMode, setScrollMode] = useState<TimelineScrollMode>('sticky-bottom')
+
+  const setMode = useCallback((mode: TimelineScrollMode): void => {
+    if (scrollModeRef.current !== mode) {
+      scrollModeRef.current = mode
+      setScrollMode(mode)
+    }
+  }, [])
+
+  // Round-focus target
+  const focusRoundIdRef = useRef<string | null>(null)
+  const [focusRoundId, setFocusRoundIdState] = useState<string | null>(null)
+  const [focusRequestVersion, setFocusRequestVersion] = useState(0)
+
+  // Fillers
+  const focusFillerHeightRef = useRef(0)
+  const [focusFillerHeight, setFocusFillerHeight] = useState(0)
+
+  // Metrics
   const [activeRoundId, setActiveRoundIdState] = useState<string | null>(null)
-  const [clearScreenRequestVersion, setClearScreenRequestVersion] = useState(0)
+
+  // Manual scroll lock: once user scrolls during round-focus, we don't re-enter
+  const manualScrollLockedRef = useRef(false)
+
+  // Track whether focus filler has been measured at least once.
+  // Prevents premature exit from round-focus before the first measurement.
+  const focusMeasuredRef = useRef(false)
+
+  // ── Tail readability via IntersectionObserver ─────────────────────
+  const [tailReadable, setTailReadable] = useState(true)
+  const tailObserverRef = useRef<IntersectionObserver | null>(null)
+
+  // Unread count: incremented when content changes while not at tail
+  const unreadCountRef = useRef(0)
+  const [unreadCount, setUnreadCount] = useState(0)
+  const lastSeenContentVersionRef = useRef(contentVersion)
+
+  // Show the FAB only when the real content tail is below the composer-safe
+  // readable area. Scroll mode alone is not enough: clear-screen focus uses a
+  // filler spacer, and that spacer must not make the UI look like content is
+  // hidden under the input.
+  const showJumpToBottom = !tailReadable
 
   const smartScroll = useSessionSmartScroll({
     sessionId,
@@ -97,34 +204,120 @@ export function useTimelineScrollController({
     isStreaming,
     bottomAreaRef,
     composerRef,
-    clearScreenBottomInsetRef
+    focusFillerHeightRef,
+    scrollModeRef,
+    manualScrollLockedRef,
+    disableAutoFollow: true
   })
+
   const {
     scrollContainerRef,
-    showScrollFab,
-    scrollFabCount,
-    scrollFabBottomOffset,
-    bottomFloatingHeight,
-    handleScroll,
-    handleScrollWheel,
-    handleScrollPointerDown,
+    scrollFabBottomOffset: _scrollFabBottomOffset,
+    bottomFloatingHeight: _bottomFloatingHeight,
+    handleScroll: handleSmartScroll,
     handleScrollPointerUp,
     handleScrollPointerCancel,
-    handleScrollToBottomClick,
-    scrollToOffset
+    scrollToOffset,
+    markProgrammaticScroll,
+    markStickyBottomSeen,
+    canAutoFollow,
+    cancelPendingScrollToBottom,
+    cancelPendingRestoreScroll
   } = smartScroll
 
-  const setActiveRoundId = useCallback((roundId: string | null) => {
+  // ── Focus round management ────────────────────────────────────────
+
+  const setFocusRoundId = useCallback((roundId: string | null): void => {
+    focusRoundIdRef.current = roundId
+    setFocusRoundIdState(roundId)
+  }, [])
+
+  const setActiveRoundId = useCallback((roundId: string | null): void => {
     activeRoundIdRef.current = roundId
     setActiveRoundIdState((current) => (current === roundId ? current : roundId))
   }, [])
 
-  const requestClearScreenScroll = useCallback((roundId: string) => {
-    pendingRoundScrollRef.current = { type: 'clear-screen', roundId }
-    suppressActiveRoundFromScrollRef.current = true
-    setActiveRoundId(roundId)
-    setClearScreenRequestVersion((current) => current + 1)
-  }, [setActiveRoundId])
+  const markTailReadable = useCallback((): void => {
+    setTailReadable(true)
+    unreadCountRef.current = 0
+    setUnreadCount(0)
+    lastSeenContentVersionRef.current = contentVersion
+  }, [contentVersion])
+
+  const measureTailReadable = useCallback((): boolean => {
+    const scrollElement = scrollContainerRef.current
+    const sentinel = tailSentinelRef.current
+    if (!scrollElement || !sentinel) {
+      markTailReadable()
+      return true
+    }
+
+    const isReadable = isTailReadableByGeometry(scrollElement, sentinel, bottomReadableInset)
+    setTailReadable(isReadable)
+
+    if (isReadable) {
+      unreadCountRef.current = 0
+      setUnreadCount(0)
+      lastSeenContentVersionRef.current = contentVersion
+    }
+
+    return isReadable
+  }, [bottomReadableInset, contentVersion, markTailReadable, scrollContainerRef])
+
+  const handleScroll = useCallback(() => {
+    handleSmartScroll()
+    measureTailReadable()
+  }, [handleSmartScroll, measureTailReadable])
+
+  // ── Manual scroll intent ──────────────────────────────────────────
+  // On any manual scroll intent, transition to history mode.
+  // Do NOT delete filler immediately — let it remain as layout affordance.
+  // It will shrink naturally as content grows, or be replaced on next round.
+
+  const handleScrollWheel = useCallback(() => {
+    smartScroll.handleScrollWheel()
+    if (scrollModeRef.current === 'round-focus') {
+      manualScrollLockedRef.current = true
+      setMode('history')
+    }
+  }, [smartScroll, setMode])
+
+  const handleScrollPointerDown = useCallback(() => {
+    smartScroll.handleScrollPointerDown()
+    if (scrollModeRef.current === 'round-focus') {
+      manualScrollLockedRef.current = true
+      setMode('history')
+    }
+  }, [smartScroll, setMode])
+
+  // ── Request round-focus scroll ────────────────────────────────────
+
+  const requestClearScreenScroll = useCallback(
+    (roundId: string) => {
+      pendingRoundScrollRef.current = { type: 'clear-screen', roundId }
+      suppressActiveRoundFromScrollRef.current = true
+      manualScrollLockedRef.current = false
+      // Reset focus measurement state for the new round
+      focusMeasuredRef.current = false
+      focusFillerHeightRef.current = 0
+      setFocusFillerHeight(0)
+      markTailReadable()
+      setFocusRoundId(roundId)
+      setActiveRoundId(roundId)
+      setMode('round-focus')
+      cancelPendingScrollToBottom()
+      cancelPendingRestoreScroll()
+      setFocusRequestVersion((v) => v + 1)
+    },
+    [
+      cancelPendingRestoreScroll,
+      cancelPendingScrollToBottom,
+      markTailReadable,
+      setActiveRoundId,
+      setFocusRoundId,
+      setMode
+    ]
+  )
 
   const scrollToRound = useCallback(
     (roundId: string, options?: { behavior?: ScrollBehavior; topPadding?: number }) => {
@@ -137,7 +330,7 @@ export function useTimelineScrollController({
       setActiveRoundId(roundId)
       suppressActiveRoundFromScrollRef.current = true
       const targetTop = Math.max(
-        getContainerRelativeTop(container, section) - (options?.topPadding ?? 24),
+        getContainerRelativeTop(container, section) - (options?.topPadding ?? ROUND_FOCUS_TOP_GAP),
         0
       )
       scrollToOffset(targetTop, options?.behavior ?? 'smooth')
@@ -145,10 +338,82 @@ export function useTimelineScrollController({
     [scrollContainerRef, scrollToOffset, setActiveRoundId]
   )
 
+  // ── Scroll to tail-readable position ─────────────────────────────
+  // Scrolls so the tail sentinel is visible above the overlay.
+  // This is the correct "scroll to bottom" in overlay mode.
+
+  const scrollToTailReadable = useCallback(
+    (behavior: ScrollBehavior = 'instant') => {
+      const container = scrollContainerRef.current
+      const sentinel = tailSentinelRef.current
+      if (!container || !sentinel) return
+
+      const containerRect = container.getBoundingClientRect()
+      const sentinelRect = sentinel.getBoundingClientRect()
+      const readableBottom = containerRect.bottom - bottomReadableInset
+
+      // How far the sentinel extends below the readable area
+      const overflow = sentinelRect.bottom - readableBottom
+
+      if (overflow <= 0) {
+        markTailReadable()
+        markStickyBottomSeen(container.scrollTop)
+        return
+      }
+
+      const targetTop = Math.min(
+        container.scrollTop + overflow,
+        Math.max(0, container.scrollHeight - container.clientHeight)
+      )
+
+      markProgrammaticScroll()
+      scrollElementTo(container, targetTop, behavior)
+      markTailReadable()
+      markStickyBottomSeen(targetTop)
+    },
+    [
+      scrollContainerRef,
+      bottomReadableInset,
+      markProgrammaticScroll,
+      markStickyBottomSeen,
+      markTailReadable
+    ]
+  )
+
+  // Scroll-to-bottom/FAB clears all controller focus state and scrolls to the
+  // overlay-readable tail, not the native scrollHeight bottom.
+  const handleScrollToBottomClick = useCallback(() => {
+    manualScrollLockedRef.current = false
+    focusFillerHeightRef.current = 0
+    focusMeasuredRef.current = false
+    unreadCountRef.current = 0
+    setFocusRoundId(null)
+    setFocusFillerHeight(0)
+    setUnreadCount(0)
+    setMode('sticky-bottom')
+    scrollToTailReadable('smooth')
+  }, [scrollToTailReadable, setFocusRoundId, setMode])
+
+  // ── Session switch reset ──────────────────────────────────────────
+
   useEffect(() => {
     pendingRoundScrollRef.current = null
+    manualScrollLockedRef.current = false
+    focusMeasuredRef.current = false
+    focusFillerHeightRef.current = 0
+    unreadCountRef.current = 0
+    lastSeenContentVersionRef.current = contentVersion
+    setFocusRoundId(null)
+    setFocusFillerHeight(0)
+    setTailReadable(true)
+    setUnreadCount(0)
+    setMode('sticky-bottom')
     setActiveRoundId(null)
-  }, [sessionId, setActiveRoundId])
+    // Note: contentVersion is NOT a dependency. Content growth should only
+    // trigger metrics/filler recompute, not reset scroll mode.
+  }, [sessionId, setActiveRoundId, setFocusRoundId, setMode])
+
+  // ── Track active round from scroll position ───────────────────────
 
   useLayoutEffect(() => {
     const container = scrollContainerRef.current
@@ -212,6 +477,52 @@ export function useTimelineScrollController({
     return () => container.removeEventListener('scroll', updateActiveRoundFromScroll)
   }, [isStreaming, metricsVersion, scrollContainerRef, setActiveRoundId])
 
+  // ── Tail readability via IntersectionObserver ─────────────────────
+
+  useEffect(() => {
+    const scrollElement = scrollContainerRef.current
+    const sentinel = tailSentinelRef.current
+    if (!scrollElement || !sentinel) return
+    if (typeof IntersectionObserver === 'undefined') return
+
+    // Clean up previous observer
+    if (tailObserverRef.current) {
+      tailObserverRef.current.disconnect()
+    }
+
+    const observer = new IntersectionObserver(
+      () => {
+        measureTailReadable()
+      },
+      {
+        root: scrollElement,
+        rootMargin: `0px 0px -${bottomReadableInset}px 0px`,
+        threshold: 0
+      }
+    )
+
+    observer.observe(sentinel)
+    tailObserverRef.current = observer
+
+    return () => {
+      observer.disconnect()
+      tailObserverRef.current = null
+    }
+  }, [scrollContainerRef, contentVersion, bottomReadableInset, measureTailReadable])
+
+  // Increment unread count when content changes while tail is not readable
+  useEffect(() => {
+    if (!tailReadable && contentVersion > lastSeenContentVersionRef.current) {
+      unreadCountRef.current += 1
+      setUnreadCount(unreadCountRef.current)
+      lastSeenContentVersionRef.current = contentVersion
+    }
+  }, [contentVersion, tailReadable])
+
+  // ── Metrics: viewport, content height, round offsets ──────────────
+  // Uses ResizeObserver to detect content height changes (e.g. streaming
+  // text growth), which is the source of truth for scroll geometry.
+
   useLayoutEffect(() => {
     const scrollElement = scrollContainerRef.current
     const contentElement = timelineContentRef.current
@@ -232,18 +543,40 @@ export function useTimelineScrollController({
         const spacerHeight = spacerElement
           ? Math.round(spacerElement.getBoundingClientRect().height)
           : 0
-        const activeRoundElement = findRoundSection(contentElement, activeRoundId ?? '')
+        const focusElement = focusRoundIdRef.current
+          ? findRoundSection(contentElement, focusRoundIdRef.current)
+          : null
 
-        setTimelineViewportHeight(Math.round(scrollElement.clientHeight))
-        setTimelineContentHeight(Math.max(0, Math.round(contentRect.height) - spacerHeight))
-        setActiveRoundOffsetTop(
-          activeRoundElement
-            ? Math.max(
-                0,
-                Math.round(activeRoundElement.getBoundingClientRect().top - contentRect.top)
-              )
-            : 0
-        )
+        const vpHeight = Math.round(scrollElement.clientHeight)
+        const rcHeight = Math.max(0, Math.round(contentRect.height) - spacerHeight)
+        const focusOffset = focusElement
+          ? Math.max(0, Math.round(focusElement.getBoundingClientRect().top - contentRect.top))
+          : 0
+
+        // Recompute filler whenever focusRoundId is set, regardless of scrollMode.
+        // This ensures filler continues shrinking in history mode after manual scroll.
+        if (focusRoundIdRef.current && focusElement) {
+          const filler = computeFocusFillerHeight(
+            vpHeight,
+            ROUND_FOCUS_TOP_GAP,
+            bottomReadableInset,
+            focusOffset,
+            rcHeight
+          )
+          focusFillerHeightRef.current = filler
+          setFocusFillerHeight(filler)
+          focusMeasuredRef.current = true
+        } else if (!focusRoundIdRef.current) {
+          // No focus round — reset filler
+          focusFillerHeightRef.current = 0
+          setFocusFillerHeight(0)
+        }
+
+        if (ready && scrollModeRef.current === 'sticky-bottom' && canAutoFollow()) {
+          scrollToTailReadable('instant')
+        } else {
+          measureTailReadable()
+        }
       })
     }
 
@@ -266,54 +599,110 @@ export function useTimelineScrollController({
         cancelAnimationFrame(frame)
       }
     }
-  }, [activeRoundId, metricsVersion, scrollContainerRef])
+  }, [
+    bottomReadableInset,
+    canAutoFollow,
+    contentVersion,
+    focusRoundId,
+    metricsVersion,
+    ready,
+    scrollContainerRef,
+    scrollToTailReadable,
+    measureTailReadable
+  ])
 
-  const safeBottomPadding = getTimelineSafeBottomPadding(bottomFloatingHeight)
-  const clearScreenBottomInset =
-    timelineViewportHeight > 0 && timelineContentHeight > 0
-      ? getClearScreenBottomInset({
-          viewportHeight: timelineViewportHeight,
-          contentHeight: timelineContentHeight,
-          activeRoundOffsetTop,
-          safeBottomPadding
-        })
-      : 0
+  // ── Re-sticky on overlay height change ────────────────────────────
+  // When bottomReadableInset changes and we're in sticky-bottom mode,
+  // scroll to the new tail-readable position so content stays above overlay.
 
+  const prevInsetRef = useRef(bottomReadableInset)
   useEffect(() => {
-    clearScreenBottomInsetRef.current = clearScreenBottomInset
-  }, [clearScreenBottomInset])
+    if (prevInsetRef.current === bottomReadableInset) return
+    prevInsetRef.current = bottomReadableInset
 
-  useLayoutEffect(() => {
+    // Only re-sticky in sticky-bottom mode while the user has not browsed away.
+    if (scrollModeRef.current !== 'sticky-bottom') return
+    if (!canAutoFollow()) return
+
+    // Use requestAnimationFrame to wait for the next layout
+    const frame = requestAnimationFrame(() => {
+      scrollToTailReadable('instant')
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [bottomReadableInset, canAutoFollow, scrollToTailReadable])
+
+  // ── Attempt pending round-focus scroll ────────────────────────────
+
+  const attemptPendingFocusScroll = useCallback((): boolean => {
     const pendingScroll = pendingRoundScrollRef.current
     const container = scrollContainerRef.current
-    if (pendingScroll?.type !== 'clear-screen' || !container) return
+    if (pendingScroll?.type !== 'clear-screen' || !container) return false
 
     const roundElement = findRoundSection(container, pendingScroll.roundId)
-    if (!roundElement) return
+    if (!roundElement) return false
 
-    const targetTop = getContainerRelativeTop(container, roundElement)
+    const targetTop = Math.max(
+      getContainerRelativeTop(container, roundElement) - ROUND_FOCUS_TOP_GAP,
+      0
+    )
     const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight)
-    if (targetTop > maxScrollTop && clearScreenBottomInset <= 0) return
+    if (targetTop > maxScrollTop) return false
 
-    scrollToOffset(targetTop, 'instant')
+    scrollToOffset(targetTop, 'smooth')
     pendingRoundScrollRef.current = null
-  }, [
-    activeRoundId,
-    clearScreenBottomInset,
-    clearScreenRequestVersion,
-    contentVersion,
-    scrollContainerRef,
-    scrollToOffset
-  ])
+    return true
+  }, [scrollContainerRef, scrollToOffset])
+
+  useLayoutEffect(() => {
+    attemptPendingFocusScroll()
+  }, [activeRoundId, attemptPendingFocusScroll, focusRequestVersion, contentVersion])
+
+  // Retry pending scroll when DOM might not have the round yet
+  useEffect(() => {
+    if (pendingRoundScrollRef.current?.type !== 'clear-screen') return
+
+    let frame: number | null = null
+    let retries = 0
+    const maxRetries = 10
+    const retry = (): void => {
+      frame = null
+      if (!attemptPendingFocusScroll() && retries < maxRetries) {
+        retries++
+        frame = requestAnimationFrame(retry)
+      }
+    }
+    frame = requestAnimationFrame(retry)
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame)
+    }
+  }, [attemptPendingFocusScroll, focusRequestVersion])
+
+  // ── Round-focus completion conditions ─────────────────────────────
+  // Transition out of round-focus when:
+  // 1. filler === 0 && measured && !manualScrollLocked → sticky-bottom
+  // 2. manualScrollIntent → history (handled in wheel/pointerDown)
+  // 3. new round request → replace active round (handled in requestClearScreenScroll)
+
+  useEffect(() => {
+    if (scrollModeRef.current !== 'round-focus') return
+    if (manualScrollLockedRef.current) return
+    // Don't exit before first measurement
+    if (!focusMeasuredRef.current) return
+
+    if (focusFillerHeight <= 0) {
+      setMode('sticky-bottom')
+    }
+  }, [focusFillerHeight, setMode])
 
   return {
     scrollContainerRef,
     timelineContentRef,
-    showScrollFab,
-    scrollFabCount,
-    scrollFabBottomOffset,
-    bottomFloatingHeight,
-    clearScreenBottomInset,
+    tailSentinelRef,
+    scrollMode,
+    tailReadable,
+    showJumpToBottom,
+    unreadCount,
+    focusFillerHeight,
     activeRoundId,
     handleScroll,
     handleScrollWheel,
@@ -322,6 +711,7 @@ export function useTimelineScrollController({
     handleScrollPointerCancel,
     handleScrollToBottomClick,
     scrollToOffset,
+    scrollToTailReadable,
     scrollToRound,
     requestClearScreenScroll
   }

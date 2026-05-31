@@ -645,12 +645,21 @@ function normalizeCodexMessageRows(
     }
 
     if (message.role === 'user') {
-      if (!currentTurnId || userCountWithinTurn > 0) {
+      const hasExistingTurnId = !!currentTurnId && userCountWithinTurn === 0
+      if (!hasExistingTurnId) {
         currentTurnIndex += 1
-        currentTurnId = orderedTurnIds[currentTurnIndex] ?? currentTurnId
+        const nextTurnId = orderedTurnIds[currentTurnIndex]
+        if (!nextTurnId) {
+          // No more turn ids available — use DB row id for a unique identity
+          // instead of reusing the previous turn's id (which causes id collisions)
+          return {
+            ...message,
+            opencode_message_id: `db:${message.id}:user`
+          }
+        }
+        currentTurnId = nextTurnId
         userCountWithinTurn = 0
       }
-      if (!currentTurnId) return message
       assistantCountWithinTurn = 0
       userCountWithinTurn += 1
       return {

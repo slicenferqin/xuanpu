@@ -19,4 +19,13 @@ export function registerUsageHandlers(): void {
     getUsageAnalyticsService().fetchSessionSummary(sessionId)
   )
   ipcMain.handle('usageAnalytics:resync', () => getUsageAnalyticsService().resync())
+  ipcMain.handle(
+    'usageAnalytics:fetchScopeSummary',
+    (
+      _event,
+      scopeId: string,
+      scopeType: 'worktree' | 'connection',
+      sessionIds: string[]
+    ) => getUsageAnalyticsService().fetchScopeSummary(scopeId, scopeType, sessionIds)
+  )
 }

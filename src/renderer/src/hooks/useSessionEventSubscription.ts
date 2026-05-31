@@ -4,7 +4,11 @@ import type { CanonicalAgentEvent } from '@shared/types/agent-protocol'
 import { applySessionContextUsage } from '@/lib/context-usage'
 import { messageSendTimes } from '@/lib/message-send-times'
 import { applyCompletedMessageUsage } from '@/hooks/useSessionUsageHydration'
-import { useSessionRuntimeStore } from '@/stores/useSessionRuntimeStore'
+import {
+  useSessionRuntimeStore,
+  clearStreamingBufferRunState,
+  clearStreamingBufferOptimisticMessages
+} from '@/stores/useSessionRuntimeStore'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useWorktreeStatusStore } from '@/stores/useWorktreeStatusStore'
 
@@ -110,6 +114,14 @@ export function useSessionEventSubscription({
               })
               .finally(() => {
                 clearOptimisticMessages()
+                // Fix #4: Also clear runtime buffer's optimisticMessages
+                // to prevent stale optimistic bubbles on tab switch / remount.
+                clearStreamingBufferOptimisticMessages(sessionId)
+                // Lift the run-cutoff filter now that refresh() has delivered
+                // the definitive message ordering. This must happen AFTER
+                // clearOptimisticMessages so the view-model sees the committed
+                // user+assistant pair in correct chronological order.
+                clearStreamingBufferRunState(sessionId)
                 // NOTE: do NOT clearStreamingBufferOverlay here. By the time
                 // we reach this finally, the runtime mirror's idle handler
                 // already set isStreaming=false (so streamingNodes stop
@@ -120,6 +132,17 @@ export function useSessionEventSubscription({
 
             void drainQueuedMessage()
           }
+        }
+
+        // On session error, the run ends but runStartedAt is preserved in the
+        // runtime store (same rationale as idle). Refresh to get the definitive
+        // message ordering, then lift the run-cutoff filter.
+        if (event.type === 'session.error') {
+          void refresh().finally(() => {
+            clearOptimisticMessages()
+            clearStreamingBufferOptimisticMessages(sessionId)
+            clearStreamingBufferRunState(sessionId)
+          })
         }
 
         // Token / cost tracking (active session; global bridge skips the active one).

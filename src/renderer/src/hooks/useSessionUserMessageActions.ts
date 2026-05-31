@@ -153,6 +153,8 @@ export function useSessionUserMessageActions({
         if (!consumed) {
           resetLiveOverlay(false)
         }
+        // Settlement is handled by useSessionEventSubscription on
+        // session.status idle / session.error — do not call onPromptSettled here.
       } catch (error) {
         console.error('[useSessionUserMessageActions] edit resend failed:', error)
         toast.error(t('sessionView.toasts.messageError'))

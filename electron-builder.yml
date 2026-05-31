@@ -116,7 +116,7 @@ nsis:
   perMachine: false
   allowToChangeInstallationDirectory: true
   deleteAppDataOnUninstall: false
-  artifactName: 'Xuanpu-Setup-${version}.${ext}'
+  artifactName: 'Xuanpu-Setup-${version}-${arch}.${ext}'
 
 # ── Linux ──────────────────────────────────────────────
 linux:

@@ -54,7 +54,7 @@ export function UserMessageNode({
 
   return (
     <div className="group/user-message flex justify-end">
-      <div className="relative flex max-w-[82%] min-w-0 flex-col items-end pb-8">
+      <div className="flex max-w-[82%] min-w-0 flex-col items-end">
         <div
           className={cn(
             'max-w-full rounded-2xl border border-primary/20 bg-primary/10 px-4 py-3 text-foreground shadow-sm transition-colors hover:border-primary/30 hover:bg-primary/14',
@@ -137,19 +137,33 @@ export function UserMessageNode({
             </div>
           ) : null}
         </div>
-        <div
-          className="absolute right-0 bottom-0 flex items-center justify-end gap-1.5 text-xs text-muted-foreground"
-          data-testid={`timeline-user-actions-${node.message.id}`}
-        >
+        <div className="relative mt-1 h-7 self-end min-w-[7.25rem]">
           {timestampLabel && (
-            <span data-testid={`timeline-user-timestamp-${node.message.id}`}>{timestampLabel}</span>
+            <span
+              className={cn(
+                'absolute right-0 top-1/2 -translate-y-1/2',
+                'whitespace-nowrap text-right text-xs tabular-nums text-muted-foreground',
+                'transition-opacity duration-150',
+                'group-hover/user-message:opacity-0'
+              )}
+              data-testid={`timeline-user-timestamp-${node.message.id}`}
+            >
+              {timestampLabel}
+            </span>
           )}
           {!isEditing && (
-            <>
+            <div
+              className={cn(
+                'pointer-events-none absolute right-0 top-1/2 flex -translate-y-1/2 items-center gap-1',
+                'opacity-0 transition-opacity duration-150',
+                'group-hover/user-message:pointer-events-auto group-hover/user-message:opacity-100'
+              )}
+              data-testid={`timeline-user-actions-${node.message.id}`}
+            >
               <CopyMessageButton
                 content={displayText}
-                className="h-7 w-7 rounded-full bg-transparent opacity-0 group-hover/user-message:opacity-100"
-                showOnHoverClassName=""
+                className="h-7 w-7 rounded-full bg-transparent"
+                showOnHoverClassName="group-hover/user-message:opacity-100"
                 unstyled
                 onCopy={() => onCopyUserMessage?.(node.message)}
               />
@@ -158,7 +172,7 @@ export function UserMessageNode({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="h-7 w-7 rounded-full p-0 opacity-0 transition-opacity group-hover/user-message:opacity-100"
+                  className="h-7 w-7 rounded-full p-0"
                   aria-label={t('editMessageButton.ariaLabel')}
                   data-testid="edit-message-button"
                   onClick={() => onEditUserMessage?.(node.message)}
@@ -171,12 +185,12 @@ export function UserMessageNode({
                   onFork={() => onForkUserMessage(node.message)}
                   isForking={forkingMessageId === node.message.id}
                   disabled={forkingMessageId !== null && forkingMessageId !== node.message.id}
-                  className="h-7 w-7 rounded-full bg-transparent opacity-0 group-hover/user-message:opacity-100"
-                  showOnHoverClassName=""
+                  className="h-7 w-7 rounded-full bg-transparent"
+                  showOnHoverClassName="group-hover/user-message:opacity-100"
                   unstyled
                 />
               )}
-            </>
+            </div>
           )}
         </div>
       </div>

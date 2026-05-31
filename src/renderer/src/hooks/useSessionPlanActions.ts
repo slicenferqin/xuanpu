@@ -145,6 +145,8 @@ export function useSessionPlanActions({
         abort: (wp, sid) => window.agentOps.abort(wp, sid),
         queueMessage: (sid, msg) => useSessionRuntimeStore.getState().queueMessage(sid, msg)
       })
+      // Settlement is handled by useSessionEventSubscription on
+      // session.status idle / session.error — do not call onPromptSettled here.
     } catch (err) {
       console.error('[SessionShell] plan implement failed:', err)
       toast.error(`Plan approve error: ${err instanceof Error ? err.message : String(err)}`)

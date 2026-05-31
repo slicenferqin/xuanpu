@@ -1518,6 +1518,11 @@ declare global {
       fetchSessionSummary: (
         sessionId: string
       ) => Promise<import('../shared/types/usage-analytics').UsageAnalyticsSessionSummaryResult>
+      fetchScopeSummary: (
+        scopeId: string,
+        scopeType: 'worktree' | 'connection',
+        sessionIds: string[]
+      ) => Promise<import('../shared/types/usage-analytics').UsageAnalyticsScopeSummaryResult>
       resync: () => Promise<import('../shared/types/usage-analytics').UsageAnalyticsResyncResult>
     }
     analyticsOps: {

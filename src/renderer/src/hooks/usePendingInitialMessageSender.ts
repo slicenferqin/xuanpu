@@ -85,6 +85,8 @@ export function usePendingInitialMessageSender({
         }
 
         void refreshSessionLastMessageAt(sessionId)
+        // Settlement is handled by useSessionEventSubscription on
+        // session.status idle / session.error — do not call onPromptSettled here.
       } catch (err) {
         console.error('[SessionShell] pending message send failed:', err)
         useSessionStore

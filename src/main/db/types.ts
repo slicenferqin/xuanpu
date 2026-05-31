@@ -307,13 +307,39 @@ export interface UsageEntryCreate {
   created_at?: string
 }
 
+export interface UsageEvent {
+  id: string
+  session_id: string
+  project_id: string
+  worktree_id: string | null
+  agent_sdk: 'claude-code' | 'codex' | 'xuanpu-agent'
+  source_kind: string
+  source_event_id: string
+  runtime_session_id: string | null
+  thread_id: string | null
+  turn_id: string | null
+  provider_id: string | null
+  model_id: string | null
+  model_label: string | null
+  input_tokens: number
+  output_tokens: number
+  reasoning_tokens: number
+  cache_write_tokens: number
+  cache_read_tokens: number
+  total_tokens: number
+  cost_estimate: number
+  source_payload_json: string | null
+  occurred_at: string
+  created_at: string
+}
+
 export interface UsageSyncState {
   session_id: string
   agent_sdk: 'claude-code' | 'codex' | 'xuanpu-agent'
-  source_kind: 'claude-transcript' | 'codex-message' | 'xuanpu-agent-message'
+  source_kind: 'claude-transcript' | 'codex-message' | 'codex-token-count' | 'xuanpu-agent-message'
   source_ref: string | null
   source_mtime_ms: number | null
-  status: 'pending' | 'synced' | 'partial' | 'error'
+  status: 'pending' | 'synced' | 'partial' | 'error' | 'missing-source' | 'legacy-undercounted'
   entry_count: number
   last_synced_at: string | null
   last_error: string | null
@@ -322,10 +348,10 @@ export interface UsageSyncState {
 export interface UsageSyncStateUpsert {
   session_id: string
   agent_sdk: 'claude-code' | 'codex' | 'xuanpu-agent'
-  source_kind: 'claude-transcript' | 'codex-message' | 'xuanpu-agent-message'
+  source_kind: 'claude-transcript' | 'codex-message' | 'codex-token-count' | 'xuanpu-agent-message'
   source_ref?: string | null
   source_mtime_ms?: number | null
-  status: 'pending' | 'synced' | 'partial' | 'error'
+  status: 'pending' | 'synced' | 'partial' | 'error' | 'missing-source' | 'legacy-undercounted'
   entry_count?: number
   last_synced_at?: string | null
   last_error?: string | null

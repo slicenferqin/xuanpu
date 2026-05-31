@@ -60,10 +60,12 @@ function installAgentOps(overrides: Partial<Window['agentOps']> = {}): {
   return { prompt, steer, abort }
 }
 
-function useHarness(options: {
-  goalMode?: boolean
-  successCriteria?: string
-} = {}) {
+function useHarness(
+  options: {
+    goalMode?: boolean
+    successCriteria?: string
+  } = {}
+) {
   const optimisticRef = React.useRef<TimelineMessage[]>([])
   const timelineMessagesRef = React.useRef<TimelineMessage[]>([])
   const [messages, setMessages] = React.useState<TimelineMessage[]>([])
@@ -248,5 +250,23 @@ describe('useSessionComposerActions', () => {
       ])
     )
     expect(useDiffCommentStore.getState().attachedComments).toEqual([])
+  })
+
+  it('does not settle run on prompt return — settlement is via session event stream', async () => {
+    installAgentOps()
+    const { result } = renderHook(() => useHarness())
+
+    await act(async () => {
+      await result.current.handleComposerAction('send', 'hello', [])
+    })
+
+    // resetLiveOverlay(true) should have been called (beginLocalSessionRun)
+    expect(result.current.resetLiveOverlay).toHaveBeenCalledWith(true)
+
+    // But the run should NOT be settled here — settlement happens in
+    // useSessionEventSubscription when session.status idle or session.error arrives.
+    // The hook no longer has onPromptSettled at all.
+    expect(result.current.resetLiveOverlay).toHaveBeenCalledTimes(1)
+    expect(result.current.resetLiveOverlay).not.toHaveBeenCalledWith(false)
   })
 })

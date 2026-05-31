@@ -74,7 +74,7 @@ export interface UsageAnalyticsPartialSession {
   session_id: string
   session_name: string
   engine: UsageAnalyticsEngine
-  reason: 'missing-source' | 'missing-worktree' | 'sync-error'
+  reason: 'missing-source' | 'missing-worktree' | 'sync-error' | 'legacy-undercounted'
   detail?: string
 }
 
@@ -118,6 +118,9 @@ export interface UsageAnalyticsSessionSummary {
   model_labels: string[]
   latest_model_label: string | null
   partial: boolean
+  context_used_tokens: number | null
+  context_window_tokens: number | null
+  context_percent: number | null
 }
 
 export interface UsageAnalyticsDashboardResult {
@@ -136,5 +139,43 @@ export interface UsageAnalyticsResyncResult {
   success: boolean
   synced_session_ids: string[]
   partial_session_ids: string[]
+  error?: string
+}
+
+export interface UsageAnalyticsScopeSummary {
+  scope_id: string
+  scope_type: 'worktree' | 'connection'
+  session_count: number
+  active_session_count: number
+  total_cost: number
+  total_tokens: number
+  input_tokens: number
+  output_tokens: number
+  cache_write_tokens: number
+  cache_read_tokens: number
+  context_used_tokens: number | null
+  context_window_tokens: number | null
+  context_percent: number | null
+  coverage: {
+    synced: number
+    partial: number
+    legacy_undercounted: number
+    missing_source: number
+    unsupported: number
+  }
+  partial_sessions: UsageAnalyticsPartialSession[]
+  session_contributions?: Record<string, {
+    totalCost: number
+    totalTokens: number
+    inputTokens: number
+    outputTokens: number
+    cacheWriteTokens: number
+    cacheReadTokens: number
+  }>
+}
+
+export interface UsageAnalyticsScopeSummaryResult {
+  success: boolean
+  data?: UsageAnalyticsScopeSummary
   error?: string
 }

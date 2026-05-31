@@ -2064,6 +2064,11 @@ const usageAnalyticsOps = {
     ipcRenderer.invoke('usageAnalytics:fetchDashboard', filters),
   fetchSessionSummary: (sessionId: string) =>
     ipcRenderer.invoke('usageAnalytics:fetchSessionSummary', sessionId),
+  fetchScopeSummary: (
+    scopeId: string,
+    scopeType: 'worktree' | 'connection',
+    sessionIds: string[]
+  ) => ipcRenderer.invoke('usageAnalytics:fetchScopeSummary', scopeId, scopeType, sessionIds),
   resync: () => ipcRenderer.invoke('usageAnalytics:resync')
 }
 

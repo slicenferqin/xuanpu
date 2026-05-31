@@ -168,6 +168,10 @@ export interface AppSettings {
   uiCustomFontFamily: string
   uiFontWeight: UiFontWeight
 
+  // Session HQ
+  focusMode: boolean
+  readingDensity: 'comfortable' | 'standard' | 'compact'
+
   // Voice input
   voiceInput: VoiceInputSettings
 
@@ -250,7 +254,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   uiCustomFontFamily: '',
   uiFontWeight: 'regular',
   voiceInput: DEFAULT_VOICE_INPUT_SETTINGS,
-  sessionUiV2Enabled: true
+  sessionUiV2Enabled: true,
+  focusMode: false,
+  readingDensity: 'comfortable'
 }
 
 const TYPOGRAPHY_SETTING_KEYS = new Set<keyof AppSettings>([
@@ -362,6 +368,8 @@ interface SettingsState extends AppSettings {
   resetToDefaults: () => void
   loadFromDatabase: () => Promise<void>
   detectAvailableAgentSdks: () => Promise<void>
+  setFocusMode: (focus: boolean) => void
+  setReadingDensity: (density: 'comfortable' | 'standard' | 'compact') => void
 }
 
 async function saveToDatabase(settings: AppSettings): Promise<void> {
@@ -440,7 +448,9 @@ function extractSettings(state: SettingsState): AppSettings {
     uiCustomFontFamily: state.uiCustomFontFamily,
     uiFontWeight: state.uiFontWeight,
     voiceInput: state.voiceInput,
-    sessionUiV2Enabled: state.sessionUiV2Enabled
+    sessionUiV2Enabled: state.sessionUiV2Enabled,
+    focusMode: state.focusMode,
+    readingDensity: state.readingDensity
   }
 }
 
@@ -626,6 +636,18 @@ export const useSettingsStore = create<SettingsState>()(
           // Fail gracefully — context menu just won't show
           set({ availableAgentSdks: null })
         }
+      },
+
+      setFocusMode: (focus: boolean) => {
+        set({ focusMode: focus })
+        const settings = extractSettings({ ...get(), focusMode: focus } as SettingsState)
+        saveToDatabase(settings)
+      },
+
+      setReadingDensity: (density: 'comfortable' | 'standard' | 'compact') => {
+        set({ readingDensity: density })
+        const settings = extractSettings({ ...get(), readingDensity: density } as SettingsState)
+        saveToDatabase(settings)
       }
     }),
     {
@@ -674,7 +696,9 @@ export const useSettingsStore = create<SettingsState>()(
         uiCustomFontFamily: state.uiCustomFontFamily,
         uiFontWeight: state.uiFontWeight,
         voiceInput: state.voiceInput,
-        sessionUiV2Enabled: state.sessionUiV2Enabled
+        sessionUiV2Enabled: state.sessionUiV2Enabled,
+        focusMode: state.focusMode,
+        readingDensity: state.readingDensity
       }),
       merge: (persistedState, currentState) => {
         const persisted = persistedState as Partial<SettingsState> | undefined

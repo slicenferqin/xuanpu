@@ -16,6 +16,7 @@
 
 import React, {
   useEffect,
+  useLayoutEffect,
   useState,
   useCallback,
   useRef,
@@ -37,8 +38,9 @@ import { useDiffCommentStore } from '@/stores/useDiffCommentStore'
 import { useSettingsStore, resolveModelForSdk } from '@/stores/useSettingsStore'
 import { Loader2, MessageSquare, X } from 'lucide-react'
 import type { TimelineMessage } from '@shared/lib/timeline-types'
-import type { StreamingPart as SharedStreamingPart } from '@shared/lib/timeline-types'
 import {
+  beginLocalSessionRun,
+  cancelLocalSessionRun,
   getStreamingBufferSnapshot,
   subscribeToStreamingBuffer,
   updateStreamingBuffer
@@ -232,6 +234,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   }, [sessionId])
 
   // --- Model resolution ---
+  const focusMode = useSettingsStore((s) => s.focusMode)
+  const readingDensity = useSettingsStore((s) => s.readingDensity)
   const resolvedModel = useSettingsStore((s) => (agentSdk ? resolveModelForSdk(agentSdk, s) : null))
   const requestModel = useMemo(() => {
     if (sessionRecord?.model_provider_id && sessionRecord.model_id) {
@@ -297,6 +301,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   const childPartsMap = streamingMirror.childParts
   const timelineBottomAreaRef = useRef<HTMLDivElement>(null)
   const composerBarRef = useRef<HTMLDivElement>(null)
+  // Overlay ref for measuring the combined bottom area (interrupt dock + composer)
+  const bottomOverlayRef = useRef<HTMLDivElement>(null)
 
   // Incremented when session.commands_available fires — triggers ComposerBar re-fetch
   const [commandsVersion, setCommandsVersion] = useState(0)
@@ -329,19 +335,11 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
   const resetLiveOverlay = useCallback(
     (nextIsStreaming: boolean) => {
-      updateStreamingBuffer(
-        sessionId,
-        (current) => ({
-          ...current,
-          parts: [],
-          childParts: new Map<string, SharedStreamingPart[]>(),
-          streamingContent: '',
-          isStreaming: nextIsStreaming,
-          runStartedAt: undefined,
-          compactionState: null
-        }),
-        { notify: 'immediate' }
-      )
+      if (nextIsStreaming) {
+        beginLocalSessionRun(sessionId)
+        return
+      }
+      cancelLocalSessionRun(sessionId)
     },
     [sessionId]
   )
@@ -386,6 +384,38 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     streamingParts.length
   }:${isStreaming ? 1 : 0}`
 
+  // Measure the bottom overlay height for scroll geometry.
+  // This replaces the hybrid safeBottomPadding heuristic.
+  // MUST be defined before useTimelineScrollController so the same inset
+  // drives AgentTimeline.paddingBottom, tail observer, clear-screen filler,
+  // and FAB bottom offset.
+  // Use useLayoutEffect for initial measurement so the first paint uses the
+  // real overlay height, not the initial 24px placeholder.
+  const [bottomOverlayHeight, setBottomOverlayHeight] = useState(0)
+  const bottomReadableInset = bottomOverlayHeight > 0 ? bottomOverlayHeight + 24 : 144
+
+  useLayoutEffect(() => {
+    const el = bottomOverlayRef.current
+    if (!el) {
+      setBottomOverlayHeight(0)
+      return
+    }
+
+    const measure = (): void => {
+      const nextHeight = Math.round(el.getBoundingClientRect().height)
+      setBottomOverlayHeight((currentHeight) =>
+        currentHeight === nextHeight ? currentHeight : nextHeight
+      )
+    }
+
+    measure()
+
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [loading, sessionRecord?.id])
+
   const timelineScroll = useTimelineScrollController({
     sessionId,
     ready: !loading,
@@ -393,6 +423,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     metricsVersion: timelineMetricsVersion,
     mirrorVersion,
     isStreaming,
+    bottomReadableInset,
     bottomAreaRef: timelineBottomAreaRef,
     composerRef: composerBarRef
   })
@@ -405,6 +436,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     },
     [requestClearScreenScroll]
   )
+
   const optimisticTimeline = useOptimisticTimelineMessages({
     appendOptimistic,
     optimisticRef,
@@ -414,16 +446,15 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     requestTurnTopScroll
   })
 
-  const scrollFabBottomOffset = useMemo(
-    () => Math.max(timelineScroll.scrollFabBottomOffset, pendingPlan ? 152 : 16),
-    [pendingPlan, timelineScroll.scrollFabBottomOffset]
-  )
-
   const transitionToolStatus = useTimelineToolStatusTransition({
     sessionId,
     timelineMessagesRef,
     setMessages
   })
+
+  const clearOptimisticMessages = useCallback(() => {
+    optimisticRef.current = []
+  }, [optimisticRef])
 
   usePendingInitialMessageSender({
     sessionId,
@@ -433,12 +464,8 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     requestModel,
     buildPendingPromptOptions,
     optimisticTimeline,
-    resetLiveOverlay
+    resetLiveOverlay,
   })
-
-  const clearOptimisticMessages = useCallback(() => {
-    optimisticRef.current = []
-  }, [optimisticRef])
 
   useSessionEventSubscription({
     sessionId,
@@ -469,7 +496,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     setSuccessCriteria,
     optimisticTimeline,
     resetLiveOverlay,
-    waitForAbortReady
+    waitForAbortReady,
   })
 
   const userMessageActions = useSessionUserMessageActions({
@@ -539,75 +566,76 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   // Plan interrupts are handled by PlanReadyImplementFab, not the composer/dock.
   // Filter them out so the composer doesn't enter reply_interrupt mode for plans.
   const composerInterrupt = currentInterrupt?.type === 'plan' ? null : currentInterrupt
-  const composerVeilHeight = Math.min(Math.max(timelineScroll.bottomFloatingHeight + 24, 72), 128)
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      {/* Main content area — hard-row layout keeps transcript output inside the scroll region. */}
-      <div className="relative grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto] overflow-hidden">
-        <div
-          className="row-start-1 row-end-2 min-h-0 overflow-hidden"
-          data-testid="session-transcript-region"
-        >
-          <AgentTimeline
-            timelineMessages={timelineMessages}
-            streamingContent={streamingContent}
-            streamingParts={streamingParts}
-            isStreaming={isStreaming}
-            activeRunStartedAt={runStartedAt}
-            lifecycle={lifecycle}
-            ephemeralStatusRows={ephemeralStatusRows}
-            inflightCompaction={inflightCompactionRow}
-            suppressTodoCards
-            sessionId={sessionId}
-            worktreePath={worktreePath}
-            childPartsMap={childPartsMap}
-            planContentByToolUseId={planContentByToolUseId}
-            canEditUserMessage={userMessageActions.canEditUserMessage}
-            editingMessageId={userMessageActions.editingMessageId}
-            editingContent={userMessageActions.editingContent}
-            onEditingContentChange={userMessageActions.setEditingContent}
-            onSaveUserMessageEdit={userMessageActions.handleSaveUserMessageEdit}
-            onCancelUserMessageEdit={userMessageActions.handleCancelUserMessageEdit}
-            onEditUserMessage={userMessageActions.handleEditUserMessage}
-            onForkUserMessage={userMessageActions.handleForkUserMessage}
-            onCopyUserMessage={() => {}}
-            forkingMessageId={userMessageActions.forkingMessageId}
-            scrollContainerRef={timelineScroll.scrollContainerRef}
-            timelineContentRef={timelineScroll.timelineContentRef}
-            onScroll={timelineScroll.handleScroll}
-            onWheel={timelineScroll.handleScrollWheel}
-            onPointerDown={timelineScroll.handleScrollPointerDown}
-            onPointerUp={timelineScroll.handleScrollPointerUp}
-            onPointerCancel={timelineScroll.handleScrollPointerCancel}
-            bottomFloatingHeight={timelineScroll.bottomFloatingHeight}
-            clearScreenSpacerHeight={timelineScroll.clearScreenBottomInset}
-            activeRoundId={timelineScroll.activeRoundId}
-            onRoundAnchorNavigate={handleRoundAnchorNavigate}
-            showScrollIndicator={timelineScroll.showScrollFab}
-            onScrollIndicatorClick={timelineScroll.handleScrollToBottomClick}
-          />
-        </div>
+    <div className="relative h-full min-h-0 overflow-hidden" data-focus-mode={focusMode} data-reading-density={readingDensity}>
+      {/* Timeline fills the full stage */}
+      <AgentTimeline
+        timelineMessages={timelineMessages}
+        streamingContent={streamingContent}
+        streamingParts={streamingParts}
+        isStreaming={isStreaming}
+        activeRunStartedAt={runStartedAt}
+        lifecycle={lifecycle}
+        ephemeralStatusRows={ephemeralStatusRows}
+        inflightCompaction={inflightCompactionRow}
+        suppressTodoCards
+        sessionId={sessionId}
+        worktreePath={worktreePath}
+        childPartsMap={childPartsMap}
+        planContentByToolUseId={planContentByToolUseId}
+        canEditUserMessage={userMessageActions.canEditUserMessage}
+        editingMessageId={userMessageActions.editingMessageId}
+        editingContent={userMessageActions.editingContent}
+        onEditingContentChange={userMessageActions.setEditingContent}
+        onSaveUserMessageEdit={userMessageActions.handleSaveUserMessageEdit}
+        onCancelUserMessageEdit={userMessageActions.handleCancelUserMessageEdit}
+        onEditUserMessage={userMessageActions.handleEditUserMessage}
+        onForkUserMessage={userMessageActions.handleForkUserMessage}
+        onCopyUserMessage={() => {}}
+        forkingMessageId={userMessageActions.forkingMessageId}
+        scrollContainerRef={timelineScroll.scrollContainerRef}
+        timelineContentRef={timelineScroll.timelineContentRef}
+        tailSentinelRef={timelineScroll.tailSentinelRef}
+        bottomReadableInset={bottomReadableInset}
+        onScroll={timelineScroll.handleScroll}
+        onWheel={timelineScroll.handleScrollWheel}
+        onPointerDown={timelineScroll.handleScrollPointerDown}
+        onPointerUp={timelineScroll.handleScrollPointerUp}
+        onPointerCancel={timelineScroll.handleScrollPointerCancel}
+        clearScreenSpacerHeight={timelineScroll.focusFillerHeight}
+        activeRoundId={timelineScroll.activeRoundId}
+        onRoundAnchorNavigate={handleRoundAnchorNavigate}
+      />
 
-        <ScrollToBottomFab
-          onClick={timelineScroll.handleScrollToBottomClick}
-          visible={timelineScroll.showScrollFab}
-          count={timelineScroll.scrollFabCount}
-          style={{ bottom: `${scrollFabBottomOffset}px` }}
+      {/* Jump-to-bottom FAB: positioned above the overlay */}
+      <ScrollToBottomFab
+        onClick={timelineScroll.handleScrollToBottomClick}
+        visible={timelineScroll.showJumpToBottom}
+        count={timelineScroll.unreadCount}
+        style={{ bottom: `${bottomReadableInset + 16}px` }}
+      />
+
+      <PlanReadyImplementFab
+        onImplement={handlePlanImplement}
+        onHandoff={handlePlanHandoff}
+        onReject={handlePlanReject}
+        visible={!!pendingPlan}
+        superpowersAvailable={false}
+      />
+
+      {/* Bottom overlay: absolute, does not affect timeline clientHeight */}
+      <div
+        ref={bottomOverlayRef}
+        className="pointer-events-none absolute inset-x-0 bottom-0 z-20"
+        data-testid="session-bottom-overlay"
+      >
+        <div
+          className="crisp-composer-veil pointer-events-none absolute inset-x-0 bottom-0"
+          style={{ height: `${bottomOverlayHeight + 24}px` }}
         />
 
-        <PlanReadyImplementFab
-          onImplement={handlePlanImplement}
-          onHandoff={handlePlanHandoff}
-          onReject={handlePlanReject}
-          visible={!!pendingPlan}
-          superpowersAvailable={false}
-        />
-
-        <div
-          className="row-start-2 row-end-3 min-h-0 overflow-visible"
-          data-testid="session-bottom-stack"
-        >
+        <div className="pointer-events-auto">
           <div ref={timelineBottomAreaRef} className="min-h-0">
             <InterruptDock
               sessionId={sessionId}
@@ -625,11 +653,6 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
           </div>
 
           <div className="relative z-20 min-h-0 pb-4 pt-2" data-testid="session-composer-dock">
-            <div
-              className="crisp-composer-veil pointer-events-none absolute inset-x-0 bottom-0 z-0"
-              style={{ height: `${composerVeilHeight}px` }}
-            />
-
             <ComposerBar
               containerRef={composerBarRef}
               sessionId={sessionId}
@@ -655,29 +678,27 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
             />
           </div>
         </div>
-
-        {process.env.NODE_ENV === 'development' && (
-          <div className="absolute right-3 top-3 z-30 w-[min(720px,calc(100%-1.5rem))] rounded-lg border border-border/45 bg-background/92 shadow-lg backdrop-blur">
-            {/* Phase 22A debug: collapsible view of the last Field Context injection.
-                Production users inspect memory through the Composer console. */}
-            <FieldContextDebug
-              sessionId={droidSessionId}
-              fallbackSessionIds={[sessionId]}
-              worktreeId={worktreeId}
-            />
-          </div>
-        )}
-
-        <ForkFromMessageConfirmDialog
-          open={userMessageActions.forkConfirmOpen}
-          dontShowAgain={userMessageActions.forkConfirmDismissChecked}
-          onDontShowAgainChange={userMessageActions.setForkConfirmDismissChecked}
-          onCancel={userMessageActions.handleCancelForkFromMessage}
-          onConfirm={() => {
-            void userMessageActions.handleConfirmForkFromMessage()
-          }}
-        />
       </div>
+
+      {process.env.NODE_ENV === 'development' && (
+        <div className="absolute right-3 top-3 z-30 w-[min(720px,calc(100%-1.5rem))] rounded-lg border border-border/45 bg-background/92 shadow-lg backdrop-blur">
+          <FieldContextDebug
+            sessionId={droidSessionId}
+            fallbackSessionIds={[sessionId]}
+            worktreeId={worktreeId}
+          />
+        </div>
+      )}
+
+      <ForkFromMessageConfirmDialog
+        open={userMessageActions.forkConfirmOpen}
+        dontShowAgain={userMessageActions.forkConfirmDismissChecked}
+        onDontShowAgainChange={userMessageActions.setForkConfirmDismissChecked}
+        onCancel={userMessageActions.handleCancelForkFromMessage}
+        onConfirm={() => {
+          void userMessageActions.handleConfirmForkFromMessage()
+        }}
+      />
     </div>
   )
 }

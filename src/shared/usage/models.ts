@@ -15,9 +15,11 @@ const KNOWN_CODEX_MODELS = [
 ] as const
 
 const MODEL_DISPLAY_NAMES: Record<string, string> = {
-  opus: 'Opus 4.7',
+  opus: 'Opus 4.8',
   sonnet: 'Sonnet 4.6',
   haiku: 'Haiku 4.5',
+  'claude-opus-4-8': 'Opus 4.8',
+  'claude-opus-4.8': 'Opus 4.8',
   'claude-opus-4-7': 'Opus 4.7',
   'claude-opus-4.7': 'Opus 4.7',
   'claude-opus-4-6': 'Opus 4.6',

@@ -50,12 +50,12 @@ import { calculateUsageCost, resolvePricingModelKey } from '@shared/usage/pricin
 const log = createLogger({ component: 'ClaudeCodeImplementer' })
 
 const CLAUDE_EFFORT_VARIANTS = { low: {}, medium: {}, high: {} }
-const CLAUDE_OPUS_EFFORT_VARIANTS = { low: {}, medium: {}, high: {}, max: {} }
+const CLAUDE_OPUS_EFFORT_VARIANTS = { low: {}, medium: {}, high: {}, xhigh: {}, max: {} }
 
 const CLAUDE_MODELS = [
   {
     id: 'opus',
-    name: 'Opus 4.7',
+    name: 'Opus 4.8',
     limit: { context: 200000, output: 32000 },
     variants: CLAUDE_OPUS_EFFORT_VARIANTS,
     defaultVariant: 'high',
@@ -2285,6 +2285,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
               name: m.name,
               limit: m.limit,
               variants: m.variants,
+              defaultVariant: m.defaultVariant,
               ...(m.supportsFastMode ? { supportsFastMode: true } : {})
             }
           ])

@@ -46,7 +46,7 @@ describe('Session 6: Model Variants (Thinking Levels)', () => {
     ]
 
     beforeEach(() => {
-      Object.defineProperty(window, 'opencodeOps', {
+      Object.defineProperty(window, 'agentOps', {
         value: {
           listModels: vi.fn().mockResolvedValue({
             success: true,
@@ -70,7 +70,15 @@ describe('Session 6: Model Variants (Thinking Levels)', () => {
       })
 
       useSettingsStore.setState({
-        selectedModel: { providerID: 'anthropic', modelID: 'claude-opus-4-5-20251101', variant: 'high' },
+        defaultAgentSdk: 'opencode',
+        selectedModel: {
+          providerID: 'anthropic',
+          modelID: 'claude-opus-4-5-20251101',
+          variant: 'high'
+        },
+        selectedModelByProvider: {},
+        modelVariantDefaults: {},
+        favoriteModels: [],
         isLoading: false
       })
     })
@@ -146,7 +154,7 @@ describe('Session 6: Model Variants (Thinking Levels)', () => {
     })
 
     test('shows "No models available" when providers are empty', async () => {
-      Object.defineProperty(window, 'opencodeOps', {
+      Object.defineProperty(window, 'agentOps', {
         value: {
           listModels: vi.fn().mockResolvedValue({
             success: true,
@@ -168,6 +176,20 @@ describe('Session 6: Model Variants (Thinking Levels)', () => {
 
       const trigger = screen.getByTestId('model-selector')
       expect(trigger).toBeTruthy()
+    })
+
+    test('uses model defaultVariant when no remembered variant exists', async () => {
+      const { resolveModelVariantForSelection } = await import(
+        '../../../src/renderer/src/lib/model-variants'
+      )
+      const opus48 = {
+        variants: { low: {}, medium: {}, high: {}, xhigh: {}, max: {} },
+        defaultVariant: 'high'
+      }
+
+      expect(resolveModelVariantForSelection(opus48)).toBe('high')
+      expect(resolveModelVariantForSelection(opus48, 'xhigh')).toBe('xhigh')
+      expect(resolveModelVariantForSelection(opus48, 'deleted')).toBe('high')
     })
   })
 
@@ -197,7 +219,7 @@ describe('Session 6: Model Variants (Thinking Levels)', () => {
     ]
 
     beforeEach(() => {
-      Object.defineProperty(window, 'opencodeOps', {
+      Object.defineProperty(window, 'agentOps', {
         value: {
           listModels: vi.fn().mockResolvedValue({
             success: true,
@@ -223,7 +245,15 @@ describe('Session 6: Model Variants (Thinking Levels)', () => {
 
     test('Alt+T cycles to next thinking level variant', async () => {
       useSettingsStore.setState({
-        selectedModel: { providerID: 'anthropic', modelID: 'claude-opus-4-5-20251101', variant: 'high' }
+        defaultAgentSdk: 'opencode',
+        selectedModel: {
+          providerID: 'anthropic',
+          modelID: 'claude-opus-4-5-20251101',
+          variant: 'high'
+        },
+        selectedModelByProvider: {},
+        modelVariantDefaults: {},
+        favoriteModels: []
       })
 
       const { ModelSelector } = await import(
@@ -243,13 +273,21 @@ describe('Session 6: Model Variants (Thinking Levels)', () => {
       })
 
       const state = useSettingsStore.getState()
-      expect(state.selectedModel?.modelID).toBe('claude-opus-4-5-20251101')
-      expect(state.selectedModel?.variant).toBe('max')
+      expect(state.selectedModelByProvider.opencode?.modelID).toBe('claude-opus-4-5-20251101')
+      expect(state.selectedModelByProvider.opencode?.variant).toBe('max')
     })
 
     test('Alt+T wraps around variants', async () => {
       useSettingsStore.setState({
-        selectedModel: { providerID: 'anthropic', modelID: 'claude-opus-4-5-20251101', variant: 'max' }
+        defaultAgentSdk: 'opencode',
+        selectedModel: {
+          providerID: 'anthropic',
+          modelID: 'claude-opus-4-5-20251101',
+          variant: 'max'
+        },
+        selectedModelByProvider: {},
+        modelVariantDefaults: {},
+        favoriteModels: []
       })
 
       const { ModelSelector } = await import(
@@ -269,12 +307,16 @@ describe('Session 6: Model Variants (Thinking Levels)', () => {
       })
 
       const state = useSettingsStore.getState()
-      expect(state.selectedModel?.variant).toBe('high')
+      expect(state.selectedModelByProvider.opencode?.variant).toBe('high')
     })
 
     test('Alt+T does nothing for model without variants', async () => {
       useSettingsStore.setState({
-        selectedModel: { providerID: 'openai', modelID: 'gpt-4o' }
+        defaultAgentSdk: 'opencode',
+        selectedModel: { providerID: 'openai', modelID: 'gpt-4o' },
+        selectedModelByProvider: {},
+        modelVariantDefaults: {},
+        favoriteModels: []
       })
 
       const { ModelSelector } = await import(
@@ -294,8 +336,8 @@ describe('Session 6: Model Variants (Thinking Levels)', () => {
       })
 
       const state = useSettingsStore.getState()
+      expect(state.selectedModelByProvider.opencode).toBeUndefined()
       expect(state.selectedModel?.modelID).toBe('gpt-4o')
-      expect(state.selectedModel?.variant).toBeUndefined()
     })
   })
 })

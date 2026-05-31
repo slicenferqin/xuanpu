@@ -68,6 +68,11 @@ export function SessionCostPill({
   const cacheWriteTokens = resolvedTokens.cacheWriteTokens
   const cacheReadTokens = resolvedTokens.cacheReadTokens
 
+  const cacheHitRate =
+    cacheReadTokens > 0 || inputTokens > 0
+      ? Math.round((cacheReadTokens / (cacheReadTokens + inputTokens)) * 100)
+      : null
+
   if (totalCost <= 0 && !hasAnyTokens) return null
 
   return (
@@ -137,6 +142,12 @@ export function SessionCostPill({
               </div>
             </div>
           ) : null}
+          {cacheHitRate !== null && (
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted-foreground">{t('sessionView.costPill.cacheHitRate')}</span>
+              <span className="font-mono font-medium">{cacheHitRate}%</span>
+            </div>
+          )}
           {modelSummary && (
             <div className="flex items-center justify-between gap-3 border-t border-border/70 pt-2">
               <span className="flex items-center gap-1.5 text-muted-foreground">

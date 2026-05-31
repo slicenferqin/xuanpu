@@ -24,13 +24,11 @@ describe('SessionShell composer layout source guard', () => {
       'utf-8'
     )
 
+    // Overlay model: composer is absolute bottom overlay, not a grid row
     expect(shellSource).toContain('data-testid="session-composer-dock"')
-    expect(shellSource).toContain('data-testid="session-transcript-region"')
-    expect(shellSource).toContain('data-testid="session-bottom-stack"')
-    expect(shellSource).toContain('grid-rows-[minmax(0,1fr)_auto]')
-    expect(shellSource).toContain('flex h-full min-h-0 flex-col overflow-hidden')
-    expect(shellSource).toContain('row-start-1 row-end-2 min-h-0 overflow-hidden')
-    expect(shellSource).toContain('row-start-2 row-end-3 min-h-0 overflow-visible')
+    expect(shellSource).toContain('data-testid="session-bottom-overlay"')
+    expect(shellSource).toContain('pointer-events-none absolute inset-x-0 bottom-0 z-20')
+    expect(shellSource).toContain('relative h-full min-h-0 overflow-hidden')
     expect(shellSource).not.toContain('data-testid="session-composer-boundary"')
     expect(shellSource).not.toContain('absolute bottom-0 left-0 right-0 z-30')
     expect(composerSource).toContain("'relative z-20'")
@@ -53,7 +51,7 @@ describe('SessionShell composer layout source guard', () => {
     )
     // The clear-screen spacer renders with the height supplied by the scroll controller.
     expect(timelineSource).toContain('data-testid="timeline-clear-screen-spacer"')
-    expect(timelineSource).toContain('shortContentTopSpacer')
+    expect(timelineSource).toContain('clearScreenSpacerHeight')
   })
 
   test('keeps clear-screen spacer geometry in the scroll controller', async () => {
@@ -73,7 +71,7 @@ describe('SessionShell composer layout source guard', () => {
     )
 
     expect(shellSource).toContain(
-      'clearScreenSpacerHeight={timelineScroll.clearScreenBottomInset}'
+      'clearScreenSpacerHeight={timelineScroll.focusFillerHeight}'
     )
     expect(shellSource).toContain('timelineContentRef={timelineScroll.timelineContentRef}')
     expect(timelineSource).toContain('clearScreenSpacerHeight')
@@ -81,7 +79,6 @@ describe('SessionShell composer layout source guard', () => {
     expect(timelineSource).not.toContain('contentHeightRef')
     expect(timelineSource).not.toContain('getClearScreenBottomInset')
     expect(timelineSource).not.toContain('CLEAR_SCREEN_SPACER_SELECTOR')
-    expect(controllerSource).toContain('getClearScreenBottomInset')
     expect(controllerSource).toContain('CLEAR_SCREEN_SPACER_SELECTOR')
     expect(controllerSource).toContain('timelineContentRef')
   })
