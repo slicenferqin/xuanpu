@@ -3,7 +3,7 @@ import { useLayoutStore } from '@/stores/useLayoutStore'
 import { useProjectStore, useConnectionStore, useFilterStore, useSpaceStore } from '@/stores'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { ResizeHandle } from './ResizeHandle'
-import { FolderGit2, Link, Loader2, Plus } from 'lucide-react'
+import { FolderGit2, Link, Loader2, Plus, ChevronsRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   ProjectList,
@@ -20,7 +20,8 @@ import { useI18n } from '@/i18n/useI18n'
 import { cn } from '@/lib/utils'
 
 export function LeftSidebar(): React.JSX.Element {
-  const { leftSidebarWidth, leftSidebarCollapsed, setLeftSidebarWidth } = useLayoutStore()
+  const { leftSidebarWidth, leftSidebarCollapsed, setLeftSidebarWidth, setLeftSidebarCollapsed } =
+    useLayoutStore()
   const expandAllProjects = useProjectStore((s) => s.expandAllProjects)
   const projectCount = useProjectStore((s) => s.projects.length)
   const showUsageIndicator = useSettingsStore((s) => s.showUsageIndicator)
@@ -114,7 +115,75 @@ export function LeftSidebar(): React.JSX.Element {
   }
 
   if (leftSidebarCollapsed) {
-    return <div data-testid="left-sidebar-collapsed" />
+    return (
+      <div className="flex flex-shrink-0" data-testid="left-sidebar-container">
+        <aside
+          className="bg-sidebar/92 text-sidebar-foreground border-r border-sidebar-border/45 flex w-14 flex-col items-center overflow-hidden px-2 py-3 backdrop-blur-sm"
+          data-testid="left-sidebar-collapsed"
+          role="navigation"
+          aria-label={t('leftSidebar.ariaLabel')}
+        >
+          <button
+            type="button"
+            onClick={() => setLeftSidebarCollapsed(false)}
+            className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-xl border border-sidebar-border/55 bg-background/55 text-muted-foreground transition-colors hover:bg-background/75 hover:text-foreground"
+            aria-label={t('header.controls.showSidebar')}
+            title={t('header.controls.showSidebar')}
+            data-testid="left-sidebar-expand"
+          >
+            <ChevronsRight className="h-4 w-4" />
+          </button>
+
+          <div className="flex flex-col items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setSidebarTab('projects')}
+              className={cn(
+                'inline-flex h-9 w-9 items-center justify-center rounded-xl border transition-colors',
+                sidebarTab === 'projects'
+                  ? 'border-primary/45 bg-primary/12 text-primary shadow-[0_10px_30px_-18px_rgba(59,130,246,0.8)]'
+                  : 'border-transparent text-muted-foreground hover:border-sidebar-border/55 hover:bg-background/55 hover:text-foreground'
+              )}
+              aria-label={t('sidebar.projects')}
+              title={t('sidebar.projects')}
+              data-testid="left-sidebar-collapsed-projects"
+            >
+              <FolderGit2 className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setSidebarTab('connections')}
+              className={cn(
+                'inline-flex h-9 w-9 items-center justify-center rounded-xl border transition-colors',
+                sidebarTab === 'connections'
+                  ? 'border-primary/45 bg-primary/12 text-primary shadow-[0_10px_30px_-18px_rgba(59,130,246,0.8)]'
+                  : 'border-transparent text-muted-foreground hover:border-sidebar-border/55 hover:bg-background/55 hover:text-foreground'
+              )}
+              aria-label={t('connectionList.title')}
+              title={t('connectionList.title')}
+              data-testid="left-sidebar-collapsed-connections"
+            >
+              <Link className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={handleAddProject}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-transparent text-muted-foreground transition-colors hover:border-sidebar-border/55 hover:bg-background/55 hover:text-foreground"
+              aria-label={t('sidebar.addProjectTitle')}
+              title={t('sidebar.addProjectTitle')}
+              data-testid="left-sidebar-collapsed-add-project"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="mt-auto pb-1">
+            <SpacesTabBar />
+          </div>
+        </aside>
+        <ResizeHandle onResize={handleResize} direction="left" />
+      </div>
+    )
   }
 
   return (

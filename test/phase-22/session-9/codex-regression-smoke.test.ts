@@ -18,7 +18,7 @@ vi.mock('../../../src/main/services/logger', () => ({
   })
 }))
 
-import { AgentSdkManager } from '../../../src/main/services/agent-sdk-manager'
+import { AgentRuntimeManager as AgentSdkManager } from '../../../src/main/services/agent-runtime-manager'
 import {
   withSdkDispatch,
   withSdkDispatchByHiveSession,
@@ -286,9 +286,17 @@ describe('Regression: capability lookup for all providers', () => {
     })
   }
 
-  it('OpenCode has all capabilities enabled', () => {
+  it('OpenCode exposes its expected capabilities', () => {
     const caps = sdkManager.getCapabilities('opencode')
-    expect(Object.values(caps).every((v) => v === true)).toBe(true)
+    expect(caps.supportsUndo).toBe(true)
+    expect(caps.supportsRedo).toBe(true)
+    expect(caps.supportsCommands).toBe(true)
+    expect(caps.supportsPermissionRequests).toBe(true)
+    expect(caps.supportsQuestionPrompts).toBe(true)
+    expect(caps.supportsModelSelection).toBe(true)
+    expect(caps.supportsReconnect).toBe(true)
+    expect(caps.supportsPartialStreaming).toBe(true)
+    expect(caps.supportsSteer).toBe(false)
   })
 
   it('Codex lacks redo and commands', () => {
@@ -379,7 +387,7 @@ describe('Regression: graceful error on unknown SDK', () => {
     const manager = new AgentSdkManager(impls)
 
     expect(() => manager.getImplementer('nonexistent' as AgentSdkId)).toThrow(
-      'Unknown agent SDK: "nonexistent"'
+      'Unknown agent runtime: "nonexistent"'
     )
   })
 

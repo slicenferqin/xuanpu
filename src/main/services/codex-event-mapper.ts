@@ -10,6 +10,7 @@ import type {
 import { classifyCodexItem, type ClassifiedCodexItem } from '@shared/lib/codex-classify'
 import type { CodexManagerEvent } from './codex-app-server-manager'
 import { asObject, asString, asNumber } from './codex-utils'
+import { getCodexConfiguredContextWindow } from './codex-config'
 
 // Re-export for callers that previously imported from this module.
 export { classifyCodexItem }
@@ -631,23 +632,36 @@ function tokenUsageEvent(
   const payload = asObject(event.payload)
   const tokenUsage = asObject(payload?.tokenUsage)
   if (!tokenUsage) return null
-  const total = asObject(tokenUsage.total)
-  const contextWindow = asNumber(tokenUsage.modelContextWindow)
-  const inputTokens = asNumber(total?.inputTokens) ?? 0
-  const outputTokens = asNumber(total?.outputTokens) ?? 0
-  const cachedInputTokens = asNumber(total?.cachedInputTokens)
-  const reasoningTokens = asNumber(total?.reasoningOutputTokens)
+  const currentUsage = asObject(tokenUsage.last) ?? asObject(tokenUsage.total)
+  const cumulativeUsage = asObject(tokenUsage.total) ?? currentUsage
+  const contextWindow = getCodexConfiguredContextWindow() ?? asNumber(tokenUsage.modelContextWindow)
+  const inputTokens = asNumber(cumulativeUsage?.inputTokens) ?? 0
+  const outputTokens = asNumber(cumulativeUsage?.outputTokens) ?? 0
+  const cachedInputTokens = asNumber(cumulativeUsage?.cachedInputTokens)
+  const reasoningTokens = asNumber(cumulativeUsage?.reasoningOutputTokens)
+  const currentInputTokens = asNumber(currentUsage?.inputTokens) ?? inputTokens
+  const uncachedInputTokens =
+    cachedInputTokens !== undefined ? Math.max(0, inputTokens - cachedInputTokens) : inputTokens
   return {
     type: 'session.context_usage',
     sessionId: hiveSessionId,
     data: {
       tokens: {
-        input: inputTokens,
+        input: uncachedInputTokens,
         output: outputTokens,
         ...(cachedInputTokens !== undefined ? { cacheRead: cachedInputTokens } : {}),
         ...(reasoningTokens !== undefined ? { reasoning: reasoningTokens } : {})
       },
-      ...(contextWindow !== undefined ? { contextWindow } : {})
+      ...(contextWindow !== undefined
+        ? {
+            contextWindow,
+            breakdown: {
+              usedTokens: currentInputTokens,
+              maxTokens: contextWindow,
+              percentage: contextWindow > 0 ? (currentInputTokens / contextWindow) * 100 : 0
+            }
+          }
+        : {})
     }
   }
 }
@@ -881,9 +895,10 @@ export function mapCodexEventToStreamEvents(
 
   // ── Thread status → session.status (active = busy, idle = idle) ─
   if (method === 'thread/status/changed') {
-    const status = asObject(asObject(event.payload)?.status)
+    const payload = asObject(event.payload)
+    const status = asObject(payload?.status) ?? payload
     const t = asString(status?.type)
-    if (t === 'active') {
+    if (t === 'active' || t === 'running' || t === 'busy') {
       return [
         {
           type: 'session.status',

@@ -117,6 +117,7 @@ interface SessionMessage {
   opencode_message_json: string | null
   opencode_parts_json: string | null
   opencode_timeline_json: string | null
+  sequence: number | null
   created_at: string
 }
 
@@ -662,6 +663,7 @@ declare global {
         hiveSessionId: string
       ) => Promise<
         import('../shared/types/agent-ipc').AgentIpcResult<{
+          sessionId?: string
           sessionStatus?: 'idle' | 'busy' | 'retry'
           revertMessageID?: string | null
         }>

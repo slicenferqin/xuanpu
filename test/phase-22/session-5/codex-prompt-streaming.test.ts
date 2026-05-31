@@ -1,4 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('electron', () => ({
@@ -35,6 +38,11 @@ vi.mock('../../../src/main/services/codex-session-title', () => ({
   generateCodexSessionTitle: (...args: any[]) => mockGenerateCodexSessionTitle(...args)
 }))
 
+vi.mock('../../../src/main/services/codex-config', () => ({
+  getCodexConfiguredModel: vi.fn(() => undefined),
+  getCodexConfiguredContextWindow: vi.fn(() => undefined)
+}))
+
 vi.mock('../../../src/main/xfp/fallback-context', () => ({
   buildXfpFallbackContext: (...args: any[]) => mockBuildXfpFallbackContext(...args)
 }))
@@ -61,6 +69,7 @@ vi.mock('../../../src/main/services/codex-app-server-manager', () => {
     listSessions: vi.fn().mockReturnValue([]),
     setThreadGoal: vi.fn(),
     sendTurn: vi.fn(),
+    interruptTurn: vi.fn(),
     readThread: vi.fn(),
     on: vi.fn().mockImplementation((_event: string, handler: any) => {
       eventListeners.push(handler)
@@ -909,6 +918,69 @@ describe('CodexImplementer.prompt()', () => {
     expect(session.activeRun).toBeNull()
   })
 
+  it('keeps streaming after an abort request until Codex confirms the turn stopped', async () => {
+    const session = seedSession()
+    mockManager.sendTurn.mockResolvedValue({ turnId: 'turn-stop', threadId: 'thread-1' })
+    mockManager.interruptTurn.mockResolvedValue(undefined)
+
+    const promptPromise = impl.prompt('/test/project', 'thread-1', 'Stop me')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    emitManagerEvent({
+      id: 'delta-before-stop',
+      kind: 'notification',
+      provider: 'codex',
+      threadId: 'thread-1',
+      turnId: 'turn-stop',
+      createdAt: new Date().toISOString(),
+      method: 'item/agentMessage/delta',
+      textDelta: 'before '
+    })
+
+    await impl.abort('/test/project', 'thread-1')
+
+    expect(mockManager.interruptTurn).toHaveBeenCalledWith('thread-1', 'turn-stop')
+    expect(session.status).toBe('running')
+    expect(session.activeRun?.state).toBe('aborting')
+
+    const statusEventsBeforeProviderStop = mockWindow.webContents.send.mock.calls
+      .filter((c: any[]) => c[0] === 'agent:stream')
+      .map((c: any[]) => c[1])
+      .filter((event: any) => event.type === 'session.status')
+    expect(
+      statusEventsBeforeProviderStop.some((event: any) => event.statusPayload?.type === 'idle')
+    ).toBe(false)
+
+    emitManagerEvent({
+      id: 'delta-after-stop',
+      kind: 'notification',
+      provider: 'codex',
+      threadId: 'thread-1',
+      turnId: 'turn-stop',
+      createdAt: new Date().toISOString(),
+      method: 'item/agentMessage/delta',
+      textDelta: 'after'
+    })
+
+    emitManagerEvent({
+      id: 'provider-idle',
+      kind: 'notification',
+      provider: 'codex',
+      threadId: 'thread-1',
+      createdAt: new Date().toISOString(),
+      method: 'thread/status/changed',
+      payload: { status: { type: 'idle' } }
+    })
+
+    await promptPromise
+
+    const assistant = session.messages.find((message: any) => message.role === 'assistant') as any
+    expect(assistant?.aborted).toBe(true)
+    expect(assistant?.parts?.[0]?.text).toBe('before after')
+    expect(session.status).toBe('ready')
+    expect(session.activeRun).toBeNull()
+  })
+
   it('ignores a stale thread/read snapshot after a newer prompt has completed', async () => {
     const session = seedSession()
     let sendCount = 0
@@ -1604,5 +1676,147 @@ describe('normalizeCodexMessageTimestamps', () => {
 
     expect(Date.parse(rows[0]!.created_at)).toBeLessThan(Date.parse(rows[1]!.created_at))
     expect(Date.parse(rows[1]!.created_at)).toBeLessThan(Date.parse(rows[2]!.created_at))
+  })
+})
+
+describe('CodexImplementer.parseThreadSnapshot()', () => {
+  it('uses Codex JSONL response-item timestamps to keep tools and text in turn order', () => {
+    const impl = new CodexImplementer()
+    const dir = mkdtempSync(join(tmpdir(), 'xuanpu-codex-jsonl-'))
+    const jsonlPath = join(dir, 'rollout.jsonl')
+    const entries = [
+      {
+        timestamp: '2026-05-23T10:00:00.000Z',
+        type: 'event_msg',
+        payload: { type: 'task_started', turn_id: 'turn-1' }
+      },
+      {
+        timestamp: '2026-05-23T10:00:00.010Z',
+        type: 'event_msg',
+        payload: { type: 'user_message' }
+      },
+      {
+        timestamp: '2026-05-23T10:00:01.000Z',
+        type: 'response_item',
+        payload: { type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Intro' }] }
+      },
+      {
+        timestamp: '2026-05-23T10:00:02.000Z',
+        type: 'response_item',
+        payload: { type: 'function_call', name: 'shell_command', call_id: 'call-1' }
+      },
+      {
+        timestamp: '2026-05-23T10:00:03.000Z',
+        type: 'response_item',
+        payload: { type: 'reasoning', summary: [] }
+      },
+      {
+        timestamp: '2026-05-23T10:00:04.000Z',
+        type: 'response_item',
+        payload: { type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Done' }] }
+      }
+    ]
+    writeFileSync(jsonlPath, entries.map((entry) => JSON.stringify(entry)).join('\n'))
+
+    const messages = (impl as any).parseThreadSnapshot(
+      {
+        thread: {
+          path: jsonlPath,
+          turns: [
+            {
+              id: 'turn-1',
+              startedAt: 1779530400,
+              items: [
+                {
+                  type: 'userMessage',
+                  content: [{ type: 'text', text: 'Run it' }]
+                },
+                { type: 'agentMessage', id: 'item-2', text: 'Intro' },
+                { type: 'commandExecution', id: 'call-1' },
+                { type: 'reasoning', summary: [], content: [] },
+                { type: 'agentMessage', id: 'item-5', text: 'Done' }
+              ]
+            }
+          ]
+        }
+      },
+      new Map()
+    )
+
+    expect(messages.map((message: any) => [message.id, message.timestamp])).toEqual([
+      ['turn-1:user', '2026-05-23T10:00:00.010Z'],
+      ['turn-1:assistant', '2026-05-23T10:00:01.000Z'],
+      ['turn-1:assistant:item-5', '2026-05-23T10:00:04.000Z']
+    ])
+  })
+
+  it('matches JSONL assistant timestamps by text when thread/read omits tool items', () => {
+    const impl = new CodexImplementer()
+    const dir = mkdtempSync(join(tmpdir(), 'xuanpu-codex-jsonl-summary-'))
+    const jsonlPath = join(dir, 'rollout.jsonl')
+    const entries = [
+      {
+        timestamp: '2026-05-23T10:00:00.000Z',
+        type: 'event_msg',
+        payload: { type: 'task_started', turn_id: 'turn-1' }
+      },
+      {
+        timestamp: '2026-05-23T10:00:00.010Z',
+        type: 'event_msg',
+        payload: { type: 'user_message', message: 'Run it' }
+      },
+      {
+        timestamp: '2026-05-23T10:00:01.000Z',
+        type: 'response_item',
+        payload: { type: 'message', role: 'assistant', content: [{ text: 'Intro' }] }
+      },
+      {
+        timestamp: '2026-05-23T10:00:02.000Z',
+        type: 'response_item',
+        payload: { type: 'function_call', name: 'shell_command', call_id: 'call-1' }
+      },
+      {
+        timestamp: '2026-05-23T10:00:03.000Z',
+        type: 'response_item',
+        payload: { type: 'function_call_output', call_id: 'call-1', output: 'ok' }
+      },
+      {
+        timestamp: '2026-05-23T10:00:04.000Z',
+        type: 'response_item',
+        payload: { type: 'message', role: 'assistant', content: [{ text: 'Done' }] }
+      }
+    ]
+    writeFileSync(jsonlPath, entries.map((entry) => JSON.stringify(entry)).join('\n'))
+
+    const messages = (impl as any).parseThreadSnapshot(
+      {
+        thread: {
+          path: jsonlPath,
+          turns: [
+            {
+              id: 'turn-1',
+              startedAt: 1779530400,
+              // App-server can return a summarized item view here. The JSONL
+              // still has tool response_items between the assistant texts.
+              items: [
+                {
+                  type: 'userMessage',
+                  content: [{ type: 'text', text: 'Run it' }]
+                },
+                { type: 'agentMessage', id: 'item-2', text: 'Intro' },
+                { type: 'agentMessage', id: 'item-3', text: 'Done' }
+              ]
+            }
+          ]
+        }
+      },
+      new Map()
+    )
+
+    expect(messages.map((message: any) => [message.id, message.timestamp])).toEqual([
+      ['turn-1:user', '2026-05-23T10:00:00.010Z'],
+      ['turn-1:assistant', '2026-05-23T10:00:01.000Z'],
+      ['turn-1:assistant:item-3', '2026-05-23T10:00:04.000Z']
+    ])
   })
 })

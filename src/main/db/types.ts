@@ -143,6 +143,7 @@ export interface SessionMessage {
   opencode_message_json: string | null
   opencode_parts_json: string | null
   opencode_timeline_json: string | null
+  sequence: number | null
   created_at: string
 }
 

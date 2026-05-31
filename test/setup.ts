@@ -36,38 +36,36 @@ if (typeof window !== 'undefined') {
     })
   }
 
-  if (!HTMLCanvasElement.prototype.getContext) {
-    Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
-      writable: true,
-      configurable: true,
-      value: vi.fn(() => ({
-        fillRect: vi.fn(),
-        clearRect: vi.fn(),
-        getImageData: vi.fn(),
-        putImageData: vi.fn(),
-        createImageData: vi.fn(),
-        setTransform: vi.fn(),
-        drawImage: vi.fn(),
-        save: vi.fn(),
-        fillText: vi.fn(),
-        restore: vi.fn(),
-        beginPath: vi.fn(),
-        moveTo: vi.fn(),
-        lineTo: vi.fn(),
-        closePath: vi.fn(),
-        stroke: vi.fn(),
-        translate: vi.fn(),
-        scale: vi.fn(),
-        rotate: vi.fn(),
-        arc: vi.fn(),
-        fill: vi.fn(),
-        measureText: vi.fn(() => ({ width: 0 })),
-        transform: vi.fn(),
-        rect: vi.fn(),
-        clip: vi.fn()
-      }))
-    })
-  }
+  Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+    writable: true,
+    configurable: true,
+    value: vi.fn(() => ({
+      fillRect: vi.fn(),
+      clearRect: vi.fn(),
+      getImageData: vi.fn(),
+      putImageData: vi.fn(),
+      createImageData: vi.fn(),
+      setTransform: vi.fn(),
+      drawImage: vi.fn(),
+      save: vi.fn(),
+      fillText: vi.fn(),
+      restore: vi.fn(),
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      closePath: vi.fn(),
+      stroke: vi.fn(),
+      translate: vi.fn(),
+      scale: vi.fn(),
+      rotate: vi.fn(),
+      arc: vi.fn(),
+      fill: vi.fn(),
+      measureText: vi.fn(() => ({ width: 0 })),
+      transform: vi.fn(),
+      rect: vi.fn(),
+      clip: vi.fn()
+    }))
+  })
 
   if (typeof window.localStorage?.getItem !== 'function') {
     const storage = new Map<string, string>()
@@ -193,6 +191,17 @@ if (typeof window !== 'undefined') {
         track: vi.fn().mockResolvedValue(undefined),
         setEnabled: vi.fn().mockResolvedValue(undefined),
         isEnabled: vi.fn().mockResolvedValue(true)
+      }
+    })
+  }
+
+  if (!window.usageOps) {
+    Object.defineProperty(window, 'usageOps', {
+      writable: true,
+      configurable: true,
+      value: {
+        fetch: vi.fn().mockResolvedValue({ success: true, data: null }),
+        fetchOpenai: vi.fn().mockResolvedValue({ success: true, data: null })
       }
     })
   }

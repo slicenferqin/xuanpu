@@ -17,17 +17,21 @@ interface PlanCardProps {
   onReject?: () => void
   /** Whether the plan is pending approval */
   isPending?: boolean
+  /** Resolved verdict — only meaningful when isPending is false */
+  verdict?: 'approved' | 'rejected'
 }
 
 export function PlanCard({
   content,
   onApprove,
   onReject,
-  isPending = false
+  isPending = false,
+  verdict
 }: PlanCardProps): React.JSX.Element {
   const { t } = useI18n()
   const [copied, setCopied] = useState(false)
   const hasCopyableContent = content.trim().length > 0
+  const isRejected = !isPending && verdict === 'rejected'
 
   useEffect(() => {
     if (!copied) return
@@ -48,19 +52,25 @@ export function PlanCard({
     }
   }
 
+  const accentClass = isRejected ? 'border-muted-foreground/40' : 'border-purple-500'
+  const headerClass = isRejected
+    ? 'bg-muted text-muted-foreground border-b-muted-foreground/20'
+    : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-b-purple-500/20'
+  const statusText = isPending
+    ? t('sessionHq.cards.plan.requiresApproval')
+    : isRejected
+      ? t('sessionHq.cards.plan.rejected')
+      : t('sessionHq.cards.plan.approved')
+
   return (
     <ActionCard
-      key={isPending ? 'pending' : 'resolved'}
-      accentClass="border-purple-500"
-      headerClass="bg-purple-500/10 text-purple-600 dark:text-purple-400 border-b-purple-500/20"
+      key={isPending ? 'pending' : isRejected ? 'rejected' : 'approved'}
+      accentClass={accentClass}
+      headerClass={headerClass}
       headerLeft={<span className="font-semibold">{t('sessionHq.cards.plan.title')}</span>}
       headerRight={
         <div className="flex items-center gap-2">
-          <span>
-            {isPending
-              ? t('sessionHq.cards.plan.requiresApproval')
-              : t('sessionHq.cards.plan.approved')}
-          </span>
+          <span>{statusText}</span>
           {hasCopyableContent && (
             <Button
               type="button"
@@ -84,7 +94,7 @@ export function PlanCard({
       defaultExpanded={isPending}
       collapsible
     >
-      <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed">
+      <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-[1.72]">
         <MarkdownRenderer content={content} />
       </div>
 

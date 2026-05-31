@@ -57,6 +57,114 @@ describe('AgentTimeline user message actions', () => {
     expect(screen.getByTestId('fork-message-button')).toBeInTheDocument()
   })
 
+  it('uses the distinct user bubble tint instead of the neutral tool-card style', () => {
+    render(
+      <AgentTimeline
+        timelineMessages={[makeUserMessage('u-style', 'Keep this as a user bubble')]}
+        streamingContent=""
+        streamingParts={[]}
+        isStreaming={false}
+        lifecycle="idle"
+      />
+    )
+
+    const bubble = screen.getByTestId('timeline-user-bubble-u-style')
+    expect(bubble.className).toContain('bg-primary/10')
+    expect(bubble.className).not.toContain('bg-agent-card')
+  })
+
+  it('renders a clear-screen spacer when the active turn reserves top-scroll room', () => {
+    render(
+      <AgentTimeline
+        timelineMessages={[makeUserMessage('u-spacer', 'Start a fresh turn')]}
+        streamingContent=""
+        streamingParts={[]}
+        isStreaming={false}
+        lifecycle="idle"
+        clearScreenBottomInset={320}
+      />
+    )
+
+    expect(screen.getByTestId('timeline-clear-screen-spacer')).toHaveStyle({
+      height: '320px'
+    })
+  })
+
+  it('keeps the prompt anchor rail vertically centered', () => {
+    render(
+      <AgentTimeline
+        timelineMessages={[
+          makeUserMessage('u-anchor-1', 'First prompt'),
+          makeUserMessage('u-anchor-2', 'Second prompt')
+        ]}
+        streamingContent=""
+        streamingParts={[]}
+        isStreaming={false}
+        lifecycle="idle"
+      />
+    )
+
+    const rail = screen.getByTestId('timeline-round-anchor-rail')
+    expect(rail.className).toContain('top-0')
+    expect(rail.className).toContain('-mt-6')
+    expect(rail.className).not.toContain('-translate-y-1/2')
+
+    const railItems = screen.getByTestId('timeline-round-anchor-rail-items')
+    expect(railItems.className).toContain('overflow-visible')
+    expect(railItems.className).not.toContain('overflow-y-auto')
+    expect(railItems).toHaveStyle({ height: '336px' })
+  })
+
+  it('keeps every prompt anchor in the fixed fisheye rail for long sessions', () => {
+    render(
+      <AgentTimeline
+        timelineMessages={Array.from({ length: 18 }, (_, index) =>
+          makeUserMessage(`u-anchor-many-${index + 1}`, `Prompt ${index + 1}`)
+        )}
+        streamingContent=""
+        streamingParts={[]}
+        isStreaming={false}
+        lifecycle="idle"
+      />
+    )
+
+    const railButtons = screen.getAllByTestId('timeline-round-anchor-button')
+    expect(railButtons).toHaveLength(18)
+    expect(railButtons[0]).toHaveStyle({ top: '0%' })
+    expect(railButtons[railButtons.length - 1]).toHaveStyle({ top: '100%' })
+    expect(railButtons[0].getAttribute('aria-label')).toContain('第 1 轮')
+    expect(railButtons[railButtons.length - 1].getAttribute('aria-label')).toContain('第 18 轮')
+  })
+
+  it('magnifies anchors near the pointer without using a rail scrollbar', () => {
+    render(
+      <AgentTimeline
+        timelineMessages={Array.from({ length: 50 }, (_, index) =>
+          makeUserMessage(`u-fisheye-${index + 1}`, `Prompt ${index + 1}`)
+        )}
+        streamingContent=""
+        streamingParts={[]}
+        isStreaming={false}
+        lifecycle="idle"
+      />
+    )
+
+    const railItems = screen.getByTestId('timeline-round-anchor-rail-items')
+    Object.defineProperty(railItems, 'getBoundingClientRect', {
+      value: () => ({ top: 0, left: 0, width: 32, height: 420, right: 32, bottom: 420 }),
+      configurable: true
+    })
+
+    fireEvent.mouseMove(railItems, { clientY: 210 })
+
+    const railButtons = screen.getAllByTestId('timeline-round-anchor-button')
+    expect(railButtons).toHaveLength(50)
+    expect(railItems.className).not.toContain('overflow-y-auto')
+    expect(Number.parseFloat(railButtons[25].style.height)).toBeGreaterThan(
+      Number.parseFloat(railButtons[0].style.height)
+    )
+  })
+
   it('shows edit button only when the message is editable', () => {
     render(
       <AgentTimeline

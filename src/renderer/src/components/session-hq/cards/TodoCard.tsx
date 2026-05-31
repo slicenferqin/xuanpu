@@ -11,6 +11,14 @@ import { ActionCard } from './ActionCard'
 import { CheckCircle2, Circle, Loader2, AlertCircle } from 'lucide-react'
 import type { ToolUseInfo } from '@shared/lib/timeline-types'
 import { useI18n } from '@/i18n/useI18n'
+import {
+  getSessionTaskCounts,
+  getSessionTaskDisplayTitle,
+  getSessionTaskRawDetail,
+  normalizeSessionTaskStatus,
+  sortSessionTasks,
+  type SessionTask
+} from '@/lib/session-tasks'
 
 interface TodoCardPropsToolUse {
   toolUse: ToolUseInfo
@@ -20,7 +28,7 @@ interface TodoCardPropsToolUse {
 interface TodoCardPropsTasks {
   toolUse?: never
   /** Aggregated task list — used by the right context panel and optional timeline summaries */
-  tasks: Array<{ id: string; content: string; status: string }>
+  tasks: SessionTask[]
 }
 
 type TodoCardProps = TodoCardPropsToolUse | TodoCardPropsTasks
@@ -88,7 +96,7 @@ function TaskRow({ item, index }: { item: TodoItem; index: number }): React.JSX.
     <div className="flex items-center gap-2 py-0.5">
       <StatusIcon status={item.status} />
       <div className="flex-1 min-w-0">
-        <div className="text-sm text-foreground">
+        <div className="text-sm text-foreground leading-5 break-words">
           {item.step ??
             item.content ??
             item.subject ??
@@ -97,10 +105,58 @@ function TaskRow({ item, index }: { item: TodoItem; index: number }): React.JSX.
             t('sessionHq.cards.todo.taskFallback', { index: index + 1 })}
         </div>
         {(item.subject || item.content || item.step) && item.description && (
-          <div className="text-xs text-muted-foreground mt-0.5 truncate">{item.description}</div>
+          <div className="mt-0.5 line-clamp-2 break-words text-xs text-muted-foreground">
+            {item.description}
+          </div>
         )}
       </div>
     </div>
+  )
+}
+
+function TaskSection({
+  title,
+  items,
+  startIndex = 0,
+  muted = false
+}: {
+  title: string
+  items: SessionTask[]
+  startIndex?: number
+  muted?: boolean
+}): React.JSX.Element | null {
+  if (items.length === 0) return null
+
+  return (
+    <section className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/85">
+          {title}
+        </div>
+        <div className="text-[10px] font-mono text-muted-foreground/75">{items.length}</div>
+      </div>
+      <div className="space-y-1.5">
+        {items.map((item, index) => {
+          const displayTitle = getSessionTaskDisplayTitle(item, startIndex + index)
+          const detail = getSessionTaskRawDetail(item, displayTitle)
+          return (
+            <div key={item.id ?? `${title}-${index}`} className={muted ? 'opacity-75' : ''}>
+              <div className="flex items-start gap-2 py-0.5">
+                <StatusIcon status={item.status} />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm leading-5 text-foreground break-words">{displayTitle}</div>
+                  {detail && (
+                    <div className="mt-0.5 line-clamp-2 break-words text-xs text-muted-foreground">
+                      {detail}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </section>
   )
 }
 
@@ -109,28 +165,61 @@ export function TodoCard(props: TodoCardProps): React.JSX.Element {
 
   // --- Aggregated tasks mode ---
   if (props.tasks) {
-    const allDone = props.tasks.every((t) => t.status === 'completed')
+    const orderedTasks = sortSessionTasks(props.tasks)
+    const counts = getSessionTaskCounts(orderedTasks)
+    const completedCount = counts.completed
+    const allDone = orderedTasks.length > 0 && completedCount === orderedTasks.length
+    const inProgressItems = orderedTasks.filter(
+      (task) => normalizeSessionTaskStatus(task.status) === 'in_progress'
+    )
+    const pendingItems = orderedTasks.filter(
+      (task) => normalizeSessionTaskStatus(task.status) === 'pending'
+    )
+    const completedItems = orderedTasks.filter(
+      (task) => normalizeSessionTaskStatus(task.status) === 'completed'
+    )
+    const trailingItems = orderedTasks.filter((task) => {
+      const status = normalizeSessionTaskStatus(task.status)
+      return status === 'cancelled' || status === 'error'
+    })
+
     return (
-      <ActionCard
-        accentClass="border-celadon/30"
-        headerClass="border-b-celadon/20 text-celadon"
-        headerLeft={<span className="font-semibold">{t('sessionHq.cards.todo.title')}</span>}
-        headerRight={
-          allDone ? t('sessionHq.cards.todo.done') : t('sessionHq.cards.todo.inProgress')
-        }
-        defaultExpanded
-        collapsible={props.tasks.length > 5}
-      >
-        <div className="flex flex-col gap-1">
-          {props.tasks.map((task, i) => (
-            <TaskRow
-              key={task.id}
-              index={i}
-              item={{ id: task.id, content: task.content, status: task.status }}
-            />
-          ))}
+      <div className="overflow-hidden rounded-[12px] border border-border/55 bg-background/78">
+        <div className="border-b border-border/45 px-3.5 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-foreground">{t('sessionHq.cards.todo.title')}</div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {t('toolCard.summary.completed', {
+                  completed: completedCount,
+                  total: orderedTasks.length
+                })}
+              </div>
+            </div>
+            <div className="shrink-0 rounded-full bg-background/70 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              {allDone ? t('sessionHq.cards.todo.done') : t('sessionHq.cards.todo.inProgress')}
+            </div>
+          </div>
         </div>
-      </ActionCard>
+        <div className="max-h-[min(60vh,36rem)] overflow-y-auto px-3.5 py-3">
+          <div className="space-y-4">
+            <TaskSection title="进行中" items={inProgressItems} />
+            <TaskSection title="待处理" items={pendingItems} startIndex={inProgressItems.length} />
+            <TaskSection
+              title="已完成"
+              items={completedItems}
+              startIndex={inProgressItems.length + pendingItems.length}
+              muted
+            />
+            <TaskSection
+              title="已取消 / 异常"
+              items={trailingItems}
+              startIndex={inProgressItems.length + pendingItems.length + completedItems.length}
+              muted
+            />
+          </div>
+        </div>
+      </div>
     )
   }
 

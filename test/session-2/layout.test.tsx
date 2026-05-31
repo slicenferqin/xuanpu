@@ -9,10 +9,12 @@ describe('Session 2: Application Layout', () => {
     // Reset stores before each test
     useLayoutStore.setState({
       leftSidebarWidth: LAYOUT_CONSTRAINTS.leftSidebar.default,
+      leftSidebarCollapsed: false,
       rightSidebarWidth: LAYOUT_CONSTRAINTS.rightSidebar.default,
       rightSidebarCollapsed: false,
+      rightContextTab: 'overview'
     })
-    useThemeStore.setState({ theme: 'dark' })
+    useThemeStore.setState({ themeId: 'mocha', followSystem: false, isLoading: false })
     localStorage.clear()
   })
 
@@ -74,11 +76,33 @@ describe('Session 2: Application Layout', () => {
     })
   })
 
-  test('Right sidebar shows file tree component', () => {
+  test('Left sidebar collapses and expands from the header toggle', async () => {
     render(<AppLayout />)
 
-    // File tree component should be rendered (with "Files" header and "Select a worktree" message)
-    expect(screen.getByText('Files')).toBeInTheDocument()
+    expect(screen.getByTestId('left-sidebar')).toBeInTheDocument()
+
+    const toggleButton = screen.getByTestId('left-sidebar-toggle')
+    fireEvent.click(toggleButton)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('left-sidebar-collapsed')).toBeInTheDocument()
+      expect(screen.queryByTestId('left-sidebar')).not.toBeInTheDocument()
+    })
+
+    fireEvent.click(toggleButton)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('left-sidebar')).toBeInTheDocument()
+      expect(screen.queryByTestId('left-sidebar-collapsed')).not.toBeInTheDocument()
+    })
+  })
+
+  test('Right sidebar shows file tree component', () => {
+    useLayoutStore.getState().setRightContextTab('files')
+    render(<AppLayout />)
+
+    // File tree panel should be rendered (with no selected worktree message)
+    expect(screen.getByTestId('context-panel-tab-files')).toHaveAttribute('data-active', 'true')
     expect(screen.getByText('Select a worktree')).toBeInTheDocument()
   })
 
@@ -94,34 +118,21 @@ describe('Session 2: Application Layout', () => {
     expect(parsed.state.leftSidebarWidth).toBe(300)
   })
 
-  test('Theme toggle switches modes', async () => {
-    render(<AppLayout />)
-
-    // Theme toggle button exists in header
-    const themeToggle = screen.getByTestId('theme-toggle')
-    expect(themeToggle).toBeInTheDocument()
-
-    // Initially dark
-    expect(useThemeStore.getState().theme).toBe('dark')
-
-    // Theme toggle is a dropdown menu trigger (has aria-haspopup)
-    expect(themeToggle).toHaveAttribute('aria-haspopup', 'menu')
-
-    // Test theme changes via store (dropdown UI testing is in session-6)
+  test('Theme store switches theme presets', async () => {
     const { setTheme } = useThemeStore.getState()
 
     // Switch to light
-    setTheme('light')
-    expect(useThemeStore.getState().theme).toBe('light')
+    setTheme('latte')
+    expect(useThemeStore.getState().themeId).toBe('latte')
     expect(document.documentElement.classList.contains('light')).toBe(true)
 
     // Switch to system
-    setTheme('system')
-    expect(useThemeStore.getState().theme).toBe('system')
+    useThemeStore.getState().setFollowSystem(true)
+    expect(useThemeStore.getState().followSystem).toBe(true)
 
     // Switch back to dark
-    setTheme('dark')
-    expect(useThemeStore.getState().theme).toBe('dark')
+    setTheme('mocha')
+    expect(useThemeStore.getState().themeId).toBe('mocha')
     expect(document.documentElement.classList.contains('dark')).toBe(true)
   })
 
@@ -155,11 +166,10 @@ describe('Session 2: Application Layout', () => {
     expect(layoutContent).toHaveClass('flex')
   })
 
-  test('Right sidebar can be closed via X button', async () => {
+  test('Right sidebar can be closed via header toggle button', async () => {
     render(<AppLayout />)
 
-    // Find the X button inside the right sidebar header
-    const closeButton = screen.getByTitle('Close sidebar')
+    const closeButton = screen.getByTestId('right-sidebar-toggle')
     fireEvent.click(closeButton)
 
     await waitFor(() => {
@@ -169,12 +179,12 @@ describe('Session 2: Application Layout', () => {
 
   test('Theme persists to localStorage', () => {
     const { setTheme } = useThemeStore.getState()
-    setTheme('light')
+    setTheme('latte')
 
     const stored = localStorage.getItem('hive-theme')
     expect(stored).not.toBeNull()
 
     const parsed = JSON.parse(stored!)
-    expect(parsed.state.theme).toBe('light')
+    expect(parsed.state.themeId).toBe('latte')
   })
 })

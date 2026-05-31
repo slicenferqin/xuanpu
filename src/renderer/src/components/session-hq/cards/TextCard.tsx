@@ -15,7 +15,7 @@ interface TextCardProps {
 
 export function TextCard({ content, isStreaming = false }: TextCardProps): React.JSX.Element {
   return (
-    <div className="rounded-xl bg-agent-card/80 px-3.5 py-2.5">
+    <div className="rounded-xl bg-agent-card/80 px-4 py-3">
       <div className="prose prose-sm dark:prose-invert crisp-readable max-w-none text-sm text-foreground">
         <MarkdownRenderer content={content} />
         {isStreaming && (

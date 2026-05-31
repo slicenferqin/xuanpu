@@ -233,7 +233,7 @@
     font-feature-settings:
       'rlig' 1,
       'calt' 1;
-    line-height: 1.55;
+    line-height: 1.6;
   }
 
   .dark body {
@@ -319,13 +319,14 @@
   }
 
   .crisp-readable {
-    line-height: 1.6;
+    line-height: 1.72;
+    letter-spacing: 0;
   }
 
   .crisp-strong-title {
     color: var(--ink);
     font-weight: 650;
-    letter-spacing: -0.012em;
+    letter-spacing: 0;
   }
 
   .crisp-active-row {
@@ -398,12 +399,9 @@
     background: linear-gradient(
       180deg,
       transparent 0%,
-      color-mix(in srgb, var(--agent-canvas) 42%, transparent) 34%,
-      color-mix(in srgb, var(--agent-canvas) 90%, transparent) 100%
+      color-mix(in srgb, var(--agent-canvas) 18%, transparent) 42%,
+      color-mix(in srgb, var(--agent-canvas) 82%, transparent) 100%
     );
-    -webkit-backdrop-filter: blur(16px);
-    backdrop-filter: blur(16px);
-    mask-image: linear-gradient(180deg, transparent 0%, black 34%, black 100%);
   }
 
   .crisp-voice-surface {

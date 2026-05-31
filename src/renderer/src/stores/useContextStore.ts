@@ -218,7 +218,7 @@ export const useContextStore = create<ContextState>()((set, get) => ({
     set((state) => {
       const existingKeys = state.costEventKeysBySession[sessionId] ?? {}
       if (existingKeys[eventKey]) {
-        return state
+        return {}
       }
 
       return {

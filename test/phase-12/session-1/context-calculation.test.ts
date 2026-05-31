@@ -314,6 +314,48 @@ describe('Session 1: Context Calculation Fix', () => {
       expect(usage.rawMaxTokens).toBe(1000000)
       expect(usage.isRefreshing).toBe(false)
     })
+
+    test('applies direct context usage cost once per request id', () => {
+      applySessionContextUsage('s1', {
+        tokens: { input: 100, output: 10 },
+        model: { providerID: 'codex', modelID: 'gpt-5.5' },
+        contextWindow: 500000,
+        cost: 0.012,
+        requestId: 'codex-cost-1'
+      })
+      applySessionContextUsage('s1', {
+        tokens: { input: 100, output: 10 },
+        model: { providerID: 'codex', modelID: 'gpt-5.5' },
+        contextWindow: 500000,
+        cost: 0.012,
+        requestId: 'codex-cost-1'
+      })
+
+      expect(useContextStore.getState().costBySession.s1).toBeCloseTo(0.012)
+    })
+
+    test('applies cumulative context usage total cost as a monotonic session total', () => {
+      applySessionContextUsage('s1', {
+        tokens: { input: 100, output: 10 },
+        model: { providerID: 'codex', modelID: 'gpt-5.5' },
+        contextWindow: 500000,
+        totalCost: 0.02
+      })
+      applySessionContextUsage('s1', {
+        tokens: { input: 100, output: 10 },
+        model: { providerID: 'codex', modelID: 'gpt-5.5' },
+        contextWindow: 500000,
+        totalCost: 0.01
+      })
+      applySessionContextUsage('s1', {
+        tokens: { input: 100, output: 10 },
+        model: { providerID: 'codex', modelID: 'gpt-5.5' },
+        contextWindow: 500000,
+        totalCost: 0.03
+      })
+
+      expect(useContextStore.getState().costBySession.s1).toBeCloseTo(0.03)
+    })
   })
 
   describe('extractTokens', () => {

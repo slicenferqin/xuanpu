@@ -59,23 +59,23 @@ export function SessionCostPill({
   const { t } = useI18n()
   const modelSummary = formatModelLabelSummary(getSessionSummaryModelLabels(summary))
   const totalCost = Math.max(summary?.total_cost ?? 0, fallbackCost ?? 0)
-  const hasSummaryTokens = (summary?.total_tokens ?? 0) > 0
+  const hasSummary = summary !== null
   const fallbackTotalTokens = fallbackTokens
     ? fallbackTokens.input +
       fallbackTokens.output +
       fallbackTokens.cacheRead +
       fallbackTokens.cacheWrite
     : 0
-  const totalTokens = hasSummaryTokens ? (summary?.total_tokens ?? 0) : fallbackTotalTokens
+  const totalTokens = hasSummary ? (summary?.total_tokens ?? 0) : fallbackTotalTokens
   const hasAnyTokens = totalTokens > 0
-  const inputTokens = hasSummaryTokens ? (summary?.input_tokens ?? 0) : (fallbackTokens?.input ?? 0)
-  const outputTokens = hasSummaryTokens
+  const inputTokens = hasSummary ? (summary?.input_tokens ?? 0) : (fallbackTokens?.input ?? 0)
+  const outputTokens = hasSummary
     ? (summary?.output_tokens ?? 0)
     : (fallbackTokens?.output ?? 0)
-  const cacheWriteTokens = hasSummaryTokens
+  const cacheWriteTokens = hasSummary
     ? (summary?.cache_write_tokens ?? 0)
     : (fallbackTokens?.cacheWrite ?? 0)
-  const cacheReadTokens = hasSummaryTokens
+  const cacheReadTokens = hasSummary
     ? (summary?.cache_read_tokens ?? 0)
     : (fallbackTokens?.cacheRead ?? 0)
 

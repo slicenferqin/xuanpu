@@ -165,7 +165,7 @@ const ComposerAttachmentsSection = React.memo(function ComposerAttachmentsSectio
   onRemove
 }: ComposerAttachmentsSectionProps): React.JSX.Element {
   return (
-    <div className="px-4 pt-3 pb-0">
+    <div className="px-3 pt-2 pb-0">
       <AttachmentPreview attachments={attachments} onRemove={onRemove} />
     </div>
   )
@@ -255,7 +255,7 @@ const SuccessCriteriaInput = React.memo(function SuccessCriteriaInput({
 }: SuccessCriteriaInputProps): React.JSX.Element {
   const { t } = useI18n()
   return (
-    <div className="px-4 pb-1">
+    <div className="px-3 pb-1">
       <textarea
         value={value}
         onChange={(e) => onChange?.(e.target.value)}
@@ -319,7 +319,7 @@ const ComposerToolbar = React.memo(function ComposerToolbar({
   const { t } = useI18n()
   const showQueueShortcutHint = iconHint === 'steer' && availableAlternatives.includes('queue')
   return (
-    <div className="flex items-center gap-2 px-3 pb-3 pt-1">
+    <div className="flex items-center gap-2 px-3 pb-2 pt-0.5">
       <AttachmentButton onAttach={onAttach} disabled={disabled} />
       {voiceSlot}
       {controlSlot}
@@ -374,7 +374,7 @@ const ComposerToolbar = React.memo(function ComposerToolbar({
               type="button"
               variant="ghost"
               size="sm"
-              className="h-8 rounded-full border border-border/70 px-2.5"
+              className="h-7 rounded-full border border-border/70 px-2.5"
               disabled={!alternativesEnabled}
               aria-label={t('sessionHq.composer.moreSendActions')}
               data-testid="composer-action-menu-trigger"
@@ -413,7 +413,7 @@ const ComposerToolbar = React.memo(function ComposerToolbar({
         onClick={onSubmit}
         disabled={!buttonEnabled}
         className={cn(
-          'h-8 w-8 rounded-full flex items-center justify-center shrink-0 transition-colors',
+          'h-7 w-7 rounded-full flex items-center justify-center shrink-0 transition-colors',
           iconHint === 'stop'
             ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
             : buttonEnabled
@@ -877,7 +877,7 @@ export function ComposerBar({
     <div
       ref={containerRef}
       className={cn(
-        'absolute bottom-16 z-20',
+        'relative z-20',
         'w-[85%] ml-[5%]',
         'crisp-floating-surface rounded-xl backdrop-blur-xl',
         voiceCaptureVisible && 'crisp-voice-surface'
@@ -903,7 +903,7 @@ export function ComposerBar({
 
       {/* Pending message indicator */}
       {pendingCount > 0 && (
-        <div className="px-4 pt-3 pb-0 text-xs text-muted-foreground flex items-center gap-1.5">
+        <div className="px-3 pt-2 pb-0 text-xs text-muted-foreground flex items-center gap-1.5">
           {t('sessionHq.composer.queuedMessages', { count: pendingCount })}
         </div>
       )}
@@ -916,7 +916,7 @@ export function ComposerBar({
       )}
 
       {/* Textarea — seamlessly fills the card top */}
-      <div className={cn('relative px-4 pt-3 pb-1', voiceCaptureVisible && 'min-h-[116px] pb-3')}>
+      <div className={cn('relative px-3 pt-2 pb-0.5', voiceCaptureVisible && 'min-h-[116px] pb-3')}>
         {voiceCaptureVisible && (
           <ComposerVoiceCapturePanel
             state={voice.state}
@@ -937,7 +937,7 @@ export function ComposerBar({
             'text-sm placeholder:text-muted-foreground',
             'focus-visible:outline-none focus-visible:ring-0',
             'disabled:cursor-not-allowed disabled:opacity-50',
-            'min-h-[36px] max-h-[200px]',
+            'min-h-[30px] max-h-[160px]',
             voiceCaptureVisible && 'text-foreground/35 placeholder:text-transparent'
           )}
           rows={1}

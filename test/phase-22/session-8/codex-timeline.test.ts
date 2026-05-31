@@ -68,9 +68,9 @@ describe('codex timeline derivation', () => {
 
     expect(timeline).toHaveLength(3)
     expect(timeline[0]?.id).toBe('turn-1:user')
-    expect(timeline[1]?.id).toBe('turn-1:assistant')
-    expect(timeline[2]?.id).toBe('tool:tool-1')
-    expect(timeline[2]?.parts?.some((part) => part.type === 'tool_use')).toBe(true)
+    expect(timeline[1]?.id).toBe('turn-1:tool:tool-1')
+    expect(timeline[2]?.id).toBe('turn-1:assistant')
+    expect(timeline[1]?.parts?.some((part) => part.type === 'tool_use')).toBe(true)
   })
 
   it('projects persisted plan.ready activity into an ExitPlanMode tool card', () => {
@@ -228,7 +228,7 @@ describe('codex timeline derivation', () => {
     ).toBe(true)
   })
 
-  it('keeps unanchored activities as standalone assistant rows when multiple turns exist', () => {
+  it('infers the turn for unanchored tool activities from activity time', () => {
     const messages: SessionMessage[] = [
       {
         id: 'db-user-1',
@@ -301,14 +301,14 @@ describe('codex timeline derivation', () => {
     ]
 
     const timeline = deriveCodexTimelineMessages(messages, activities)
-    const synthetic = timeline.find((message) => message.id === 'tool:tool-unanchored')
+    const synthetic = timeline.find((message) => message.id === 'turn-2:tool:tool-unanchored')
 
     expect(timeline.map((message) => message.id)).toEqual([
       'turn-1:user',
       'turn-1:assistant',
       'turn-2:user',
-      'turn-2:assistant',
-      'tool:tool-unanchored'
+      'turn-2:tool:tool-unanchored',
+      'turn-2:assistant'
     ])
     expect(
       synthetic?.parts?.some(

@@ -252,15 +252,119 @@ describe('ContextPanelHost', () => {
     expect(screen.getByTestId('context-panel-terminal')).toBeInTheDocument()
   })
 
-  it('selects the terminal bottom tab when the right terminal rail item is clicked', async () => {
+  it('renders grouped latest-round tasks in the tasks panel from durable timeline data', async () => {
     const user = userEvent.setup()
-    useLayoutStore.setState({ bottomPanelTab: 'run' })
-    renderHost({ terminalPanel: <div data-testid="context-panel-terminal">Terminal panel</div> })
+    useSessionStore.setState({ activeSessionId: 'sess-tasks' })
+    Object.defineProperty(window, 'agentOps', {
+      configurable: true,
+      writable: true,
+      value: {
+        getTimeline: vi.fn().mockResolvedValue({
+          messages: [
+            {
+              id: 'user-1',
+              role: 'user',
+              content: '旧任务轮次',
+              timestamp: '2026-05-21T00:00:00.000Z'
+            },
+            {
+              id: 'assistant-1',
+              role: 'assistant',
+              content: '',
+              timestamp: '2026-05-21T00:00:01.000Z',
+              parts: [
+                {
+                  type: 'tool_use',
+                  toolUse: {
+                    id: 'todo-old',
+                    name: 'TodoWrite',
+                    status: 'success',
+                    startTime: 1,
+                    input: {
+                      todos: [
+                        { id: 'task-old-1', content: 'Completed old task', status: 'completed' },
+                        { id: 'task-old-2', content: 'Pending old task', status: 'pending' }
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              id: 'user-2',
+              role: 'user',
+              content: '最新任务轮次',
+              timestamp: '2026-05-21T00:00:02.000Z'
+            },
+            {
+              id: 'assistant-2',
+              role: 'assistant',
+              content: '',
+              timestamp: '2026-05-21T00:00:03.000Z',
+              parts: [
+                {
+                  type: 'tool_use',
+                  toolUse: {
+                    id: 'todo-new',
+                    name: 'TodoWrite',
+                    status: 'success',
+                    startTime: 2,
+                    input: {
+                      todos: [
+                        { id: 'task-1', content: 'Inspect session tasks', status: 'in_progress' },
+                        { id: 'task-2', content: 'Update task panel', status: 'pending' },
+                        { id: 'task-3', content: 'Verify UI changes', status: 'completed' }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        })
+      }
+    })
 
-    await user.click(screen.getByTestId('context-panel-tab-terminal'))
+    renderHost()
 
-    expect(useLayoutStore.getState().rightContextTab).toBe('terminal')
-    expect(useLayoutStore.getState().bottomPanelTab).toBe('terminal')
+    await user.click(screen.getByTestId('context-panel-tab-tasks'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('context-panel-tasks')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('进行中')).toBeInTheDocument()
+    expect(screen.getByText('待处理')).toBeInTheDocument()
+    expect(screen.getByText('已完成')).toBeInTheDocument()
+    expect(screen.getByText('查看任务')).toBeInTheDocument()
+    expect(screen.getByText('更新任务面板')).toBeInTheDocument()
+    expect(screen.getByText('Verify UI changes')).toBeInTheDocument()
+    expect(screen.queryByText('Completed old task')).not.toBeInTheDocument()
+    expect(screen.queryByText('Pending old task')).not.toBeInTheDocument()
+  })
+
+  it('prefers runtime tasks over durable fallback in the tasks panel', async () => {
+    const user = userEvent.setup()
+    useSessionStore.setState({ activeSessionId: 'sess-live-tasks' })
+    useSessionRuntimeStore.getState().setSessionTasks('sess-live-tasks', [
+      { id: 'task-live', content: 'Inspect live runtime task', status: 'in_progress' }
+    ])
+    Object.defineProperty(window, 'agentOps', {
+      configurable: true,
+      writable: true,
+      value: {
+        getTimeline: vi.fn().mockResolvedValue({ messages: todoTimeline() })
+      }
+    })
+
+    renderHost()
+
+    await user.click(screen.getByTestId('context-panel-tab-tasks'))
+
+    await waitFor(() => {
+      expect(screen.getByText('查看任务')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Move tasks into the context panel')).not.toBeInTheDocument()
   })
 
   it('keeps the terminal panel mounted while switching away and back', async () => {
@@ -389,37 +493,6 @@ describe('ContextPanelHost', () => {
     expect(screen.getByTestId('pr-target-branch-trigger')).toHaveTextContent('origin/main')
   })
 
-  it('renders latest session tasks from the shared timeline extraction helper', async () => {
-    const user = userEvent.setup()
-    useSessionStore.setState({ activeSessionId: 'sess-1' })
-    window.agentOps.getTimeline = vi.fn().mockResolvedValue({ messages: todoTimeline() })
-
-    renderHost()
-    await user.click(screen.getByTestId('context-panel-tab-tasks'))
-
-    await waitFor(() => {
-      expect(screen.getByText('Move tasks into the context panel')).toBeInTheDocument()
-    })
-  })
-
-  it('prefers live task snapshots over the persisted timeline in the tasks panel', async () => {
-    const user = userEvent.setup()
-    useSessionStore.setState({ activeSessionId: 'sess-live' })
-    useSessionRuntimeStore.getState().setSessionTasks('sess-live', [
-      {
-        id: 'live-task',
-        content: 'Live task from streaming update',
-        status: 'in_progress'
-      }
-    ])
-    window.agentOps.getTimeline = vi.fn().mockResolvedValue({ messages: todoTimeline() })
-
-    renderHost()
-    await user.click(screen.getByTestId('context-panel-tab-tasks'))
-
-    expect(screen.getByText('Live task from streaming update')).toBeInTheDocument()
-    expect(screen.queryByText('Move tasks into the context panel')).not.toBeInTheDocument()
-  })
 
   it('renders and dismisses completed goals from the right goal panel', async () => {
     const user = userEvent.setup()
@@ -519,6 +592,71 @@ describe('ContextPanelHost', () => {
       expect(screen.getByText('9.2K')).toBeInTheDocument()
       expect(screen.getByText('3.0K')).toBeInTheDocument()
       expect(screen.getByText('2 sessions in this Worktree')).toBeInTheDocument()
+    })
+  })
+
+  it('does not use live context tokens as worktree session totals once a summary exists', async () => {
+    const sessions = [
+      {
+        id: 'sess-claude-syncing',
+        worktree_id: 'wt-1',
+        project_id: 'proj-1',
+        connection_id: null,
+        name: 'Claude syncing',
+        status: 'active' as const,
+        opencode_session_id: 'claude-runtime-1',
+        agent_sdk: 'claude-code' as const,
+        mode: 'build' as const,
+        model_provider_id: null,
+        model_id: null,
+        model_variant: null,
+        first_message_at: null,
+        created_at: '2026-05-21T00:00:00.000Z',
+        updated_at: '2026-05-21T00:00:00.000Z',
+        completed_at: null
+      }
+    ]
+    useSessionStore.setState({
+      activeSessionId: 'sess-claude-syncing',
+      activeWorktreeId: 'wt-1',
+      sessionsByWorktree: new Map([['wt-1', sessions]]),
+      tabOrderByWorktree: new Map([['wt-1', ['sess-claude-syncing']]])
+    })
+    useContextStore.getState().setSessionTokens('sess-claude-syncing', {
+      input: 3,
+      output: 66,
+      reasoning: 0,
+      cacheRead: 0,
+      cacheWrite: 37_719
+    })
+    window.db.session.getByWorktree = vi.fn().mockResolvedValue(sessions)
+    window.usageAnalyticsOps.fetchSessionSummary = vi.fn().mockResolvedValue({
+      success: true,
+      data: {
+        session_id: 'sess-claude-syncing',
+        engine: 'claude-code',
+        total_cost: 0,
+        total_tokens: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_write_tokens: 0,
+        cache_read_tokens: 0,
+        duration_seconds: 0,
+        last_used_at: null,
+        model_labels: [],
+        latest_model_label: null,
+        partial: true
+      }
+    })
+
+    renderHost()
+
+    await waitFor(() => {
+      expect(window.usageAnalyticsOps.fetchSessionSummary).toHaveBeenCalledWith(
+        'sess-claude-syncing'
+      )
+      expect(screen.queryByText('37.8K')).not.toBeInTheDocument()
+      expect(screen.queryByText('37.7K')).not.toBeInTheDocument()
     })
   })
 })

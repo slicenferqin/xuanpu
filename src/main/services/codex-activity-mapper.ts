@@ -33,6 +33,12 @@ function buildActivity(
     (typeof payloadRecord?.turn_id === 'string' && payloadRecord.turn_id) ||
     (typeof (payloadRecord?.turn as Record<string, unknown> | undefined)?.id === 'string'
       ? ((payloadRecord?.turn as Record<string, unknown>).id as string)
+      : null) ||
+    (typeof (payloadRecord?.item as Record<string, unknown> | undefined)?.turnId === 'string'
+      ? ((payloadRecord?.item as Record<string, unknown>).turnId as string)
+      : null) ||
+    (typeof (payloadRecord?.item as Record<string, unknown> | undefined)?.turn_id === 'string'
+      ? ((payloadRecord?.item as Record<string, unknown>).turn_id as string)
       : null)
   const payloadItemId =
     (typeof payloadRecord?.itemId === 'string' && payloadRecord.itemId) ||

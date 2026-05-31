@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { isMac } from '@/lib/platform'
 import {
+  PanelLeftClose,
+  PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
   Settings,
@@ -237,7 +239,8 @@ function HeaderSessionGlanceFallback({
 }
 
 export function Header(): React.JSX.Element {
-  const { rightSidebarCollapsed, toggleRightSidebar } = useLayoutStore()
+  const { leftSidebarCollapsed, rightSidebarCollapsed, toggleLeftSidebar, toggleRightSidebar } =
+    useLayoutStore()
   const openSettings = useSettingsStore((s) => s.openSettings)
   const selectedProjectId = useProjectStore((s) => s.selectedProjectId)
   const projects = useProjectStore((s) => s.projects)
@@ -506,6 +509,25 @@ export function Header(): React.JSX.Element {
     >
       {/* Spacer for macOS traffic lights */}
       {isMac() && <div className="w-[70px] flex-shrink-0" />}
+      <Button
+        onClick={toggleLeftSidebar}
+        variant="ghost"
+        size="icon"
+        className="h-7 w-7 shrink-0 rounded-md text-muted-foreground hover:bg-muted/55 hover:text-foreground"
+        title={
+          leftSidebarCollapsed
+            ? t('header.controls.showSidebar')
+            : t('header.controls.hideSidebar')
+        }
+        data-testid="left-sidebar-toggle"
+        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+      >
+        {leftSidebarCollapsed ? (
+          <PanelLeftOpen className="h-3.5 w-3.5" />
+        ) : (
+          <PanelLeftClose className="h-3.5 w-3.5" />
+        )}
+      </Button>
       <div
         className={cn(
           'crisp-panel-surface flex h-7 min-w-0 items-center gap-2.5 rounded-lg bg-agent-card/85 px-2.5',

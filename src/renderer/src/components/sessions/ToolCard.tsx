@@ -641,7 +641,9 @@ function CollapsedContent({
   // ExitPlanMode — plan review tool
   if (lowerName === 'exitplanmode') {
     const isAccepted = toolUse.status === 'success'
-    const isRejected = toolUse.status === 'error'
+    // 'rejected' is the post-Bug 3 explicit verdict; 'error' is the legacy
+    // mapping kept for backward-compat with older serialized states.
+    const isRejected = toolUse.status === 'rejected' || toolUse.status === 'error'
     const badgeText = isAccepted
       ? t('toolCard.summary.accepted')
       : isRejected
@@ -1042,7 +1044,10 @@ export const ToolCard = memo(function ToolCard({
   // ExitPlanMode: collapsible plan card with fake user message on acceptance/rejection
   if (isExitPlanMode) {
     const planAccepted = toolUse.status === 'success'
-    const planRejected = toolUse.status === 'error'
+    // Treat both 'rejected' (post-Bug 3 explicit verdict) and the legacy
+    // 'error' (older paths that mapped reject → error) as a rejected plan
+    // so the red highlight stays consistent across SessionView and Session HQ.
+    const planRejected = toolUse.status === 'rejected' || toolUse.status === 'error'
     const isPlanPending = toolUse.status === 'pending'
     // Only pending plans stay expanded for review; all other states collapse by default
     const isSettled = !isPlanPending

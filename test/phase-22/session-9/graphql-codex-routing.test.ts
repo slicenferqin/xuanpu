@@ -17,7 +17,7 @@ vi.mock('../../../src/main/services/logger', () => ({
   })
 }))
 
-import { AgentSdkManager } from '../../../src/main/services/agent-sdk-manager'
+import { AgentRuntimeManager as AgentSdkManager } from '../../../src/main/services/agent-runtime-manager'
 import { mapGraphQLSdkToInternal } from '../../../src/server/resolvers/helpers/sdk-dispatch'
 
 /**
