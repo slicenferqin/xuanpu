@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { Sparkles } from 'lucide-react'
 import { useI18n } from '@/i18n/useI18n'
 import { parseTokenSaverFooter, formatBytes } from '@/lib/token-saver-footer'
-import type { OpenCodeMessage } from './SessionView'
+import type { OpenCodeMessage } from '@/lib/session-types'
 
 interface SessionTokenSaverBannerProps {
   messages: OpenCodeMessage[]

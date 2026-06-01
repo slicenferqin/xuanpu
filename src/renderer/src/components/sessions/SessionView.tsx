@@ -86,96 +86,14 @@ import { SessionTokenSaverBanner } from './SessionTokenSaverBanner'
 import { QueuedMessagesBar, type QueuedMsg } from './QueuedMessagesBar'
 import type { UsageAnalyticsSessionSummary } from '@shared/types/usage-analytics'
 import type { SessionActivity } from '@shared/types/session'
+import { BUILT_IN_SLASH_COMMANDS, type SlashCommandInfo } from '@/lib/session-commands'
+import type { OpenCodeMessage, SessionViewState, StreamingPart } from '@/lib/session-types'
 
 const MIN_NEAR_BOTTOM_THRESHOLD = 80
 
 function getNearBottomThreshold(): number {
   if (typeof window === 'undefined') return MIN_NEAR_BOTTOM_THRESHOLD
   return Math.max(MIN_NEAR_BOTTOM_THRESHOLD, Math.round(window.innerHeight * 0.06))
-}
-
-interface SlashCommandInfo {
-  name: string
-  description?: string
-  template: string
-  agent?: string
-  builtIn?: boolean
-}
-
-export const BUILT_IN_SLASH_COMMANDS: SlashCommandInfo[] = [
-  {
-    name: 'undo',
-    description: 'Undo the last message and file changes',
-    template: '/undo',
-    builtIn: true
-  },
-  {
-    name: 'redo',
-    description: 'Redo the last undone message and file changes',
-    template: '/redo',
-    builtIn: true
-  },
-  {
-    name: 'clear',
-    description: 'Close current tab and open a new one',
-    template: '/clear',
-    builtIn: true
-  },
-  {
-    name: 'ask',
-    description: 'Ask a question without making code changes',
-    template: '/ask ',
-    builtIn: true
-  },
-  {
-    name: 'status',
-    description: 'Show session status and current task',
-    template: '/status',
-    builtIn: true
-  },
-  {
-    name: 'context',
-    description: 'Show context window usage',
-    template: '/context',
-    builtIn: true
-  },
-  {
-    name: 'compact',
-    description: 'Compact conversation to save context',
-    template: '/compact ',
-    builtIn: true
-  },
-  {
-    name: 'mcp',
-    description: 'Show MCP server status',
-    template: '/mcp',
-    builtIn: true
-  },
-  {
-    name: 'remember',
-    description: 'Add a permanent fact about this worktree (Pinned Facts)',
-    template: '/remember ',
-    builtIn: true
-  },
-  {
-    name: 'forget',
-    description: 'Remove a Pinned Fact by substring match',
-    template: '/forget ',
-    builtIn: true
-  }
-]
-
-// Types for OpenCode SDK integration
-export interface OpenCodeMessage {
-  id: string
-  role: 'user' | 'assistant' | 'system'
-  content: string
-  timestamp: string
-  steered?: boolean
-  /** Interleaved parts for assistant messages with tool calls */
-  parts?: StreamingPart[]
-  /** File attachments for user messages (images, PDFs, etc.) */
-  attachments?: MessagePart[]
 }
 
 function hasMeaningfulMessagePart(message: OpenCodeMessage): boolean {
@@ -227,42 +145,6 @@ function getRoundTerminalMessageIds(messages: OpenCodeMessage[]): Set<string> {
   }
 
   return ids
-}
-
-export interface SessionViewState {
-  status: 'idle' | 'connecting' | 'connected' | 'error'
-  errorMessage?: string
-}
-
-/** A single part of a streaming assistant message */
-export interface StreamingPart {
-  type: 'text' | 'tool_use' | 'subtask' | 'step_start' | 'step_finish' | 'reasoning' | 'compaction'
-  /** Accumulated text for text parts */
-  text?: string
-  /** Tool info for tool_use parts */
-  toolUse?: ToolUseInfo
-  /** Subtask/subagent spawn info */
-  subtask?: {
-    id: string
-    sessionID: string
-    prompt: string
-    description: string
-    agent: string
-    parts: StreamingPart[]
-    status: 'running' | 'completed' | 'error'
-  }
-  /** Step start boundary */
-  stepStart?: { snapshot?: string }
-  /** Step finish boundary */
-  stepFinish?: {
-    reason: string
-    cost: number
-    tokens: { input: number; output: number; reasoning: number }
-  }
-  /** Reasoning/thinking content */
-  reasoning?: string
-  /** Whether compaction was automatic */
-  compactionAuto?: boolean
 }
 
 function derivePendingCodexPlan(

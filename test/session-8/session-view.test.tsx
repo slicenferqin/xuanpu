@@ -2,11 +2,8 @@ import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import type { ReactNode } from 'react'
 import { render, screen, cleanup, waitFor, act, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import {
-  SessionView,
-  OpenCodeMessage,
-  SessionViewState
-} from '../../src/renderer/src/components/sessions/SessionView'
+import { SessionView } from '../../src/renderer/src/components/sessions/SessionView'
+import type { OpenCodeMessage, SessionViewState } from '../../src/renderer/src/lib/session-types'
 import { useSessionStore } from '../../src/renderer/src/stores/useSessionStore'
 import { useSessionRuntimeStore } from '../../src/renderer/src/stores/useSessionRuntimeStore'
 import { lastSendMode } from '../../src/renderer/src/lib/message-send-times'

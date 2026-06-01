@@ -22,6 +22,7 @@ function statusColor(status: ToolStatus): string {
     case 'success':
       return 'bg-green-500/15 text-green-500'
     case 'error':
+    case 'rejected':
       return 'bg-red-500/15 text-red-500'
   }
 }

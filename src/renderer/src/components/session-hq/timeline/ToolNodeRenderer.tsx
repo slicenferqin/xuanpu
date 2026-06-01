@@ -128,7 +128,7 @@ export function ToolNodeRenderer({
               parts: [],
               status: (node.toolUse.status === 'success'
                 ? 'completed'
-                : node.toolUse.status === 'error'
+                : node.toolUse.status === 'error' || node.toolUse.status === 'rejected'
                   ? 'error'
                   : 'running') as 'running' | 'completed' | 'error'
             }
@@ -196,7 +196,7 @@ export function ToolNodeRenderer({
       if (!node.toolUse) return null
       const label = getGenericToolLabel(node.toolUse.name, node.toolUse.input)
       const isSuccess = node.toolUse.status === 'success'
-      const isError = node.toolUse.status === 'error'
+      const isError = node.toolUse.status === 'error' || node.toolUse.status === 'rejected'
       const isRunning = node.toolUse.status === 'running' || node.toolUse.status === 'pending'
       const isXfp = isXfpToolName(node.toolUse.name)
       return (

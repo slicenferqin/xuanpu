@@ -49,7 +49,7 @@ import { useSessionStore } from '@/stores/useSessionStore'
 import { useI18n } from '@/i18n/useI18n'
 import { isTodoWriteTool } from '@/lib/todo-utils'
 
-export type ToolStatus = 'pending' | 'running' | 'success' | 'error'
+export type ToolStatus = 'pending' | 'running' | 'success' | 'error' | 'rejected'
 
 export interface ToolUseInfo {
   id: string
@@ -285,6 +285,7 @@ function StatusIndicator({ status }: { status: ToolStatus }): React.JSX.Element 
     case 'success':
       return <Check className="h-3.5 w-3.5 text-green-500" data-testid="tool-success" />
     case 'error':
+    case 'rejected':
       return <X className="h-3.5 w-3.5 text-red-500" data-testid="tool-error" />
   }
 }
@@ -304,6 +305,7 @@ function getLeftBorderColor(status: ToolStatus): string {
     case 'success':
       return '#22c55e' // green-500
     case 'error':
+    case 'rejected':
       return '#ef4444' // red-500
   }
 }
@@ -825,7 +827,7 @@ const CompactFileToolCard = memo(function CompactFileToolCard({
       t('toolCard.fallback.unknown')
     : shortPath
   const isRunning = toolUse.status === 'pending' || toolUse.status === 'running'
-  const isError = toolUse.status === 'error'
+  const isError = toolUse.status === 'error' || toolUse.status === 'rejected'
   const hasOutput = !!(toolUse.output || toolUse.error)
   // FileChange tools carry their content in input.changes, not output
   // Skill tools are never expandable — only show compact header (⚡ Skill name)
@@ -1161,7 +1163,7 @@ export const ToolCard = memo(function ToolCard({
             ? 'my-0 rounded-md border border-l-2 text-xs'
             : 'my-1 rounded-md border border-l-2 text-xs',
           toolUse.status === 'running' && 'animate-pulse',
-          toolUse.status === 'error'
+          (toolUse.status === 'error' || toolUse.status === 'rejected')
             ? 'border-red-500/30 bg-red-500/5'
             : 'border-border bg-muted/30'
         )}

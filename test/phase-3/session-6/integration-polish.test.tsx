@@ -7,7 +7,7 @@ import { AssistantCanvas } from '../../../src/renderer/src/components/sessions/A
 import { ToolCard } from '../../../src/renderer/src/components/sessions/ToolCard'
 import { useSessionStore } from '../../../src/renderer/src/stores/useSessionStore'
 import type { ToolUseInfo } from '../../../src/renderer/src/components/sessions/ToolCard'
-import type { StreamingPart } from '../../../src/renderer/src/components/sessions/SessionView'
+import type { StreamingPart } from '../../../src/renderer/src/lib/session-types'
 
 // Mock sonner toast
 vi.mock('sonner', () => ({

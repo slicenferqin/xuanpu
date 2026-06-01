@@ -8,9 +8,9 @@ import {
 } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { MessageRenderer } from './MessageRenderer'
-import type { OpenCodeMessage, StreamingPart } from './SessionView'
 import { AlertCircle, RefreshCw, Minimize2 } from 'lucide-react'
 import { useI18n } from '@/i18n/useI18n'
+import type { OpenCodeMessage, StreamingPart } from '@/lib/session-types'
 
 // ── Types ──────────────────────────────────────────────────────
 

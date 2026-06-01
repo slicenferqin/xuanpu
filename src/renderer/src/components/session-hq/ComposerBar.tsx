@@ -12,8 +12,8 @@ import { cn } from '@/lib/utils'
 import { AttachmentButton } from '../sessions/AttachmentButton'
 import { AttachmentPreview, type Attachment } from '../sessions/AttachmentPreview'
 import { SlashCommandPopover } from '../sessions/SlashCommandPopover'
-import { BUILT_IN_SLASH_COMMANDS } from '../sessions/SessionView'
 import { Button } from '@/components/ui/button'
+import { BUILT_IN_SLASH_COMMANDS, type SlashCommandInfo } from '@/lib/session-commands'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -494,9 +494,7 @@ export function ComposerBar({
     }
   }, [sessionId])
   // --- Slash commands ---
-  const [slashCommands, setSlashCommands] = useState<
-    { name: string; description?: string; template: string; agent?: string; builtIn?: boolean }[]
-  >([])
+  const [slashCommands, setSlashCommands] = useState<SlashCommandInfo[]>([])
   const [showSlashCommands, setShowSlashCommands] = useState(false)
   const showSlashCommandsRef = useRef(false)
 

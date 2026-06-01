@@ -11,7 +11,7 @@ import { AttachmentButton } from '../../../src/renderer/src/components/sessions/
 import { SlashCommandPopover } from '../../../src/renderer/src/components/sessions/SlashCommandPopover'
 import { ContextIndicator } from '../../../src/renderer/src/components/sessions/ContextIndicator'
 import { AssistantCanvas } from '../../../src/renderer/src/components/sessions/AssistantCanvas'
-import type { StreamingPart } from '../../../src/renderer/src/components/sessions/SessionView'
+import type { StreamingPart } from '../../../src/renderer/src/lib/session-types'
 
 /**
  * Session 10: Integration & Polish
