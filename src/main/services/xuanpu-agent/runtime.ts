@@ -223,6 +223,7 @@ export class XuanpuPiAgentSession {
         turnId,
         sessionId: this.sessionId,
         modelRef: resolved.modelRef,
+        systemPrompt: getXuanpuAgentSystemPromptLines(),
         contextMessages,
         promptMessage,
         tools: currentTools.map((t: unknown) => {

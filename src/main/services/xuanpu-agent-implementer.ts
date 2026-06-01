@@ -521,7 +521,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
               observedPaths
             )
             if (event.toolName === 'xfp_delegate_subtask') {
-              this.emitSubtaskStart(session.hiveSessionId, event)
+              this.emitSubtaskStart(session.hiveSessionId, event, meta.turnId, meta.eventSequence)
             }
             this.emitToolStart(session.hiveSessionId, event, meta.turnId, meta.eventSequence)
           },
@@ -535,7 +535,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             )
             const subtaskDetails = extractSubtaskDetails(event.result)
             if (subtaskDetails) {
-              this.emitSubtaskEnd(session.hiveSessionId, event, subtaskDetails)
+              this.emitSubtaskEnd(session.hiveSessionId, event, subtaskDetails, meta.turnId, meta.eventSequence)
             }
             this.emitToolEnd(session.hiveSessionId, event, meta.turnId, meta.eventSequence)
           }
@@ -579,7 +579,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         messageId: result.messageId,
         modelRef: result.modelRef,
         usage: result.usage,
-        contextPackageId: compileResult.packet.identity.packetId
+        contextPackageId: compileResult.packet.identity.packetId,
+        turnId: result.turnId
       })
 
       // ── INV-TURN-4: Three-layer context_usage ──
@@ -597,6 +598,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       emitAgentEvent(this.mainWindow, {
         type: 'session.context_usage',
         sessionId: session.hiveSessionId,
+        turnId: result.turnId,
+        origin: 'system',
         data: {
           managedContext: {
             approxTokens: managedTokens,
@@ -726,6 +729,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         emitAgentEvent(this.mainWindow, {
           type: 'plan.ready',
           sessionId: session.hiveSessionId,
+          turnId: result.turnId,
+          origin: 'system',
           data: { id: requestId, requestId, plan: planText, toolUseID: result.messageId }
         })
       }
@@ -1090,7 +1095,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         // INV-TURN-5: Cross-reference fields for snapshot alignment
         turnId: options.turnId ?? null,
         providerRequestHash: options.snapshotHash ?? null,
-        providerEstimatedInputTokens: options.packerOutput?.decisions?.providerEstimatedInputTokens ?? null,
+        providerEstimatedInputTokens: options.packerOutput?.decisions?.totalTokens ?? null,
         includedMessageIds:
           options.packerOutput?.decisions?.zones?.workingSet?.includedMessageIds ?? null,
         omittedMessageIds:
@@ -1534,12 +1539,15 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       modelRef: XuanpuAgentModelRef
       usage?: Record<string, unknown>
       contextPackageId?: string | null
+      turnId?: string
     }
   ): void {
     const timestamp = new Date().toISOString()
     emitAgentEvent(this.mainWindow, {
       type: 'message.updated',
       sessionId: hiveSessionId,
+      turnId: options.turnId,
+      origin: 'model',
       data: {
         id: options.messageId,
         role: 'assistant',
@@ -1565,6 +1573,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     emitAgentEvent(this.mainWindow, {
       type: 'session.status',
       sessionId: hiveSessionId,
+      origin: 'system',
       data: { status: statusPayload }
     })
   }
@@ -1573,6 +1582,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     emitAgentEvent(this.mainWindow, {
       type: 'session.error',
       sessionId: hiveSessionId,
+      origin: 'system',
       data: { error: message }
     })
   }
@@ -1657,10 +1667,18 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     })
   }
 
-  private emitSubtaskStart(hiveSessionId: string, event: XuanpuAgentToolStartEvent): void {
+  private emitSubtaskStart(
+    hiveSessionId: string,
+    event: XuanpuAgentToolStartEvent,
+    turnId?: string,
+    eventSequence?: number
+  ): void {
     emitAgentEvent(this.mainWindow, {
       type: 'message.part.updated',
       sessionId: hiveSessionId,
+      turnId,
+      origin: 'tool',
+      eventSequence,
       data: {
         part: {
           type: 'subtask',
@@ -1679,11 +1697,16 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
   private emitSubtaskEnd(
     hiveSessionId: string,
     event: XuanpuAgentToolEndEvent,
-    details: SubtaskResultDetails
+    details: SubtaskResultDetails,
+    turnId?: string,
+    eventSequence?: number
   ): void {
     emitAgentEvent(this.mainWindow, {
       type: 'message.part.updated',
       sessionId: hiveSessionId,
+      turnId,
+      origin: 'tool',
+      eventSequence,
       data: {
         part: {
           type: 'subtask',
