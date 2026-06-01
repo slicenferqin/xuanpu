@@ -319,6 +319,51 @@ describe('CodexImplementer.prompt()', () => {
     )
   })
 
+  it('uses Codex XFP dynamic tools instead of fallback prompt injection when attached', async () => {
+    seedSession({ xfpToolsAttached: true })
+    const mockDb = {
+      updateSession: vi.fn(),
+      getSession: vi.fn().mockReturnValue(null),
+      getWorktreeByPath: vi.fn().mockReturnValue({ id: 'wt-codex' }),
+      replaceSessionMessages: vi.fn()
+    }
+    impl.setDatabaseService(mockDb as any)
+
+    simulateManagerEvents([
+      {
+        id: 'e1',
+        kind: 'notification',
+        provider: 'codex',
+        threadId: 'thread-1',
+        createdAt: new Date().toISOString(),
+        method: 'turn/completed',
+        payload: { turn: { status: 'completed' } }
+      }
+    ])
+
+    await impl.prompt('/test/project', 'thread-1', '这里为什么挂？')
+
+    expect(mockBuildXfpFallbackContext).not.toHaveBeenCalled()
+    expect(mockManager.sendTurn).toHaveBeenCalledWith('thread-1', {
+      text: '这里为什么挂？',
+      model: expect.any(String),
+      interactionMode: 'default'
+    })
+    expect(listXfpAuditEvents()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          runtimeId: 'codex',
+          kind: 'prompt',
+          input: expect.objectContaining({
+            mode: 'xfp-mcp',
+            hasXfpFallbackPrefix: false,
+            hasFieldContextEnvelope: false
+          })
+        })
+      ])
+    )
+  })
+
   it('strips field context from fallback display parts and preserves attachments', async () => {
     const session = seedSession()
     const mockDb = {
@@ -1680,6 +1725,67 @@ describe('normalizeCodexMessageTimestamps', () => {
 })
 
 describe('CodexImplementer.parseThreadSnapshot()', () => {
+  it('deduplicates JSONL supplemental user messages already present in thread/read', () => {
+    const impl = new CodexImplementer()
+    const dir = mkdtempSync(join(tmpdir(), 'xuanpu-codex-jsonl-dedupe-'))
+    const jsonlPath = join(dir, 'rollout.jsonl')
+    const entries = [
+      {
+        timestamp: '2026-05-23T10:00:00.000Z',
+        type: 'event_msg',
+        payload: { type: 'task_started', turn_id: 'turn-1' }
+      },
+      {
+        timestamp: '2026-05-23T10:00:00.010Z',
+        type: 'event_msg',
+        payload: { type: 'user_message', message: '继续' }
+      },
+      {
+        timestamp: '2026-05-23T10:00:00.011Z',
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: '继续' }]
+        }
+      },
+      {
+        timestamp: '2026-05-23T10:00:01.000Z',
+        type: 'response_item',
+        payload: { type: 'message', role: 'assistant', content: [{ type: 'text', text: 'OK' }] }
+      }
+    ]
+    writeFileSync(jsonlPath, entries.map((entry) => JSON.stringify(entry)).join('\n'))
+
+    const messages = (impl as any).parseThreadSnapshot(
+      {
+        thread: {
+          path: jsonlPath,
+          turns: [
+            {
+              id: 'turn-1',
+              startedAt: 1779530400,
+              items: [
+                {
+                  type: 'userMessage',
+                  id: 'user-1',
+                  content: [{ type: 'text', text: '继续' }]
+                },
+                { type: 'agentMessage', id: 'assistant-1', text: 'OK' }
+              ]
+            }
+          ]
+        }
+      },
+      new Map()
+    )
+
+    const userMessages = messages.filter((message: any) => message.role === 'user')
+    expect(userMessages).toHaveLength(1)
+    expect(userMessages[0].id).toBe('turn-1:user')
+    expect(userMessages[0].parts[0].text).toBe('继续')
+  })
+
   it('uses Codex JSONL response-item timestamps to keep tools and text in turn order', () => {
     const impl = new CodexImplementer()
     const dir = mkdtempSync(join(tmpdir(), 'xuanpu-codex-jsonl-'))

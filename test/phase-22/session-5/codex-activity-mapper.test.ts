@@ -107,3 +107,46 @@ describe('mapCodexManagerEventToActivity goal events', () => {
     expect(activity).toBeNull()
   })
 })
+
+describe('mapCodexManagerEventToActivity error events', () => {
+  it('persists manager errors as session.error activities', () => {
+    const activity = mapCodexManagerEventToActivity(
+      'hive-1',
+      'agent-thread-1',
+      makeEvent({
+        kind: 'error',
+        method: 'session/startFailed',
+        message: 'upstream unavailable'
+      })
+    )
+
+    expect(activity).toMatchObject({
+      kind: 'session.error',
+      tone: 'error',
+      summary: 'upstream unavailable'
+    })
+    expect(payloadOf(activity!)).toMatchObject({
+      method: 'session/startFailed',
+      message: 'upstream unavailable'
+    })
+  })
+
+  it('persists non-zero session exits as error activities', () => {
+    const activity = mapCodexManagerEventToActivity(
+      'hive-1',
+      'agent-thread-1',
+      makeEvent({
+        kind: 'session',
+        method: 'session/exited',
+        message: 'codex app-server exited (code=1, signal=null).',
+        payload: { exitCode: 1, signal: null, errored: true }
+      })
+    )
+
+    expect(activity).toMatchObject({
+      kind: 'session.error',
+      tone: 'error',
+      summary: 'codex app-server exited (code=1, signal=null).'
+    })
+  })
+})

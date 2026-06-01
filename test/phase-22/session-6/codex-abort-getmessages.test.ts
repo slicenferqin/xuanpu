@@ -503,8 +503,8 @@ describe('Codex Abort & getMessages', () => {
         expect(event).toBeDefined()
         expect(event.sessionId).toBe('hive-token-1')
         expect(event.data.tokens).toEqual({
-          input: 200,
-          cacheRead: 800,
+          input: 100,
+          cacheRead: 200,
           cacheWrite: 0,
           output: 50,
           reasoning: 10

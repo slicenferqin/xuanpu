@@ -4,6 +4,7 @@ import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 
 const mockSpawnLaunchSpec = vi.hoisted(() => vi.fn())
+const mockRunBashWithCompression = vi.hoisted(() => vi.fn())
 
 // Mock logger
 vi.mock('../../../src/main/services/logger', () => ({
@@ -27,6 +28,10 @@ vi.mock('node:child_process', async (importOriginal) => {
 
 vi.mock('../../../src/main/services/command-launch-utils', () => ({
   spawnLaunchSpec: mockSpawnLaunchSpec
+}))
+
+vi.mock('../../../src/main/services/token-saver', () => ({
+  runBashWithCompression: mockRunBashWithCompression
 }))
 
 vi.mock('node:readline', () => {
@@ -567,6 +572,21 @@ describe('CodexAppServerManager', () => {
       expect(context.session.activeTurnId).toBeNull()
     })
 
+    it('sets error status on thread/status/changed systemError notification', () => {
+      const { context } = createTestContext({ status: 'running', activeTurnId: 'turn-1' })
+
+      manager.handleStdoutLine(
+        context,
+        JSON.stringify({
+          method: 'thread/status/changed',
+          params: { status: { type: 'systemError' } }
+        })
+      )
+
+      expect(context.session.status).toBe('error')
+      expect(context.session.activeTurnId).toBeNull()
+    })
+
     it('extracts route fields from notification params', () => {
       const { context } = createTestContext()
       const events: any[] = []
@@ -666,6 +686,48 @@ describe('CodexAppServerManager', () => {
       )
     })
 
+    it('passes Xuanpu dynamic tools to fresh Codex threads', async () => {
+      const child = new EventEmitter() as any
+      child.stdin = { writable: true, write: vi.fn() }
+      child.stdout = {}
+      child.stderr = { on: vi.fn() }
+      child.pid = 12345
+      child.killed = false
+      child.kill = vi.fn(() => {
+        child.killed = true
+      })
+      mockSpawnLaunchSpec.mockReturnValue(child)
+
+      const sendRequestSpy = vi
+        .spyOn(manager, 'sendRequest')
+        .mockResolvedValueOnce({} as never)
+        .mockResolvedValueOnce({} as never)
+        .mockResolvedValueOnce({ thread: { id: 'thread-live-tools' } } as never)
+
+      await manager.startSession({
+        cwd: '/test/project',
+        model: 'gpt-5.4',
+        dynamicTools: {
+          sessionId: 'hive-tools',
+          defaultCwd: '/test/project',
+          tokenSaverEnabled: true,
+          xfpWorktreeId: 'worktree-tools'
+        }
+      })
+
+      expect(sendRequestSpy).toHaveBeenNthCalledWith(
+        3,
+        expect.anything(),
+        'thread/start',
+        expect.objectContaining({
+          dynamicTools: expect.arrayContaining([
+            expect.objectContaining({ name: 'mcp__xuanpu__bash' }),
+            expect.objectContaining({ name: 'mcp__xuanpu-field__xfp_get_current_focus' })
+          ])
+        })
+      )
+    })
+
     it('resumes sessions in full-access mode', async () => {
       const child = new EventEmitter() as any
       child.stdin = { writable: true, write: vi.fn() }
@@ -703,6 +765,101 @@ describe('CodexAppServerManager', () => {
           sandbox: 'danger-full-access'
         })
       )
+    })
+
+    it('does not send dynamicTools to thread/resume schema', async () => {
+      const child = new EventEmitter() as any
+      child.stdin = { writable: true, write: vi.fn() }
+      child.stdout = {}
+      child.stderr = { on: vi.fn() }
+      child.pid = 12345
+      child.killed = false
+      child.kill = vi.fn(() => {
+        child.killed = true
+      })
+      mockSpawnLaunchSpec.mockReturnValue(child)
+
+      const sendRequestSpy = vi
+        .spyOn(manager, 'sendRequest')
+        .mockResolvedValueOnce({} as never)
+        .mockResolvedValueOnce({} as never)
+        .mockResolvedValueOnce({ thread: { id: 'thread-live-tools' } } as never)
+
+      await manager.startSession({
+        cwd: '/test/project',
+        model: 'gpt-5.4',
+        resumeThreadId: 'thread-live-tools',
+        dynamicTools: {
+          sessionId: 'hive-tools',
+          defaultCwd: '/test/project',
+          tokenSaverEnabled: true,
+          xfpWorktreeId: 'worktree-tools'
+        }
+      })
+
+      expect(sendRequestSpy).toHaveBeenNthCalledWith(
+        3,
+        expect.anything(),
+        'thread/resume',
+        expect.not.objectContaining({
+          dynamicTools: expect.anything()
+        })
+      )
+    })
+  })
+
+  describe('dynamic tool calls', () => {
+    it('responds to mcp__xuanpu__bash item/tool/call through Token Saver', async () => {
+      const { context } = createTestContext()
+      const writes: string[] = []
+      context.child.stdin.write = vi.fn((chunk: unknown) => {
+        writes.push(String(chunk))
+        return true
+      })
+      context.dynamicTools = {
+        sessionId: 'hive-1',
+        defaultCwd: '/test/project',
+        tokenSaverEnabled: true
+      }
+      mockRunBashWithCompression.mockResolvedValue({
+        text: 'compressed output',
+        metadata: {},
+        runResult: {}
+      })
+
+      manager.handleStdoutLine(
+        context,
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: 42,
+          method: 'item/tool/call',
+          params: {
+            threadId: 'thread-123',
+            turnId: 'turn-1',
+            callId: 'call-1',
+            namespace: null,
+            tool: 'mcp__xuanpu__bash',
+            arguments: { command: 'pnpm test', timeout: 120000 }
+          }
+        })
+      )
+
+      await vi.waitFor(() => {
+        expect(mockRunBashWithCompression).toHaveBeenCalledWith(
+          { command: 'pnpm test', timeoutMs: 120000 },
+          expect.objectContaining({
+            sessionId: 'hive-1',
+            defaultCwd: '/test/project'
+          })
+        )
+      })
+
+      await vi.waitFor(() => {
+        const written = writes.join('')
+        expect(written).toContain('"id":42')
+        expect(written).toContain('"success":true')
+        expect(written).toContain('compressed output')
+      })
     })
   })
 

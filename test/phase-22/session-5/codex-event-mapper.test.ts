@@ -125,6 +125,27 @@ describe('turn lifecycle', () => {
     expect(result[result.length - 1].statusPayload?.type).toBe('idle')
   })
 
+  it('turn/completed extracts nested Codex error messages', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
+        method: 'turn/completed',
+        payload: {
+          turn: {
+            status: 'failed',
+            error: {
+              message: "Codex ran out of room in the model's context window.",
+              codexErrorInfo: 'contextWindowExceeded'
+            }
+          }
+        }
+      }),
+      HIVE
+    )
+
+    const errorEvent = result.find((event) => event.type === 'session.error')
+    expect((errorEvent?.data as any).error).toContain('context window')
+  })
+
   it('turn/completed with usage → message.updated', () => {
     const result = mapCodexEventToStreamEvents(
       makeEvent({
@@ -586,7 +607,7 @@ describe('thread/goal notifications', () => {
 // thread/tokenUsage/updated → session.context_usage
 // ────────────────────────────────────────────────────────────────────
 describe('thread/tokenUsage/updated', () => {
-  it('emits cumulative tokens with current prompt context occupancy', () => {
+  it('emits latest-turn tokens with current prompt context occupancy', () => {
     const result = mapCodexEventToStreamEvents(
       makeEvent({
         method: 'thread/tokenUsage/updated',
@@ -615,10 +636,10 @@ describe('thread/tokenUsage/updated', () => {
     expect(result[0].type).toBe('session.context_usage')
     const data = result[0].data as any
     expect(data.tokens).toEqual({
-      input: 1200,
-      output: 700,
-      cacheRead: 3000,
-      reasoning: 100
+      input: 700,
+      output: 200,
+      cacheRead: 100,
+      reasoning: 50
     })
     expect(data.contextWindow).toBe(475000)
     expect(data.breakdown).toEqual({
@@ -635,6 +656,42 @@ describe('thread/tokenUsage/updated', () => {
         HIVE
       )
     ).toEqual([])
+  })
+
+  it('turns Codex full-window sentinel usage into an explicit session error', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
+        method: 'thread/tokenUsage/updated',
+        payload: {
+          tokenUsage: {
+            last: {
+              totalTokens: 0,
+              inputTokens: 0,
+              outputTokens: 0,
+              cachedInputTokens: 0,
+              reasoningOutputTokens: 0
+            },
+            total: {
+              totalTokens: 475000,
+              inputTokens: 0,
+              outputTokens: 0,
+              cachedInputTokens: 0,
+              reasoningOutputTokens: 0
+            },
+            modelContextWindow: 475000
+          }
+        }
+      }),
+      HIVE
+    )
+
+    expect(result.map((event) => event.type)).toEqual(['session.context_usage', 'session.error'])
+    expect((result[0].data as any).breakdown).toEqual({
+      usedTokens: 475000,
+      maxTokens: 475000,
+      percentage: 100
+    })
+    expect((result[1].data as any).code).toBe('contextWindowExceeded')
   })
 })
 
@@ -673,6 +730,19 @@ describe('thread/status/changed', () => {
       HIVE
     )
     expect(result[0].statusPayload?.type).toBe('idle')
+  })
+
+  it('systemError → session.error', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
+        method: 'thread/status/changed',
+        payload: { status: { type: 'systemError' } }
+      }),
+      HIVE
+    )
+
+    expect(result[0].type).toBe('session.error')
+    expect((result[0].data as any).error).toContain('system error')
   })
 })
 
@@ -714,9 +784,62 @@ describe('error & drop paths', () => {
     expect((result[0].data as any).error).toBe('Unknown error')
   })
 
-  it('non-fatal error events drop', () => {
+  it('Codex error notification → session.error with code', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
+        method: 'error',
+        payload: {
+          error: {
+            message: "Codex ran out of room in the model's context window.",
+            codexErrorInfo: 'contextWindowExceeded'
+          }
+        }
+      }),
+      HIVE
+    )
+
+    expect(result[0].type).toBe('session.error')
+    expect((result[0].data as any).error).toContain('context window')
+    expect((result[0].data as any).code).toBe('contextWindowExceeded')
+    expect((result[0].data as any).recoverable).toBe(false)
+  })
+
+  it('manager error events surface as session.error', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({ kind: 'error', method: 'protocol/parseError', message: 'bad json' }),
+      HIVE
+    )
+
+    expect(result[0].type).toBe('session.error')
+    expect((result[0].data as any).error).toBe('bad json')
+    expect((result[0].data as any).code).toBe('protocol/parseError')
+  })
+
+  it('non-zero session/exited surfaces as session.error', () => {
+    const result = mapCodexEventToStreamEvents(
+      makeEvent({
+        kind: 'session',
+        method: 'session/exited',
+        message: 'codex app-server exited (code=1, signal=null).',
+        payload: { exitCode: 1, signal: null, errored: true }
+      }),
+      HIVE
+    )
+
+    expect(result[0].type).toBe('session.error')
+    expect((result[0].data as any).code).toBe('session/exited')
+  })
+
+  it('clean session/exited drops', () => {
     expect(
-      mapCodexEventToStreamEvents(makeEvent({ kind: 'error', method: 'protocol/parseError' }), HIVE)
+      mapCodexEventToStreamEvents(
+        makeEvent({
+          kind: 'session',
+          method: 'session/exited',
+          payload: { exitCode: 0, signal: null, errored: false }
+        }),
+        HIVE
+      )
     ).toEqual([])
   })
 

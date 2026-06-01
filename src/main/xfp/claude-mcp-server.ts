@@ -22,6 +22,7 @@ import type {
 export interface XfpClaudeMcpContext {
   worktreeId: string
   sessionId?: string
+  runtimeId?: 'claude-code' | 'codex'
   provider?: XfpProvider
   logger?: { warn(msg: string, meta?: Record<string, unknown>): void }
 }
@@ -118,7 +119,7 @@ async function runTool(
     recordXfpAuditEvent({
       worktreeId: scope.worktreeId,
       sessionId: scope.sessionId ?? null,
-      runtimeId: 'claude-code',
+      runtimeId: ctx.runtimeId ?? 'claude-code',
       kind: 'tool',
       toolName,
       input: args,
@@ -137,7 +138,7 @@ async function runTool(
     recordXfpAuditEvent({
       worktreeId: scope.worktreeId,
       sessionId: scope.sessionId ?? null,
-      runtimeId: 'claude-code',
+      runtimeId: ctx.runtimeId ?? 'claude-code',
       kind: 'tool',
       toolName,
       input: args,
