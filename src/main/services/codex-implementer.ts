@@ -49,6 +49,7 @@ export interface CodexSessionState {
   worktreePath: string
   status: 'connecting' | 'ready' | 'running' | 'error' | 'closed'
   messages: unknown[]
+  compactionMessages?: unknown[]
   liveAssistantDraft?: CodexLiveAssistantDraft | null
   activeRun?: CodexActiveRun | null
   settledRunIds?: Set<string>
@@ -618,6 +619,57 @@ function hasRenderableTextMessage(message: unknown): boolean {
   })
 }
 
+function buildCodexCompactionMessage(event: CodexManagerEvent): unknown {
+  const payload = asObject(event.payload)
+  const timestamp = event.createdAt ?? new Date().toISOString()
+  const trigger = asString(payload?.trigger) ?? asString(payload?.reason)
+
+  return {
+    id: `compaction:${event.id ?? randomUUID()}`,
+    role: 'assistant',
+    timestamp,
+    content: '',
+    parts: [
+      {
+        type: 'compaction',
+        auto: payload?.auto === true || trigger === 'auto',
+        timestamp
+      }
+    ]
+  }
+}
+
+function mergeCodexCompactionMessages(messages: unknown[], compactionMessages?: unknown[]): unknown[] {
+  if (!compactionMessages || compactionMessages.length === 0) return messages
+
+  const byId = new Map<string, unknown>()
+  const append = (message: unknown): void => {
+    const record = asObject(message)
+    const id = asString(record?.id) ?? randomUUID()
+    if (!byId.has(id)) byId.set(id, message)
+  }
+
+  for (const message of messages) append(message)
+  for (const message of compactionMessages) append(message)
+
+  return [...byId.values()].sort((left, right) => {
+    const leftTime = Date.parse(asString(asObject(left)?.timestamp) ?? '')
+    const rightTime = Date.parse(asString(asObject(right)?.timestamp) ?? '')
+    if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
+      return leftTime - rightTime
+    }
+    if (Number.isFinite(leftTime)) return -1
+    if (Number.isFinite(rightTime)) return 1
+    return 0
+  })
+}
+
+function isCodexCompactionMessage(message: unknown): boolean {
+  const record = asObject(message)
+  const parts = Array.isArray(record?.parts) ? record.parts : []
+  return parts.some((part) => asObject(part)?.type === 'compaction')
+}
+
 function isCodexToolItemType(itemType: string | undefined): boolean {
   return (
     itemType === 'commandExecution' ||
@@ -1169,6 +1221,13 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     // Handle thread compaction notifications
     if (event.kind === 'notification' && event.method === 'thread/compacted') {
       if (!targetSession) return
+
+      const compactionMessage = buildCodexCompactionMessage(event)
+      targetSession.compactionMessages = [
+        ...(targetSession.compactionMessages ?? []),
+        compactionMessage
+      ]
+      this.persistCanonicalMessages(targetSession)
 
       emitAgentEvent(this.mainWindow, {
         type: 'session.context_compacted',
@@ -2266,9 +2325,10 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     if (session.messages.length > 0) {
       const liveDraftMessage =
         session.status === 'running' ? this.cloneLiveAssistantDraftMessage(session) : null
-      const inMemoryMessages = liveDraftMessage
-        ? [...session.messages, liveDraftMessage]
-        : [...session.messages]
+      const inMemoryMessages = mergeCodexCompactionMessages(
+        liveDraftMessage ? [...session.messages, liveDraftMessage] : [...session.messages],
+        session.compactionMessages
+      )
       if (
         !options?.forceRefresh &&
         (hasRenderableAssistantMessage(inMemoryMessages) || session.status === 'running') &&
@@ -2302,6 +2362,13 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
             const sanitized = parsed.map((message) =>
               sanitizeCodexUserMessageForPersistence(message)
             )
+            const persistedCompactions = sanitized.filter(isCodexCompactionMessage)
+            if (persistedCompactions.length > 0) {
+              session.compactionMessages = mergeCodexCompactionMessages(
+                session.compactionMessages ?? [],
+                persistedCompactions
+              )
+            }
             session.messages = sanitized
             if (
               !options?.forceRefresh &&
@@ -2334,7 +2401,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
             agentSessionId,
             count: parsed.length
           })
-          return [...parsed]
+          return mergeCodexCompactionMessages(parsed, session.compactionMessages)
         }
       } catch (error) {
         log.warn('getMessages: readThread fallback failed', {
@@ -3035,7 +3102,10 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     if (!this.dbService) return
 
     try {
-      const rows = session.messages.flatMap((message) => {
+      const rows = mergeCodexCompactionMessages(
+        session.messages,
+        session.compactionMessages
+      ).flatMap((message) => {
         const sanitizedMessage = sanitizeCodexUserMessageForPersistence(message)
         const record = asObject(sanitizedMessage)
         if (!record) return []

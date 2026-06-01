@@ -408,6 +408,69 @@ describe('CodexImplementer.prompt()', () => {
     expect(statusEvents[statusEvents.length - 1].statusPayload.type).toBe('idle')
   })
 
+  it('persists thread compaction as a durable compaction marker, not a tool card', async () => {
+    const compactedAt = '2026-05-31T08:00:03.000Z'
+    const mockDb = {
+      updateSession: vi.fn(),
+      getSession: vi.fn().mockReturnValue(null),
+      replaceSessionMessages: vi.fn()
+    }
+    impl.setDatabaseService(mockDb as any)
+    seedSession()
+    ;(impl as any).attachManagerListener()
+
+    simulateManagerEvents([
+      {
+        id: 'compact-1',
+        kind: 'notification',
+        provider: 'codex',
+        threadId: 'thread-1',
+        createdAt: compactedAt,
+        method: 'thread/compacted',
+        payload: { trigger: 'auto' }
+      },
+      {
+        id: 'e-done',
+        kind: 'notification',
+        provider: 'codex',
+        threadId: 'thread-1',
+        createdAt: '2026-05-31T08:00:04.000Z',
+        method: 'turn/completed',
+        payload: { turn: { status: 'completed' } }
+      }
+    ])
+
+    await impl.prompt('/test/project', 'thread-1', 'trigger compaction')
+
+    const persistedBatches = mockDb.replaceSessionMessages.mock.calls.map((call) => call[1])
+    const compactionRow = persistedBatches
+      .flat()
+      .find((row: any) =>
+        JSON.parse(row.opencode_parts_json).some((part: any) => part.type === 'compaction')
+      )
+
+    expect(compactionRow).toBeTruthy()
+    expect(compactionRow.role).toBe('assistant')
+    expect(compactionRow.content).toBe('')
+    expect(JSON.parse(compactionRow.opencode_message_json)).toMatchObject({
+      id: 'compaction:compact-1',
+      role: 'assistant',
+      parts: [{ type: 'compaction', auto: true, timestamp: compactedAt }]
+    })
+
+    const streamEvents = mockWindow.webContents.send.mock.calls
+      .filter((call: any[]) => call[0] === 'agent:stream')
+      .map((call: any[]) => call[1])
+    expect(streamEvents.some((event: any) => event.type === 'session.context_compacted')).toBe(true)
+    expect(
+      persistedBatches
+        .flat()
+        .some((row: any) =>
+          JSON.parse(row.opencode_parts_json).some((part: any) => part.type === 'tool_use')
+        )
+    ).toBe(false)
+  })
+
   // ── Event forwarding ────────────────────────────────────────
 
   it('forwards mapped item/agentMessage/delta events to renderer', async () => {
