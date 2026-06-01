@@ -289,6 +289,25 @@ export function getAgentTurnContextSnapshot(
   return row ?? null
 }
 
+/**
+ * Update the decisions_json on an existing context snapshot.
+ * Used for post-hoc annotations such as emergency shrink metadata
+ * that can only be recorded after the provider call completes.
+ */
+export function updateAgentTurnContextSnapshot(
+  turnId: string,
+  decisionsJson: string,
+  db?: DatabaseService | null
+): void {
+  resolveDb(db)
+    .prepare(
+      `UPDATE agent_turn_context_snapshots
+       SET decisions_json = ?
+       WHERE turn_id = ?`
+    )
+    .run(decisionsJson, turnId)
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Usage Events
 // ─────────────────────────────────────────────────────────────────────────────

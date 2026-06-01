@@ -26,6 +26,7 @@ import {
 import { buildProviderRequest } from './turn/provider-request-builder'
 import { recordProviderRequestSnapshot } from './turn/provider-request-recorder'
 import type { XuanpuTurnBudget } from './turn/turn-snapshot'
+import { getAgentTurnContextSnapshot, updateAgentTurnContextSnapshot } from '../../db/turn-repository'
 
 interface PiTextContent {
   type: 'text'
@@ -77,9 +78,9 @@ interface PiAgentLike {
 type PiAgentConstructor = new (options?: Record<string, unknown>) => PiAgentLike
 
 export interface XuanpuAgentPromptEventHandlers {
-  onTextDelta?: (delta: string) => void
-  onToolStart?: (event: XuanpuAgentToolStartEvent) => void
-  onToolEnd?: (event: XuanpuAgentToolEndEvent) => void
+  onTextDelta?: (delta: string, meta: { turnId?: string; eventSequence: number }) => void
+  onToolStart?: (event: XuanpuAgentToolStartEvent, meta: { turnId?: string; eventSequence: number }) => void
+  onToolEnd?: (event: XuanpuAgentToolEndEvent, meta: { turnId?: string; eventSequence: number }) => void
 }
 
 export interface XuanpuAgentToolStartEvent {
@@ -108,6 +109,8 @@ export interface XuanpuAgentPromptResult {
   harnessMetrics: XuanpuAgentHarnessMetrics
   /** Provider request snapshot hash (INV-TURN-5). */
   snapshotHash?: string
+  /** Turn-scoped id — cross-references snapshots, context packages, and usage events. */
+  turnId?: string
 }
 
 export class XuanpuPiAgentSession {
@@ -219,8 +222,7 @@ export class XuanpuPiAgentSession {
       const snapshot = buildProviderRequest({
         turnId,
         sessionId: this.sessionId,
-        modelRef,
-        systemPrompt: getXuanpuAgentSystemPromptLines(),
+        modelRef: resolved.modelRef,
         contextMessages,
         promptMessage,
         tools: currentTools.map((t: unknown) => {
@@ -247,15 +249,19 @@ export class XuanpuPiAgentSession {
       string,
       { toolName: string; args: Record<string, unknown>; startedAt: number }
     >()
+    // Phase 5: Per-turn event sequence counter for canonical event ordering.
+    let eventSequence = 0
 
     this.unsubscribe?.()
     this.unsubscribe = agent.subscribe((event) => {
+      eventSequence++
+
       if (event.type === 'message_update' && event.message?.role === 'assistant') {
         const nextText = extractText(event.message)
         if (nextText.length > streamedText.length && nextText.startsWith(streamedText)) {
           const delta = nextText.slice(streamedText.length)
           streamedText = nextText
-          handlers.onTextDelta?.(delta)
+          handlers.onTextDelta?.(delta, { turnId, eventSequence })
         }
       }
 
@@ -265,7 +271,7 @@ export class XuanpuPiAgentSession {
         if (nextText.length > streamedText.length && nextText.startsWith(streamedText)) {
           const delta = nextText.slice(streamedText.length)
           streamedText = nextText
-          handlers.onTextDelta?.(delta)
+          handlers.onTextDelta?.(delta, { turnId, eventSequence })
         }
       }
 
@@ -281,12 +287,15 @@ export class XuanpuPiAgentSession {
         const startedAt = Date.now()
         toolNames.push(event.toolName)
         toolStarts.set(event.toolCallId, { toolName: event.toolName, args, startedAt })
-        handlers.onToolStart?.({
-          toolCallId: event.toolCallId,
-          toolName: event.toolName,
-          args,
-          startedAt
-        })
+        handlers.onToolStart?.(
+          {
+            toolCallId: event.toolCallId,
+            toolName: event.toolName,
+            args,
+            startedAt
+          },
+          { turnId, eventSequence }
+        )
       }
 
       if (event.type === 'tool_execution_end' && event.toolCallId && event.toolName) {
@@ -294,15 +303,18 @@ export class XuanpuPiAgentSession {
         const args = previous?.args ?? {}
         const startedAt = previous?.startedAt ?? Date.now()
         const endedAt = Date.now()
-        handlers.onToolEnd?.({
-          toolCallId: event.toolCallId,
-          toolName: event.toolName,
-          args,
-          result: event.result,
-          isError: event.isError === true,
-          startedAt,
-          endedAt
-        })
+        handlers.onToolEnd?.(
+          {
+            toolCallId: event.toolCallId,
+            toolName: event.toolName,
+            args,
+            result: event.result,
+            isError: event.isError === true,
+            startedAt,
+            endedAt
+          },
+          { turnId, eventSequence }
+        )
         toolStarts.delete(event.toolCallId)
       }
     })
@@ -320,6 +332,30 @@ export class XuanpuPiAgentSession {
       await agent.prompt(promptMessage)
     } else {
       await agent.prompt(input)
+    }
+
+    // INV-TURN-5: If emergency shrink fired, annotate the snapshot so audit
+    // knows the provider saw fewer/pruned messages than the original snapshot.
+    if (turnId && this.budgetManager.state.emergencyShrunk) {
+      try {
+        const existing = getAgentTurnContextSnapshot(turnId)
+        if (existing) {
+          const prevDecisions: Record<string, unknown> =
+            typeof existing.decisionsJson === 'string'
+              ? JSON.parse(existing.decisionsJson)
+              : {}
+          const updatedDecisions = {
+            ...prevDecisions,
+            emergencyShrunk: true,
+            emergencyShrinkFillRatio: this.budgetManager.state.fillRatio,
+            emergencyShrinkEstimatedTokens: this.budgetManager.state.estimatedTokens,
+            emergencyShrinkPrunedMessages: this.budgetManager.state.prunedMessageCount
+          }
+          updateAgentTurnContextSnapshot(turnId, JSON.stringify(updatedDecisions))
+        }
+      } catch {
+        // Best-effort: don't fail the prompt over snapshot annotation.
+      }
     }
 
     const turnStateMessages = getNewTurnMessages(
@@ -348,7 +384,8 @@ export class XuanpuPiAgentSession {
       usage: message?.usage,
       rawMessage: message ?? undefined,
       harnessMetrics,
-      snapshotHash
+      snapshotHash,
+      turnId
     }
     } finally {
       // Restore full tool set after plan mode prompt

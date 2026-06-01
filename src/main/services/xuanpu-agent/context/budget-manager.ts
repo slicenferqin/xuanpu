@@ -42,6 +42,8 @@ export interface BudgetState {
   totalAfterBytes: number
   /** Number of included/omitted sections (informational). */
   sectionStats: { included: number; omitted: number }
+  /** Number of messages pruned by emergency shrink this turn (M7 fallback audit). */
+  prunedMessageCount: number
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -99,7 +101,8 @@ export class ContextBudgetManager {
       shrinkCount: 0,
       totalBeforeBytes: 0,
       totalAfterBytes: 0,
-      sectionStats: { included: 0, omitted: 0 }
+      sectionStats: { included: 0, omitted: 0 },
+      prunedMessageCount: 0
     }
   }
 
@@ -135,6 +138,7 @@ export class ContextBudgetManager {
   get transformContext(): NonNullable<AgentLoopConfig['transformContext']> {
     return async (messages, _signal) => {
       this.state.emergencyShrunk = false
+      this.state.prunedMessageCount = 0
       const tokens = estimateTokensFromMessages(messages)
       this.state.estimatedTokens = tokens
       this.state.fillRatio = tokens / this.state.maxTokens
@@ -186,6 +190,8 @@ export class ContextBudgetManager {
       }
       result.unshift(msg)
     }
+
+    this.state.prunedMessageCount = toolResultsDropped
 
     if (estimateTokensFromMessages(result) > targetTokens) {
       console.warn('[ContextBudgetManager] emergencyShrink: still over target, compacting text', {

@@ -510,8 +510,9 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         harnessMessages,
         modelRef,
         {
-          onTextDelta: (delta) => this.emitTextDelta(session.hiveSessionId, delta, turnId),
-          onToolStart: (event) => {
+          onTextDelta: (delta, meta) =>
+            this.emitTextDelta(session.hiveSessionId, delta, meta.turnId, meta.eventSequence),
+          onToolStart: (event, meta) => {
             collectObservedToolPaths(
               session.worktreePath,
               event.toolName,
@@ -522,9 +523,9 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             if (event.toolName === 'xfp_delegate_subtask') {
               this.emitSubtaskStart(session.hiveSessionId, event)
             }
-            this.emitToolStart(session.hiveSessionId, event)
+            this.emitToolStart(session.hiveSessionId, event, meta.turnId, meta.eventSequence)
           },
-          onToolEnd: (event) => {
+          onToolEnd: (event, meta) => {
             collectObservedToolPaths(
               session.worktreePath,
               event.toolName,
@@ -536,7 +537,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             if (subtaskDetails) {
               this.emitSubtaskEnd(session.hiveSessionId, event, subtaskDetails)
             }
-            this.emitToolEnd(session.hiveSessionId, event)
+            this.emitToolEnd(session.hiveSessionId, event, meta.turnId, meta.eventSequence)
           }
         },
         sessionMode,
@@ -767,7 +768,9 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             harnessMetrics: result.harnessMetrics,
             packerOutput: packedContext,
             softShrinkMeta: { triggered: softShrinkTriggered, initialFillRatio },
-            sessionMode
+            sessionMode,
+            turnId: result.turnId,
+            snapshotHash: result.snapshotHash
           })
         } catch (err) {
           log.warn('Failed to record context package', {
@@ -935,6 +938,10 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       softShrinkMeta?: { triggered: boolean; initialFillRatio: number }
       /** Session mode from PromptOptions ('build' | 'plan'). */
       sessionMode?: 'build' | 'plan'
+      /** INV-TURN-5: Turn-scoped id for cross-referencing snapshots. */
+      turnId?: string
+      /** INV-TURN-5: Provider request snapshot hash for audit alignment. */
+      snapshotHash?: string
     } = {}
   ): Promise<{
     contextPackageId: string | null
@@ -1079,7 +1086,15 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
               dedupedCount: options.packerOutput.decisions.zones.workingSet.dedupedCount ?? 0
             }
           : null,
-        sessionMode: options.sessionMode ?? 'build'
+        sessionMode: options.sessionMode ?? 'build',
+        // INV-TURN-5: Cross-reference fields for snapshot alignment
+        turnId: options.turnId ?? null,
+        providerRequestHash: options.snapshotHash ?? null,
+        providerEstimatedInputTokens: options.packerOutput?.decisions?.providerEstimatedInputTokens ?? null,
+        includedMessageIds:
+          options.packerOutput?.decisions?.zones?.workingSet?.includedMessageIds ?? null,
+        omittedMessageIds:
+          options.packerOutput?.decisions?.zones?.workingSet?.droppedMessageIds ?? null
       }
     })
 
@@ -1489,13 +1504,20 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     return session.piSession
   }
 
-  private emitTextDelta(hiveSessionId: string, delta: string, turnId?: string): void {
+  private emitTextDelta(
+    hiveSessionId: string,
+    delta: string,
+    turnId?: string,
+    eventSequence?: number
+  ): void {
     if (!delta) return
 
     emitAgentEvent(this.mainWindow, {
       type: 'message.part.updated',
       sessionId: hiveSessionId,
       turnId,
+      origin: 'model',
+      eventSequence,
       data: {
         part: { type: 'text', text: delta },
         delta,
@@ -1555,10 +1577,18 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     })
   }
 
-  private emitToolStart(hiveSessionId: string, event: XuanpuAgentToolStartEvent): void {
+  private emitToolStart(
+    hiveSessionId: string,
+    event: XuanpuAgentToolStartEvent,
+    turnId?: string,
+    eventSequence?: number
+  ): void {
     emitAgentEvent(this.mainWindow, {
       type: 'message.part.updated',
       sessionId: hiveSessionId,
+      turnId,
+      origin: 'tool',
+      eventSequence,
       data: {
         part: {
           type: 'tool',
@@ -1575,7 +1605,12 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     })
   }
 
-  private emitToolEnd(hiveSessionId: string, event: XuanpuAgentToolEndEvent): void {
+  private emitToolEnd(
+    hiveSessionId: string,
+    event: XuanpuAgentToolEndEvent,
+    turnId?: string,
+    eventSequence?: number
+  ): void {
     const result = event.result && typeof event.result === 'object' ? event.result : null
     const details =
       result && 'details' in result && typeof (result as { details?: unknown }).details === 'object'
@@ -1593,6 +1628,9 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     emitAgentEvent(this.mainWindow, {
       type: 'message.part.updated',
       sessionId: hiveSessionId,
+      turnId,
+      origin: 'tool',
+      eventSequence,
       data: {
         part: {
           type: 'tool',

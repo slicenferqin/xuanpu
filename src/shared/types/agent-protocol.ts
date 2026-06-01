@@ -301,6 +301,10 @@ export interface EventEnvelope {
   sourceChannel?: 'agent:stream'
   /** Turn-scoped execution boundary id (Phase 4d). */
   turnId?: string
+  /** Canonical event origin (Phase 5: PiEventRouter boundary). */
+  origin?: 'model' | 'tool' | 'system'
+  /** Per-turn event sequence number, monotonically increasing within a turn (Phase 5). */
+  eventSequence?: number
 }
 
 // ---------------------------------------------------------------------------
