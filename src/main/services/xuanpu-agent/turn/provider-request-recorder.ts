@@ -7,11 +7,14 @@
 import { createAgentTurnContextSnapshot } from '../../../db/turn-repository'
 import type { XuanpuProviderRequestSnapshot } from './turn-snapshot'
 
-export function recordProviderRequestSnapshot(snapshot: XuanpuProviderRequestSnapshot): void {
+export function recordProviderRequestSnapshot(
+  snapshot: XuanpuProviderRequestSnapshot,
+  xfpPacketId?: string
+): void {
   createAgentTurnContextSnapshot({
     turnId: snapshot.turnId,
     sessionId: snapshot.sessionId,
-    xfpPacketId: null,
+    xfpPacketId: xfpPacketId ?? null,
     providerRequestHash: snapshot.providerRequestHash,
     prefixHash: snapshot.prefixHash ?? null,
     managedContextJson: JSON.stringify({
@@ -22,11 +25,11 @@ export function recordProviderRequestSnapshot(snapshot: XuanpuProviderRequestSna
       systemPrompt: snapshot.systemPrompt,
       contextMessages: snapshot.contextMessages.map((msg) => ({
         role: msg.role,
-        text: msg.content.map((c) => c.text).join('').slice(0, 500)
+        content: msg.content
       })),
       promptMessage: {
         role: snapshot.promptMessage.role,
-        text: snapshot.promptMessage.content.map((c) => c.text).join('')
+        content: snapshot.promptMessage.content
       }
     }),
     providerToolsJson: snapshot.toolsJson,

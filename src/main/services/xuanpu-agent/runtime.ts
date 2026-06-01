@@ -106,6 +106,8 @@ export interface XuanpuAgentPromptResult {
   usage?: Record<string, unknown>
   rawMessage?: PiAssistantMessage
   harnessMetrics: XuanpuAgentHarnessMetrics
+  /** Provider request snapshot hash (INV-TURN-5). */
+  snapshotHash?: string
 }
 
 export class XuanpuPiAgentSession {
@@ -178,7 +180,8 @@ export class XuanpuPiAgentSession {
     toolMode?: 'build' | 'plan',
     turnId?: string,
     snapshotBudget?: XuanpuTurnBudget,
-    snapshotPrefixHash?: string
+    snapshotPrefixHash?: string,
+    xfpPacketId?: string
   ): Promise<XuanpuAgentPromptResult> {
     if (this.prompting) {
       throw new Error('xuanpu-agent: overlapping prompt() calls are not allowed on the same session')
@@ -195,13 +198,45 @@ export class XuanpuPiAgentSession {
 
     // INV-TURN-1: Fresh Agent per turn — no stateful carryover.
     const agent = await this.createAgentForTurn(
-      resolved.modelRef, resolved.model, resolved.streamFn, getApiKey, turnId,
-      input, snapshotBudget, snapshotPrefixHash
+      resolved.modelRef, resolved.model, resolved.streamFn, getApiKey, turnId
     )
 
     // Apply tool mode AFTER agent creation so it's not a no-op on first prompt
     if (toolMode === 'plan') {
       agent.setTools([...READ_ONLY_TOOLS, ...XFP_FIELD_TOOLS])
+    }
+
+    // INV-TURN-5: Record provider request snapshot with CORRECT tools.
+    let snapshotHash: string | undefined
+    if (turnId && snapshotBudget) {
+      const contextMessages = Array.isArray(input) ? input.slice(0, -1) : []
+      const promptMessage = Array.isArray(input)
+        ? input[input.length - 1]
+        : { role: 'user' as const, content: [{ type: 'text' as const, text: String(input) }], timestamp: Date.now() }
+      const currentTools = toolMode === 'plan'
+        ? [...READ_ONLY_TOOLS, ...XFP_FIELD_TOOLS]
+        : getXuanpuAgentAllowedTools()
+      const snapshot = buildProviderRequest({
+        turnId,
+        sessionId: this.sessionId,
+        modelRef,
+        systemPrompt: getXuanpuAgentSystemPromptLines(),
+        contextMessages,
+        promptMessage,
+        tools: currentTools.map((t: unknown) => {
+          const tool = t as { name: string; description?: string; parameters?: unknown }
+          return {
+            name: tool.name,
+            description: tool.description ?? '',
+            parameters: (tool.parameters ?? {}) as Record<string, unknown>
+          }
+        }),
+        providerSessionPolicy: { mode: 'disabled', reason: 'xuanpu owns turn-scoped context' },
+        budget: snapshotBudget,
+        prefixHash: snapshotPrefixHash
+      })
+      recordProviderRequestSnapshot(snapshot, xfpPacketId)
+      snapshotHash = snapshot.providerRequestHash
     }
 
     let streamedText = ''
@@ -312,7 +347,8 @@ export class XuanpuPiAgentSession {
       modelRef: resolved.modelRef,
       usage: message?.usage,
       rawMessage: message ?? undefined,
-      harnessMetrics
+      harnessMetrics,
+      snapshotHash
     }
     } finally {
       // Restore full tool set after plan mode prompt
@@ -354,10 +390,7 @@ export class XuanpuPiAgentSession {
     model: unknown,
     streamFn?: unknown,
     getApiKey?: (provider: string) => string | undefined,
-    turnId?: string,
-    promptInput?: string | XuanpuPiPromptMessage[],
-    snapshotBudget?: XuanpuTurnBudget,
-    snapshotPrefixHash?: string
+    turnId?: string
   ): Promise<PiAgentLike> {
     // Dispose previous agent if any (should not happen in normal flow).
     this.unsubscribe?.()
@@ -387,47 +420,9 @@ export class XuanpuPiAgentSession {
     })
     const tools = getXuanpuAgentAllowedTools()
     assertXuanpuAgentAllowedTools(tools)
-    const systemPrompt = getXuanpuAgentSystemPromptLines()
-    this.agent.setSystemPrompt(systemPrompt)
+    this.agent.setSystemPrompt(getXuanpuAgentSystemPromptLines())
     this.agent.setTools(tools)
     this.agent.setModel(model)
-
-    // INV-TURN-5: Persist provider request snapshot with REAL values.
-    if (turnId && promptInput) {
-      const contextMessages = Array.isArray(promptInput)
-        ? promptInput.slice(0, -1)
-        : []
-      const promptMessage = Array.isArray(promptInput)
-        ? promptInput[promptInput.length - 1]
-        : { role: 'user' as const, content: [{ type: 'text' as const, text: String(promptInput) }], timestamp: Date.now() }
-      const snapshot = buildProviderRequest({
-        turnId,
-        sessionId: this.sessionId,
-        modelRef,
-        systemPrompt,
-        contextMessages,
-        promptMessage,
-        tools: tools.map((t: unknown) => {
-          const tool = t as { name: string; description?: string; parameters?: unknown }
-          return {
-            name: tool.name,
-            description: tool.description ?? '',
-            parameters: (tool.parameters ?? {}) as Record<string, unknown>
-          }
-        }),
-        providerSessionPolicy: { mode: 'disabled', reason: 'xuanpu owns turn-scoped context' },
-        budget: snapshotBudget ?? {
-          profile: 'balanced',
-          managedApproxTokens: 0,
-          providerEstimatedInputTokens: 0,
-          maxContextTokens: 150_000,
-          fillRatio: 0
-        },
-        prefixHash: snapshotPrefixHash
-      })
-      recordProviderRequestSnapshot(snapshot)
-    }
-
     return this.agent
   }
 }

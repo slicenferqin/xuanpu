@@ -549,7 +549,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
           maxContextTokens: 150_000,
           fillRatio: packedContext.decisions.fillRatio
         },
-        packedContext.decisions.prefixHash
+        packedContext.decisions.prefixHash,
+        compileResult.packet.identity.packetId
       )
 
       const assistantText = result.text.trim()
@@ -605,7 +606,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
           },
           providerRequest: {
             estimatedInputTokens: managedTokens,
-            providerRequestHash: packedContext.decisions.prefixHash,
+            providerRequestHash: result.snapshotHash ?? packedContext.decisions.prefixHash,
             prefixHash: packedContext.decisions.prefixHash ?? null,
             messageCount: packedContext.providerContextMessages.length + 1,
             source: 'provider-request-snapshot'
