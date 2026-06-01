@@ -22,7 +22,8 @@ export interface AgentSessionUpdatedData {
 }
 
 export interface AgentSessionContextUsageData {
-  tokens: {
+  /** @deprecated Use managedContext / providerRequest / providerActual instead. */
+  tokens?: {
     input: number
     cacheRead?: number
     cacheWrite?: number
@@ -40,7 +41,9 @@ export interface AgentSessionContextUsageData {
     modelID: string
     variant?: string
   }
+  /** @deprecated Use managedContext.maxContextTokens instead. */
   contextWindow?: number
+  /** @deprecated Use managedContext / providerActual instead. */
   breakdown?: {
     usedTokens: number
     maxTokens: number
@@ -52,6 +55,30 @@ export interface AgentSessionContextUsageData {
       color?: string
       isDeferred?: boolean
     }>
+  }
+  /** INV-TURN-4 Layer 1: Context Packer managed context. */
+  managedContext?: {
+    approxTokens: number
+    maxContextTokens: number
+    fillRatio: number
+    includedMessages: number
+    source: string
+  }
+  /** INV-TURN-4 Layer 2: Provider request estimate (from snapshot). */
+  providerRequest?: {
+    estimatedInputTokens: number
+    providerRequestHash: string
+    prefixHash: string | null
+    messageCount: number
+    source: string
+  }
+  /** INV-TURN-4 Layer 3: Provider actual usage from API response. */
+  providerActual?: {
+    inputTokens: number | null
+    outputTokens: number
+    cacheReadTokens: number | null
+    cacheWriteTokens: number
+    source: string
   }
 }
 

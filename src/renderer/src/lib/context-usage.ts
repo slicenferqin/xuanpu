@@ -2,7 +2,7 @@ import type { AgentSessionContextUsageData } from '@shared/types/agent-protocol'
 import type { ContextUsageCategory, TokenInfo } from '@/stores/useContextStore'
 import { useContextStore } from '@/stores/useContextStore'
 
-function normalizeTokens(tokens: AgentSessionContextUsageData['tokens'] | undefined): TokenInfo {
+function normalizeTokens(tokens: AgentSessionContextUsageData['tokens']): TokenInfo {
   return {
     input: tokens?.input ?? 0,
     output: tokens?.output ?? 0,
@@ -67,7 +67,18 @@ export function applySessionContextUsage(
   const store = useContextStore.getState()
   applyContextUsageCost(sessionId, data)
 
-  const tokens = normalizeTokens(data.tokens)
+  // Prefer three-layer format (INV-TURN-4) over legacy tokens field.
+  const actual = data.providerActual
+  const managed = data.managedContext
+  const tokens: TokenInfo = actual
+    ? {
+        input: actual.inputTokens ?? 0,
+        output: actual.outputTokens,
+        reasoning: 0,
+        cacheRead: actual.cacheReadTokens ?? 0,
+        cacheWrite: actual.cacheWriteTokens
+      }
+    : normalizeTokens(data.tokens)
   const model = data.model
     ? {
         providerID: data.model.providerID,
@@ -79,9 +90,24 @@ export function applySessionContextUsage(
     store.setSessionTokens(sessionId, tokens, model)
   }
 
-  if (typeof data.contextWindow === 'number' && data.contextWindow > 0 && model) {
-    store.setModelLimit(model.modelID, data.contextWindow, model.providerID)
-    store.setModelLimit(model.modelID, data.contextWindow)
+  // Model limit from managed context or legacy contextWindow.
+  const contextWindow = managed?.maxContextTokens ?? data.contextWindow
+  if (typeof contextWindow === 'number' && contextWindow > 0 && model) {
+    store.setModelLimit(model.modelID, contextWindow, model.providerID)
+    store.setModelLimit(model.modelID, contextWindow)
+  }
+
+  // Context snapshot from three-layer managed + actual, or legacy breakdown.
+  if (managed) {
+    const usedTokens = actual?.inputTokens ?? managed.approxTokens
+    store.setSessionContextSnapshot(sessionId, {
+      usedTokens,
+      maxTokens: managed.maxContextTokens,
+      percent: managed.maxContextTokens > 0
+        ? Math.round((usedTokens / managed.maxContextTokens) * 100) : 0,
+      ...(model ? { model } : {})
+    })
+    return
   }
 
   if (data.breakdown) {

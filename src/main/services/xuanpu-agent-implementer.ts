@@ -28,8 +28,6 @@ import { XfpPacketCompiler, type CompilerDecision } from './xuanpu-agent/harness
 import { packContext } from './xuanpu-agent/context/context-packer'
 import { listFieldEpisodeBlocks } from '../field/episode-block-repository'
 import { createAgentTurn, createAgentTurnUsageEvent, updateAgentTurnStatus } from '../db/turn-repository'
-import { buildProviderRequest } from './xuanpu-agent/turn/provider-request-builder'
-import { recordProviderRequestSnapshot } from './xuanpu-agent/turn/provider-request-recorder'
 import { extractUsageTokens } from '../../shared/usage/message'
 import type {
   XfpAnchorSection,
@@ -507,31 +505,6 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         packedContext.providerPromptMessage
       ]
 
-      // ── INV-TURN-5: Persist provider request snapshot before model call ──
-      const requestSnapshot = buildProviderRequest({
-        turnId,
-        sessionId: session.hiveSessionId,
-        modelRef,
-        systemPrompt: ['<xuanpu-agent system prompt — see runtime.ts>'],
-        contextMessages: packedContext.providerContextMessages,
-        promptMessage: packedContext.providerPromptMessage,
-        tools: [], // Recorded by runtime; snapshot captures messages/system/config.
-        providerSessionPolicy: {
-          mode: 'disabled',
-          reason: 'xuanpu owns turn-scoped context'
-        },
-        budget: {
-          profile: packedContext.decisions.fillRatio > 0.5 ? 'focused' :
-                   packedContext.decisions.fillRatio > 0.15 ? 'balanced' : 'extended',
-          managedApproxTokens: packedContext.decisions.totalTokens,
-          providerEstimatedInputTokens: packedContext.decisions.totalTokens,
-          maxContextTokens: 150_000,
-          fillRatio: packedContext.decisions.fillRatio
-        },
-        prefixHash: packedContext.decisions.prefixHash
-      })
-      recordProviderRequestSnapshot(requestSnapshot)
-
       const observedPaths = new Set<string>()
       const result = await piSession.prompt(
         harnessMessages,
@@ -567,7 +540,16 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
           }
         },
         sessionMode,
-        turnId
+        turnId,
+        {
+          profile: packedContext.decisions.fillRatio > 0.5 ? 'focused' :
+                   packedContext.decisions.fillRatio > 0.15 ? 'balanced' : 'extended',
+          managedApproxTokens: packedContext.decisions.totalTokens,
+          providerEstimatedInputTokens: packedContext.decisions.totalTokens,
+          maxContextTokens: 150_000,
+          fillRatio: packedContext.decisions.fillRatio
+        },
+        packedContext.decisions.prefixHash
       )
 
       const assistantText = result.text.trim()
@@ -623,9 +605,9 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
           },
           providerRequest: {
             estimatedInputTokens: managedTokens,
-            providerRequestHash: requestSnapshot.providerRequestHash,
-            prefixHash: requestSnapshot.prefixHash ?? null,
-            messageCount: requestSnapshot.contextMessages.length + 1,
+            providerRequestHash: packedContext.decisions.prefixHash,
+            prefixHash: packedContext.decisions.prefixHash ?? null,
+            messageCount: packedContext.providerContextMessages.length + 1,
             source: 'provider-request-snapshot'
           },
           providerActual: {

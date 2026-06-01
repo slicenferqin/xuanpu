@@ -23,6 +23,9 @@ import {
   type BudgetProfile,
   type BudgetState
 } from './context/budget-manager'
+import { buildProviderRequest } from './turn/provider-request-builder'
+import { recordProviderRequestSnapshot } from './turn/provider-request-recorder'
+import type { XuanpuTurnBudget } from './turn/turn-snapshot'
 
 interface PiTextContent {
   type: 'text'
@@ -173,7 +176,9 @@ export class XuanpuPiAgentSession {
     modelRef: XuanpuAgentModelRef,
     handlers: XuanpuAgentPromptEventHandlers = {},
     toolMode?: 'build' | 'plan',
-    turnId?: string
+    turnId?: string,
+    snapshotBudget?: XuanpuTurnBudget,
+    snapshotPrefixHash?: string
   ): Promise<XuanpuAgentPromptResult> {
     if (this.prompting) {
       throw new Error('xuanpu-agent: overlapping prompt() calls are not allowed on the same session')
@@ -190,7 +195,8 @@ export class XuanpuPiAgentSession {
 
     // INV-TURN-1: Fresh Agent per turn — no stateful carryover.
     const agent = await this.createAgentForTurn(
-      resolved.modelRef, resolved.model, resolved.streamFn, getApiKey, turnId
+      resolved.modelRef, resolved.model, resolved.streamFn, getApiKey, turnId,
+      input, snapshotBudget, snapshotPrefixHash
     )
 
     // Apply tool mode AFTER agent creation so it's not a no-op on first prompt
@@ -348,7 +354,10 @@ export class XuanpuPiAgentSession {
     model: unknown,
     streamFn?: unknown,
     getApiKey?: (provider: string) => string | undefined,
-    turnId?: string
+    turnId?: string,
+    promptInput?: string | XuanpuPiPromptMessage[],
+    snapshotBudget?: XuanpuTurnBudget,
+    snapshotPrefixHash?: string
   ): Promise<PiAgentLike> {
     // Dispose previous agent if any (should not happen in normal flow).
     this.unsubscribe?.()
@@ -378,9 +387,47 @@ export class XuanpuPiAgentSession {
     })
     const tools = getXuanpuAgentAllowedTools()
     assertXuanpuAgentAllowedTools(tools)
-    this.agent.setSystemPrompt(getXuanpuAgentSystemPromptLines())
+    const systemPrompt = getXuanpuAgentSystemPromptLines()
+    this.agent.setSystemPrompt(systemPrompt)
     this.agent.setTools(tools)
     this.agent.setModel(model)
+
+    // INV-TURN-5: Persist provider request snapshot with REAL values.
+    if (turnId && promptInput) {
+      const contextMessages = Array.isArray(promptInput)
+        ? promptInput.slice(0, -1)
+        : []
+      const promptMessage = Array.isArray(promptInput)
+        ? promptInput[promptInput.length - 1]
+        : { role: 'user' as const, content: [{ type: 'text' as const, text: String(promptInput) }], timestamp: Date.now() }
+      const snapshot = buildProviderRequest({
+        turnId,
+        sessionId: this.sessionId,
+        modelRef,
+        systemPrompt,
+        contextMessages,
+        promptMessage,
+        tools: tools.map((t: unknown) => {
+          const tool = t as { name: string; description?: string; parameters?: unknown }
+          return {
+            name: tool.name,
+            description: tool.description ?? '',
+            parameters: (tool.parameters ?? {}) as Record<string, unknown>
+          }
+        }),
+        providerSessionPolicy: { mode: 'disabled', reason: 'xuanpu owns turn-scoped context' },
+        budget: snapshotBudget ?? {
+          profile: 'balanced',
+          managedApproxTokens: 0,
+          providerEstimatedInputTokens: 0,
+          maxContextTokens: 150_000,
+          fillRatio: 0
+        },
+        prefixHash: snapshotPrefixHash
+      })
+      recordProviderRequestSnapshot(snapshot)
+    }
+
     return this.agent
   }
 }
