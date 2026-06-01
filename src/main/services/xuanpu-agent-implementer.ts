@@ -23,6 +23,10 @@ import {
   type XuanpuAgentToolEndEvent,
   type XuanpuAgentToolStartEvent
 } from './xuanpu-agent/runtime'
+import {
+  getXuanpuAgentAllowedTools,
+  getXuanpuAgentSystemPromptLines
+} from './xuanpu-agent/tool-policy'
 import type { XuanpuAgentHarnessMetrics } from './xuanpu-agent/harness/metrics'
 import { XfpPacketCompiler, type CompilerDecision } from './xuanpu-agent/harness/compiler'
 import { packContext } from './xuanpu-agent/context/context-packer'
@@ -546,7 +550,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
           profile: packedContext.decisions.fillRatio > 0.5 ? 'focused' :
                    packedContext.decisions.fillRatio > 0.15 ? 'balanced' : 'extended',
           managedApproxTokens: packedContext.decisions.totalTokens,
-          providerEstimatedInputTokens: packedContext.decisions.totalTokens,
+          providerEstimatedInputTokens: packedContext.decisions.totalTokens +
+            estimateProviderOverheadTokens(sessionMode ?? 'build'),
           maxContextTokens: 150_000,
           fillRatio: packedContext.decisions.fillRatio
         },
@@ -587,9 +592,9 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       const rawUsage = (result.usage ?? {}) as Record<string, unknown>
       const tokenCounts = extractUsageTokens({ usage: rawUsage })
       const inputTokens = tokenCounts?.input ?? 0
-      const outputTokens = tokenCounts?.output ?? 0
-      const cacheRead = tokenCounts?.cacheRead ?? 0
-      const cacheWrite = tokenCounts?.cacheWrite ?? 0
+      const outputTokens = tokenCounts?.output ?? null
+      const cacheRead = tokenCounts?.cacheRead ?? null
+      const cacheWrite = tokenCounts?.cacheWrite ?? null
       const contextWindow = piSession.budgetManager.state.maxTokens
       const managedTokens = packedContext.decisions.totalTokens
       const providerActualInput = tokenCounts?.input ?? null
@@ -609,7 +614,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             source: 'context-packer'
           },
           providerRequest: {
-            estimatedInputTokens: managedTokens,
+            estimatedInputTokens: managedTokens +
+              estimateProviderOverheadTokens(sessionMode ?? 'build'),
             providerRequestHash: result.snapshotHash ?? packedContext.decisions.prefixHash,
             prefixHash: packedContext.decisions.prefixHash ?? null,
             messageCount: packedContext.providerContextMessages.length + 1,
@@ -708,7 +714,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
               session_id: session.hiveSessionId,
               agent_session_id: session.hiveSessionId,
               thread_id: session.hiveSessionId,
-              turn_id: result.messageId,
+              turn_id: session.activeTurnId ?? result.messageId,
               item_id: result.messageId,
               request_id: requestId,
               kind: 'plan.ready',
@@ -749,7 +755,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         this.emitMessageUpdated(session.hiveSessionId, claimVerification.correctionText, {
           messageId: verifierMessageId,
           modelRef: result.modelRef,
-          contextPackageId: compileResult.packet.identity.packetId
+          contextPackageId: compileResult.packet.identity.packetId,
+          turnId: result.turnId
         })
       }
 
@@ -2371,4 +2378,27 @@ function extractSubtaskDetails(result: unknown): SubtaskResultDetails | null {
 function extractProposedPlan(text: string): string | null {
   const match = text.match(/<proposed_plan>\s*([\s\S]*?)\s*<\/proposed_plan>/i)
   return match ? (match[1]?.trim() ?? null) : null
+}
+
+/**
+ * Estimate additional tokens consumed by system prompt + tools schema
+ * that the Context Packer does NOT account for (it only measures zone content).
+ * This is the gap between managedApproxTokens and what the provider actually
+ * sees as input tokens.
+ */
+function estimateProviderOverheadTokens(sessionMode: 'build' | 'plan'): number {
+  const systemPromptLines = getXuanpuAgentSystemPromptLines()
+  const systemPromptText = systemPromptLines.join('\n')
+  const systemTokens = Math.ceil(Buffer.byteLength(systemPromptText, 'utf-8') / 4)
+  const tools = getXuanpuAgentAllowedTools()
+  const toolsJson = JSON.stringify(
+    tools.map((t: unknown) => {
+      const tool = t as { name: string; description?: string; parameters?: unknown }
+      return { name: tool.name, description: tool.description ?? '', parameters: tool.parameters ?? {} }
+    })
+  )
+  const toolsTokens = Math.ceil(Buffer.byteLength(toolsJson, 'utf-8') / 4)
+  // plan mode uses a subset — reflect that proportionally
+  const modeFactor = sessionMode === 'plan' ? 0.4 : 1.0
+  return Math.round((systemTokens + toolsTokens) * modeFactor)
 }
