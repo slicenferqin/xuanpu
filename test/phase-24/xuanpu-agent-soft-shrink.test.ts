@@ -81,7 +81,8 @@ describe('Context Packer — soft shrink and budget allocation', () => {
     })
 
     // The last turn should be included (most recent)
-    const workingSetMsgs = result.messages.filter(
+    const allMsgs = [...result.providerContextMessages, result.providerPromptMessage]
+    const workingSetMsgs = allMsgs.filter(
       (m) => m.role === 'user' && m.content[0].text.startsWith('Turn ')
     )
     if (workingSetMsgs.length > 0) {
@@ -100,7 +101,7 @@ describe('Context Packer — soft shrink and budget allocation', () => {
       currentRequest: longRequest
     })
 
-    const lastMsg = result.messages[result.messages.length - 1]
+    const lastMsg = result.providerPromptMessage
     expect(lastMsg.content[0].text).toBe(longRequest)
     expect(lastMsg.content[0].text.length).toBe(50_000)
   })
@@ -135,7 +136,8 @@ describe('Context Packer — soft shrink and budget allocation', () => {
     })
 
     expect(result.decisions.zones.workingSet.dedupedCount).toBe(1)
-    const allText = result.messages.map((m) => m.content[0].text).join('\n')
+    const allMsgs = [...result.providerContextMessages, result.providerPromptMessage]
+    const allText = allMsgs.map((m) => m.content[0].text).join('\n')
     expect(allText).toContain('Unique turn')
     expect(allText).not.toContain('Duplicated turn')
   })

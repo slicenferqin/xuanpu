@@ -1,0 +1,16 @@
+{
+  "name": "@xuanpu/pi-agent-core",
+  "version": "15.2.4",
+  "private": true,
+  "description": "Xuanpu fork of @oh-my-pi/pi-agent-core — adds turn-scoped runTurn API",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*"
+  },
+  "dependencies": {
+    "@oh-my-pi/pi-agent-core": "15.2.4",
+    "@oh-my-pi/pi-ai": "15.2.4"
+  }
+}

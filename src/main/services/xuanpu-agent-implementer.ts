@@ -27,6 +27,9 @@ import type { XuanpuAgentHarnessMetrics } from './xuanpu-agent/harness/metrics'
 import { XfpPacketCompiler, type CompilerDecision } from './xuanpu-agent/harness/compiler'
 import { packContext } from './xuanpu-agent/context/context-packer'
 import { listFieldEpisodeBlocks } from '../field/episode-block-repository'
+import { createAgentTurn, createAgentTurnUsageEvent, updateAgentTurnStatus } from '../db/turn-repository'
+import { buildProviderRequest } from './xuanpu-agent/turn/provider-request-builder'
+import { recordProviderRequestSnapshot } from './xuanpu-agent/turn/provider-request-recorder'
 import { extractUsageTokens } from '../../shared/usage/message'
 import type {
   XfpAnchorSection,
@@ -87,6 +90,8 @@ interface XuanpuAgentSessionState {
   status: 'ready' | 'running' | 'closed' | 'error'
   abortController: AbortController | null
   piSession: XuanpuPiAgentSession | null
+  /** The currently active turn id (Phase 1 — turn-scoped execution boundary). */
+  activeTurnId: string | null
 }
 
 function extractPromptText(
@@ -142,7 +147,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       worktreePath,
       status: 'ready',
       abortController: null,
-      piSession: null
+      piSession: null,
+      activeTurnId: null
     })
 
     log.info('Connected xuanpu-agent session', { worktreePath, hiveSessionId, sessionId })
@@ -161,7 +167,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       worktreePath,
       status: 'ready',
       abortController: null,
-      piSession: null
+      piSession: null,
+      activeTurnId: null
     })
     return { success: true, sessionStatus: 'idle' }
   }
@@ -223,13 +230,27 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     beginSessionRun(session.hiveSessionId)
     const userMessageId = `xuanpu-agent-user-${randomUUID()}`
     field.persistMessage(session.hiveSessionId, 'user', text, { messageId: userMessageId })
+
+    const modelRef = resolveXuanpuAgentModelRef(modelOverride, this.selectedModelRef, this.getAgentConfig())
+
+    // INV-TURN-2: Every prompt creates a turn record. Must not be best-effort.
+    const turnId = createAgentTurn({
+      sessionId: session.hiveSessionId,
+      worktreeId: worktree?.id ?? null,
+      projectId: worktree?.projectId ?? 'unknown',
+      runtimeId: 'xuanpu-agent',
+      userMessageId,
+      modelProviderId: modelRef.providerID,
+      modelId: modelRef.modelID,
+      modelVariant: modelRef.variant ?? null
+    }, this.db).id
+    session.activeTurnId = turnId
+
     session.status = 'running'
     // NOTE: AbortController is a placeholder for future signal wiring.
     // Actual abort is handled by piSession.abort() below.
     session.abortController = new AbortController()
     this.emitStatus(session.hiveSessionId, 'busy')
-
-    const modelRef = resolveXuanpuAgentModelRef(modelOverride, this.selectedModelRef, this.getAgentConfig())
 
     // ── Build field context via FieldProvider (IDE or CLI) ──
     const gitState = await this.buildGitStateForWorktree(session.worktreePath)
@@ -455,7 +476,9 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       if (packedContext.decisions.fillRatio >= 0.4 && worktree) {
         softShrinkTriggered = true
         await this.freezeOldConversationTurns(session).catch(() => {})
-        const freshPriors = field.getPriorTurns(session.hiveSessionId)
+        const freshPriors = field
+          .getPriorTurns(session.hiveSessionId)
+          .filter((turn) => turn.messageId !== userMessageId)
         const freshEpisodes = listFieldEpisodeBlocks({
           worktreeId: worktree.id,
           sessionId: session.hiveSessionId,
@@ -479,14 +502,42 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       // Record fill ratio to budget manager
       piSession.budgetManager.recordPackerFillRatio(packedContext.decisions.fillRatio)
 
-      const harnessMessages = packedContext.messages
+      const harnessMessages = [
+        ...packedContext.providerContextMessages,
+        packedContext.providerPromptMessage
+      ]
+
+      // ── INV-TURN-5: Persist provider request snapshot before model call ──
+      const requestSnapshot = buildProviderRequest({
+        turnId,
+        sessionId: session.hiveSessionId,
+        modelRef,
+        systemPrompt: ['<xuanpu-agent system prompt — see runtime.ts>'],
+        contextMessages: packedContext.providerContextMessages,
+        promptMessage: packedContext.providerPromptMessage,
+        tools: [], // Recorded by runtime; snapshot captures messages/system/config.
+        providerSessionPolicy: {
+          mode: 'disabled',
+          reason: 'xuanpu owns turn-scoped context'
+        },
+        budget: {
+          profile: packedContext.decisions.fillRatio > 0.5 ? 'focused' :
+                   packedContext.decisions.fillRatio > 0.15 ? 'balanced' : 'extended',
+          managedApproxTokens: packedContext.decisions.totalTokens,
+          providerEstimatedInputTokens: packedContext.decisions.totalTokens,
+          maxContextTokens: 150_000,
+          fillRatio: packedContext.decisions.fillRatio
+        },
+        prefixHash: packedContext.decisions.prefixHash
+      })
+      recordProviderRequestSnapshot(requestSnapshot)
 
       const observedPaths = new Set<string>()
       const result = await piSession.prompt(
         harnessMessages,
         modelRef,
         {
-          onTextDelta: (delta) => this.emitTextDelta(session.hiveSessionId, delta),
+          onTextDelta: (delta) => this.emitTextDelta(session.hiveSessionId, delta, turnId),
           onToolStart: (event) => {
             collectObservedToolPaths(
               session.worktreePath,
@@ -515,7 +566,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             this.emitToolEnd(session.hiveSessionId, event)
           }
         },
-        sessionMode
+        sessionMode,
+        turnId
       )
 
       const assistantText = result.text.trim()
@@ -532,6 +584,13 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         usage: result.usage,
         rawMessage: result.rawMessage
       })
+
+      // Phase 1: Mark turn as completed.
+      if (session.activeTurnId) {
+        updateAgentTurnStatus(session.activeTurnId, 'completed', {
+          assistantMessageId: result.messageId
+        }, this.db)
+      }
       this.emitMessageUpdated(session.hiveSessionId, content, {
         messageId: result.messageId,
         modelRef: result.modelRef,
@@ -539,8 +598,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         contextPackageId: compileResult.packet.identity.packetId
       })
 
-      // Emit session.context_usage for unified context indicator
-      // Wrap in { usage: ... } so extractUsageTokens can find the nested shape
+      // ── INV-TURN-4: Three-layer context_usage ──
       const rawUsage = (result.usage ?? {}) as Record<string, unknown>
       const tokenCounts = extractUsageTokens({ usage: rawUsage })
       const inputTokens = tokenCounts?.input ?? 0
@@ -548,27 +606,65 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       const cacheRead = tokenCounts?.cacheRead ?? 0
       const cacheWrite = tokenCounts?.cacheWrite ?? 0
       const contextWindow = piSession.budgetManager.state.maxTokens
-      const usedTokens = packedContext.decisions.totalTokens
+      const managedTokens = packedContext.decisions.totalTokens
+      const providerActualInput = tokenCounts?.input ?? null
+      const providerActualCacheRead = tokenCounts?.cacheRead ?? null
+
       emitAgentEvent(this.mainWindow, {
         type: 'session.context_usage',
         sessionId: session.hiveSessionId,
         data: {
-          tokens: {
-            input: inputTokens,
-            cacheRead: cacheRead,
-            cacheWrite: cacheWrite,
-            output: outputTokens,
-            reasoning: 0
+          managedContext: {
+            approxTokens: managedTokens,
+            maxContextTokens: contextWindow,
+            fillRatio: packedContext.decisions.fillRatio,
+            includedMessages: packedContext.providerContextMessages.length + 1,
+            source: 'context-packer'
           },
-          model: { providerID: result.modelRef.providerID, modelID: result.modelRef.modelID },
-          contextWindow,
-          breakdown: {
-            usedTokens,
-            maxTokens: contextWindow,
-            percentage: contextWindow > 0 ? (usedTokens / contextWindow) * 100 : 0
-          }
+          providerRequest: {
+            estimatedInputTokens: managedTokens,
+            providerRequestHash: requestSnapshot.providerRequestHash,
+            prefixHash: requestSnapshot.prefixHash ?? null,
+            messageCount: requestSnapshot.contextMessages.length + 1,
+            source: 'provider-request-snapshot'
+          },
+          providerActual: {
+            inputTokens: providerActualInput,
+            outputTokens,
+            cacheReadTokens: providerActualCacheRead,
+            cacheWriteTokens: cacheWrite,
+            source: tokenCounts ? 'provider-usage' : 'unavailable'
+          },
+          model: { providerID: result.modelRef.providerID, modelID: result.modelRef.modelID }
         }
       })
+
+      // ── INV-TURN-4: Per-turn usage ledger ──
+      if (tokenCounts) {
+        const total = inputTokens + outputTokens + cacheRead + cacheWrite
+        if (total > 0) {
+          try {
+            createAgentTurnUsageEvent({
+              turnId,
+              sessionId: session.hiveSessionId,
+              sourceEventId: result.messageId,
+              providerId: result.modelRef.providerID,
+              modelId: result.modelRef.modelID,
+              inputTokens,
+              outputTokens,
+              cacheWriteTokens: cacheWrite,
+              cacheReadTokens: cacheRead,
+              totalTokens: total,
+              rawUsageJson: JSON.stringify(rawUsage),
+              occurredAt: new Date().toISOString()
+            }, this.db)
+          } catch (err) {
+            log.warn('Failed to persist turn usage event', {
+              error: err instanceof Error ? err.message : String(err)
+            })
+          }
+        }
+      }
 
       // Persist usage entry for cost tracking
       if (this.db && tokenCounts) {
@@ -719,6 +815,12 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       ]
         .filter(Boolean)
         .join('\n')
+
+      // Phase 1: Mark turn as failed.
+      if (session.activeTurnId) {
+        updateAgentTurnStatus(session.activeTurnId, 'failed', { errorMessage }, this.db)
+      }
+
       field.persistMessage(session.hiveSessionId, 'assistant', errorMessage)
       session.status = 'error'
       session.abortController = null
@@ -733,6 +835,15 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
   async abort(_worktreePath: string, agentSessionId: string): Promise<boolean> {
     const session = this.sessions.get(agentSessionId)
     if (!session?.abortController) return false
+
+    // Phase 1: Mark active turn as aborted.
+    if (session.activeTurnId) {
+      updateAgentTurnStatus(session.activeTurnId, 'aborted', {
+        errorMessage: 'Aborted by user'
+      }, this.db)
+      session.activeTurnId = null
+    }
+
     session.abortController.abort()
     session.piSession?.abort()
     session.abortController = null
@@ -1395,15 +1506,17 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     return session.piSession
   }
 
-  private emitTextDelta(hiveSessionId: string, delta: string): void {
+  private emitTextDelta(hiveSessionId: string, delta: string, turnId?: string): void {
     if (!delta) return
 
     emitAgentEvent(this.mainWindow, {
       type: 'message.part.updated',
       sessionId: hiveSessionId,
+      turnId,
       data: {
         part: { type: 'text', text: delta },
-        delta
+        delta,
+        turnId
       }
     })
   }

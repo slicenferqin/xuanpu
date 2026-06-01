@@ -43,10 +43,15 @@ export interface ContextPackerInput {
 }
 
 export interface ContextPackerOutput {
-  messages: XuanpuPiPromptMessage[]
+  /** All context messages EXCEPT the current user request. Sent as context, not as a prompt. */
+  providerContextMessages: XuanpuPiPromptMessage[]
+  /** The current user request. This is the ONLY message sent as a prompt. */
+  providerPromptMessage: XuanpuPiPromptMessage
   decisions: ContextPackerDecisions
   /** Full retrieved episode entries that were included by the packer. */
   includedRetrievedEpisodes: RetrievedEpisodeEntry[]
+  /** @deprecated Removed in M8 — use providerContextMessages + providerPromptMessage instead. */
+  messages?: never
 }
 
 export interface ContextPackerDecisions {
@@ -216,8 +221,13 @@ export function packContext(input: ContextPackerInput): ContextPackerOutput {
   messages.push(createUserMessage(input.currentRequest, now))
   usedTokens += requestTokens
 
+  // The last message is always the current user request.
+  const providerPromptMessage = messages[messages.length - 1]
+  const providerContextMessages = messages.slice(0, -1)
+
   return {
-    messages,
+    providerContextMessages,
+    providerPromptMessage,
     includedRetrievedEpisodes: includedRetrieved,
     decisions: {
       zones: {

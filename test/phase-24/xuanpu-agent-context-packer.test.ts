@@ -46,7 +46,8 @@ describe('packContext', () => {
       currentRequest: 'What about this?'
     })
 
-    const texts = result.messages.map((m) => m.content[0].text)
+    const allMessages = [...result.providerContextMessages, result.providerPromptMessage]
+    const texts = allMessages.map((m) => m.content[0].text)
 
     // Anchor first
     expect(texts[0]).toContain('helpful assistant')
@@ -78,7 +79,8 @@ describe('packContext', () => {
     })
 
     expect(result.decisions.zones.workingSet.dedupedCount).toBe(1)
-    const allText = result.messages.map((m) => m.content[0].text).join('\n')
+    const allMessages = [...result.providerContextMessages, result.providerPromptMessage]
+    const allText = allMessages.map((m) => m.content[0].text).join('\n')
     expect(allText).not.toContain('This should be deduped')
     expect(allText).toContain('This should remain')
   })
@@ -99,7 +101,7 @@ describe('packContext', () => {
   it('always includes current request', () => {
     const result = packContext(BASE_INPUT)
 
-    const lastMsg = result.messages[result.messages.length - 1]
+    const lastMsg = result.providerPromptMessage
     expect(lastMsg.content[0].text).toBe('Hello, help me with this task.')
     expect(result.decisions.zones.currentRequest.tokens).toBeGreaterThan(0)
   })
@@ -119,7 +121,7 @@ describe('packContext', () => {
     })
 
     // Should still include all zones but with limited content
-    expect(result.messages.length).toBeGreaterThan(0)
+    expect(result.providerContextMessages.length + 1).toBeGreaterThan(0)
   })
 
   it('sorts episodes by most recent first', () => {
@@ -132,7 +134,8 @@ describe('packContext', () => {
       currentRequest: 'Hello'
     })
 
-    const episodeBlock = result.messages.find((m) =>
+    const allMessages = [...result.providerContextMessages, result.providerPromptMessage]
+    const episodeBlock = allMessages.find((m) =>
       m.content[0].text.includes('xuanpu-frozen-episodes')
     )
     expect(episodeBlock).toBeDefined()
@@ -249,7 +252,8 @@ describe('packContext', () => {
       currentRequest: 'what was that auth fix?'
     })
 
-    const allText = result.messages.map((m) => m.content[0].text).join('\n')
+    const allMessages = [...result.providerContextMessages, result.providerPromptMessage]
+    const allText = allMessages.map((m) => m.content[0].text).join('\n')
     expect(allText).toContain('<xuanpu-retrieved-episodes>')
     expect(allText).toContain('Auth Bug Discussion')
     expect(allText).toContain('keyword:auth')
@@ -279,7 +283,8 @@ describe('packContext', () => {
       currentRequest: 'continue'
     })
 
-    const allText = result.messages.map((m) => m.content[0].text).join('\n')
+    const allMessages = [...result.providerContextMessages, result.providerPromptMessage]
+    const allText = allMessages.map((m) => m.content[0].text).join('\n')
     expect(allText).not.toContain('Already in retrieved')
     expect(allText).toContain('Not in episode')
     expect(result.decisions.zones.workingSet.dedupedCount).toBe(1)

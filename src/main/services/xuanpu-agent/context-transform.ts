@@ -51,7 +51,8 @@ export interface XuanpuAgentContextTransformInput {
 }
 
 export interface XuanpuAgentContextTransformResult {
-  messages: XuanpuPiPromptMessage[]
+  providerContextMessages: XuanpuPiPromptMessage[]
+  providerPromptMessage: XuanpuPiPromptMessage
   decisions: Record<string, unknown>
 }
 
@@ -95,7 +96,7 @@ export function buildXuanpuAgentPromptMessages(
 
     const result = packContext({
       anchor: packetAnchor,
-      fieldContextMarkdown: null, // Packet already contains field context
+      fieldContextMarkdown: null,
       frozenEpisodes: input.episodeRecords ?? [],
       workingSet,
       currentRequest: input.currentUserText,
@@ -103,15 +104,12 @@ export function buildXuanpuAgentPromptMessages(
     })
 
     return {
-      messages: result.messages,
+      providerContextMessages: result.providerContextMessages,
+      providerPromptMessage: result.providerPromptMessage,
       decisions: {
         contextTransform: 'xfp-harness-context-packer',
-        contextBoundary: 'pi-agent-message-array',
-        visibleTranscriptPolicy: 'persist-user-authored-message-only',
-        semanticCompression: 'disabled',
-        currentUserMessagePosition: 'last',
         xfpPacketId: packet.identity.packetId,
-        promptMessageCount: result.messages.length,
+        promptMessageCount: result.providerContextMessages.length + 1,
         ...result.decisions
       }
     }
@@ -129,7 +127,8 @@ export function buildXuanpuAgentPromptMessages(
     })
 
     return {
-      messages: result.messages,
+      providerContextMessages: result.providerContextMessages,
+      providerPromptMessage: result.providerPromptMessage,
       decisions: {
         contextTransform: 'm7-context-packer',
         ...result.decisions
@@ -137,146 +136,24 @@ export function buildXuanpuAgentPromptMessages(
     }
   }
 
-  // Legacy fallback — manual assembly (pre-M7)
-  return buildLegacyMessages(input, now)
-}
-
-function buildLegacyMessages(
-  input: XuanpuAgentContextTransformInput,
-  now: number
-): XuanpuAgentContextTransformResult {
-  const maxPriorMessages = input.maxPriorMessages ?? DEFAULT_MAX_PRIOR_MESSAGES
-  const maxPriorChars = input.maxPriorChars ?? DEFAULT_MAX_PRIOR_CHARS
-  const maxFrozenEpisodes = input.maxFrozenEpisodes ?? DEFAULT_MAX_FROZEN_EPISODES
-  const maxFrozenEpisodeChars = input.maxFrozenEpisodeChars ?? DEFAULT_MAX_FROZEN_EPISODE_CHARS
-  const fieldContextMarkdown = input.fieldContextMarkdown?.trim() || null
-  const episodeSource = input.retrievedEpisodes ?? input.frozenEpisodes ?? []
-  const episodeContextKind = input.retrievedEpisodes ? 'retrieved_episodes' : 'frozen_episodes'
-  const contextEpisodes = selectContextEpisodes(episodeSource, {
-    maxFrozenEpisodes,
-    maxFrozenEpisodeChars
-  })
-  const priorMessages = selectPriorMessages(input.priorMessages ?? [], {
-    maxPriorMessages,
-    maxPriorChars
-  })
-
+  // No legacy fallback — xuanpu-agent always uses the context packer.
+  // If callers pass priorMessages without episodeRecords/workingSet,
+  // wrap them minimally.
   const messages: XuanpuPiPromptMessage[] = [createUserMessage(CONTEXT_ANCHOR_TEXT, now)]
-
-  if (fieldContextMarkdown) {
-    messages.push(
-      createUserMessage(
-        [
-          '<xuanpu-current-field-context>',
-          fieldContextMarkdown,
-          '</xuanpu-current-field-context>'
-        ].join('\n'),
-        now
-      )
-    )
+  if (input.priorMessages) {
+    for (const msg of input.priorMessages.slice(-DEFAULT_MAX_PRIOR_MESSAGES)) {
+      messages.push(createConversationMessage(msg, now))
+    }
   }
-
-  if (contextEpisodes.included.length > 0) {
-    const tag =
-      episodeContextKind === 'retrieved_episodes'
-        ? 'xuanpu-retrieved-episodes'
-        : 'xuanpu-frozen-episodes'
-    messages.push(
-      createUserMessage(
-        [`<${tag}>`, ...contextEpisodes.included.map(formatFrozenEpisode), `</${tag}>`].join(
-          '\n\n'
-        ),
-        now
-      )
-    )
-  }
-
-  messages.push(...priorMessages.included.map((message) => createConversationMessage(message, now)))
   messages.push(createUserMessage(input.currentUserText, now))
 
   return {
-    messages,
+    providerContextMessages: messages.slice(0, -1),
+    providerPromptMessage: messages[messages.length - 1],
     decisions: {
-      contextTransform: 'legacy-minimal-anchor',
-      contextBoundary: 'pi-agent-message-array',
-      visibleTranscriptPolicy: 'persist-user-authored-message-only',
-      semanticCompression: 'disabled',
-      currentUserMessagePosition: 'last',
-      fieldContextInjected: Boolean(fieldContextMarkdown),
-      episodeContextKind,
-      includedRetrievedEpisodeCount:
-        episodeContextKind === 'retrieved_episodes' ? contextEpisodes.included.length : 0,
-      droppedRetrievedEpisodeCount:
-        episodeContextKind === 'retrieved_episodes' ? contextEpisodes.dropped : 0,
-      includedFrozenEpisodeCount: contextEpisodes.included.length,
-      droppedFrozenEpisodeCount: contextEpisodes.dropped,
-      maxFrozenEpisodes,
-      maxFrozenEpisodeChars,
-      includedPriorMessageCount: priorMessages.included.length,
-      droppedPriorMessageCount: priorMessages.dropped,
-      maxPriorMessages,
-      maxPriorChars,
+      contextTransform: 'minimal-anchor',
       promptMessageCount: messages.length
     }
-  }
-}
-
-function selectContextEpisodes(
-  episodes: XuanpuAgentFrozenEpisode[],
-  options: { maxFrozenEpisodes: number; maxFrozenEpisodeChars: number }
-): { included: XuanpuAgentFrozenEpisode[]; dropped: number } {
-  const candidates = episodes
-    .filter((episode) => episode.summaryMarkdown.trim().length > 0)
-    .slice(0, options.maxFrozenEpisodes)
-
-  const included: XuanpuAgentFrozenEpisode[] = []
-  let charCount = 0
-
-  for (const episode of candidates) {
-    const nextSize = episode.summaryMarkdown.length
-    if (included.length > 0 && charCount + nextSize > options.maxFrozenEpisodeChars) break
-    if (included.length === 0 || charCount + nextSize <= options.maxFrozenEpisodeChars) {
-      included.push(episode)
-      charCount += nextSize
-    }
-  }
-
-  return {
-    included,
-    dropped: episodes.length - included.length
-  }
-}
-
-function selectPriorMessages(
-  messages: XuanpuAgentContextTurn[],
-  options: { maxPriorMessages: number; maxPriorChars: number }
-): { included: XuanpuAgentContextTurn[]; dropped: number } {
-  const candidates = messages
-    .filter((message) => {
-      const content = message.content.trim()
-      return content.length > 0 && (message.role === 'user' || message.role === 'assistant')
-    })
-    .slice(-options.maxPriorMessages)
-
-  const includedReversed: XuanpuAgentContextTurn[] = []
-  let charCount = 0
-
-  for (let index = candidates.length - 1; index >= 0; index -= 1) {
-    const message = candidates[index]
-    const nextSize = message.content.length
-    if (includedReversed.length > 0 && charCount + nextSize > options.maxPriorChars) {
-      break
-    }
-    if (includedReversed.length === 0 || charCount + nextSize <= options.maxPriorChars) {
-      includedReversed.push(message)
-      charCount += nextSize
-    }
-  }
-
-  const included = includedReversed.reverse()
-  return {
-    included,
-    dropped: messages.length - included.length
   }
 }
 
@@ -297,17 +174,6 @@ function createUserMessage(text: string, timestamp: number): XuanpuPiPromptMessa
     content: [{ type: 'text', text }],
     timestamp
   }
-}
-
-function formatFrozenEpisode(episode: XuanpuAgentFrozenEpisode): string {
-  return [
-    `<episode id="${episode.id}">`,
-    episode.title ? `### ${episode.title}` : null,
-    episode.summaryMarkdown.trim(),
-    '</episode>'
-  ]
-    .filter(Boolean)
-    .join('\n')
 }
 
 function parseTimestamp(value: string | number | null | undefined): number | null {

@@ -272,6 +272,8 @@ export interface EventEnvelope {
   runEpoch: number
   /** Which IPC channel the event arrived on (set by preload normalizer). */
   sourceChannel?: 'agent:stream'
+  /** Turn-scoped execution boundary id (Phase 4d). */
+  turnId?: string
 }
 
 // ---------------------------------------------------------------------------

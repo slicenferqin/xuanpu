@@ -65,6 +65,7 @@ interface PiAgentLike {
   setModel(model: unknown): void
   setSystemPrompt(prompt: string[]): void
   setTools(tools: unknown[]): void
+  replaceMessages(msgs: XuanpuPiPromptMessage[]): void
   subscribe(listener: (event: PiAgentEvent) => void): () => void
   prompt(input: string | XuanpuPiPromptMessage[]): Promise<void>
   abort(): void
@@ -171,7 +172,8 @@ export class XuanpuPiAgentSession {
     input: string | XuanpuPiPromptMessage[],
     modelRef: XuanpuAgentModelRef,
     handlers: XuanpuAgentPromptEventHandlers = {},
-    toolMode?: 'build' | 'plan'
+    toolMode?: 'build' | 'plan',
+    turnId?: string
   ): Promise<XuanpuAgentPromptResult> {
     if (this.prompting) {
       throw new Error('xuanpu-agent: overlapping prompt() calls are not allowed on the same session')
@@ -186,8 +188,9 @@ export class XuanpuPiAgentSession {
       ? (provider: string) => resolveConfiguredApiKey(provider, agentConfig)
       : undefined
 
-    const agent = await this.getOrCreateAgent(
-      resolved.modelRef, resolved.model, resolved.streamFn, getApiKey
+    // INV-TURN-1: Fresh Agent per turn — no stateful carryover.
+    const agent = await this.createAgentForTurn(
+      resolved.modelRef, resolved.model, resolved.streamFn, getApiKey, turnId
     )
 
     // Apply tool mode AFTER agent creation so it's not a no-op on first prompt
@@ -264,7 +267,19 @@ export class XuanpuPiAgentSession {
     })
 
     try {
-    await agent.prompt(input)
+    // INV-TURN-3 fix: split context messages from the current prompt.
+    // Context messages are pre-loaded via replaceMessages() so they appear
+    // in agent.state.messages but do NOT get prompt-echoed by agentLoop.
+    // Only the final message (the user's actual prompt) is passed to
+    // agent.prompt(), so only it produces message_start/message_end echo.
+    if (Array.isArray(input) && input.length > 1) {
+      const contextMessages = input.slice(0, -1)
+      const promptMessage = input[input.length - 1]
+      agent.replaceMessages(contextMessages)
+      await agent.prompt(promptMessage)
+    } else {
+      await agent.prompt(input)
+    }
 
     const turnStateMessages = getNewTurnMessages(
       agent.state.messages,
@@ -324,41 +339,47 @@ export class XuanpuPiAgentSession {
     this.lastModelKey = null
   }
 
-  private async getOrCreateAgent(
+  /**
+   * INV-TURN-1: Always create a fresh Agent per turn.
+   * No stateful reuse — provider sees only this turn's snapshot.
+   */
+  private async createAgentForTurn(
     modelRef: XuanpuAgentModelRef,
     model: unknown,
     streamFn?: unknown,
-    getApiKey?: (provider: string) => string | undefined
+    getApiKey?: (provider: string) => string | undefined,
+    turnId?: string
   ): Promise<PiAgentLike> {
-    const modelKey = `${modelRef.providerID}/${modelRef.modelID}/${modelRef.variant ?? ''}`
+    // Dispose previous agent if any (should not happen in normal flow).
+    this.unsubscribe?.()
+    this.unsubscribe = null
+    this.agent?.abort()
+    this.agent = null
 
-    if (!this.agent || this.lastModelKey !== modelKey) {
-      this.dispose()
-      const piAgentCore = await loadPiAgentCoreModule()
-      const Agent = piAgentCore.Agent as PiAgentConstructor | undefined
-      if (!Agent) {
-        throw new Error('@oh-my-pi/pi-agent-core Agent export is not available')
-      }
-
-      this.agent = new Agent({
-        sessionId: this.sessionId,
-        ...(getApiKey ? { getApiKey } : {}),
-        beforeToolCall: this.stormDetector.hook,
-        afterToolCall: this.toolTruncator.hook,
-        transformContext: this.budgetManager.transformContext,
-        getToolContext: () => ({
-          worktreePath: this._worktreePath ?? undefined,
-          sessionId: this.sessionId
-        }),
-        ...(typeof streamFn === 'function' ? { streamFn } : {})
-      })
-      const tools = getXuanpuAgentAllowedTools()
-      assertXuanpuAgentAllowedTools(tools)
-      this.agent.setSystemPrompt(getXuanpuAgentSystemPromptLines())
-      this.agent.setTools(tools)
-      this.lastModelKey = modelKey
+    const piAgentCore = await loadPiAgentCoreModule()
+    const Agent = piAgentCore.Agent as PiAgentConstructor | undefined
+    if (!Agent) {
+      throw new Error('@oh-my-pi/pi-agent-core Agent export is not available')
     }
 
+    this.agent = new Agent({
+      // Turn-scoped sessionId — not the long-lived hive session.
+      sessionId: turnId ?? this.sessionId,
+      providerSessionState: undefined, // INV-TURN-1: disabled
+      ...(getApiKey ? { getApiKey } : {}),
+      beforeToolCall: this.stormDetector.hook,
+      afterToolCall: this.toolTruncator.hook,
+      transformContext: this.budgetManager.transformContext,
+      getToolContext: () => ({
+        worktreePath: this._worktreePath ?? undefined,
+        sessionId: this.sessionId
+      }),
+      ...(typeof streamFn === 'function' ? { streamFn } : {})
+    })
+    const tools = getXuanpuAgentAllowedTools()
+    assertXuanpuAgentAllowedTools(tools)
+    this.agent.setSystemPrompt(getXuanpuAgentSystemPromptLines())
+    this.agent.setTools(tools)
     this.agent.setModel(model)
     return this.agent
   }

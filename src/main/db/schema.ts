@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 33
+export const CURRENT_SCHEMA_VERSION = 34
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -1289,6 +1289,87 @@ export const MIGRATIONS: Migration[] = [
     `,
     down: `
       -- SQLite cannot DROP COLUMN reliably; no-op for safety
+    `
+  },
+  {
+    version: 34,
+    name: 'add_agent_turn_tables',
+    up: `
+      -- Agent turns: one row per provider execution boundary.
+      CREATE TABLE IF NOT EXISTS agent_turns (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        worktree_id TEXT REFERENCES worktrees(id) ON DELETE SET NULL,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        runtime_id TEXT NOT NULL,
+        user_message_id TEXT,
+        assistant_message_id TEXT,
+        status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed', 'aborted')),
+        model_provider_id TEXT,
+        model_id TEXT,
+        model_variant TEXT,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        error_message TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_agent_turns_session_started
+        ON agent_turns(session_id, started_at ASC);
+      CREATE INDEX IF NOT EXISTS idx_agent_turns_status
+        ON agent_turns(status);
+
+      -- Immutable provider request snapshot per turn (auditable, replayable).
+      CREATE TABLE IF NOT EXISTS agent_turn_context_snapshots (
+        id TEXT PRIMARY KEY,
+        turn_id TEXT NOT NULL REFERENCES agent_turns(id) ON DELETE CASCADE,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        xfp_packet_id TEXT,
+        provider_request_hash TEXT NOT NULL,
+        prefix_hash TEXT,
+        managed_context_json TEXT NOT NULL,
+        provider_messages_json TEXT NOT NULL,
+        provider_tools_json TEXT NOT NULL,
+        provider_config_json TEXT NOT NULL,
+        decisions_json TEXT NOT NULL,
+        managed_approx_tokens INTEGER NOT NULL DEFAULT 0,
+        provider_estimated_input_tokens INTEGER NOT NULL DEFAULT 0,
+        max_context_tokens INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_turn_context_turn
+        ON agent_turn_context_snapshots(turn_id);
+
+      -- Per-turn provider usage events (event-keyed atomic ledger).
+      CREATE TABLE IF NOT EXISTS agent_turn_usage_events (
+        id TEXT PRIMARY KEY,
+        turn_id TEXT NOT NULL REFERENCES agent_turns(id) ON DELETE CASCADE,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        source_event_id TEXT NOT NULL,
+        provider_id TEXT,
+        model_id TEXT,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+        total_tokens INTEGER NOT NULL DEFAULT 0,
+        cost REAL NOT NULL DEFAULT 0,
+        raw_usage_json TEXT NOT NULL,
+        occurred_at TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_turn_usage_source
+        ON agent_turn_usage_events(turn_id, source_event_id);
+      CREATE INDEX IF NOT EXISTS idx_agent_turn_usage_session
+        ON agent_turn_usage_events(session_id, occurred_at DESC);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_agent_turn_usage_session;
+      DROP INDEX IF EXISTS idx_agent_turn_usage_source;
+      DROP TABLE IF EXISTS agent_turn_usage_events;
+      DROP INDEX IF EXISTS idx_agent_turn_context_turn;
+      DROP TABLE IF EXISTS agent_turn_context_snapshots;
+      DROP INDEX IF EXISTS idx_agent_turns_status;
+      DROP INDEX IF EXISTS idx_agent_turns_session_started;
+      DROP TABLE IF EXISTS agent_turns;
     `
   }
 ]

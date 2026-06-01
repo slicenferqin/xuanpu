@@ -99,6 +99,7 @@
     "@monaco-editor/react": "^4.7.0",
     "@oh-my-pi/pi-agent-core": "15.2.4",
     "@oh-my-pi/pi-ai": "15.2.4",
+    "@xuanpu/pi-agent-core": "workspace:*",
     "@opencode-ai/sdk": "^1.14.29",
     "@radix-ui/react-context-menu": "^2.2.16",
     "@radix-ui/react-dialog": "^1.1.15",

@@ -1,5 +1,25 @@
 export { DatabaseService, getDatabase, closeDatabase } from './database'
 export { CURRENT_SCHEMA_VERSION, MIGRATIONS } from './schema'
+export {
+  createAgentTurn,
+  updateAgentTurnStatus,
+  getAgentTurn,
+  listAgentTurns,
+  createAgentTurnContextSnapshot,
+  getAgentTurnContextSnapshot,
+  createAgentTurnUsageEvent,
+  listAgentTurnUsageEvents,
+  sumAgentTurnUsageTokens
+} from './turn-repository'
+export type {
+  AgentTurnStatus,
+  AgentTurnCreate,
+  AgentTurnRecord,
+  AgentTurnContextSnapshotCreate,
+  AgentTurnContextSnapshotRecord,
+  AgentTurnUsageEventCreate,
+  AgentTurnUsageEventRecord
+} from './turn-repository'
 export type {
   Project,
   ProjectCreate,

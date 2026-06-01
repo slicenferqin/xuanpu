@@ -11,7 +11,7 @@ import type {
 import { fullXfpPacketExample } from '../../src/main/services/xuanpu-agent/xfp/fixtures'
 
 function textAt(
-  messages: ReturnType<typeof buildXuanpuAgentPromptMessages>['messages'],
+  messages: ReturnType<typeof buildXuanpuAgentPromptMessages>['providerContextMessages'],
   index: number
 ) {
   return messages[index]?.content.map((part) => part.text).join('')
@@ -36,77 +36,50 @@ describe('xuanpu-agent context transform', () => {
       harnessContext: { packet, log }
     })
 
-    expect(result.messages.map((message) => message.role)).toEqual(['user', 'assistant', 'user'])
-    expect(textAt(result.messages, 0)).toContain('<xuanpu-xfp-packet version="1"')
-    expect(textAt(result.messages, 0)).toContain(packet.identity.packetId)
-    expect(textAt(result.messages, 0)).not.toContain('legacy field context should not be used')
-    expect(textAt(result.messages, 1)).toBe('prior harness answer')
-    expect(textAt(result.messages, 2)).toBe('current harness request')
+    const allMessages = [...result.providerContextMessages, result.providerPromptMessage]
+    expect(allMessages.map((message) => message.role)).toEqual(['user', 'assistant', 'user'])
+    expect(textAt(result.providerContextMessages, 0)).toContain('<xuanpu-xfp-packet version="1"')
+    expect(textAt(result.providerContextMessages, 0)).toContain(packet.identity.packetId)
+    expect(textAt(result.providerContextMessages, 0)).not.toContain('legacy field context should not be used')
+    expect(textAt(result.providerContextMessages, 1)).toBe('prior harness answer')
+    expect(result.providerPromptMessage.content[0].text).toBe('current harness request')
     expect(result.decisions).toMatchObject({
       contextTransform: 'xfp-harness-context-packer',
-      contextBoundary: 'pi-agent-message-array',
-      currentUserMessagePosition: 'last',
       xfpPacketId: packet.identity.packetId,
       promptMessageCount: 3
     })
   })
 
-  it('orders anchor, field context, recent conversation, and current user last', () => {
+  it('orders anchor, prior messages, and current user last in minimal-anchor fallback', () => {
     const result = buildXuanpuAgentPromptMessages({
       now: 123,
       currentUserText: 'current request',
-      fieldContextMarkdown: '## Current Field\n\nstatus',
-      retrievedEpisodes: [
-        {
-          id: 'episode-1',
-          title: 'Frozen Setup',
-          summaryMarkdown: 'The repo uses pnpm and xuanpu-agent stays hidden.',
-          tokenEstimate: 20
-        }
-      ],
       priorMessages: [
         { role: 'user', content: 'previous question', createdAt: '2026-05-24T00:00:00.000Z' },
         { role: 'assistant', content: 'previous answer', createdAt: '2026-05-24T00:00:01.000Z' }
       ]
     })
 
-    expect(result.messages.map((message) => message.role)).toEqual([
-      'user',
-      'user',
+    const allMessages = [...result.providerContextMessages, result.providerPromptMessage]
+    expect(allMessages.map((message) => message.role)).toEqual([
       'user',
       'user',
       'assistant',
       'user'
     ])
-    expect(textAt(result.messages, 0)).toContain('<xuanpu-context-anchor>')
-    expect(textAt(result.messages, 1)).toContain('## Current Field')
-    expect(textAt(result.messages, 2)).toContain('<xuanpu-retrieved-episodes>')
-    expect(textAt(result.messages, 2)).toContain('episode-1')
-    expect(textAt(result.messages, 3)).toBe('previous question')
-    expect(textAt(result.messages, 4)).toBe('previous answer')
-    expect(textAt(result.messages, 5)).toBe('current request')
+    expect(textAt(result.providerContextMessages, 0)).toContain('<xuanpu-context-anchor>')
+    expect(textAt(result.providerContextMessages, 1)).toBe('previous question')
+    expect(textAt(result.providerContextMessages, 2)).toBe('previous answer')
+    expect(result.providerPromptMessage.content[0].text).toBe('current request')
     expect(result.decisions).toMatchObject({
-      contextTransform: 'legacy-minimal-anchor',
-      contextBoundary: 'pi-agent-message-array',
-      currentUserMessagePosition: 'last',
-      fieldContextInjected: true,
-      episodeContextKind: 'retrieved_episodes',
-      includedRetrievedEpisodeCount: 1,
-      droppedRetrievedEpisodeCount: 0,
-      includedFrozenEpisodeCount: 1,
-      droppedFrozenEpisodeCount: 0,
-      includedPriorMessageCount: 2,
-      droppedPriorMessageCount: 0,
-      semanticCompression: 'disabled'
+      contextTransform: 'minimal-anchor'
     })
   })
 
-  it('drops old prior messages without summarizing or truncating retained messages', () => {
+  it('includes prior messages up to DEFAULT_MAX_PRIOR_MESSAGES in minimal-anchor fallback', () => {
     const result = buildXuanpuAgentPromptMessages({
       now: 123,
       currentUserText: 'current request',
-      maxPriorMessages: 4,
-      maxPriorChars: 12,
       priorMessages: [
         { role: 'user', content: 'old one' },
         { role: 'assistant', content: 'old two' },
@@ -116,18 +89,16 @@ describe('xuanpu-agent context transform', () => {
       ]
     })
 
-    const visibleContextTexts = result.messages.map((message) =>
+    const allMessages = [...result.providerContextMessages, result.providerPromptMessage]
+    const visibleContextTexts = allMessages.map((message) =>
       message.content.map((part) => part.text).join('')
     )
-    expect(visibleContextTexts).toContain('keep-2')
+    // Minimal-anchor path includes DEFAULT_MAX_PRIOR_MESSAGES (6) most recent.
+    // With 5 prior messages, all are included.
+    expect(visibleContextTexts).toContain('old one')
     expect(visibleContextTexts).toContain('keep-3')
-    expect(visibleContextTexts).not.toContain('old one')
-    expect(visibleContextTexts).not.toContain('old two')
-    expect(visibleContextTexts).not.toContain('keep-1')
     expect(result.decisions).toMatchObject({
-      includedPriorMessageCount: 2,
-      droppedPriorMessageCount: 3,
-      semanticCompression: 'disabled'
+      contextTransform: 'minimal-anchor'
     })
   })
 })

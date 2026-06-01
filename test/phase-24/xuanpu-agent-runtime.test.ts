@@ -22,6 +22,7 @@ interface FakeAssistantMessage {
 
 interface FakeAgentEvent {
   type:
+    | 'message_start'
     | 'message_update'
     | 'message_end'
     | 'agent_end'
@@ -47,6 +48,7 @@ const fakeRuntime = vi.hoisted(() => {
   const setToolsCalls: unknown[][] = []
   const systemPrompts: string[][] = []
   const prompts: Array<string | FakePromptMessage[]> = []
+  const replaceMessagesCalls: FakePromptMessage[][] = []
   const aborts: string[] = []
 
   class FakeAgent {
@@ -73,6 +75,17 @@ const fakeRuntime = vi.hoisted(() => {
       return () => this.listeners.delete(listener)
     }
 
+    replaceMessages(msgs: FakePromptMessage[]): void {
+      replaceMessagesCalls.push(msgs)
+      this.state.messages = msgs.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+        provider: 'xuanpu-agent',
+        model: 'xuanpu-agent-mock',
+        usage: {}
+      }))
+    }
+
     async prompt(input: string | FakePromptMessage[]): Promise<void> {
       prompts.push(input)
       const text =
@@ -85,6 +98,24 @@ const fakeRuntime = vi.hoisted(() => {
         provider: 'xuanpu-agent',
         model: 'xuanpu-agent-mock',
         usage: { input: 1, output: 2 }
+      }
+
+      // prompt-echoes mode: simulate oh-my-pi agent-loop behavior where
+      // message_start + message_end are emitted for EVERY prompt message,
+      // including historical assistant turns used as context. This is the
+      // root cause of the "old assistant reply flashes before real answer" bug.
+      if (eventMode === 'prompt-echoes' && Array.isArray(input)) {
+        for (const promptMsg of input) {
+          const echoMsg: FakeAssistantMessage = {
+            role: promptMsg.role,
+            content: promptMsg.content,
+            provider: 'xuanpu-agent',
+            model: 'xuanpu-agent-mock',
+            usage: {}
+          }
+          this.emit({ type: 'message_start', message: echoMsg })
+          this.emit({ type: 'message_end', message: echoMsg })
+        }
       }
 
       this.emit({
@@ -133,6 +164,7 @@ const fakeRuntime = vi.hoisted(() => {
   return {
     aborts,
     prompts,
+    replaceMessagesCalls,
     setToolsCalls,
     systemPrompts,
     FakeAgent,
@@ -141,6 +173,7 @@ const fakeRuntime = vi.hoisted(() => {
       prompts.length = 0
       setToolsCalls.length = 0
       systemPrompts.length = 0
+      replaceMessagesCalls.length = 0
     }
   }
 })
@@ -263,7 +296,7 @@ describe('XuanpuPiAgentSession', () => {
     expect(fakeRuntime.aborts).toEqual(['abort'])
   })
 
-  it('forwards Xuanpu-managed message arrays to the pi Agent without flattening them', async () => {
+  it('splits context messages into replaceMessages and only prompts the last message', async () => {
     process.env.XUANPU_AGENT_MOCK_RESPONSE = 'array ok'
 
     const { XuanpuPiAgentSession } = await import('../../src/main/services/xuanpu-agent/runtime')
@@ -292,11 +325,18 @@ describe('XuanpuPiAgentSession', () => {
     })
 
     expect(result.text).toBe('array ok')
+
+    // Context messages (all but last) go to replaceMessages — no prompt echo.
+    expect(fakeRuntime.replaceMessagesCalls).toHaveLength(1)
+    expect(fakeRuntime.replaceMessagesCalls[0]).toHaveLength(2) // anchor + prior assistant
+    expect(fakeRuntime.replaceMessagesCalls[0][0].content[0].text).toContain('xuanpu-context-anchor')
+    expect(fakeRuntime.replaceMessagesCalls[0][1].content[0].text).toBe('prior assistant turn')
+
+    // Only the last message (current request) goes to agent.prompt — gets echoed normally.
     expect(fakeRuntime.prompts).toHaveLength(1)
-    expect(fakeRuntime.prompts[0]).toBe(promptMessages)
-    expect((fakeRuntime.prompts[0] as FakePromptMessage[]).at(-1)?.content[0]?.text).toBe(
-      'current request'
-    )
+    const prompted = fakeRuntime.prompts[0] as FakePromptMessage
+    expect(prompted.content[0].text).toBe('current request')
+
     expect(recordedToolNames()).toEqual([EXPECTED_TOOL_NAMES])
   })
 
@@ -492,9 +532,8 @@ describe('XuanpuPiAgentSession', () => {
     expect(result.text).toBe('plan after model change')
 
     const allToolSets = recordedToolNames()
-    // After reset, only 2 setTools calls: plan-only tools, then full tools restored.
-    // (Agent is NOT recreated because model key is unchanged.)
-    expect(allToolSets.length).toBe(2)
+    // Fresh Agent per turn: 1 full tools (createAgentForTurn), 1 plan-only tools, 1 full restore = 3.
+    expect(allToolSets.length).toBe(3)
 
     // Find the plan-only tool set (one that doesn't contain write_file)
     const planToolSets = allToolSets.filter(
@@ -541,6 +580,71 @@ describe('XuanpuPiAgentSession', () => {
     expect(true).toBe(true) // If we get here, prompt succeeded with config
 
     delete process.env.CUSTOM_API_KEY
+    session.dispose()
+  })
+
+  // ── Phase 0: prompt-echo dogfood reproduction ──
+  // Verifies the root-cause bug: oh-my-pi agent-loop emits message_start +
+  // message_end for every prompt message (including historical assistant
+  // turns), and the current runtime handler indiscriminately routes all
+  // role=assistant message_end events to onTextDelta.
+  //
+  // EXPECTED BEHAVIOR (post-fix):
+  //   - Old assistant prompt echo does NOT enter onTextDelta.
+  //   - Final text comes from the real model output only.
+  //
+  // CURRENT BEHAVIOR (pre-fix):
+  //   - Old assistant text enters onTextDelta before real model output.
+  //   - This test is DESIGNED TO FAIL until Phase 5 (PiEventRouter) is done.
+  it('BUG: prompt-echo — old assistant context messages must not enter onTextDelta (Phase 0 regression)', async () => {
+    process.env.XUANPU_AGENT_MOCK_RESPONSE = 'real model answer'
+    process.env.XUANPU_AGENT_FAKE_EVENT_MODE = 'prompt-echoes'
+
+    const { XuanpuPiAgentSession } = await import(
+      '../../src/main/services/xuanpu-agent/runtime'
+    )
+    const session = new XuanpuPiAgentSession('test-prompt-echo')
+
+    // Simulate what Context Packer produces: anchor (user), prior assistant
+    // turn, and the current user request — all packed into one prompt array.
+    const promptMessages: FakePromptMessage[] = [
+      {
+        role: 'user',
+        content: [{ type: 'text', text: '<xuanpu-context-anchor>system context</xuanpu-context-anchor>' }],
+        timestamp: 1
+      },
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'I previously said: the answer is 42.' }],
+        timestamp: 2
+      },
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'What did I just ask?' }],
+        timestamp: 3
+      }
+    ]
+
+    const deltas: string[] = []
+
+    const result = await session.prompt(promptMessages, {
+      providerID: 'anthropic',
+      modelID: 'claude-haiku-4-5'
+    }, {
+      onTextDelta: (delta) => deltas.push(delta)
+    })
+
+    // Post-fix invariant: the final text must be the real model output only.
+    expect(result.text).toBe('real model answer')
+
+    // Post-fix invariant: the concatenated deltas must NOT contain the
+    // historical assistant text 'I previously said: the answer is 42.'
+    const allDeltas = deltas.join('')
+    expect(allDeltas).not.toContain('I previously said')
+
+    // Post-fix invariant: the deltas must end with the real model answer.
+    expect(allDeltas).toBe('real model answer')
+
     session.dispose()
   })
 })

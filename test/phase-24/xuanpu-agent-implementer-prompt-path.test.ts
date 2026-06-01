@@ -38,6 +38,15 @@ vi.mock('../../src/main/services/xuanpu-agent/context/context-packer', () => ({
   packContext: packContextMock
 }))
 
+const turnRepoMock = vi.hoisted(() => ({
+  createAgentTurn: vi.fn(() => ({ id: 'turn-test-1' })),
+  updateAgentTurnStatus: vi.fn(),
+  createAgentTurnContextSnapshot: vi.fn(),
+  createAgentTurnUsageEvent: vi.fn()
+}))
+
+vi.mock('../../src/main/db/turn-repository', () => turnRepoMock)
+
 vi.mock('../../src/main/field/episode-block-repository', () => ({
   listFieldEpisodeBlocks: vi.fn(() => [])
 }))
@@ -174,18 +183,18 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     capturedUsageEntries.length = 0
     capturedActivities.length = 0
     packContextMock.mockReturnValue({
-      messages: [
+      providerContextMessages: [
         {
           role: 'user',
           content: [{ type: 'text', text: '<xuanpu-context-anchor>packed anchor</xuanpu-context-anchor>' }],
           timestamp: 1
-        },
-        {
-          role: 'user',
-          content: [{ type: 'text', text: 'current request' }],
-          timestamp: 2
         }
       ],
+      providerPromptMessage: {
+        role: 'user',
+        content: [{ type: 'text', text: 'current request' }],
+        timestamp: 2
+      },
       includedRetrievedEpisodes: [],
       decisions: {
         contextTransform: 'm7-context-packer',
@@ -392,12 +401,15 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
 
     const contextEvent = capturedEmittedEvents.find((e) => e.type === 'session.context_usage')
     expect(contextEvent).toBeDefined()
-    // sessionId in the event is the hiveSessionId ('s-1'), not the runtime sessionId
     const data = contextEvent!.data as Record<string, unknown>
     expect(data.model).toEqual({ providerID: 'anthropic', modelID: 'claude-sonnet-4-6' })
-    expect(data.contextWindow).toBe(150_000)
-    expect((data.breakdown as Record<string, unknown>).maxTokens).toBe(150_000)
-    expect((data.breakdown as Record<string, unknown>).usedTokens).toBe(100)
+    // Three-layer format: managedContext / providerRequest / providerActual
+    const managed = data.managedContext as Record<string, unknown>
+    expect(managed.approxTokens).toBe(100)
+    const request = data.providerRequest as Record<string, unknown>
+    expect(request.providerRequestHash).toBeDefined()
+    const actual = data.providerActual as Record<string, unknown>
+    expect(actual.source).toBeDefined()
   })
 
   it('persists usage entry for cost tracking after prompt', async () => {

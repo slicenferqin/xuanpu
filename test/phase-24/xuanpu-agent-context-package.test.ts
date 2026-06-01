@@ -57,16 +57,13 @@ describe('buildXuanpuAgentPromptMessages — M7 Context Packer path', () => {
     })
 
     expect(result.decisions.contextTransform).toBe('m7-context-packer')
-    expect(result.messages.length).toBeGreaterThan(3)
-    // Should include field context
-    const allText = result.messages.map((m) => m.content[0].text).join('\n')
+    expect(result.providerContextMessages.length + 1).toBeGreaterThan(3)
+    const allMessages = [...result.providerContextMessages, result.providerPromptMessage]
+    const allText = allMessages.map((m) => m.content[0].text).join('\n')
     expect(allText).toContain('src/auth.ts')
-    // Should include episode
     expect(allText).toContain('auth bug fix')
-    // Should include working set
     expect(allText).toContain('Previous question')
-    // Should include current request
-    expect(result.messages[result.messages.length - 1].content[0].text).toBe('Fix the bug')
+    expect(result.providerPromptMessage.content[0].text).toBe('Fix the bug')
   })
 
   it('deduplicates working set against episode rawRefs', () => {
@@ -84,12 +81,13 @@ describe('buildXuanpuAgentPromptMessages — M7 Context Packer path', () => {
     })
 
     expect(result.decisions.contextTransform).toBe('m7-context-packer')
-    const allText = result.messages.map((m) => m.content[0].text).join('\n')
+    const allMessages = [...result.providerContextMessages, result.providerPromptMessage]
+    const allText = allMessages.map((m) => m.content[0].text).join('\n')
     expect(allText).not.toContain('Already in episode')
     expect(allText).toContain('Not in episode')
   })
 
-  it('falls back to legacy path when episodeRecords is not provided', () => {
+  it('uses minimal anchor path when episodeRecords is not provided', () => {
     const result = buildXuanpuAgentPromptMessages({
       currentUserText: 'Hello',
       priorMessages: [
@@ -97,16 +95,16 @@ describe('buildXuanpuAgentPromptMessages — M7 Context Packer path', () => {
       ]
     })
 
-    expect(result.decisions.contextTransform).toBe('legacy-minimal-anchor')
+    expect(result.decisions.contextTransform).toBe('minimal-anchor')
   })
 
-  it('falls back to legacy path when workingSet is not provided', () => {
+  it('uses minimal anchor path when workingSet is not provided', () => {
     const result = buildXuanpuAgentPromptMessages({
       currentUserText: 'Hello',
       episodeRecords: [makeEpisode()]
     })
 
-    expect(result.decisions.contextTransform).toBe('legacy-minimal-anchor')
+    expect(result.decisions.contextTransform).toBe('minimal-anchor')
   })
 
   it('harness path takes priority over context packer', () => {

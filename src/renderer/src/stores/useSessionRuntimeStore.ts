@@ -132,6 +132,8 @@ export interface StreamingBuffer {
   streamingContent: string
   isStreaming: boolean
   runStartedAt?: number
+  /** Active turn id for turn-scoped buffer isolation. */
+  turnId?: string
   compactionState?: {
     phase: 'running' | 'completed'
     timestamp: number
@@ -417,6 +419,20 @@ export function writeEventToStreamingBuffer(
         const partData = event.data as Record<string, unknown> | undefined
         const part = partData?.part as Record<string, unknown> | undefined
         if (!part) return current
+
+        // Phase 4d: Route by turnId when available.
+        const eventTurnId = (partData?.turnId as string) ?? (event as Record<string, unknown>).turnId as string | undefined
+        if (eventTurnId && eventTurnId !== current.turnId) {
+          // New turn — reset streaming overlay but keep run meta.
+          return {
+            ...resetStreamingBufferOverlayState(current, {
+              preserveOptimisticMessages: true,
+              preserveCompactionState: true
+            }),
+            turnId: eventTurnId,
+            isStreaming: true
+          }
+        }
 
         if (event.childSessionId) {
           const nextChildParts = new Map(current.childParts)
