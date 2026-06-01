@@ -74,7 +74,7 @@ describe('ClaudeCodeImplementer model catalog', () => {
     expect(info).toEqual({
       id: 'opus',
       name: 'Opus 4.8',
-      limit: { context: 200000, output: 32000 },
+      limit: { context: 1000000, output: 32000 },
       supportsFastMode: true
     })
   })
@@ -84,7 +84,15 @@ describe('ClaudeCodeImplementer model catalog', () => {
     expect(info).toEqual({
       id: 'sonnet',
       name: 'Sonnet 4.6',
-      limit: { context: 200000, output: 16000 }
+      limit: { context: 1000000, output: 16000 }
+    })
+  })
+
+  it('getModelInfo resolves 1M Claude Code model suffixes back to catalog entries', async () => {
+    const info = await impl.getModelInfo('any', 'claude-opus-4-8[1m]')
+    expect(info).toMatchObject({
+      id: 'opus',
+      limit: { context: 1000000, output: 32000 }
     })
   })
 

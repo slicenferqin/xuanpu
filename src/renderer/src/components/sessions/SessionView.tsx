@@ -3001,8 +3001,8 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
         // "limit unavailable" before the first SDK metadata arrives.
         if (sessionRecord?.agent_sdk === 'claude-code') {
           const claudeModels = [
-            { id: 'opus', context: 200000 },
-            { id: 'sonnet', context: 200000 },
+            { id: 'opus', context: 1000000 },
+            { id: 'sonnet', context: 1000000 },
             { id: 'haiku', context: 200000 }
           ]
           for (const m of claudeModels) {
