@@ -439,8 +439,10 @@ export function writeEventToStreamingBuffer(
           const existing = [...(nextChildParts.get(event.childSessionId) ?? [])]
 
           if (part.type === 'text') {
-            // Phase 5: only model-origin text enters the streaming bubble
-            if (event.origin && event.origin !== 'model') return current
+            // Phase 5: xuanpu-agent hard gate — only origin === 'model' enters
+            // the assistant streaming bubble. Other runtimes (undefined origin)
+            // pass through for backward compatibility.
+            if (event.runtimeId === 'xuanpu-agent' && event.origin !== 'model') return current
             const delta = (partData?.delta as string) ?? (part.text as string) ?? ''
             if (!delta) return current
             const last = existing[existing.length - 1]
@@ -498,8 +500,10 @@ export function writeEventToStreamingBuffer(
         }
 
         if (part.type === 'text') {
-          // Phase 5: only model-origin text enters the assistant streaming bubble
-          if (event.origin && event.origin !== 'model') return current
+          // Phase 5: xuanpu-agent hard gate — only origin === 'model' enters
+          // the assistant streaming bubble. Other runtimes (undefined origin)
+          // pass through for backward compatibility.
+          if (event.runtimeId === 'xuanpu-agent' && event.origin !== 'model') return current
           const delta = (partData?.delta as string) ?? (part.text as string) ?? ''
           if (!delta) return current
 

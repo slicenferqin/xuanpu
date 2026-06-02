@@ -1102,7 +1102,10 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         // INV-TURN-5: Cross-reference fields for snapshot alignment
         turnId: options.turnId ?? null,
         providerRequestHash: options.snapshotHash ?? null,
-        providerEstimatedInputTokens: options.packerOutput?.decisions?.totalTokens ?? null,
+        providerEstimatedInputTokens: options.packerOutput?.decisions?.totalTokens != null
+          ? options.packerOutput.decisions.totalTokens +
+            estimateProviderOverheadTokens(options.sessionMode ?? 'build')
+          : null,
         includedMessageIds:
           options.packerOutput?.decisions?.zones?.workingSet?.includedMessageIds ?? null,
         omittedMessageIds:
