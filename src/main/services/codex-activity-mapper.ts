@@ -1,6 +1,6 @@
 import type { SessionActivityCreate, SessionActivityKind, SessionActivityTone } from '../db'
 import type { CodexManagerEvent } from './codex-app-server-manager'
-import { asObject, asString } from './codex-utils'
+import { asNumber, asObject, asString } from './codex-utils'
 import {
   buildCodexPlanUpdateSummary,
   buildCodexUpdatePlanCallId,
@@ -69,6 +69,26 @@ export function mapCodexManagerEventToActivity(
   event: CodexManagerEvent
 ): SessionActivityCreate | null {
   const payload = asObject(event.payload)
+
+  if (event.kind === 'error') {
+    return buildActivity(
+      sessionId,
+      agentSessionId,
+      event,
+      'session.error',
+      'error',
+      event.message ??
+        asString(payload?.message) ??
+        asString(payload?.error) ??
+        asString(asObject(payload?.error)?.message) ??
+        'Runtime error',
+      {
+        ...(payload ?? {}),
+        method: event.method,
+        message: event.message
+      }
+    )
+  }
 
   switch (event.method) {
     case 'item.started':
@@ -164,14 +184,35 @@ export function mapCodexManagerEventToActivity(
 
     case 'runtime.error':
     case 'runtime/error':
+    case 'error':
       return buildActivity(
         sessionId,
         agentSessionId,
         event,
         'session.error',
         'error',
-        asString(payload?.message) ?? asString(payload?.error) ?? 'Runtime error'
+        asString(payload?.message) ??
+          asString(payload?.error) ??
+          asString(asObject(payload?.error)?.message) ??
+          'Runtime error'
       )
+
+    case 'session/exited': {
+      const exitCode = asNumber(payload?.exitCode)
+      const signal = asString(payload?.signal)
+      const errored =
+        payload?.errored === true ||
+        (exitCode !== undefined && exitCode !== 0) ||
+        (signal !== undefined && signal.length > 0)
+      return buildActivity(
+        sessionId,
+        agentSessionId,
+        event,
+        errored ? 'session.error' : 'session.info',
+        errored ? 'error' : 'info',
+        event.message ?? 'Codex app-server exited'
+      )
+    }
 
     case 'thread/name/updated':
       return buildActivity(

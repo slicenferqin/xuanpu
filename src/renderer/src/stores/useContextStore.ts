@@ -59,8 +59,8 @@ const EMPTY_TOKENS: TokenInfo = {
 }
 
 const DEFAULT_MODEL_CONTEXT_LIMITS: Record<string, number> = {
-  opus: 200_000,
-  sonnet: 200_000,
+  opus: 1_000_000,
+  sonnet: 1_000_000,
   haiku: 200_000
 }
 

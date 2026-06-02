@@ -10,10 +10,7 @@ import { useLayoutStore } from '../../src/renderer/src/stores/useLayoutStore'
 const terminalMounts = new Map<string, number>()
 
 vi.mock('@/components/sessions', () => ({
-  SessionTabs: () => <div data-testid="session-tabs" />,
-  SessionView: ({ sessionId }: { sessionId: string }) => (
-    <div data-testid={`session-view-${sessionId}`}>{sessionId}</div>
-  )
+  SessionTabs: () => <div data-testid="session-tabs" />
 }))
 
 vi.mock('@/components/sessions/SessionTerminalView', async () => {

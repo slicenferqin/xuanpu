@@ -4,9 +4,8 @@
  * These types define the unified timeline data shape returned by the
  * main-process timeline service and consumed by the renderer.
  *
- * They mirror the existing types in `src/renderer/src/lib/opencode-transcript.ts`
- * (ToolUseInfo, StreamingPart, OpenCodeMessage) but live in the shared layer
- * so the main process can produce them without renderer dependencies.
+ * They replace the historical renderer-local transcript types so the main
+ * process can produce timeline data without renderer dependencies.
  */
 
 import type { MessagePart } from '../types/opencode'

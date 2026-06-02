@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { SubtaskCard } from '../../../src/renderer/src/components/sessions/SubtaskCard'
 import { ReasoningBlock } from '../../../src/renderer/src/components/sessions/ReasoningBlock'
 import { CompactionPill } from '../../../src/renderer/src/components/sessions/CompactionPill'
-import type { StreamingPart } from '../../../src/renderer/src/components/sessions/SessionView'
+import type { StreamingPart } from '../../../src/renderer/src/lib/session-types'
 
 /**
  * Session 9: Extended Part Types & Subagent Rendering
@@ -114,7 +114,7 @@ describe('Session 9: Part Types & Subagent', () => {
 
       fireEvent.click(screen.getByTestId('subtask-card-header'))
 
-      expect(screen.getByTestId('tool-card')).toBeTruthy()
+      expect(screen.getByTestId('compact-file-tool')).toBeTruthy()
     })
 
     test('truncates long description in collapsed view', () => {

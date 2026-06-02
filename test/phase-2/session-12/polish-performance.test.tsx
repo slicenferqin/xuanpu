@@ -387,23 +387,6 @@ describe('Session 12: Polish & Performance', () => {
       expect(treeContent).toHaveAttribute('aria-label', 'File tree')
     })
 
-    test('ModeToggle has descriptive aria-label', async () => {
-      const { ModeToggle } =
-        await import('../../../src/renderer/src/components/sessions/ModeToggle')
-      const { useSessionStore } = await import('../../../src/renderer/src/stores/useSessionStore')
-
-      useSessionStore.setState({
-        modeBySession: new Map([['s1', 'build']])
-      })
-
-      render(<ModeToggle sessionId="s1" />)
-
-      const toggle = screen.getByTestId('mode-toggle')
-      const ariaLabel = toggle.getAttribute('aria-label')
-      expect(ariaLabel).toContain('Build')
-      expect(ariaLabel).toContain('Plan')
-    })
-
     test('Git refresh button has title attribute', () => {
       const worktreePath = '/test-worktree'
 
@@ -468,45 +451,6 @@ describe('Session 12: Polish & Performance', () => {
     test('Git store loadBranchInfo completes quickly', async () => {
       const start = performance.now()
       await useGitStore.getState().loadBranchInfo('/test-worktree')
-      const elapsed = performance.now() - start
-
-      expect(elapsed).toBeLessThan(100)
-    })
-
-    test('Mode toggle responds under 100ms', async () => {
-      const { ModeToggle } =
-        await import('../../../src/renderer/src/components/sessions/ModeToggle')
-      const { useSessionStore } = await import('../../../src/renderer/src/stores/useSessionStore')
-
-      // Mock window.db for mode toggle persistence
-      Object.defineProperty(window, 'db', {
-        value: {
-          session: {
-            update: vi.fn().mockResolvedValue({}),
-            create: vi.fn(),
-            getActiveByWorktree: vi.fn(),
-            get: vi.fn(),
-            getByWorktree: vi.fn(),
-            getByProject: vi.fn(),
-            delete: vi.fn(),
-            search: vi.fn()
-          },
-          setting: { get: vi.fn(), set: vi.fn() }
-        },
-        writable: true,
-        configurable: true
-      })
-
-      useSessionStore.setState({
-        modeBySession: new Map([['session-1', 'build']])
-      })
-
-      render(<ModeToggle sessionId="session-1" />)
-
-      const start = performance.now()
-      await act(async () => {
-        screen.getByTestId('mode-toggle').click()
-      })
       const elapsed = performance.now() - start
 
       expect(elapsed).toBeLessThan(100)

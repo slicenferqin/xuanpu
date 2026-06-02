@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest'
-import type { StreamingPart } from '@/components/sessions/SessionView'
+import type { StreamingPart } from '@/lib/session-types'
 
 /**
  * Session 2: Tool Call Correlation Fix — Tests

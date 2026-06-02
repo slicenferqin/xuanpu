@@ -9,6 +9,11 @@ import { CODEX_DEFAULT_MODEL } from './codex-models'
 import { type CodexLaunchSpec } from './codex-binary-resolver'
 import { spawnLaunchSpec } from './command-launch-utils'
 import { getCodexRpcDumper } from './codex-rpc-dumper'
+import {
+  buildCodexDynamicToolSpecs,
+  handleCodexDynamicToolCall,
+  type CodexDynamicToolConfig
+} from './codex-dynamic-tools'
 
 const log = createLogger({ component: 'CodexAppServerManager' })
 
@@ -89,6 +94,7 @@ export interface CodexSessionContext {
   pendingUserInputs: Map<string, PendingUserInputRequest>
   nextRequestId: number
   stopping: boolean
+  dynamicTools?: CodexDynamicToolConfig
 }
 
 // ── Start session input ───────────────────────────────────────────
@@ -101,6 +107,7 @@ export interface CodexStartSessionOptions {
   codexBinaryPath?: string
   codexHomePath?: string
   codexLaunchSpec?: CodexLaunchSpec
+  dynamicTools?: CodexDynamicToolConfig
 }
 
 // ── Turn input ────────────────────────────────────────────────────
@@ -389,7 +396,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         pendingApprovals: new Map(),
         pendingUserInputs: new Map(),
         nextRequestId: 1,
-        stopping: false
+        stopping: false,
+        ...(options.dynamicTools ? { dynamicTools: options.dynamicTools } : {})
       }
 
       this.sessions.set(tempThreadId, context)
@@ -423,17 +431,24 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       }
 
       // Open thread: resume or start fresh
-      const threadStartParams = {
+      const threadOpenBaseParams = {
         model: options.model ?? null,
         cwd: resolvedCwd,
         ...getDefaultCodexRuntimeConfig()
+      }
+      const dynamicTools = options.dynamicTools
+        ? buildCodexDynamicToolSpecs(options.dynamicTools)
+        : []
+      const threadStartParams = {
+        ...threadOpenBaseParams,
+        ...(dynamicTools.length > 0 ? { dynamicTools } : {})
       }
 
       let threadOpenResponse: unknown
       if (options.resumeThreadId) {
         try {
           threadOpenResponse = await this.sendRequest(context, 'thread/resume', {
-            ...threadStartParams,
+            ...threadOpenBaseParams,
             threadId: options.resumeThreadId
           })
         } catch (error) {
@@ -910,7 +925,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         activeTurnId: null,
         error: code === 0 ? context.session.error : message
       })
-      this.emitLifecycleEvent(context, 'session/exited', message)
+      this.emitLifecycleEvent(context, 'session/exited', message, {
+        payload: {
+          exitCode: code,
+          signal,
+          errored: code !== 0 || signal !== null
+        }
+      })
 
       // Remove from sessions map
       for (const [key, ctx] of this.sessions.entries()) {
@@ -1055,7 +1076,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         return
       }
 
-      if (statusType === 'error') {
+      if (statusType === 'error' || statusType === 'systemError') {
         this.updateSession(context, {
           status: 'error',
           activeTurnId: null
@@ -1109,6 +1130,44 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       requestId,
       payload: request.params
     })
+
+    if (request.method === 'item/tool/call') {
+      this.respondToDynamicToolCall(context, request)
+    }
+  }
+
+  private respondToDynamicToolCall(context: CodexSessionContext, request: JsonRpcRequest): void {
+    handleCodexDynamicToolCall(context.dynamicTools, asObject(request.params) ?? {})
+      .then((result) => {
+        if (result) {
+          this.writeMessage(context, {
+            jsonrpc: '2.0',
+            id: request.id,
+            result
+          })
+          return
+        }
+
+        this.writeMessage(context, {
+          jsonrpc: '2.0',
+          id: request.id,
+          error: {
+            code: -32601,
+            message: 'Dynamic tool is not available in this Xuanpu Codex session.'
+          }
+        })
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error)
+        this.writeMessage(context, {
+          jsonrpc: '2.0',
+          id: request.id,
+          error: {
+            code: -32000,
+            message
+          }
+        })
+      })
   }
 
   private handleResponse(context: CodexSessionContext, response: JsonRpcResponse): void {
@@ -1180,7 +1239,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     context: CodexSessionContext,
     method: string,
     message: string,
-    extra?: { turnId?: string }
+    extra?: { turnId?: string; payload?: unknown }
   ): void {
     this.emitEvent({
       id: randomUUID(),
@@ -1190,7 +1249,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       createdAt: new Date().toISOString(),
       method,
       message,
-      ...(extra?.turnId ? { turnId: extra.turnId } : {})
+      ...(extra?.turnId ? { turnId: extra.turnId } : {}),
+      ...(extra && 'payload' in extra ? { payload: extra.payload } : {})
     })
   }
 

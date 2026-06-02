@@ -11,7 +11,7 @@ import {
   formatMessageTimestamp
 } from '@/lib/format-utils'
 import { cn } from '@/lib/utils'
-import type { OpenCodeMessage } from './SessionView'
+import type { OpenCodeMessage } from '@/lib/session-types'
 
 interface MessageExecutionStatus {
   label: string

@@ -1,49 +1,7 @@
 import type { MessagePart } from '@shared/types/opencode'
+import type { OpenCodeMessage, StreamingPart } from '@/lib/session-types'
 
-export interface ToolUseInfo {
-  id: string
-  name: string
-  input: Record<string, unknown>
-  status: 'pending' | 'running' | 'success' | 'error' | 'rejected'
-  startTime: number
-  endTime?: number
-  output?: string
-  error?: string
-}
-
-export interface StreamingPart {
-  type: 'text' | 'tool_use' | 'subtask' | 'step_start' | 'step_finish' | 'reasoning' | 'compaction'
-  text?: string
-  toolUse?: ToolUseInfo
-  subtask?: {
-    id: string
-    sessionID: string
-    prompt: string
-    description: string
-    agent: string
-    parts: StreamingPart[]
-    status: 'running' | 'completed' | 'error'
-  }
-  stepStart?: { snapshot?: string }
-  stepFinish?: {
-    reason: string
-    cost: number
-    tokens: { input: number; output: number; reasoning: number }
-  }
-  reasoning?: string
-  compactionAuto?: boolean
-}
-
-export interface OpenCodeMessage {
-  id: string
-  role: 'user' | 'assistant' | 'system'
-  content: string
-  timestamp: string
-  steered?: boolean
-  parts?: StreamingPart[]
-  /** File attachments for user messages (images, PDFs, etc.) */
-  attachments?: MessagePart[]
-}
+export type { OpenCodeMessage, StreamingPart, ToolUseInfo } from '@/lib/session-types'
 
 interface MappedMessage {
   message: OpenCodeMessage

@@ -522,7 +522,7 @@ describe('CodexImplementer lifecycle', () => {
   })
 
   describe('context usage reporting', () => {
-    it('uses model_context_window from codex config over provider runtime limit', () => {
+    it('uses provider runtime context window when it is lower than configured metadata', () => {
       const codexHome = mkdtempSync(join(tmpdir(), 'xuanpu-codex-config-'))
       mkdirSync(codexHome, { recursive: true })
       writeFileSync(
@@ -570,7 +570,7 @@ describe('CodexImplementer lifecycle', () => {
         expect.objectContaining({
           type: 'session.context_usage',
           data: expect.objectContaining({
-            contextWindow: 500000,
+            contextWindow: 258400,
             model: { providerID: 'codex', modelID: 'gpt-5.5' },
             cost: expect.any(Number),
             requestId: expect.stringContaining('turn-usage')
@@ -629,10 +629,10 @@ describe('CodexImplementer lifecycle', () => {
         .map((call) => call[1] as any)
         .filter((event) => event.type === 'session.context_usage')
       expect(contextUsageEvents[0].data.tokens).toEqual({
-        input: 5000,
-        cacheRead: 5000,
+        input: 500,
+        cacheRead: 500,
         cacheWrite: 0,
-        output: 500,
+        output: 50,
         reasoning: 0
       })
       expect(contextUsageEvents[0].data.breakdown).toMatchObject({
@@ -653,6 +653,62 @@ describe('CodexImplementer lifecycle', () => {
       expect(contextUsageEvents[0].data.cost).toBeCloseTo(firstCost)
       expect(contextUsageEvents[1].data.cost).toBeCloseTo(secondSnapshotCost - firstCost)
       expect(contextUsageEvents[0].data.totalCost).toBeUndefined()
+    })
+
+    it('emits an explicit error for Codex full-window token sentinel', () => {
+      const mockWindow = {
+        isDestroyed: () => false,
+        webContents: { send: vi.fn() }
+      } as any
+      impl.setMainWindow(mockWindow)
+      const session = {
+        threadId: 'thread-sentinel',
+        hiveSessionId: 'hive-sentinel',
+        worktreePath: '/test',
+        status: 'ready',
+        messages: []
+      }
+      impl.getSessions().set('/test::thread-sentinel', session as any)
+
+      ;(impl as any).handleManagerEvent({
+        id: 'evt-sentinel',
+        kind: 'notification',
+        provider: 'codex',
+        threadId: 'thread-sentinel',
+        method: 'thread/tokenUsage/updated',
+        createdAt: new Date().toISOString(),
+        payload: {
+          turnId: 'turn-sentinel',
+          tokenUsage: {
+            last: {
+              totalTokens: 0,
+              inputTokens: 0,
+              cachedInputTokens: 0,
+              outputTokens: 0,
+              reasoningOutputTokens: 0
+            },
+            total: {
+              totalTokens: 475000,
+              inputTokens: 0,
+              cachedInputTokens: 0,
+              outputTokens: 0,
+              reasoningOutputTokens: 0
+            },
+            modelContextWindow: 475000
+          }
+        }
+      })
+
+      const streamEvents = mockWindow.webContents.send.mock.calls
+        .map((call) => call[1] as any)
+        .filter((event) => event.type === 'session.context_usage' || event.type === 'session.error')
+      expect(streamEvents.map((event) => event.type)).toEqual([
+        'session.context_usage',
+        'session.error'
+      ])
+      expect(streamEvents[0].data.breakdown.percentage).toBe(100)
+      expect(streamEvents[1].data.code).toBe('contextWindowExceeded')
+      expect(session.status).toBe('error')
     })
 
     it('applies configured context window to Codex model metadata', async () => {
