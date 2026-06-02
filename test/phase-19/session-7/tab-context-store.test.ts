@@ -2,9 +2,9 @@ import { describe, test, expect, beforeEach, vi } from 'vitest'
 import { useFileViewerStore } from '../../../src/renderer/src/stores/useFileViewerStore'
 import { useSessionStore } from '../../../src/renderer/src/stores/useSessionStore'
 import {
-  resetSessionViewRegistryForTests,
-  setSessionViewState
-} from '../../../src/renderer/src/lib/session-view-registry'
+  resetScrollAnchorRegistryForTests,
+  setScrollAnchorState
+} from '../../../src/renderer/src/lib/session-scroll-registry'
 
 /**
  * Session 7: Tab Context Menus — Store Actions
@@ -36,7 +36,7 @@ describe('Session 7: Tab Context Store Actions', () => {
 
     beforeEach(() => {
       vi.useRealTimers()
-      resetSessionViewRegistryForTests()
+      resetScrollAnchorRegistryForTests()
       window.sessionStorage.clear()
       // Reset store with 3 sessions in tab order
       useSessionStore.setState({
@@ -184,19 +184,19 @@ describe('Session 7: Tab Context Store Actions', () => {
     test('closeSessionsToRight clears removed sessions from the persisted view registry', async () => {
       vi.useFakeTimers()
 
-      setSessionViewState('s1', {
+      setScrollAnchorState('s1', {
         scrollTop: 10,
         stickyBottom: true,
         manualScrollLocked: false,
         lastSeenVersion: 1
       })
-      setSessionViewState('s2', {
+      setScrollAnchorState('s2', {
         scrollTop: 20,
         stickyBottom: false,
         manualScrollLocked: true,
         lastSeenVersion: 2
       })
-      setSessionViewState('s3', {
+      setScrollAnchorState('s3', {
         scrollTop: 30,
         stickyBottom: false,
         manualScrollLocked: true,

@@ -4,7 +4,7 @@ import type { SelectedModel } from './useSettingsStore'
 import { useSettingsStore } from './useSettingsStore'
 import { useGitStore } from './useGitStore'
 import { useWorktreeStore } from './useWorktreeStore'
-import { removeSessionViewState } from '@/lib/session-view-registry'
+import { removeScrollAnchorState } from '@/lib/session-scroll-registry'
 import { translate } from '@/i18n/useI18n'
 import { DEFAULT_LOCALE } from '@/i18n/messages'
 
@@ -631,7 +631,7 @@ export const useSessionStore = create<SessionState>()(
             }
           }
 
-          removeSessionViewState(sessionId)
+          removeScrollAnchorState(sessionId)
 
           return { success: true }
         } catch (error) {
@@ -1433,7 +1433,7 @@ export const useSessionStore = create<SessionState>()(
         for (const sessionId of toClose) {
           const result = await get().closeSession(sessionId)
           if (result.success) {
-            removeSessionViewState(sessionId)
+            removeScrollAnchorState(sessionId)
           }
         }
       },

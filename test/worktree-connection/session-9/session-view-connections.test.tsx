@@ -38,13 +38,7 @@ vi.mock('@/components/layout/QuickActions', () => ({
   QuickActions: () => <div data-testid="quick-actions" />
 }))
 
-// ---------- Mock SessionView ----------
-vi.mock('@/components/sessions/SessionView', () => ({
-  SessionView: ({ sessionId }: { sessionId: string }) => (
-    <div data-testid={`session-view-${sessionId}`}>Session: {sessionId}</div>
-  )
-}))
-
+// ---------- Mock SessionShell ----------
 vi.mock('@/components/session-hq/SessionShell', () => ({
   SessionShell: ({ sessionId }: { sessionId: string }) => (
     <div data-testid={`session-view-${sessionId}`}>Session: {sessionId}</div>

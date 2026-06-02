@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
-  getSessionViewState,
-  updateSessionViewState,
-  type SessionViewState
-} from '@/lib/session-view-registry'
+  getScrollAnchorState,
+  updateScrollAnchorState,
+  type ScrollAnchorState
+} from '@/lib/session-scroll-registry'
 
 const DEFAULT_SCROLL_FAB_OFFSET = 16
 const MIN_NEAR_BOTTOM_THRESHOLD = 80
@@ -118,8 +118,8 @@ export function useSessionSmartScroll({
   const isStreamingRef = useRef(isStreaming)
   const [dockHeight, setDockHeight] = useState(0)
   const [composerHeight, setComposerHeight] = useState(0)
-  const [viewState, setViewState] = useState<SessionViewState>(() =>
-    getSessionViewState(sessionId, mirrorVersion)
+  const [viewState, setViewState] = useState<ScrollAnchorState>(() =>
+    getScrollAnchorState(sessionId, mirrorVersion)
   )
   const viewStateRef = useRef(viewState)
 
@@ -129,10 +129,10 @@ export function useSessionSmartScroll({
 
   const writeViewState = useCallback(
     (
-      updater: (current: SessionViewState) => Partial<SessionViewState>,
+      updater: (current: ScrollAnchorState) => Partial<ScrollAnchorState>,
       options?: { syncState?: boolean }
-    ): SessionViewState => {
-      const next = updateSessionViewState(sessionId, updater, mirrorVersion)
+    ): ScrollAnchorState => {
+      const next = updateScrollAnchorState(sessionId, updater, mirrorVersion)
       viewStateRef.current = next
       if (options?.syncState ?? true) {
         setViewState(next)
@@ -401,7 +401,7 @@ export function useSessionSmartScroll({
   }, [isStreaming])
 
   useEffect(() => {
-    const next = getSessionViewState(sessionId, latestMirrorVersionRef.current)
+    const next = getScrollAnchorState(sessionId, latestMirrorVersionRef.current)
     viewStateRef.current = next
     setViewState(next)
     hasRestoredInitialAnchorRef.current = false

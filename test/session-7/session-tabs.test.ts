@@ -6,9 +6,9 @@ import { useWorktreeStore } from '../../src/renderer/src/stores/useWorktreeStore
 import { useProjectStore } from '../../src/renderer/src/stores/useProjectStore'
 import { useGitStore } from '../../src/renderer/src/stores/useGitStore'
 import {
-  resetSessionViewRegistryForTests,
-  setSessionViewState
-} from '../../src/renderer/src/lib/session-view-registry'
+  resetScrollAnchorRegistryForTests,
+  setScrollAnchorState
+} from '../../src/renderer/src/lib/session-scroll-registry'
 
 // Mock session data
 const mockSession1 = {
@@ -92,7 +92,7 @@ const mockDbWorktree = {
 // Setup window.db mock
 beforeEach(() => {
   vi.clearAllMocks()
-  resetSessionViewRegistryForTests()
+  resetScrollAnchorRegistryForTests()
   window.sessionStorage.clear()
 
   // Reset stores to initial state
@@ -235,13 +235,13 @@ describe('Session 7: Session Tabs', () => {
         activeWorktreeId: 'worktree-1'
       })
 
-      setSessionViewState('session-1', {
+      setScrollAnchorState('session-1', {
         scrollTop: 128,
         stickyBottom: false,
         manualScrollLocked: true,
         lastSeenVersion: 3
       })
-      setSessionViewState('session-2', {
+      setScrollAnchorState('session-2', {
         scrollTop: 64,
         stickyBottom: true,
         manualScrollLocked: false,
