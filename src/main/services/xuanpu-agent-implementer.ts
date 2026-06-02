@@ -603,6 +603,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       emitAgentEvent(this.mainWindow, {
         type: 'session.context_usage',
         sessionId: session.hiveSessionId,
+        runtimeId: this.id,
         turnId: result.turnId,
         origin: 'system',
         data: {
@@ -735,6 +736,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         emitAgentEvent(this.mainWindow, {
           type: 'plan.ready',
           sessionId: session.hiveSessionId,
+          runtimeId: this.id,
           turnId: result.turnId,
           origin: 'system',
           data: { id: requestId, requestId, plan: planText, toolUseID: result.messageId }
@@ -1530,6 +1532,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     emitAgentEvent(this.mainWindow, {
       type: 'message.part.updated',
       sessionId: hiveSessionId,
+      runtimeId: this.id,
       turnId,
       origin: 'model',
       eventSequence,
@@ -1556,6 +1559,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     emitAgentEvent(this.mainWindow, {
       type: 'message.updated',
       sessionId: hiveSessionId,
+      runtimeId: this.id,
       turnId: options.turnId,
       origin: 'model',
       data: {
@@ -1583,6 +1587,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     emitAgentEvent(this.mainWindow, {
       type: 'session.status',
       sessionId: hiveSessionId,
+      runtimeId: this.id,
       origin: 'system',
       data: { status: statusPayload }
     })
@@ -1592,6 +1597,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     emitAgentEvent(this.mainWindow, {
       type: 'session.error',
       sessionId: hiveSessionId,
+      runtimeId: this.id,
       origin: 'system',
       data: { error: message }
     })
@@ -1606,6 +1612,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     emitAgentEvent(this.mainWindow, {
       type: 'message.part.updated',
       sessionId: hiveSessionId,
+      runtimeId: this.id,
       turnId,
       origin: 'tool',
       eventSequence,
@@ -1648,6 +1655,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     emitAgentEvent(this.mainWindow, {
       type: 'message.part.updated',
       sessionId: hiveSessionId,
+      runtimeId: this.id,
       turnId,
       origin: 'tool',
       eventSequence,
@@ -1686,6 +1694,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     emitAgentEvent(this.mainWindow, {
       type: 'message.part.updated',
       sessionId: hiveSessionId,
+      runtimeId: this.id,
       turnId,
       origin: 'tool',
       eventSequence,
@@ -1714,6 +1723,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     emitAgentEvent(this.mainWindow, {
       type: 'message.part.updated',
       sessionId: hiveSessionId,
+      runtimeId: this.id,
       turnId,
       origin: 'tool',
       eventSequence,
