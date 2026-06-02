@@ -53,7 +53,9 @@ function CompactToolRow({ part }: { part: StreamingPart }): React.JSX.Element | 
           <Loader2 className="w-3 h-3 text-muted-foreground/50 animate-spin shrink-0" />
         )}
         {status === 'success' && <CheckCircle2 className="w-3 h-3 text-celadon shrink-0" />}
-        {status === 'error' && <XCircle className="w-3 h-3 text-destructive shrink-0" />}
+        {(status === 'error' || status === 'rejected') && (
+          <XCircle className="w-3 h-3 text-destructive shrink-0" />
+        )}
       </div>
     )
   }

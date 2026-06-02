@@ -76,13 +76,13 @@ describe('ClaudeCodeImplementer prompt model selection', () => {
 
     expect(mockSDK.query).toHaveBeenCalledWith(
       expect.objectContaining({
-        options: expect.objectContaining({ model: 'opus' })
+        options: expect.objectContaining({ model: 'opus[1m]' })
       })
     )
     expect(maybeWithClaudeProjectMemory).toHaveBeenCalledWith(
       expect.objectContaining({
         cwd: '/test/path',
-        model: 'opus'
+        model: 'opus[1m]'
       })
     )
   })
@@ -94,13 +94,13 @@ describe('ClaudeCodeImplementer prompt model selection', () => {
 
     expect(mockSDK.query).toHaveBeenCalledWith(
       expect.objectContaining({
-        options: expect.objectContaining({ model: 'sonnet' })
+        options: expect.objectContaining({ model: 'sonnet[1m]' })
       })
     )
     expect(maybeWithClaudeProjectMemory).toHaveBeenCalledWith(
       expect.objectContaining({
         cwd: '/test/path',
-        model: 'sonnet'
+        model: 'sonnet[1m]'
       })
     )
   })

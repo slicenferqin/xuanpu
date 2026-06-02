@@ -608,11 +608,40 @@ interface TurnCompletedInfo {
   cost?: number
 }
 
+function extractCodexErrorMessage(value: unknown, fallback: string): string {
+  const direct = asString(value)
+  if (direct) return direct
+
+  const record = asObject(value)
+  return (
+    asString(record?.message) ??
+    asString(record?.error) ??
+    asString(record?.reason) ??
+    fallback
+  )
+}
+
+function extractCodexErrorInfo(value: unknown): string | undefined {
+  const record = asObject(value)
+  return asString(record?.codexErrorInfo) ?? asString(record?.code)
+}
+
+function isContextWindowExceededError(value: unknown): boolean {
+  const message = extractCodexErrorMessage(value, '').toLowerCase()
+  const info = extractCodexErrorInfo(value)
+  return (
+    info === 'contextWindowExceeded' ||
+    message.includes('context window') ||
+    message.includes('ran out of room')
+  )
+}
+
 function extractTurnCompletedInfo(event: CodexManagerEvent): TurnCompletedInfo {
   const payload = asObject(event.payload)
   const turnObj = asObject(payload?.turn)
   const status = asString(turnObj?.status) ?? asString(payload?.state) ?? 'completed'
-  const error = asString(turnObj?.error) ?? asString(payload?.error) ?? event.message
+  const errorValue = turnObj?.error ?? payload?.error
+  const error = errorValue ? extractCodexErrorMessage(errorValue, 'Turn failed') : event.message
   const usage = asObject(turnObj?.usage) ?? asObject(payload?.usage)
   const cost = asNumber(turnObj?.cost) ?? asNumber(payload?.cost)
   return {
@@ -625,45 +654,125 @@ function extractTurnCompletedInfo(event: CodexManagerEvent): TurnCompletedInfo {
 
 // ── Token usage extraction ───────────────────────────────────────
 
+function resolveContextWindow(tokenUsage: Record<string, unknown>): number | undefined {
+  const runtimeWindow = asNumber(tokenUsage.modelContextWindow)
+  const configuredWindow = getCodexConfiguredContextWindow()
+  if (runtimeWindow !== undefined && configuredWindow !== undefined) {
+    return Math.min(runtimeWindow, configuredWindow)
+  }
+  return runtimeWindow ?? configuredWindow
+}
+
+function isZeroTokenUsage(usage: Record<string, unknown> | undefined): boolean {
+  if (!usage) return false
+  return (
+    (asNumber(usage.inputTokens) ?? 0) === 0 &&
+    (asNumber(usage.cachedInputTokens) ?? 0) === 0 &&
+    (asNumber(usage.outputTokens) ?? 0) === 0 &&
+    (asNumber(usage.reasoningOutputTokens) ?? 0) === 0
+  )
+}
+
+function isContextWindowSentinel(
+  tokenUsage: Record<string, unknown>,
+  currentUsage: Record<string, unknown> | undefined,
+  cumulativeUsage: Record<string, unknown> | undefined,
+  contextWindow: number | undefined
+): boolean {
+  if (contextWindow === undefined || !cumulativeUsage) return false
+  const totalTokens = asNumber(cumulativeUsage.totalTokens)
+  const lastTotalTokens = asNumber(currentUsage?.totalTokens)
+  return (
+    totalTokens === contextWindow &&
+    (lastTotalTokens === undefined || lastTotalTokens === 0) &&
+    isZeroTokenUsage(cumulativeUsage) &&
+    (currentUsage === cumulativeUsage || isZeroTokenUsage(currentUsage))
+  )
+}
+
 function tokenUsageEvent(
   event: CodexManagerEvent,
   hiveSessionId: string
-): OpenCodeStreamEvent | null {
+): OpenCodeStreamEvent[] {
   const payload = asObject(event.payload)
   const tokenUsage = asObject(payload?.tokenUsage)
-  if (!tokenUsage) return null
+  if (!tokenUsage) return []
   const currentUsage = asObject(tokenUsage.last) ?? asObject(tokenUsage.total)
   const cumulativeUsage = asObject(tokenUsage.total) ?? currentUsage
-  const contextWindow = getCodexConfiguredContextWindow() ?? asNumber(tokenUsage.modelContextWindow)
-  const inputTokens = asNumber(cumulativeUsage?.inputTokens) ?? 0
-  const outputTokens = asNumber(cumulativeUsage?.outputTokens) ?? 0
-  const cachedInputTokens = asNumber(cumulativeUsage?.cachedInputTokens)
-  const reasoningTokens = asNumber(cumulativeUsage?.reasoningOutputTokens)
-  const currentInputTokens = asNumber(currentUsage?.inputTokens) ?? inputTokens
-  const uncachedInputTokens =
-    cachedInputTokens !== undefined ? Math.max(0, inputTokens - cachedInputTokens) : inputTokens
-  return {
-    type: 'session.context_usage',
-    sessionId: hiveSessionId,
-    data: {
-      tokens: {
-        input: uncachedInputTokens,
-        output: outputTokens,
-        ...(cachedInputTokens !== undefined ? { cacheRead: cachedInputTokens } : {}),
-        ...(reasoningTokens !== undefined ? { reasoning: reasoningTokens } : {})
+  const contextWindow = resolveContextWindow(tokenUsage)
+  if (isContextWindowSentinel(tokenUsage, currentUsage, cumulativeUsage, contextWindow)) {
+    return [
+      {
+        type: 'session.context_usage',
+        sessionId: hiveSessionId,
+        data: {
+          tokens: {
+            input: 0,
+            output: 0
+          },
+          ...(contextWindow !== undefined
+            ? {
+                contextWindow,
+                breakdown: {
+                  usedTokens: contextWindow,
+                  maxTokens: contextWindow,
+                  percentage: 100
+                }
+              }
+            : {})
+        }
       },
-      ...(contextWindow !== undefined
-        ? {
-            contextWindow,
-            breakdown: {
-              usedTokens: currentInputTokens,
-              maxTokens: contextWindow,
-              percentage: contextWindow > 0 ? (currentInputTokens / contextWindow) * 100 : 0
-            }
-          }
-        : {})
-    }
+      {
+        type: 'session.error',
+        sessionId: hiveSessionId,
+        data: {
+          error:
+            'Codex context window is exhausted. Roll back the last turn or start a new thread before retrying.',
+          code: 'contextWindowExceeded',
+          recoverable: false
+        }
+      }
+    ]
   }
+  const inputTokens = asNumber(cumulativeUsage?.inputTokens) ?? 0
+  const currentInputTokens = asNumber(currentUsage?.inputTokens) ?? inputTokens
+  const currentOutputTokens =
+    asNumber(currentUsage?.outputTokens) ?? asNumber(cumulativeUsage?.outputTokens) ?? 0
+  const currentCachedInputTokens =
+    asNumber(currentUsage?.cachedInputTokens) ?? asNumber(cumulativeUsage?.cachedInputTokens)
+  const currentReasoningTokens =
+    asNumber(currentUsage?.reasoningOutputTokens) ??
+    asNumber(cumulativeUsage?.reasoningOutputTokens)
+  const uncachedInputTokens =
+    currentCachedInputTokens !== undefined
+      ? Math.max(0, currentInputTokens - currentCachedInputTokens)
+      : currentInputTokens
+  return [
+    {
+      type: 'session.context_usage',
+      sessionId: hiveSessionId,
+      data: {
+        tokens: {
+          input: uncachedInputTokens,
+          output: currentOutputTokens,
+          ...(currentCachedInputTokens !== undefined
+            ? { cacheRead: currentCachedInputTokens }
+            : {}),
+          ...(currentReasoningTokens !== undefined ? { reasoning: currentReasoningTokens } : {})
+        },
+        ...(contextWindow !== undefined
+          ? {
+              contextWindow,
+              breakdown: {
+                usedTokens: currentInputTokens,
+                maxTokens: contextWindow,
+                percentage: contextWindow > 0 ? (currentInputTokens / contextWindow) * 100 : 0
+              }
+            }
+          : {})
+      }
+    }
+  ]
 }
 
 // ── Main mapper ──────────────────────────────────────────────────
@@ -677,16 +786,16 @@ export function mapCodexEventToStreamEvents(
 
   // ── Manager-level error ──────────────────────────────────────
   if (event.kind === 'error') {
-    if (event.method === 'process/error') {
-      return [
-        {
-          type: 'session.error',
-          sessionId: hiveSessionId,
-          data: { error: event.message ?? 'Unknown error' }
+    return [
+      {
+        type: 'session.error',
+        sessionId: hiveSessionId,
+        data: {
+          error: event.message ?? 'Unknown error',
+          code: event.method
         }
-      ]
-    }
-    return []
+      }
+    ]
   }
 
   // ── Stderr is informational ──────────────────────────────────
@@ -786,6 +895,47 @@ export function mapCodexEventToStreamEvents(
   // ── fileChange outputDelta is just "Success." text — drop ────
   if (method === 'item/fileChange/outputDelta') {
     return []
+  }
+
+  if (method === 'error') {
+    const payload = asObject(event.payload)
+    const errorValue = payload?.error ?? payload
+    const message = extractCodexErrorMessage(errorValue, 'Codex runtime error')
+    return [
+      {
+        type: 'session.error',
+        sessionId: hiveSessionId,
+        data: {
+          error: message,
+          ...(extractCodexErrorInfo(errorValue)
+            ? { code: extractCodexErrorInfo(errorValue) }
+            : {}),
+          recoverable: !isContextWindowExceededError(errorValue)
+        }
+      }
+    ]
+  }
+
+  if (event.kind === 'session' && method === 'session/exited') {
+    const payload = asObject(event.payload)
+    const exitCode = asNumber(payload?.exitCode)
+    const signal = asString(payload?.signal)
+    const errored =
+      payload?.errored === true ||
+      (exitCode !== undefined && exitCode !== 0) ||
+      (signal !== undefined && signal.length > 0)
+    if (!errored) return []
+    return [
+      {
+        type: 'session.error',
+        sessionId: hiveSessionId,
+        data: {
+          error: event.message ?? 'Codex app-server exited unexpectedly.',
+          code: 'session/exited',
+          recoverable: false
+        }
+      }
+    ]
   }
 
   // ── Item lifecycle (started / updated / completed) ───────────
@@ -889,8 +1039,7 @@ export function mapCodexEventToStreamEvents(
 
   // ── Token usage → context_usage ──────────────────────────────
   if (method === 'thread/tokenUsage/updated') {
-    const ev = tokenUsageEvent(event, hiveSessionId)
-    return ev ? [ev] : []
+    return tokenUsageEvent(event, hiveSessionId)
   }
 
   // ── Thread status → session.status (active = busy, idle = idle) ─
@@ -915,6 +1064,23 @@ export function mapCodexEventToStreamEvents(
           sessionId: hiveSessionId,
           data: { status: { type: 'idle' } },
           statusPayload: { type: 'idle' }
+        }
+      ]
+    }
+    if (t === 'error' || t === 'systemError') {
+      const statusErrorValue =
+        status?.error ?? status?.message ?? payload?.error ?? payload?.message
+      const fallback =
+        t === 'systemError'
+          ? 'Codex entered a system error state.'
+          : 'Codex entered an error state.'
+      return [
+        {
+          type: 'session.error',
+          sessionId: hiveSessionId,
+          data: {
+            error: extractCodexErrorMessage(statusErrorValue, fallback)
+          }
         }
       ]
     }

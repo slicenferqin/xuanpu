@@ -5,10 +5,7 @@ import { ToolCard, type ToolUseInfo } from '../../../src/renderer/src/components
 import { StreamingCursor } from '../../../src/renderer/src/components/sessions/StreamingCursor'
 import { AssistantCanvas } from '../../../src/renderer/src/components/sessions/AssistantCanvas'
 import { MessageRenderer } from '../../../src/renderer/src/components/sessions/MessageRenderer'
-import type {
-  StreamingPart,
-  OpenCodeMessage
-} from '../../../src/renderer/src/components/sessions/SessionView'
+import type { StreamingPart, OpenCodeMessage } from '../../../src/renderer/src/lib/session-types'
 
 // Mock sonner toast
 vi.mock('sonner', () => ({

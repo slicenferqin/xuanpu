@@ -2,7 +2,6 @@ import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 import { useSessionStore } from '../../../src/renderer/src/stores/useSessionStore'
 import { useContextStore } from '../../../src/renderer/src/stores/useContextStore'
-import { QueuedIndicator } from '../../../src/renderer/src/components/sessions/QueuedIndicator'
 import { CompactionPill } from '../../../src/renderer/src/components/sessions/CompactionPill'
 import { ReasoningBlock } from '../../../src/renderer/src/components/sessions/ReasoningBlock'
 import { SubtaskCard } from '../../../src/renderer/src/components/sessions/SubtaskCard'
@@ -11,7 +10,7 @@ import { AttachmentButton } from '../../../src/renderer/src/components/sessions/
 import { SlashCommandPopover } from '../../../src/renderer/src/components/sessions/SlashCommandPopover'
 import { ContextIndicator } from '../../../src/renderer/src/components/sessions/ContextIndicator'
 import { AssistantCanvas } from '../../../src/renderer/src/components/sessions/AssistantCanvas'
-import type { StreamingPart } from '../../../src/renderer/src/components/sessions/SessionView'
+import type { StreamingPart } from '../../../src/renderer/src/lib/session-types'
 
 /**
  * Session 10: Integration & Polish
@@ -322,36 +321,6 @@ describe('Session 10: Integration & Polish', () => {
 
       const bar = screen.getByTestId('context-bar')
       expect(bar.className).toContain('bg-green-500')
-    })
-  })
-
-  // ── Queued messages ─────────────────────────────────────────
-
-  describe('Queued messages end-to-end', () => {
-    test('QueuedIndicator shows correct count', () => {
-      render(<QueuedIndicator count={2} />)
-      expect(screen.getByText('2 messages queued')).toBeTruthy()
-    })
-
-    test('QueuedIndicator singular form for 1 message', () => {
-      render(<QueuedIndicator count={1} />)
-      expect(screen.getByText('1 message queued')).toBeTruthy()
-    })
-
-    test('QueuedIndicator hidden when count is 0', () => {
-      const { container } = render(<QueuedIndicator count={0} />)
-      expect(container.innerHTML).toBe('')
-    })
-
-    test('QueuedIndicator updates reactively', () => {
-      const { rerender } = render(<QueuedIndicator count={0} />)
-      expect(screen.queryByText(/queued/)).toBeNull()
-
-      rerender(<QueuedIndicator count={3} />)
-      expect(screen.getByText('3 messages queued')).toBeTruthy()
-
-      rerender(<QueuedIndicator count={0} />)
-      expect(screen.queryByText(/queued/)).toBeNull()
     })
   })
 

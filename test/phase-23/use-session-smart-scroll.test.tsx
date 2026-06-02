@@ -3,10 +3,10 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { useSessionSmartScroll } from '../../src/renderer/src/hooks/useSessionSmartScroll'
 import {
-  getSessionViewState,
-  setSessionViewState,
-  resetSessionViewRegistryForTests
-} from '../../src/renderer/src/lib/session-view-registry'
+  getScrollAnchorState,
+  setScrollAnchorState,
+  resetScrollAnchorRegistryForTests
+} from '../../src/renderer/src/lib/session-scroll-registry'
 
 class MockResizeObserver {
   callback: ResizeObserverCallback
@@ -171,7 +171,7 @@ function getObserverFor(target: Element): MockResizeObserver {
 
 describe('useSessionSmartScroll', () => {
   beforeEach(() => {
-    resetSessionViewRegistryForTests()
+    resetScrollAnchorRegistryForTests()
     window.sessionStorage.clear()
     resizeObservers.length = 0
     globalThis.ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver
@@ -187,7 +187,7 @@ describe('useSessionSmartScroll', () => {
   })
 
   it('restores a saved non-bottom anchor when the session remounts', () => {
-    setSessionViewState('session-a', {
+    setScrollAnchorState('session-a', {
       scrollTop: 240,
       stickyBottom: false,
       manualScrollLocked: true,
@@ -213,7 +213,7 @@ describe('useSessionSmartScroll', () => {
     )
 
     expect(scrollTop.current).toBe(240)
-    expect(getSessionViewState('session-a')).toMatchObject({
+    expect(getScrollAnchorState('session-a')).toMatchObject({
       scrollTop: 240,
       stickyBottom: false,
       manualScrollLocked: true,
@@ -222,7 +222,7 @@ describe('useSessionSmartScroll', () => {
   })
 
   it('keeps sticky-bottom sessions anchored and marks the latest mirror version as seen', () => {
-    setSessionViewState('session-a', {
+    setScrollAnchorState('session-a', {
       stickyBottom: true,
       manualScrollLocked: false,
       lastSeenVersion: 1
@@ -247,7 +247,7 @@ describe('useSessionSmartScroll', () => {
     )
 
     expect(scrollTop.current).toBe(800)
-    expect(getSessionViewState('session-a')).toMatchObject({
+    expect(getScrollAnchorState('session-a')).toMatchObject({
       stickyBottom: true,
       manualScrollLocked: false,
       lastSeenVersion: 4
@@ -284,7 +284,7 @@ describe('useSessionSmartScroll', () => {
 
     expect(screen.getByTestId('smart-scroll-fab-visible')).toHaveTextContent('yes')
     expect(screen.getByTestId('smart-scroll-fab-count')).toHaveTextContent('3')
-    expect(getSessionViewState('session-a')).toMatchObject({
+    expect(getScrollAnchorState('session-a')).toMatchObject({
       stickyBottom: false,
       manualScrollLocked: true,
       lastSeenVersion: 1
@@ -294,7 +294,7 @@ describe('useSessionSmartScroll', () => {
 
     expect(scrollTop.current).toBe(800)
     expect(screen.getByTestId('smart-scroll-fab-visible')).toHaveTextContent('no')
-    expect(getSessionViewState('session-a')).toMatchObject({
+    expect(getScrollAnchorState('session-a')).toMatchObject({
       stickyBottom: true,
       manualScrollLocked: false,
       lastSeenVersion: 4
@@ -343,7 +343,7 @@ describe('useSessionSmartScroll', () => {
   })
 
   it('does not auto-scroll bottom-area resize while clear-screen top lock is active and idle', () => {
-    setSessionViewState('session-a', {
+    setScrollAnchorState('session-a', {
       scrollTop: 320,
       stickyBottom: false,
       manualScrollLocked: false,
@@ -379,7 +379,7 @@ describe('useSessionSmartScroll', () => {
   })
 
   it('does not auto-scroll on composer resize during streaming in overlay mode', () => {
-    setSessionViewState('session-a', {
+    setScrollAnchorState('session-a', {
       stickyBottom: true,
       manualScrollLocked: false,
       lastSeenVersion: 2
@@ -447,7 +447,7 @@ describe('useSessionSmartScroll', () => {
     fireEvent.click(screen.getByTestId('smart-scroll-offset-button'))
 
     expect(scrollTop.current).toBe(320)
-    expect(getSessionViewState('session-a')).toMatchObject({
+    expect(getScrollAnchorState('session-a')).toMatchObject({
       scrollTop: 320,
       stickyBottom: false,
       manualScrollLocked: false,
@@ -477,7 +477,7 @@ describe('useSessionSmartScroll', () => {
     fireEvent.click(screen.getByTestId('smart-scroll-fab-button'))
 
     expect(scrollTop.current).toBe(1600 - 500)
-    expect(getSessionViewState('session-a')).toMatchObject({
+    expect(getScrollAnchorState('session-a')).toMatchObject({
       stickyBottom: true,
       manualScrollLocked: false,
       lastSeenVersion: 5

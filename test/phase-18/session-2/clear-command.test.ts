@@ -39,7 +39,8 @@ Object.defineProperty(window, 'db', {
       updateDraft: vi.fn()
     },
     worktree: {
-      get: vi.fn()
+      get: vi.fn(),
+      update: vi.fn().mockResolvedValue(undefined)
     },
     settings: {
       get: vi.fn()
@@ -57,7 +58,7 @@ Object.defineProperty(window, 'opencodeOps', {
   }
 })
 
-import { BUILT_IN_SLASH_COMMANDS } from '../../../src/renderer/src/components/sessions/SessionView'
+import { BUILT_IN_SLASH_COMMANDS } from '../../../src/renderer/src/lib/session-commands'
 import { useSessionStore } from '../../../src/renderer/src/stores/useSessionStore'
 
 describe('Session 2: /clear Command', () => {

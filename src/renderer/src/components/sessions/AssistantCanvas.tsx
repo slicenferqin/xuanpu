@@ -5,10 +5,10 @@ import { SubtaskCard } from './SubtaskCard'
 import { ReasoningBlock } from './ReasoningBlock'
 import { CompactionPill } from './CompactionPill'
 import { cn } from '@/lib/utils'
-import type { StreamingPart } from './SessionView'
 import { isTodoWriteTool } from '@/lib/todo-utils'
 import { stripTaskNotifications } from '@/lib/content-sanitizer'
 import { useMemo } from 'react'
+import type { StreamingPart } from '@/lib/session-types'
 
 interface AssistantCanvasProps {
   content: string

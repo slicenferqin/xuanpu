@@ -8,16 +8,10 @@ import { useSessionStore } from '@/stores/useSessionStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { useFileViewerStore } from '@/stores/useFileViewerStore'
 import { useLayoutStore } from '@/stores/useLayoutStore'
-import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useI18n } from '@/i18n/useI18n'
 import onboardingBg from '@/assets/onboarding-bg.png'
 import onboardingBgDark from '@/assets/onboarding-bg-dark.png'
 
-const SessionView = lazy(() =>
-  import('@/components/sessions/SessionView').then((m) => ({
-    default: m.SessionView
-  }))
-)
 const SessionTerminalView = lazy(() =>
   import('@/components/sessions/SessionTerminalView').then((m) => ({
     default: m.SessionTerminalView
@@ -57,8 +51,6 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
   const contextEditorWorktreeId = useFileViewerStore((state) => state.contextEditorWorktreeId)
   const closedTerminalSessionIds = useSessionStore((state) => state.closedTerminalSessionIds)
   const ghosttyOverlaySuppressed = useLayoutStore((state) => state.ghosttyOverlaySuppressed)
-  const sessionUiV2 = useSettingsStore((state) => state.sessionUiV2Enabled)
-
   // Subscribe to session maps so terminal list stays reactive
   const sessionsByWorktree = useSessionStore((state) => state.sessionsByWorktree)
   const sessionsByConnection = useSessionStore((state) => state.sessionsByConnection)
@@ -313,11 +305,7 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
             </div>
           }
         >
-          {sessionUiV2 ? (
-            <SessionShell key={inlineConnectionSessionId} sessionId={inlineConnectionSessionId} />
-          ) : (
-            <SessionView key={inlineConnectionSessionId} sessionId={inlineConnectionSessionId} />
-          )}
+          <SessionShell key={inlineConnectionSessionId} sessionId={inlineConnectionSessionId} />
         </Suspense>
       )
     }
@@ -359,11 +347,7 @@ export function MainPane({ children }: MainPaneProps): React.JSX.Element {
           </div>
         }
       >
-        {sessionUiV2 ? (
-          <SessionShell key={activeSessionId} sessionId={activeSessionId} />
-        ) : (
-          <SessionView key={activeSessionId} sessionId={activeSessionId} />
-        )}
+        <SessionShell key={activeSessionId} sessionId={activeSessionId} />
       </Suspense>
     )
   }

@@ -1,39 +1,15 @@
 import { describe, it, expect } from 'vitest'
+import {
+  BUILT_IN_SLASH_COMMANDS,
+  type SlashCommandInfo
+} from '../../../src/renderer/src/lib/session-commands'
 
 /**
  * Unit tests for slash-command filtering logic based on runtime capabilities.
  *
- * We extract the pure filtering logic from SessionView's useMemo so we can
+ * We extract the pure filtering logic from the session command menu so we can
  * test it without rendering the full component.
  */
-
-interface SlashCommandInfo {
-  name: string
-  description?: string
-  template: string
-  builtIn?: boolean
-}
-
-const BUILT_IN_SLASH_COMMANDS: SlashCommandInfo[] = [
-  {
-    name: 'undo',
-    description: 'Undo the last message and file changes',
-    template: '/undo',
-    builtIn: true
-  },
-  {
-    name: 'redo',
-    description: 'Redo the last undone message and file changes',
-    template: '/redo',
-    builtIn: true
-  },
-  {
-    name: 'clear',
-    description: 'Close current tab and open a new one',
-    template: '/clear',
-    builtIn: true
-  }
-]
 
 interface Capabilities {
   supportsUndo: boolean
@@ -41,7 +17,7 @@ interface Capabilities {
 }
 
 /**
- * Mirror of the filtering logic in SessionView's allSlashCommands useMemo.
+ * Mirror of the filtering logic in the command menu's allSlashCommands useMemo.
  */
 function filterSlashCommands(
   customCommands: SlashCommandInfo[],

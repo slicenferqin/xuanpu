@@ -2,7 +2,7 @@ import React from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTimelineScrollController } from '../../src/renderer/src/hooks/useTimelineScrollController'
-import { resetSessionViewRegistryForTests } from '../../src/renderer/src/lib/session-view-registry'
+import { resetScrollAnchorRegistryForTests } from '../../src/renderer/src/lib/session-scroll-registry'
 
 interface HarnessProps {
   contentVersion?: number
@@ -122,7 +122,7 @@ function mockRect(element: HTMLElement, top: number, height: number): void {
 
 describe('useTimelineScrollController', () => {
   beforeEach(() => {
-    resetSessionViewRegistryForTests()
+    resetScrollAnchorRegistryForTests()
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
       callback(0)
       return 1

@@ -174,9 +174,6 @@ export interface AppSettings {
 
   // Voice input
   voiceInput: VoiceInputSettings
-
-  // Experimental — Phase 7 feature flag
-  sessionUiV2Enabled: boolean
 }
 
 export interface AgentSdkAvailability {
@@ -254,7 +251,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   uiCustomFontFamily: '',
   uiFontWeight: 'regular',
   voiceInput: DEFAULT_VOICE_INPUT_SETTINGS,
-  sessionUiV2Enabled: true,
   focusMode: false,
   readingDensity: 'comfortable'
 }
@@ -448,7 +444,6 @@ function extractSettings(state: SettingsState): AppSettings {
     uiCustomFontFamily: state.uiCustomFontFamily,
     uiFontWeight: state.uiFontWeight,
     voiceInput: state.voiceInput,
-    sessionUiV2Enabled: state.sessionUiV2Enabled,
     focusMode: state.focusMode,
     readingDensity: state.readingDensity
   }

@@ -51,12 +51,15 @@ const log = createLogger({ component: 'ClaudeCodeImplementer' })
 
 const CLAUDE_EFFORT_VARIANTS = { low: {}, medium: {}, high: {} }
 const CLAUDE_OPUS_EFFORT_VARIANTS = { low: {}, medium: {}, high: {}, xhigh: {}, max: {} }
+const CLAUDE_DEFAULT_CONTEXT_LIMIT = 200_000
+const CLAUDE_ONE_M_CONTEXT_LIMIT = 1_000_000
 
 const CLAUDE_MODELS = [
   {
     id: 'opus',
     name: 'Opus 4.8',
-    limit: { context: 200000, output: 32000 },
+    sdkModel: 'opus[1m]',
+    limit: { context: CLAUDE_ONE_M_CONTEXT_LIMIT, output: 32000 },
     variants: CLAUDE_OPUS_EFFORT_VARIANTS,
     defaultVariant: 'high',
     supportsFastMode: true
@@ -64,18 +67,36 @@ const CLAUDE_MODELS = [
   {
     id: 'sonnet',
     name: 'Sonnet 4.6',
-    limit: { context: 200000, output: 16000 },
+    sdkModel: 'sonnet[1m]',
+    limit: { context: CLAUDE_ONE_M_CONTEXT_LIMIT, output: 16000 },
     variants: CLAUDE_EFFORT_VARIANTS,
     defaultVariant: 'high'
   },
   {
     id: 'haiku',
     name: 'Haiku 4.5',
-    limit: { context: 200000, output: 8192 },
+    sdkModel: 'haiku',
+    limit: { context: CLAUDE_DEFAULT_CONTEXT_LIMIT, output: 8192 },
     variants: CLAUDE_EFFORT_VARIANTS,
     defaultVariant: 'high'
   }
 ]
+
+function resolveClaudeModelDef(modelId: string | undefined): (typeof CLAUDE_MODELS)[number] | null {
+  if (!modelId) return null
+
+  const runtimeModelId = resolveRuntimeModelId(modelId, 'anthropic')
+  return (
+    CLAUDE_MODELS.find(
+      (model) => model.id === modelId || model.id === runtimeModelId || model.sdkModel === modelId
+    ) ?? null
+  )
+}
+
+function resolveClaudeSdkModel(modelId: string | undefined): string | undefined {
+  const model = resolveClaudeModelDef(modelId)
+  return model?.sdkModel ?? modelId
+}
 
 function asNumberOrNull(value: unknown): number | null | undefined {
   if (value === null) return null
@@ -853,7 +874,8 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
 
       // Resolve effort level from variant selection (default per model)
       const resolvedModel = modelOverride?.modelID ?? this.selectedModel
-      const modelDef = CLAUDE_MODELS.find((m) => m.id === resolvedModel)
+      const modelDef = resolveClaudeModelDef(resolvedModel)
+      const sdkModel = resolveClaudeSdkModel(resolvedModel)
       const effortLevel = (modelOverride?.variant ??
         this.selectedVariant ??
         modelDef?.defaultVariant ??
@@ -886,7 +908,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
         permissionMode: sdkPermissionMode,
         abortController: session.abortController,
         ...(this.thinkingSupported ? { maxThinkingTokens: 31999 } : {}),
-        model: resolvedModel,
+        model: sdkModel,
         includePartialMessages: true,
         enableFileCheckpointing: true,
         settingSources: ['user', 'project', 'local'],
@@ -2303,7 +2325,7 @@ export class ClaudeCodeImplementer implements AgentSdkImplementer, AgentRuntimeA
     limit: { context: number; input?: number; output: number }
     supportsFastMode?: boolean
   } | null> {
-    const model = CLAUDE_MODELS.find((m) => m.id === modelId)
+    const model = resolveClaudeModelDef(modelId)
     if (!model) return null
     return {
       id: model.id,

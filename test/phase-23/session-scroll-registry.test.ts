@@ -1,16 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  getSessionViewState,
-  removeSessionViewState,
-  setSessionViewState,
-  updateSessionViewState,
-  resetSessionViewRegistryForTests
-} from '../../src/renderer/src/lib/session-view-registry'
+  getScrollAnchorState,
+  removeScrollAnchorState,
+  setScrollAnchorState,
+  updateScrollAnchorState,
+  resetScrollAnchorRegistryForTests
+} from '../../src/renderer/src/lib/session-scroll-registry'
 
-describe('session-view-registry', () => {
+describe('session-scroll-registry', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    resetSessionViewRegistryForTests()
+    resetScrollAnchorRegistryForTests()
     window.sessionStorage.clear()
   })
 
@@ -19,7 +19,7 @@ describe('session-view-registry', () => {
   })
 
   it('returns the default anchor state for unseen sessions', () => {
-    expect(getSessionViewState('session-a')).toEqual({
+    expect(getScrollAnchorState('session-a')).toEqual({
       scrollTop: 0,
       stickyBottom: true,
       manualScrollLocked: false,
@@ -28,21 +28,21 @@ describe('session-view-registry', () => {
   })
 
   it('merges partial updates and persists them to sessionStorage', () => {
-    setSessionViewState('session-a', {
+    setScrollAnchorState('session-a', {
       scrollTop: 128,
       stickyBottom: false,
       manualScrollLocked: true,
       lastSeenVersion: 5
     })
 
-    updateSessionViewState('session-a', (current) => ({
+    updateScrollAnchorState('session-a', (current) => ({
       ...current,
       scrollTop: 256
     }))
 
     vi.runAllTimers()
 
-    expect(getSessionViewState('session-a')).toEqual({
+    expect(getScrollAnchorState('session-a')).toEqual({
       scrollTop: 256,
       stickyBottom: false,
       manualScrollLocked: true,
@@ -62,13 +62,13 @@ describe('session-view-registry', () => {
   })
 
   it('removes deleted sessions from the registry and persisted storage', () => {
-    setSessionViewState('session-a', {
+    setScrollAnchorState('session-a', {
       scrollTop: 128,
       stickyBottom: false,
       manualScrollLocked: true,
       lastSeenVersion: 5
     })
-    setSessionViewState('session-b', {
+    setScrollAnchorState('session-b', {
       scrollTop: 64,
       stickyBottom: true,
       manualScrollLocked: false,
@@ -76,7 +76,7 @@ describe('session-view-registry', () => {
     })
     vi.runAllTimers()
 
-    removeSessionViewState('session-a')
+    removeScrollAnchorState('session-a')
     vi.runAllTimers()
 
     expect(JSON.parse(window.sessionStorage.getItem('xuanpu:session-view-registry') ?? '{}')).toEqual({
@@ -92,17 +92,17 @@ describe('session-view-registry', () => {
   it('debounces storage persistence across rapid updates', () => {
     const setItemSpy = vi.spyOn(Storage.prototype, 'setItem')
 
-    setSessionViewState('session-a', {
+    setScrollAnchorState('session-a', {
       scrollTop: 10,
       stickyBottom: false,
       manualScrollLocked: true,
       lastSeenVersion: 1
     })
-    updateSessionViewState('session-a', (current) => ({
+    updateScrollAnchorState('session-a', (current) => ({
       ...current,
       scrollTop: 20
     }))
-    updateSessionViewState('session-a', (current) => ({
+    updateScrollAnchorState('session-a', (current) => ({
       ...current,
       scrollTop: 30
     }))
@@ -127,14 +127,14 @@ describe('session-view-registry', () => {
   })
 
   it('clamps lastSeenVersion when the mirror version rewinds', () => {
-    setSessionViewState('session-a', {
+    setScrollAnchorState('session-a', {
       stickyBottom: false,
       manualScrollLocked: true,
       lastSeenVersion: 9
     })
     vi.runAllTimers()
 
-    expect(getSessionViewState('session-a', 3)).toEqual({
+    expect(getScrollAnchorState('session-a', 3)).toEqual({
       scrollTop: 0,
       stickyBottom: false,
       manualScrollLocked: true,

@@ -38,6 +38,8 @@ import { notificationService } from './notification-service'
 import { buildXfpFallbackContext } from '../xfp/fallback-context'
 import { xfpProvider } from '../xfp/provider'
 import { recordXfpAuditEvent, recordXfpPromptObservation } from '../xfp/audit'
+import { isTokenSaverEnabled } from '../field/privacy'
+import type { CodexDynamicToolConfig } from './codex-dynamic-tools'
 
 const log = createLogger({ component: 'CodexImplementer' })
 
@@ -76,6 +78,7 @@ export interface CodexSessionState {
    */
   itemTimestampsByTurn: Map<string, string[]>
   recordedItemIdsByTurn?: Map<string, Set<string>>
+  xfpToolsAttached?: boolean
 }
 
 interface CodexActiveRun {
@@ -594,6 +597,140 @@ export function normalizeCodexMessageTimestamps<T extends { created_at: string }
   })
 }
 
+function canonicalCodexMessageId(messageId: string | null | undefined): string | null {
+  if (!messageId) return null
+  return messageId.replace(/:(user|assistant):jsonl-\d+$/, ':$1')
+}
+
+function isCodexJsonlSupplementalMessageId(messageId: string | null | undefined): boolean {
+  return typeof messageId === 'string' && /:(user|assistant):jsonl-\d+$/.test(messageId)
+}
+
+function dedupeCodexCanonicalMessageRows<
+  T extends {
+    role: string
+    content: string
+    opencode_message_id: string | null
+    created_at: string
+  }
+>(rows: T[]): T[] {
+  const kept: T[] = []
+
+  for (const row of rows) {
+    const normalizedContent = normalizeCodexTimelineText(row.content)
+    if (!normalizedContent) {
+      kept.push(row)
+      continue
+    }
+
+    const rowCanonicalId = canonicalCodexMessageId(row.opencode_message_id)
+    const rowTime = Date.parse(row.created_at)
+    const duplicateIndex = kept.findIndex((existing) => {
+      if (existing.role !== row.role) return false
+      if (normalizeCodexTimelineText(existing.content) !== normalizedContent) return false
+
+      const existingCanonicalId = canonicalCodexMessageId(existing.opencode_message_id)
+      if (rowCanonicalId && existingCanonicalId && rowCanonicalId === existingCanonicalId) {
+        return true
+      }
+
+      const existingTime = Date.parse(existing.created_at)
+      const nearTimestamp =
+        Number.isFinite(rowTime) &&
+        Number.isFinite(existingTime) &&
+        Math.abs(rowTime - existingTime) <= 2_000
+      if (!nearTimestamp) return false
+
+      return (
+        isCodexJsonlSupplementalMessageId(row.opencode_message_id) ||
+        isCodexJsonlSupplementalMessageId(existing.opencode_message_id)
+      )
+    })
+
+    if (duplicateIndex < 0) {
+      kept.push(row)
+      continue
+    }
+
+    const existing = kept[duplicateIndex]
+    if (
+      existing &&
+      isCodexJsonlSupplementalMessageId(existing.opencode_message_id) &&
+      !isCodexJsonlSupplementalMessageId(row.opencode_message_id)
+    ) {
+      kept[duplicateIndex] = row
+    }
+  }
+
+  return kept
+}
+
+function dedupeCodexTimelineMessages(messages: unknown[]): unknown[] {
+  const kept: unknown[] = []
+
+  for (const message of messages) {
+    const record = asObject(message)
+    const role = asString(record?.role)
+    const text = normalizeCodexTimelineText(extractCodexTimelineMessageText(message))
+    if (!record || !role || !text) {
+      kept.push(message)
+      continue
+    }
+
+    const messageId = asString(record.id)
+    const messageCanonicalId = canonicalCodexMessageId(messageId)
+    const timestamp = asString(record.timestamp)
+    const time = timestamp ? Date.parse(timestamp) : Number.NaN
+
+    const duplicateIndex = kept.findIndex((existing) => {
+      const existingRecord = asObject(existing)
+      if (asString(existingRecord?.role) !== role) return false
+      if (normalizeCodexTimelineText(extractCodexTimelineMessageText(existing)) !== text) {
+        return false
+      }
+
+      const existingId = asString(existingRecord?.id)
+      const existingCanonicalId = canonicalCodexMessageId(existingId)
+      if (
+        messageCanonicalId &&
+        existingCanonicalId &&
+        messageCanonicalId === existingCanonicalId
+      ) {
+        return true
+      }
+
+      const existingTimestamp = asString(existingRecord?.timestamp)
+      const existingTime = existingTimestamp ? Date.parse(existingTimestamp) : Number.NaN
+      const nearTimestamp =
+        Number.isFinite(time) &&
+        Number.isFinite(existingTime) &&
+        Math.abs(time - existingTime) <= 2_000
+      if (!nearTimestamp) return false
+
+      return (
+        isCodexJsonlSupplementalMessageId(messageId) ||
+        isCodexJsonlSupplementalMessageId(existingId)
+      )
+    })
+
+    if (duplicateIndex < 0) {
+      kept.push(message)
+      continue
+    }
+
+    const existingRecord = asObject(kept[duplicateIndex])
+    const existingId = asString(existingRecord?.id)
+    if (
+      isCodexJsonlSupplementalMessageId(existingId) &&
+      !isCodexJsonlSupplementalMessageId(messageId)
+    ) {
+      kept[duplicateIndex] = message
+    }
+  }
+
+  return kept
+}
+
 function extractCodexTurnIdFromMessageId(messageId: string | undefined): string | null {
   if (!messageId) return null
   const match = messageId.match(/^(.*):(user|assistant)(?::.*)?$/)
@@ -769,11 +906,62 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
   private pendingApprovalSessions = new Map<string, PendingHitlEntry>()
 
   private resolveContextWindow(runtimeValue: number | undefined, modelID: string): number {
+    const configured = getCodexConfiguredContextWindow()
+    if (configured !== undefined && runtimeValue !== undefined) {
+      return Math.min(configured, runtimeValue)
+    }
+    return configured ?? runtimeValue ?? getCodexModelInfo(modelID)?.limit.context ?? 0
+  }
+
+  private isZeroCodexTokenUsage(usage: Record<string, unknown> | undefined): boolean {
+    if (!usage) return false
     return (
-      getCodexConfiguredContextWindow() ??
-      runtimeValue ??
-      getCodexModelInfo(modelID)?.limit.context ??
-      0
+      (asNumber(usage.inputTokens) ?? 0) === 0 &&
+      (asNumber(usage.cachedInputTokens) ?? 0) === 0 &&
+      (asNumber(usage.outputTokens) ?? 0) === 0 &&
+      (asNumber(usage.reasoningOutputTokens) ?? 0) === 0
+    )
+  }
+
+  private isCodexFullWindowSentinel(
+    last: Record<string, unknown> | undefined,
+    total: Record<string, unknown> | undefined,
+    contextWindow: number
+  ): boolean {
+    if (!total || contextWindow <= 0) return false
+    const totalTokens = asNumber(total.totalTokens)
+    const lastTotalTokens = asNumber(last?.totalTokens)
+    return (
+      totalTokens === contextWindow &&
+      (lastTotalTokens === undefined || lastTotalTokens === 0) &&
+      this.isZeroCodexTokenUsage(total) &&
+      (last === total || this.isZeroCodexTokenUsage(last))
+    )
+  }
+
+  private isCodexContextWindowErrorEvent(event: CodexManagerEvent): boolean {
+    const payload = asObject(event.payload)
+    const error = asObject(payload?.error) ?? payload
+    const info = asString(error?.codexErrorInfo) ?? asString(error?.code)
+    const message = this.getCodexEventErrorMessage(event, '')
+    const lowered = message.toLowerCase()
+    return (
+      info === 'contextWindowExceeded' ||
+      lowered.includes('context window') ||
+      lowered.includes('ran out of room')
+    )
+  }
+
+  private getCodexEventErrorMessage(event: CodexManagerEvent, fallback: string): string {
+    const payload = asObject(event.payload)
+    const error = asObject(payload?.error) ?? payload
+    return (
+      asString(error?.message) ??
+      asString(error?.error) ??
+      asString(error?.reason) ??
+      asString(payload?.message) ??
+      event.message ??
+      fallback
     )
   }
 
@@ -1029,6 +1217,39 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     return ensureCodexAppServerLaunchSpec()
   }
 
+  private resolveCodexDynamicTools(
+    worktreePath: string,
+    hiveSessionId: string
+  ): { config: CodexDynamicToolConfig; xfpAttached: boolean } {
+    let tokenSaverEnabled = false
+    if (this.dbService) {
+      try {
+        tokenSaverEnabled = isTokenSaverEnabled()
+      } catch (error) {
+        log.warn('Codex Token Saver: failed to read setting, native shell remains available', {
+          hiveSessionId,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      }
+    }
+
+    const worktree =
+      (
+        this.dbService as { getWorktreeByPath?: (path: string) => { id?: string } | null } | null
+      )?.getWorktreeByPath?.(worktreePath) ?? null
+
+    return {
+      config: {
+        sessionId: hiveSessionId,
+        defaultCwd: worktreePath,
+        tokenSaverEnabled,
+        xfpWorktreeId: worktree?.id ?? null,
+        logger: { warn: (msg, meta) => log.warn(msg, meta) }
+      },
+      xfpAttached: Boolean(worktree?.id)
+    }
+  }
+
   private maybeNotifyPendingUserFeedback(
     hiveSessionId: string,
     kind: 'question' | 'approval'
@@ -1148,12 +1369,51 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         asNumber(tokenUsage?.modelContextWindow),
         modelID
       )
-      const tokens = {
-        input: Math.max(0, totalInputTokens - totalCachedInputTokens),
-        cacheRead: totalCachedInputTokens,
-        cacheWrite: 0,
-        output: totalOutputTokens,
-        reasoning: totalReasoningTokens
+      if (this.isCodexFullWindowSentinel(last, total, contextWindow)) {
+        targetSession.status = 'error'
+        emitAgentEvent(this.mainWindow, {
+          type: 'session.context_usage',
+          sessionId: targetSession.hiveSessionId,
+          data: {
+            tokens: {
+              input: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              output: 0,
+              reasoning: 0
+            },
+            model: { providerID: 'codex', modelID },
+            contextWindow,
+            breakdown: {
+              usedTokens: contextWindow,
+              maxTokens: contextWindow,
+              percentage: 100
+            }
+          }
+        })
+        emitAgentEvent(this.mainWindow, {
+          type: 'session.error',
+          sessionId: targetSession.hiveSessionId,
+          data: {
+            error:
+              'Codex context window is exhausted. Roll back the last turn or start a new thread before retrying.',
+            code: 'contextWindowExceeded',
+            recoverable: false
+          }
+        })
+        this.persistSyntheticActivity(targetSession, {
+          id: `${event.id}:context-window-exhausted`,
+          kind: 'session.error',
+          tone: 'error',
+          summary: 'Codex context window exhausted',
+          turnId,
+          payload: {
+            code: 'contextWindowExceeded',
+            contextWindow
+          }
+        })
+        this.emitStatus(targetSession.hiveSessionId, 'idle')
+        return
       }
       const lastTokens = {
         input: Math.max(0, lastInputTokens - lastCachedInputTokens),
@@ -1204,7 +1464,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         type: 'session.context_usage',
         sessionId: targetSession.hiveSessionId,
         data: {
-          tokens,
+          tokens: lastTokens,
           model: { providerID: 'codex', modelID },
           contextWindow,
           breakdown: {
@@ -1447,10 +1707,12 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     // Ensure the manager event listener is attached for HITL flows
     this.attachManagerListener()
 
+    const dynamicTools = this.resolveCodexDynamicTools(worktreePath, hiveSessionId)
     const providerSession = await this.manager.startSession({
       cwd: worktreePath,
       model: resolvedModel,
-      codexLaunchSpec: await this.resolveLaunchSpec()
+      codexLaunchSpec: await this.resolveLaunchSpec(),
+      dynamicTools: dynamicTools.config
     })
 
     const threadId = providerSession.threadId
@@ -1475,7 +1737,8 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       tokenUsageCostByEvent: new Map(),
       mapperState: createCodexMapperState(),
       itemTimestampsByTurn: new Map(),
-      recordedItemIdsByTurn: new Map()
+      recordedItemIdsByTurn: new Map(),
+      xfpToolsAttached: dynamicTools.xfpAttached
     }
     this.sessions.set(key, state)
 
@@ -1524,11 +1787,13 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       this.attachManagerListener()
 
       const resolvedModel = resolveCodexModelSlug(this.selectedModel)
+      const dynamicTools = this.resolveCodexDynamicTools(worktreePath, hiveSessionId)
       const providerSession = await this.manager.startSession({
         cwd: worktreePath,
         model: resolvedModel,
         resumeThreadId: agentSessionId,
-        codexLaunchSpec: await this.resolveLaunchSpec()
+        codexLaunchSpec: await this.resolveLaunchSpec(),
+        dynamicTools: dynamicTools.config
       })
 
       const threadId = providerSession.threadId
@@ -1553,7 +1818,8 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         tokenUsageCostByEvent: new Map(),
         mapperState: createCodexMapperState(),
         itemTimestampsByTurn: new Map(),
-        recordedItemIdsByTurn: new Map()
+        recordedItemIdsByTurn: new Map(),
+        xfpToolsAttached: dynamicTools.xfpAttached
       }
       this.sessions.set(newKey, state)
 
@@ -1839,7 +2105,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         (
           this.dbService as { getWorktreeByPath?: (path: string) => { id?: string } | null } | null
         )?.getWorktreeByPath?.(session.worktreePath) ?? null
-      if (worktree?.id) {
+      if (worktree?.id && !session.xfpToolsAttached) {
         const fallback = await buildXfpFallbackContext({
           provider: xfpProvider,
           scope: { worktreeId: worktree.id, sessionId: session.hiveSessionId },
@@ -1908,7 +2174,11 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         worktreeId: worktree?.id ?? null,
         sessionId: session.hiveSessionId,
         runtimeId: 'codex',
-        fieldDeliveryMode: fallbackChars > 0 ? 'xfp-fallback' : 'none',
+        fieldDeliveryMode: session.xfpToolsAttached
+          ? 'xfp-mcp'
+          : fallbackChars > 0
+            ? 'xfp-fallback'
+            : 'none',
         promptChars: turnText.length,
         displayChars: (displayText || runtimeText).length,
         fallbackChars: fallbackChars > 0 ? fallbackChars : undefined,
@@ -1918,7 +2188,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         attachmentCount: Array.isArray(message)
           ? message.filter((part) => part.type === 'file').length
           : 0,
-        mcpAttached: false
+        mcpAttached: session.xfpToolsAttached === true
       })
 
       const turnStart = await this.manager.sendTurn(session.threadId, {
@@ -2967,15 +3237,11 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       if (!lastUsage) return
 
       const lastInputTokens = asNumber(lastUsage.input_tokens) ?? 0
+      const lastCachedInputTokens = asNumber(lastUsage.cached_input_tokens) ?? 0
+      const lastOutputTokens = asNumber(lastUsage.output_tokens) ?? 0
+      const lastReasoningTokens = asNumber(lastUsage.reasoning_output_tokens) ?? 0
       const totalInputTokens = asNumber(totalUsage?.input_tokens) ?? lastInputTokens
-      const totalCachedInputTokens =
-        asNumber(totalUsage?.cached_input_tokens) ?? asNumber(lastUsage.cached_input_tokens) ?? 0
-      const totalOutputTokens =
-        asNumber(totalUsage?.output_tokens) ?? asNumber(lastUsage.output_tokens) ?? 0
-      const totalReasoningTokens =
-        asNumber(totalUsage?.reasoning_output_tokens) ??
-        asNumber(lastUsage.reasoning_output_tokens) ??
-        0
+      const totalOutputTokens = asNumber(totalUsage?.output_tokens) ?? lastOutputTokens
       if (totalInputTokens === 0 && totalOutputTokens === 0) return
 
       const modelID = resolveCodexModelSlug(this.selectedModel)
@@ -2988,11 +3254,11 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         sessionId: session.hiveSessionId,
         data: {
           tokens: {
-            input: Math.max(0, totalInputTokens - totalCachedInputTokens),
-            cacheRead: totalCachedInputTokens,
+            input: Math.max(0, lastInputTokens - lastCachedInputTokens),
+            cacheRead: lastCachedInputTokens,
             cacheWrite: 0,
-            output: totalOutputTokens,
-            reasoning: totalReasoningTokens
+            output: lastOutputTokens,
+            reasoning: lastReasoningTokens
           },
           model: { providerID: 'codex', modelID },
           contextWindow,
@@ -3134,9 +3400,10 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         ]
       })
 
+      const normalizedRows = normalizeCodexMessageTimestamps(rows)
       this.dbService.replaceSessionMessages(
         session.hiveSessionId,
-        normalizeCodexMessageTimestamps(rows)
+        dedupeCodexCanonicalMessageRows(normalizedRows)
       )
     } catch (error) {
       log.warn('Failed to persist Codex canonical messages', {
@@ -3633,6 +3900,30 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       const checkEvent = (event: CodexManagerEvent) => {
         if (!this.eventMatchesActiveRun(session, runId, event)) return
 
+        if (event.method === 'error' && this.isCodexContextWindowErrorEvent(event)) {
+          fail(new Error(this.getCodexEventErrorMessage(event, 'Codex context window exceeded')))
+          return
+        }
+
+        if (event.method === 'thread/tokenUsage/updated') {
+          const payload = asObject(event.payload)
+          const tokenUsage = asObject(payload?.tokenUsage)
+          const last = asObject(tokenUsage?.last)
+          const total = asObject(tokenUsage?.total) ?? last
+          const contextWindow = this.resolveContextWindow(
+            asNumber(tokenUsage?.modelContextWindow),
+            resolveCodexModelSlug(asString(payload?.model) ?? this.selectedModel)
+          )
+          if (this.isCodexFullWindowSentinel(last, total, contextWindow)) {
+            fail(
+              new Error(
+                'Codex context window is exhausted. Roll back the last turn or start a new thread before retrying.'
+              )
+            )
+            return
+          }
+        }
+
         if (event.method === 'turn/completed') {
           const payload = event.payload as Record<string, unknown> | undefined
           const turnObj = payload?.turn as Record<string, unknown> | undefined
@@ -3802,11 +4093,13 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     }
 
     try {
+      const dynamicTools = this.resolveCodexDynamicTools(worktreePath, persistedSession.id)
       const providerSession = await this.manager.startSession({
         cwd: worktreePath,
         model: resolveCodexModelSlug(persistedSession.model_id ?? this.selectedModel),
         resumeThreadId: agentSessionId,
-        codexLaunchSpec: await this.resolveLaunchSpec()
+        codexLaunchSpec: await this.resolveLaunchSpec(),
+        dynamicTools: dynamicTools.config
       })
 
       const threadId = providerSession.threadId
@@ -3830,7 +4123,8 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         tokenUsageCostByEvent: new Map(),
         mapperState: createCodexMapperState(),
         itemTimestampsByTurn: new Map(),
-        recordedItemIdsByTurn: new Map()
+        recordedItemIdsByTurn: new Map(),
+        xfpToolsAttached: dynamicTools.xfpAttached
       }
 
       this.sessions.set(this.getSessionKey(worktreePath, threadId), recovered)
@@ -4763,12 +5057,13 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       }
     }
 
-    return messages
+    const sortedMessages = messages
       .sort((a, b) => {
         if (a.sortTime !== b.sortTime) return a.sortTime - b.sortTime
         return a.order - b.order
       })
       .map((entry) => entry.message)
+    return dedupeCodexTimelineMessages(sortedMessages)
   }
 
   /**

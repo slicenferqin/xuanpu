@@ -1,38 +1,41 @@
-export interface SessionViewState {
+export interface ScrollAnchorState {
   scrollTop: number
   stickyBottom: boolean
   manualScrollLocked: boolean
   lastSeenVersion: number
 }
 
+// Storage key intentionally kept as 'xuanpu:session-view-registry' for backward compatibility.
+// This is sessionStorage (per-tab, cleared on close), so there is no long-term migration burden,
+// but keeping the key avoids losing scroll state for users who upgrade while the app is running.
 const STORAGE_KEY = 'xuanpu:session-view-registry'
 const PERSIST_DEBOUNCE_MS = 250
 
-const DEFAULT_SESSION_VIEW_STATE: SessionViewState = {
+const DEFAULT_SCROLL_ANCHOR_STATE: ScrollAnchorState = {
   scrollTop: 0,
   stickyBottom: true,
   manualScrollLocked: false,
   lastSeenVersion: 0
 }
 
-const _sessionViewRegistry = new Map<string, SessionViewState>()
+const _scrollAnchorRegistry = new Map<string, ScrollAnchorState>()
 let _didLoadFromStorage = false
 let _persistTimeoutHandle: ReturnType<typeof setTimeout> | null = null
 let _persistIdleHandle: number | null = null
 
-function normalizeSessionViewState(
-  state?: Partial<SessionViewState>,
+function normalizeScrollAnchorState(
+  state?: Partial<ScrollAnchorState>,
   maxSeenVersion = Number.POSITIVE_INFINITY
-): SessionViewState {
+): ScrollAnchorState {
   const scrollTop =
     typeof state?.scrollTop === 'number' && Number.isFinite(state.scrollTop)
       ? Math.max(0, state.scrollTop)
-      : DEFAULT_SESSION_VIEW_STATE.scrollTop
+      : DEFAULT_SCROLL_ANCHOR_STATE.scrollTop
 
   const stickyBottom =
     typeof state?.stickyBottom === 'boolean'
       ? state.stickyBottom
-      : DEFAULT_SESSION_VIEW_STATE.stickyBottom
+      : DEFAULT_SCROLL_ANCHOR_STATE.stickyBottom
 
   const boundedMaxSeenVersion = Number.isFinite(maxSeenVersion)
     ? Math.max(0, maxSeenVersion)
@@ -41,7 +44,7 @@ function normalizeSessionViewState(
   const rawLastSeenVersion =
     typeof state?.lastSeenVersion === 'number' && Number.isFinite(state.lastSeenVersion)
       ? Math.max(0, state.lastSeenVersion)
-      : DEFAULT_SESSION_VIEW_STATE.lastSeenVersion
+      : DEFAULT_SCROLL_ANCHOR_STATE.lastSeenVersion
 
   const lastSeenVersion = Math.min(rawLastSeenVersion, boundedMaxSeenVersion)
 
@@ -50,7 +53,7 @@ function normalizeSessionViewState(
       ? false
       : typeof state?.manualScrollLocked === 'boolean'
         ? state.manualScrollLocked
-        : DEFAULT_SESSION_VIEW_STATE.manualScrollLocked
+        : DEFAULT_SCROLL_ANCHOR_STATE.manualScrollLocked
 
   return {
     scrollTop,
@@ -92,12 +95,12 @@ function flushPersistRegistry(): void {
   }
 
   try {
-    if (_sessionViewRegistry.size === 0) {
+    if (_scrollAnchorRegistry.size === 0) {
       sessionStorage.removeItem(STORAGE_KEY)
       return
     }
 
-    const payload = Object.fromEntries(_sessionViewRegistry)
+    const payload = Object.fromEntries(_scrollAnchorRegistry)
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
   } catch {
     // Non-fatal: the in-memory registry still preserves session anchors.
@@ -134,69 +137,69 @@ function ensureRegistryLoaded(): void {
     const raw = window.sessionStorage.getItem(STORAGE_KEY)
     if (!raw) return
 
-    const parsed = JSON.parse(raw) as Record<string, Partial<SessionViewState>>
+    const parsed = JSON.parse(raw) as Record<string, Partial<ScrollAnchorState>>
     for (const [sessionId, state] of Object.entries(parsed)) {
-      _sessionViewRegistry.set(sessionId, normalizeSessionViewState(state))
+      _scrollAnchorRegistry.set(sessionId, normalizeScrollAnchorState(state))
     }
   } catch {
-    _sessionViewRegistry.clear()
+    _scrollAnchorRegistry.clear()
   }
 }
 
-export function getSessionViewState(
+export function getScrollAnchorState(
   sessionId: string,
   maxSeenVersion = Number.POSITIVE_INFINITY
-): SessionViewState {
+): ScrollAnchorState {
   ensureRegistryLoaded()
 
-  const current = normalizeSessionViewState(_sessionViewRegistry.get(sessionId), maxSeenVersion)
-  _sessionViewRegistry.set(sessionId, current)
+  const current = normalizeScrollAnchorState(_scrollAnchorRegistry.get(sessionId), maxSeenVersion)
+  _scrollAnchorRegistry.set(sessionId, current)
   return { ...current }
 }
 
-export function setSessionViewState(
+export function setScrollAnchorState(
   sessionId: string,
-  nextState: Partial<SessionViewState>,
+  nextState: Partial<ScrollAnchorState>,
   maxSeenVersion = Number.POSITIVE_INFINITY
-): SessionViewState {
+): ScrollAnchorState {
   ensureRegistryLoaded()
 
-  const current = getSessionViewState(sessionId, maxSeenVersion)
-  const next = normalizeSessionViewState(
+  const current = getScrollAnchorState(sessionId, maxSeenVersion)
+  const next = normalizeScrollAnchorState(
     {
       ...current,
       ...nextState
     },
     maxSeenVersion
   )
-  _sessionViewRegistry.set(sessionId, next)
+  _scrollAnchorRegistry.set(sessionId, next)
   persistRegistry()
   return { ...next }
 }
 
-export function updateSessionViewState(
+export function updateScrollAnchorState(
   sessionId: string,
-  updater: (current: SessionViewState) => Partial<SessionViewState>,
+  updater: (current: ScrollAnchorState) => Partial<ScrollAnchorState>,
   maxSeenVersion = Number.POSITIVE_INFINITY
-): SessionViewState {
+): ScrollAnchorState {
   ensureRegistryLoaded()
 
-  const current = getSessionViewState(sessionId, maxSeenVersion)
-  return setSessionViewState(sessionId, updater(current), maxSeenVersion)
+  const current = getScrollAnchorState(sessionId, maxSeenVersion)
+  return setScrollAnchorState(sessionId, updater(current), maxSeenVersion)
 }
 
-export function removeSessionViewState(sessionId: string): void {
+export function removeScrollAnchorState(sessionId: string): void {
   ensureRegistryLoaded()
 
-  if (!_sessionViewRegistry.has(sessionId)) return
+  if (!_scrollAnchorRegistry.has(sessionId)) return
 
-  _sessionViewRegistry.delete(sessionId)
+  _scrollAnchorRegistry.delete(sessionId)
   persistRegistry()
 }
 
-export function resetSessionViewRegistryForTests(): void {
+export function resetScrollAnchorRegistryForTests(): void {
   cancelScheduledPersist()
-  _sessionViewRegistry.clear()
+  _scrollAnchorRegistry.clear()
   _didLoadFromStorage = false
 
   if (typeof window !== 'undefined' && typeof window.sessionStorage?.removeItem === 'function') {

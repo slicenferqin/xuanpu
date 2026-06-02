@@ -14,14 +14,14 @@ import {
   type VirtualizedMessageListHandle
 } from '../sessions/VirtualizedMessageList'
 import { ScrollToBottomFab } from '../sessions/ScrollToBottomFab'
-import type { DroidMessage, StreamingPart } from '../sessions/SessionView'
 import type { TimelineMessage } from '@shared/lib/timeline-types'
+import type { OpenCodeMessage, StreamingPart } from '@/lib/session-types'
 
 // ---------------------------------------------------------------------------
 // Helper: derive visible messages (filter system / empty messages)
 // ---------------------------------------------------------------------------
 
-function hasMeaningfulContent(message: DroidMessage): boolean {
+function hasMeaningfulContent(message: OpenCodeMessage): boolean {
   if (message.role === 'system') return false
   if (message.role === 'user') {
     return message.content.trim().length > 0 || (message.attachments?.length ?? 0) > 0
@@ -58,7 +58,7 @@ export interface ThreadPaneProps {
   /** Worktree path for tool links */
   worktreePath: string | null
   /** Callback when user forks from an assistant message */
-  onForkAssistantMessage?: (message: DroidMessage) => void
+  onForkAssistantMessage?: (message: OpenCodeMessage) => void
   /** Currently forking message ID */
   forkingMessageId?: string | null
 }
@@ -83,9 +83,7 @@ export const ThreadPane = React.forwardRef<ThreadPaneHandle, ThreadPaneProps>(
     const scrollContainerRef = useRef<HTMLDivElement>(null)
     const virtualizedListRef = useRef<VirtualizedMessageListHandle>(null)
 
-    // Cast timeline messages to the DroidMessage type used by VirtualizedMessageList.
-    // They are structurally identical (Phase 2 ensured this).
-    const messages = timelineMessages as DroidMessage[]
+    const messages = timelineMessages
 
     const visibleMessages = useMemo(
       () => messages.filter(hasMeaningfulContent),
@@ -124,7 +122,7 @@ export const ThreadPane = React.forwardRef<ThreadPaneHandle, ThreadPaneProps>(
     const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
     const [editingContent, setEditingContent] = useState('')
 
-    const handleEditMessage = useCallback((message: DroidMessage) => {
+    const handleEditMessage = useCallback((message: OpenCodeMessage) => {
       setEditingMessageId(message.id)
       setEditingContent(message.content)
     }, [])
@@ -146,7 +144,7 @@ export const ThreadPane = React.forwardRef<ThreadPaneHandle, ThreadPaneProps>(
     )
 
     const handleFork = useCallback(
-      (message: DroidMessage) => {
+      (message: OpenCodeMessage) => {
         onForkAssistantMessage?.(message)
       },
       [onForkAssistantMessage]

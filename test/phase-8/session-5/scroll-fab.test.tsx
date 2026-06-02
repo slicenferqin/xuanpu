@@ -12,10 +12,7 @@ import { ScrollToBottomFab } from '../../../src/renderer/src/components/sessions
  * - Not clickable when hidden (pointer-events-none)
  * - Positioned absolutely for fixed viewport placement
  *
- * Also verifies SessionView integration:
- * - ScrollToBottomFab is imported and rendered in SessionView
- * - FAB is placed outside the scroll container (sibling, not child)
- * - Parent wrapper has position: relative for absolute positioning
+ * Also verifies ScrollToBottomFab.tsx source structure.
  */
 
 describe('Session 5: ScrollToBottomFab', () => {
@@ -114,87 +111,6 @@ describe('Session 5: ScrollToBottomFab', () => {
       const button = screen.getByTestId('scroll-to-bottom-fab')
       expect(button.className).toContain('min-w-[3.25rem]')
       expect(screen.getByTestId('scroll-to-bottom-fab-count')).toHaveTextContent('12')
-    })
-  })
-
-  describe('FAB integration in SessionView', () => {
-    test('SessionView imports and renders ScrollToBottomFab', async () => {
-      const fs = await import('fs')
-      const path = await import('path')
-      const sourcePath = path.resolve(
-        __dirname,
-        '../../../src/renderer/src/components/sessions/SessionView.tsx'
-      )
-      const source = fs.readFileSync(sourcePath, 'utf-8')
-
-      // Imports the component
-      expect(source).toContain("import { ScrollToBottomFab } from './ScrollToBottomFab'")
-
-      // Renders it with correct props
-      expect(source).toContain('<ScrollToBottomFab')
-      expect(source).toContain('onClick={handleScrollToBottomClick}')
-      expect(source).toContain('visible={showScrollFab}')
-    })
-
-    test('FAB is rendered outside the scroll container (sibling)', async () => {
-      const fs = await import('fs')
-      const path = await import('path')
-      const sourcePath = path.resolve(
-        __dirname,
-        '../../../src/renderer/src/components/sessions/SessionView.tsx'
-      )
-      const source = fs.readFileSync(sourcePath, 'utf-8')
-
-      // The scroll container closes (</div>) before the FAB is rendered.
-      // Pattern: the scroll container div with ref={scrollContainerRef}
-      // is followed by the closing </div>, then the ScrollToBottomFab.
-      // This ensures the FAB does NOT scroll with the content.
-      const scrollContainerEnd = source.indexOf('ref={scrollContainerRef}')
-      const fabStart = source.indexOf('<ScrollToBottomFab')
-      expect(scrollContainerEnd).toBeGreaterThan(-1)
-      expect(fabStart).toBeGreaterThan(scrollContainerEnd)
-
-      // The FAB appears after the scroll container's closing tag
-      // Find the closing </div> of the scroll container between the ref and FAB
-      const sectionBetween = source.slice(scrollContainerEnd, fabStart)
-      // Count opening and closing divs — the scroll container's closing div should be in this section
-      const openDivs = (sectionBetween.match(/<div/g) || []).length
-      const closeDivs = (sectionBetween.match(/<\/div>/g) || []).length
-      // The scroll container opens (counted as 0 since ref is on the same div)
-      // so closeDivs should be >= openDivs (meaning the container is fully closed)
-      expect(closeDivs).toBeGreaterThanOrEqual(openDivs)
-    })
-
-    test('FAB parent wrapper has relative positioning', async () => {
-      const fs = await import('fs')
-      const path = await import('path')
-      const sourcePath = path.resolve(
-        __dirname,
-        '../../../src/renderer/src/components/sessions/SessionView.tsx'
-      )
-      const source = fs.readFileSync(sourcePath, 'utf-8')
-
-      // The wrapper div containing both the scroll container and FAB
-      // should have 'relative' for absolute positioning of FAB
-      expect(source).toContain('relative flex-1 min-h-0')
-
-      // The scroll container inside uses h-full overflow-y-auto
-      expect(source).toContain('h-full overflow-y-auto')
-    })
-
-    test('ArrowDown is NOT imported directly in SessionView (delegated to ScrollToBottomFab)', async () => {
-      const fs = await import('fs')
-      const path = await import('path')
-      const sourcePath = path.resolve(
-        __dirname,
-        '../../../src/renderer/src/components/sessions/SessionView.tsx'
-      )
-      const source = fs.readFileSync(sourcePath, 'utf-8')
-
-      // ArrowDown should NOT be in the lucide-react import line of SessionView
-      const lucideImport = source.match(/import\s*\{[^}]*\}\s*from\s*'lucide-react'/)
-      expect(lucideImport).not.toBeNull()
-      expect(lucideImport![0]).not.toContain('ArrowDown')
     })
   })
 

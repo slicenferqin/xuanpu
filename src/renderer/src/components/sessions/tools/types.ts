@@ -1,4 +1,4 @@
-export type ToolStatus = 'pending' | 'running' | 'success' | 'error'
+export type ToolStatus = 'pending' | 'running' | 'success' | 'error' | 'rejected'
 
 export interface ToolViewProps {
   name: string

@@ -3,7 +3,7 @@ import { ChevronRight, Loader2, Check, AlertCircle, Bot } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { ToolCard } from './ToolCard'
-import type { StreamingPart } from './SessionView'
+import type { StreamingPart } from '@/lib/session-types'
 
 interface SubtaskCardProps {
   subtask: NonNullable<StreamingPart['subtask']>
