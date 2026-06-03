@@ -1107,6 +1107,83 @@ export function deriveCodexTimeline(
 }
 
 /**
+ * xuanpu-agent persists prose as normal DB messages and tool lifecycle events
+ * as `session_activities`. Unlike Codex, its message ids are not turn-scoped,
+ * so we must not run the Codex id-normalization path here. Instead, synthesize
+ * one standalone assistant message per tool call and merge it chronologically.
+ */
+export function mergeXuanpuAgentToolActivities(
+  messages: TimelineMessage[],
+  activityRows: DbSessionActivity[]
+): TimelineMessage[] {
+  const toolRows = activityRows
+    .filter((row) => row.kind.startsWith('tool.'))
+    .sort(compareActivityRows)
+  if (toolRows.length === 0) return messages
+
+  const knownToolIds = new Set<string>()
+  for (const msg of messages) {
+    for (const part of msg.parts ?? []) {
+      if (part.type === 'tool_use' && part.toolUse?.id) {
+        knownToolIds.add(part.toolUse.id)
+      }
+    }
+  }
+
+  const syntheticByKey = new Map<
+    string,
+    TimelineMessage & { syntheticOrder: number; synthetic: true }
+  >()
+
+  for (const row of toolRows) {
+    const part = parseToolPartFromActivity(row)
+    const toolId = part?.toolUse?.id
+    if (!part || !toolId || knownToolIds.has(toolId)) continue
+
+    const key = `${row.turn_id ?? 'unscoped'}:${toolId}`
+    let target = syntheticByKey.get(key)
+    if (!target) {
+      target = {
+        id: row.turn_id ? `${row.turn_id}:tool:${toolId}` : `xuanpu-tool:${toolId}`,
+        role: 'assistant',
+        content: '',
+        timestamp: row.created_at,
+        parts: [],
+        syntheticOrder: syntheticByKey.size,
+        synthetic: true
+      }
+      syntheticByKey.set(key, target)
+    }
+    target.parts = upsertToolPart(target.parts, part)
+  }
+
+  if (syntheticByKey.size === 0) return messages
+
+  const taggedMessages = messages.map((message, index) => ({
+    message,
+    timestamp: Date.parse(message.timestamp),
+    priority: message.role === 'user' ? 0 : message.role === 'assistant' ? 2 : 1,
+    order: index
+  }))
+  const taggedSynthetic = Array.from(syntheticByKey.values()).map((message) => ({
+    message,
+    timestamp: Date.parse(message.timestamp),
+    priority: 1,
+    order: messages.length + message.syntheticOrder
+  }))
+
+  return [...taggedMessages, ...taggedSynthetic]
+    .sort((left, right) => {
+      const leftTime = Number.isFinite(left.timestamp) ? left.timestamp : 0
+      const rightTime = Number.isFinite(right.timestamp) ? right.timestamp : 0
+      if (leftTime !== rightTime) return leftTime - rightTime
+      if (left.priority !== right.priority) return left.priority - right.priority
+      return left.order - right.order
+    })
+    .map((entry) => entry.message)
+}
+
+/**
  * Phase 1.4.8 (OpenCode plan parity): merge `plan.ready` activity rows into
  * an OpenCode timeline so the durable transcript shows a `ExitPlanMode`
  * tool-use card per plan turn.

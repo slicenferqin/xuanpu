@@ -89,6 +89,9 @@ export function useSessionEventSubscription({
         if (event.type === 'session.status') {
           const statusType = getRuntimeStatusType(event)
           if (statusType === 'idle') {
+            const runtime = useSessionRuntimeStore.getState()
+            runtime.setLifecycle(sessionId, 'idle')
+            runtime.setRetryInfo(sessionId, null)
             void refreshUsageSummary()
             // Mark the tab badge / sidebar as completed. useAgentEventBridge
             // intentionally skips active sessions on idle; Session HQ handles it here.
@@ -138,6 +141,9 @@ export function useSessionEventSubscription({
         // runtime store (same rationale as idle). Refresh to get the definitive
         // message ordering, then lift the run-cutoff filter.
         if (event.type === 'session.error') {
+          const runtime = useSessionRuntimeStore.getState()
+          runtime.setLifecycle(sessionId, 'idle')
+          runtime.setRetryInfo(sessionId, null)
           void refresh().finally(() => {
             clearOptimisticMessages()
             clearStreamingBufferOptimisticMessages(sessionId)

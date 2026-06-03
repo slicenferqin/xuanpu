@@ -663,6 +663,47 @@ describe('useSessionRuntimeStore', () => {
       ])
     })
 
+    it('preserves the first text delta carried by a new turn event', () => {
+      updateStreamingBuffer(
+        'sess-first-delta',
+        (current) => ({
+          ...current,
+          turnId: 'old-turn',
+          streamingContent: 'old run text',
+          parts: [{ type: 'text', text: 'old run text' }],
+          isStreaming: true
+        }),
+        { notify: 'none' }
+      )
+
+      writeEventToStreamingBuffer(
+        'sess-first-delta',
+        {
+          type: 'message.part.updated',
+          sessionId: 'sess-first-delta',
+          runtimeId: 'xuanpu-agent',
+          runEpoch: 1,
+          sessionSequence: 1,
+          eventId: 'first-delta',
+          sourceChannel: 'agent:stream',
+          turnId: 'new-turn',
+          origin: 'model',
+          data: {
+            part: { type: 'text', text: '是' },
+            delta: '是',
+            turnId: 'new-turn'
+          }
+        } as CanonicalAgentEvent,
+        { activeSessionId: 'sess-first-delta' }
+      )
+
+      const snapshot = getStreamingBufferSnapshot('sess-first-delta')
+      expect(snapshot.turnId).toBe('new-turn')
+      expect(snapshot.streamingContent).toBe('是')
+      expect(snapshot.parts).toEqual([{ type: 'text', text: '是' }])
+      expect(snapshot.isStreaming).toBe(true)
+    })
+
     it('clears overlay on background idle while preserving compaction state', () => {
       updateStreamingBuffer(
         'sess-idle',

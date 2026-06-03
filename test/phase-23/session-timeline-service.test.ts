@@ -651,6 +651,79 @@ describe('getSessionTimeline', () => {
       expect(mockGetSessionActivities).toHaveBeenCalledWith('sess-1')
     })
 
+    it('renders xuanpu-agent tool activities before the final assistant text after reload', () => {
+      mockGetSession.mockReturnValue(makeSession({ agent_sdk: 'xuanpu-agent' }))
+      mockGetSessionMessages.mockReturnValue([
+        makeMessageRow({
+          id: 'msg-user-1',
+          role: 'user',
+          content: '展示工具调用能力',
+          opencode_message_id: 'xuanpu-agent-user-1',
+          sequence: 1,
+          created_at: '2024-01-01T00:00:00.000Z'
+        }),
+        makeMessageRow({
+          id: 'msg-assistant-1',
+          role: 'assistant',
+          content: '可以，刚才我已经实际调用了一轮工具。',
+          opencode_message_id: 'xuanpu-agent-response-1',
+          sequence: 2,
+          created_at: '2024-01-01T00:00:10.000Z'
+        })
+      ])
+      mockGetSessionActivities.mockReturnValue([
+        makeActivityRow({
+          id: 'xuanpu-agent-tool:sess-1:turn-1:call-git-status:started',
+          turn_id: 'turn-1',
+          item_id: 'call-git-status',
+          kind: 'tool.started',
+          summary: 'git_status',
+          payload_json: JSON.stringify({
+            item: {
+              toolName: 'git_status',
+              input: {},
+              status: 'running',
+              time: { start: 1704067202000 }
+            }
+          }),
+          sequence: 1,
+          created_at: '2024-01-01T00:00:02.000Z'
+        }),
+        makeActivityRow({
+          id: 'xuanpu-agent-tool:sess-1:turn-1:call-git-status:completed',
+          turn_id: 'turn-1',
+          item_id: 'call-git-status',
+          kind: 'tool.completed',
+          summary: 'git_status',
+          payload_json: JSON.stringify({
+            item: {
+              toolName: 'git_status',
+              input: {},
+              output: 'On branch master',
+              status: 'completed',
+              time: { start: 1704067202000, end: 1704067204000 }
+            }
+          }),
+          sequence: 2,
+          created_at: '2024-01-01T00:00:04.000Z'
+        })
+      ])
+
+      const result = getSessionTimeline('sess-1')
+
+      expect(result.messages.map((message) => message.id)).toEqual([
+        'xuanpu-agent-user-1',
+        'turn-1:tool:call-git-status',
+        'xuanpu-agent-response-1'
+      ])
+      const toolMessage = result.messages[1]
+      const toolPart = toolMessage.parts?.find((part) => part.type === 'tool_use')
+      expect(toolPart?.toolUse?.id).toBe('call-git-status')
+      expect(toolPart?.toolUse?.name).toBe('git_status')
+      expect(toolPart?.toolUse?.status).toBe('success')
+      expect(toolPart?.toolUse?.output).toBe('On branch master')
+    })
+
     it('marks xuanpu-agent plan as approved when plan.resolved has resolution=approved', () => {
       const reqId = 'xuanpu-agent-plan:sess-1:2000'
       mockGetSession.mockReturnValue(makeSession({ agent_sdk: 'xuanpu-agent' }))

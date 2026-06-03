@@ -8,7 +8,7 @@ import {
 import simpleGit from 'simple-git'
 
 import type { DatabaseService } from '../db/database'
-import type { Worktree, Session } from '../db/types'
+import type { Worktree, Session, SessionActivityCreate } from '../db/types'
 import type {
   AgentRuntimeAdapter,
   AgentSdkCapabilities,
@@ -527,6 +527,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             if (event.toolName === 'xfp_delegate_subtask') {
               this.emitSubtaskStart(session.hiveSessionId, event, meta.turnId, meta.eventSequence)
             }
+            this.persistToolStart(session.hiveSessionId, event, meta.turnId)
             this.emitToolStart(session.hiveSessionId, event, meta.turnId, meta.eventSequence)
           },
           onToolEnd: (event, meta) => {
@@ -541,6 +542,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             if (subtaskDetails) {
               this.emitSubtaskEnd(session.hiveSessionId, event, subtaskDetails, meta.turnId, meta.eventSequence)
             }
+            this.persistToolEnd(session.hiveSessionId, event, meta.turnId)
             this.emitToolEnd(session.hiveSessionId, event, meta.turnId, meta.eventSequence)
           }
         },
@@ -834,7 +836,12 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
 
   async abort(_worktreePath: string, agentSessionId: string): Promise<boolean> {
     const session = this.sessions.get(agentSessionId)
-    if (!session?.abortController) return false
+    if (!session) return false
+    if (!session.abortController) {
+      session.status = 'ready'
+      this.emitStatus(session.hiveSessionId, 'idle')
+      return true
+    }
 
     // Phase 1: Mark active turn as aborted.
     if (session.activeTurnId) {
@@ -1516,7 +1523,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
 
   private getOrCreatePiSession(session: XuanpuAgentSessionState): XuanpuPiAgentSession {
     if (!session.piSession) {
-      session.piSession = new XuanpuPiAgentSession(session.sessionId, this.getAgentConfig())
+      session.piSession = new XuanpuPiAgentSession(session.hiveSessionId, this.getAgentConfig())
     }
     return session.piSession
   }
@@ -1601,6 +1608,113 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       origin: 'system',
       data: { error: message }
     })
+  }
+
+  private persistToolStart(
+    hiveSessionId: string,
+    event: XuanpuAgentToolStartEvent,
+    turnId?: string
+  ): void {
+    const input = normalizeToolInput(event.toolName, event.args)
+    this.persistSessionActivity(
+      {
+        id: buildToolActivityId(hiveSessionId, turnId, event.toolCallId, 'started'),
+        session_id: hiveSessionId,
+        agent_session_id: hiveSessionId,
+        thread_id: hiveSessionId,
+        turn_id: turnId ?? null,
+        item_id: event.toolCallId,
+        kind: 'tool.started',
+        tone: 'tool',
+        summary: event.toolName,
+        payload_json: JSON.stringify({
+          item: {
+            toolName: canonicalToolName(event.toolName),
+            rawToolName: event.toolName,
+            callID: event.toolCallId,
+            input,
+            status: 'running',
+            time: { start: event.startedAt }
+          },
+          source: 'xuanpu-agent'
+        }),
+        created_at: toIsoTimestamp(event.startedAt)
+      },
+      'tool.started'
+    )
+  }
+
+  private persistToolEnd(
+    hiveSessionId: string,
+    event: XuanpuAgentToolEndEvent,
+    turnId?: string
+  ): void {
+    const result = event.result && typeof event.result === 'object' ? event.result : null
+    const details =
+      result && 'details' in result && typeof (result as { details?: unknown }).details === 'object'
+        ? ((result as { details?: Record<string, unknown> }).details ?? {})
+        : {}
+    const text = extractToolResultText(event.result)
+    const input = normalizeToolInput(event.toolName, {
+      ...event.args,
+      diff: typeof details.diff === 'string' ? details.diff : undefined,
+      reverseDiff: typeof details.reverseDiff === 'string' ? details.reverseDiff : undefined,
+      filesAffected: Array.isArray(details.filesAffected) ? details.filesAffected : undefined
+    })
+    const failed = event.isError === true
+
+    this.persistSessionActivity(
+      {
+        id: buildToolActivityId(
+          hiveSessionId,
+          turnId,
+          event.toolCallId,
+          failed ? 'failed' : 'completed'
+        ),
+        session_id: hiveSessionId,
+        agent_session_id: hiveSessionId,
+        thread_id: hiveSessionId,
+        turn_id: turnId ?? null,
+        item_id: event.toolCallId,
+        kind: failed ? 'tool.failed' : 'tool.completed',
+        tone: failed ? 'error' : 'tool',
+        summary: event.toolName,
+        payload_json: JSON.stringify({
+          item: {
+            toolName: canonicalToolName(event.toolName),
+            rawToolName: event.toolName,
+            callID: event.toolCallId,
+            input,
+            output: failed ? undefined : text,
+            error: failed ? text : undefined,
+            result: details,
+            status: failed ? 'error' : 'completed',
+            metadata: {
+              exitCode: typeof details.exitCode === 'number' ? details.exitCode : undefined,
+              durationMs: event.endedAt - event.startedAt,
+              filesAffected: Array.isArray(details.filesAffected)
+                ? details.filesAffected
+                : undefined
+            },
+            time: { start: event.startedAt, end: event.endedAt }
+          },
+          source: 'xuanpu-agent'
+        }),
+        created_at: toIsoTimestamp(event.endedAt)
+      },
+      failed ? 'tool.failed' : 'tool.completed'
+    )
+  }
+
+  private persistSessionActivity(activity: SessionActivityCreate, label: string): void {
+    if (!this.db) return
+    try {
+      this.db.upsertSessionActivity(activity)
+    } catch (err) {
+      log.warn(`Failed to persist xuanpu-agent ${label} activity`, {
+        error: err instanceof Error ? err.message : String(err)
+      })
+    }
   }
 
   private emitToolStart(
@@ -1765,6 +1879,19 @@ function canonicalToolName(toolName: string): string {
     default:
       return toolName
   }
+}
+
+function buildToolActivityId(
+  hiveSessionId: string,
+  turnId: string | undefined,
+  toolCallId: string,
+  phase: 'started' | 'completed' | 'failed'
+): string {
+  return `xuanpu-agent-tool:${hiveSessionId}:${turnId ?? 'unscoped'}:${toolCallId}:${phase}`
+}
+
+function toIsoTimestamp(timestamp: number): string {
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : new Date().toISOString()
 }
 
 function normalizeToolInput(

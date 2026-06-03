@@ -18,6 +18,7 @@ import {
   mapDbRowsToTimelineMessages,
   mapRawTranscriptToTimeline,
   deriveCodexTimeline,
+  mergeXuanpuAgentToolActivities,
   mergeOpenCodePlanActivities
 } from '../../shared/lib/timeline-mappers'
 import type { DbSessionMessage, DbSessionActivity } from '../../shared/lib/timeline-mappers'
@@ -175,12 +176,14 @@ export function getSessionTimeline(sessionId: string): TimelineResult {
 
     case 'xuanpu-agent': {
       // xuanpu-agent uses pi-agent-core which persists messages as DB rows.
-      // Build base timeline from DB rows, then merge plan activities so
-      // PlanCard renders in the durable timeline.
+      // Merge durable tool activities before plan activities so tool cards do
+      // not depend on the live streaming buffer after the assistant text lands.
       messages = mapDbRowsToTimelineMessages(messageRows.map(toDbSessionMessage))
       const activityRows = db.getSessionActivities(sessionId)
       if (Array.isArray(activityRows) && activityRows.length > 0) {
-        messages = mergeOpenCodePlanActivities(messages, activityRows.map(toDbSessionActivity))
+        const mappedActivities = activityRows.map(toDbSessionActivity)
+        messages = mergeXuanpuAgentToolActivities(messages, mappedActivities)
+        messages = mergeOpenCodePlanActivities(messages, mappedActivities)
       }
       break
     }

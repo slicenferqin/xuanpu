@@ -420,31 +420,35 @@ export function writeEventToStreamingBuffer(
         const part = partData?.part as Record<string, unknown> | undefined
         if (!part) return current
 
-        // Phase 4d: Route by turnId when available.
-        const eventTurnId = (partData?.turnId as string) ?? (event as Record<string, unknown>).turnId as string | undefined
-        if (eventTurnId && eventTurnId !== current.turnId) {
-          // New turn — reset streaming overlay but keep run meta.
-          return {
-            ...resetStreamingBufferOverlayState(current, {
-              preserveOptimisticMessages: true,
-              preserveCompactionState: true
-            }),
-            turnId: eventTurnId,
-            isStreaming: true
-          }
-        }
+        // Phase 4d: Route by turnId when available. A new-turn event can also
+        // carry the first text delta, so reset first and then continue applying
+        // this same part instead of returning early.
+        const eventTurnId =
+          (partData?.turnId as string) ??
+          ((event as Record<string, unknown>).turnId as string | undefined)
+        const base =
+          eventTurnId && eventTurnId !== current.turnId
+            ? {
+                ...resetStreamingBufferOverlayState(current, {
+                  preserveOptimisticMessages: true,
+                  preserveCompactionState: true
+                }),
+                turnId: eventTurnId,
+                isStreaming: true
+              }
+            : current
 
         if (event.childSessionId) {
-          const nextChildParts = new Map(current.childParts)
+          const nextChildParts = new Map(base.childParts)
           const existing = [...(nextChildParts.get(event.childSessionId) ?? [])]
 
           if (part.type === 'text') {
             // Phase 5: xuanpu-agent hard gate — only origin === 'model' enters
             // the assistant streaming bubble. Other runtimes (undefined origin)
             // pass through for backward compatibility.
-            if (event.runtimeId === 'xuanpu-agent' && event.origin !== 'model') return current
+            if (event.runtimeId === 'xuanpu-agent' && event.origin !== 'model') return base
             const delta = (partData?.delta as string) ?? (part.text as string) ?? ''
-            if (!delta) return current
+            if (!delta) return base
             const last = existing[existing.length - 1]
             if (last?.type === 'text') {
               existing[existing.length - 1] = { ...last, text: (last.text ?? '') + delta }
@@ -493,7 +497,7 @@ export function writeEventToStreamingBuffer(
 
           nextChildParts.set(event.childSessionId, existing)
           return {
-            ...current,
+            ...base,
             childParts: nextChildParts,
             isStreaming: true
           }
@@ -503,11 +507,11 @@ export function writeEventToStreamingBuffer(
           // Phase 5: xuanpu-agent hard gate — only origin === 'model' enters
           // the assistant streaming bubble. Other runtimes (undefined origin)
           // pass through for backward compatibility.
-          if (event.runtimeId === 'xuanpu-agent' && event.origin !== 'model') return current
+          if (event.runtimeId === 'xuanpu-agent' && event.origin !== 'model') return base
           const delta = (partData?.delta as string) ?? (part.text as string) ?? ''
-          if (!delta) return current
+          if (!delta) return base
 
-          const nextParts = [...current.parts]
+          const nextParts = [...base.parts]
           const last = nextParts[nextParts.length - 1]
           if (last?.type === 'text') {
             nextParts[nextParts.length - 1] = {
@@ -519,9 +523,9 @@ export function writeEventToStreamingBuffer(
           }
 
           return {
-            ...current,
+            ...base,
             parts: nextParts,
-            streamingContent: current.streamingContent + delta,
+            streamingContent: base.streamingContent + delta,
             isStreaming: true
           }
         }
@@ -531,7 +535,7 @@ export function writeEventToStreamingBuffer(
           const toolName = (part.tool as string) || 'unknown'
           const state = (part.state as Record<string, unknown>) || {}
           const stateTime = state.time as Record<string, number> | undefined
-          const nextParts = [...current.parts]
+          const nextParts = [...base.parts]
           const idx = nextParts.findIndex((p) => p.type === 'tool_use' && p.toolUse?.id === toolId)
           // Merge with the previous part rather than rebuild from this update
           // alone — partial updates (e.g. status -> success without input,
@@ -566,7 +570,7 @@ export function writeEventToStreamingBuffer(
           }
 
           return {
-            ...current,
+            ...base,
             parts: nextParts,
             isStreaming: true
           }
@@ -574,8 +578,8 @@ export function writeEventToStreamingBuffer(
 
         if (part.type === 'reasoning') {
           const delta = (partData?.delta as string) ?? (part.text as string) ?? ''
-          if (!delta) return current
-          const nextParts = [...current.parts]
+          if (!delta) return base
+          const nextParts = [...base.parts]
           const last = nextParts[nextParts.length - 1]
           if (last?.type === 'reasoning') {
             nextParts[nextParts.length - 1] = {
@@ -586,7 +590,7 @@ export function writeEventToStreamingBuffer(
             nextParts.push({ type: 'reasoning', reasoning: delta })
           }
           return {
-            ...current,
+            ...base,
             parts: nextParts,
             isStreaming: true
           }
@@ -594,7 +598,7 @@ export function writeEventToStreamingBuffer(
 
         if (part.type === 'subtask') {
           const subtaskId = (part.callID as string) || (part.id as string) || `subtask-${Date.now()}`
-          const nextParts = [...current.parts]
+          const nextParts = [...base.parts]
           const idx = nextParts.findIndex(
             (p) => p.type === 'subtask' && p.subtask?.id === subtaskId
           )
@@ -637,13 +641,13 @@ export function writeEventToStreamingBuffer(
           }
 
           return {
-            ...current,
+            ...base,
             parts: nextParts,
             isStreaming: true
           }
         }
 
-        return current
+        return base
       }
 
       if (event.type === 'session.status') {

@@ -134,7 +134,7 @@ export class XuanpuPiAgentSession {
   readonly budgetManager = new ContextBudgetManager()
 
   constructor(
-    private readonly sessionId: string,
+    private readonly hiveSessionId: string,
     private readonly agentConfig?: XuanpuAgentConfig
   ) {}
 
@@ -221,7 +221,7 @@ export class XuanpuPiAgentSession {
         : getXuanpuAgentAllowedTools()
       const snapshot = buildProviderRequest({
         turnId,
-        sessionId: this.sessionId,
+        sessionId: this.hiveSessionId,
         modelRef: resolved.modelRef,
         systemPrompt: getXuanpuAgentSystemPromptLines(),
         contextMessages,
@@ -444,7 +444,7 @@ export class XuanpuPiAgentSession {
 
     this.agent = new Agent({
       // Turn-scoped sessionId — not the long-lived hive session.
-      sessionId: turnId ?? this.sessionId,
+      sessionId: turnId ?? this.hiveSessionId,
       providerSessionState: undefined, // INV-TURN-1: disabled
       ...(getApiKey ? { getApiKey } : {}),
       beforeToolCall: this.stormDetector.hook,
@@ -452,7 +452,7 @@ export class XuanpuPiAgentSession {
       transformContext: this.budgetManager.transformContext,
       getToolContext: () => ({
         worktreePath: this._worktreePath ?? undefined,
-        sessionId: this.sessionId
+        sessionId: this.hiveSessionId
       }),
       ...(typeof streamFn === 'function' ? { streamFn } : {})
     })

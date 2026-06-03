@@ -106,6 +106,7 @@ describe('useSessionEventSubscription', () => {
     ] satisfies TimelineMessage[])
     const { result } = renderHook(() => useHarness({ refresh }))
     messageSendTimes.set(SESSION_ID, Date.now() - 1200)
+    useSessionRuntimeStore.getState().setLifecycle(SESSION_ID, 'busy')
 
     act(() => {
       dispatch({
@@ -124,7 +125,27 @@ describe('useSessionEventSubscription', () => {
       expect(result.current.clearOptimisticMessages).toHaveBeenCalled()
       expect(result.current.drainQueuedMessage).toHaveBeenCalled()
     })
+    expect(useSessionRuntimeStore.getState().getSession(SESSION_ID).lifecycle).toBe('idle')
     expect(useWorktreeStatusStore.getState().sessionStatuses[SESSION_ID]?.status).toBe('completed')
+  })
+
+  it('settles active session lifecycle on session.error', async () => {
+    const { result } = renderHook(() => useHarness())
+    useSessionRuntimeStore.getState().setLifecycle(SESSION_ID, 'busy')
+
+    act(() => {
+      dispatch({
+        type: 'session.error',
+        sessionId: SESSION_ID,
+        data: { error: 'provider failed' }
+      } as CanonicalAgentEvent)
+    })
+
+    await waitFor(() => {
+      expect(result.current.refresh).toHaveBeenCalled()
+      expect(result.current.clearOptimisticMessages).toHaveBeenCalled()
+    })
+    expect(useSessionRuntimeStore.getState().getSession(SESSION_ID).lifecycle).toBe('idle')
   })
 
   it('routes streamed task tool parts through the mission task callback', () => {

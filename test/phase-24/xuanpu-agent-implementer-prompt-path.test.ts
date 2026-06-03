@@ -152,7 +152,7 @@ const mockPiSession = {
   abort: vi.fn(),
   setPlanModeTools: vi.fn(),
   setBuildModeTools: vi.fn(),
-  prompt: vi.fn(async (messages: unknown[]) => {
+  prompt: vi.fn(async (messages: unknown[], _modelRef: unknown, _handlers?: Record<string, unknown>) => {
     capturedPromptMessages = messages as unknown[]
     return {
       messageId: 'resp-1',
@@ -250,6 +250,11 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     const { sessionId } = await implementer.connect('/repo', 'session-1')
 
     await implementer.prompt('/repo', sessionId, 'fix the bug')
+
+    const { XuanpuPiAgentSession } = await import(
+      '../../src/main/services/xuanpu-agent/runtime'
+    )
+    expect(vi.mocked(XuanpuPiAgentSession).mock.calls[0]?.[0]).toBe('session-1')
 
     // Verify packContext was called
     expect(packContextMock).toHaveBeenCalled()
@@ -490,5 +495,107 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
 
     const planEvent = capturedEmittedEvents.find((e) => e.type === 'plan.ready')
     expect(planEvent).toBeUndefined()
+  })
+
+  it('persists xuanpu-agent tool activities so reload keeps tool cards before final text', async () => {
+    mockPiSession.prompt.mockImplementationOnce(async (messages: unknown[], _modelRef: unknown, handlers?: Record<string, unknown>) => {
+      capturedPromptMessages = messages as unknown[]
+      const onToolStart = handlers?.onToolStart as
+        | ((event: Record<string, unknown>, meta: Record<string, unknown>) => void)
+        | undefined
+      const onToolEnd = handlers?.onToolEnd as
+        | ((event: Record<string, unknown>, meta: Record<string, unknown>) => void)
+        | undefined
+
+      onToolStart?.(
+        {
+          toolCallId: 'call-git-status',
+          toolName: 'git_status',
+          args: {},
+          startedAt: 1704067202000
+        },
+        { turnId: 'turn-test-1', eventSequence: 1 }
+      )
+      onToolEnd?.(
+        {
+          toolCallId: 'call-git-status',
+          toolName: 'git_status',
+          args: {},
+          result: { content: [{ type: 'text', text: 'On branch main' }] },
+          isError: false,
+          startedAt: 1704067202000,
+          endedAt: 1704067203000
+        },
+        { turnId: 'turn-test-1', eventSequence: 2 }
+      )
+
+      return {
+        messageId: 'resp-1',
+        text: 'mock response',
+        modelRef: { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
+        usage: { inputTokens: 100, outputTokens: 50 },
+        rawMessage: null,
+        harnessMetrics: null,
+        turnId: 'turn-test-1'
+      }
+    })
+
+    const { XuanpuAgentImplementer } = await import(
+      '../../src/main/services/xuanpu-agent-implementer'
+    )
+    const implementer = new XuanpuAgentImplementer()
+    implementer.setDatabaseService({
+      getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
+      getSetting: vi.fn(() => null),
+      getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' })),
+      upsertUsageEntry: vi.fn(),
+      upsertSessionActivity: vi.fn((activity: Record<string, unknown>) => {
+        capturedActivities.push(activity)
+      })
+    } as unknown as DatabaseService)
+
+    const { sessionId } = await implementer.connect('/repo', 'session-1')
+    await implementer.prompt('/repo', sessionId, 'show tools')
+
+    const toolActivities = capturedActivities.filter((activity) =>
+      String(activity.kind).startsWith('tool.')
+    )
+    expect(toolActivities.map((activity) => activity.kind)).toEqual([
+      'tool.started',
+      'tool.completed'
+    ])
+    expect(toolActivities[0]).toMatchObject({
+      session_id: 'session-1',
+      agent_session_id: 'session-1',
+      thread_id: 'session-1',
+      turn_id: 'turn-test-1',
+      item_id: 'call-git-status',
+      summary: 'git_status'
+    })
+    expect(toolActivities[0].created_at).toBe('2024-01-01T00:00:02.000Z')
+    expect(toolActivities[1].created_at).toBe('2024-01-01T00:00:03.000Z')
+
+    const completedPayload = JSON.parse(toolActivities[1].payload_json as string)
+    expect(completedPayload.item).toMatchObject({
+      toolName: 'git_status',
+      output: 'On branch main',
+      status: 'completed'
+    })
+  })
+
+  it('treats abort on an already idle xuanpu-agent session as successful', async () => {
+    const { XuanpuAgentImplementer } = await import(
+      '../../src/main/services/xuanpu-agent-implementer'
+    )
+    const implementer = new XuanpuAgentImplementer()
+
+    const { sessionId } = await implementer.connect('/repo', 'session-1')
+    await expect(implementer.abort('/repo', sessionId)).resolves.toBe(true)
+
+    const idleEvent = capturedEmittedEvents.find((event) => event.type === 'session.status')
+    expect(idleEvent).toMatchObject({
+      sessionId: 'session-1',
+      data: { status: { type: 'idle' } }
+    })
   })
 })

@@ -24,11 +24,28 @@ function rawTextPlugin() {
   }
 }
 
+function bunShimPlugin() {
+  const shim = `;((g)=>{if(g.Bun)return;const b=g.Bun={};b.env=process.env;b.sleep=(d=0)=>new Promise(r=>setTimeout(r,d instanceof Date?Math.max(0,d.getTime()-Date.now()):Math.max(0,d)));b.which=()=>null;b.hash=(i)=>0;b.sha=()=>'0';b.stripANSI=(t)=>t;b.JSONL={parseChunk:()=>({values:[],error:null,read:0,done:true})};b.JSON5={parse:JSON.parse};b.file=()=>({text:async()=>'',json:async()=>({}),arrayBuffer:async()=>new ArrayBuffer(0)});b.write=async()=>0;b.Glob=class{pattern='';scanSync(){return[]};async*scan(){}};b.YAML={parse:()=>({})};b.$=()=>{throw new Error('Bun shell unavailable')}})(globalThis);\n`
+  return {
+    name: 'bun-shim',
+    enforce: 'pre' as const,
+    renderChunk(code: string) {
+      return { code: shim + code, map: null }
+    }
+  }
+}
+
 export default defineConfig({
   main: {
     plugins: [
+      bunShimPlugin(),
       externalizeDepsPlugin({
-        exclude: ['@oh-my-pi/pi-agent-core', '@oh-my-pi/pi-ai', '@oh-my-pi/pi-utils']
+        exclude: [
+          '@oh-my-pi/pi-agent-core',
+          '@oh-my-pi/pi-ai',
+          '@oh-my-pi/pi-utils',
+          '@xuanpu/pi-agent-core'
+        ]
       }),
       rawTextPlugin()
     ],
