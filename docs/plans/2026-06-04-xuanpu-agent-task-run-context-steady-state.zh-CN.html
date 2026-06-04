@@ -1,0 +1,1023 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>xuanpu-agent 长时间自主任务与上下文稳态迭代规划</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #1b2430;
+        --muted: #607086;
+        --subtle: #8794a6;
+        --line: #d9e0ea;
+        --soft-line: #edf1f6;
+        --page: #f7f9fc;
+        --surface: #ffffff;
+        --surface-alt: #f0f5fa;
+        --accent: #116c5b;
+        --accent-2: #315e9f;
+        --warn: #8b5e12;
+        --danger: #a23a3a;
+        --code: #f3f6fa;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background: var(--page);
+        color: var(--ink);
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB",
+          "Microsoft YaHei", sans-serif;
+        line-height: 1.7;
+      }
+
+      a {
+        color: var(--accent-2);
+        text-decoration: none;
+      }
+
+      a:hover {
+        text-decoration: underline;
+      }
+
+      .shell {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 40px 28px 72px;
+      }
+
+      header {
+        padding: 26px 0 30px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .eyebrow {
+        margin: 0 0 10px;
+        color: var(--accent);
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        max-width: 860px;
+        margin: 0;
+        font-size: 34px;
+        line-height: 1.22;
+        letter-spacing: 0;
+      }
+
+      .summary {
+        max-width: 900px;
+        margin: 18px 0 0;
+        color: var(--muted);
+        font-size: 17px;
+      }
+
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 22px;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 30px;
+        padding: 4px 10px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--surface);
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      main {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 260px;
+        gap: 34px;
+        margin-top: 34px;
+      }
+
+      nav {
+        position: sticky;
+        top: 18px;
+        align-self: start;
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      nav h2 {
+        margin: 0 0 10px;
+        font-size: 14px;
+      }
+
+      nav ol {
+        margin: 0;
+        padding-left: 18px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      nav li {
+        margin: 8px 0;
+      }
+
+      section {
+        margin: 0 0 26px;
+        padding: 24px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      section > h2 {
+        margin: 0 0 14px;
+        font-size: 22px;
+        line-height: 1.35;
+      }
+
+      h3 {
+        margin: 24px 0 10px;
+        font-size: 17px;
+      }
+
+      p {
+        margin: 10px 0;
+      }
+
+      ul,
+      ol {
+        margin: 10px 0 0;
+        padding-left: 22px;
+      }
+
+      li {
+        margin: 7px 0;
+      }
+
+      .lead {
+        color: var(--muted);
+        font-size: 16px;
+      }
+
+      .callout {
+        margin: 16px 0;
+        padding: 14px 16px;
+        border-left: 4px solid var(--accent);
+        background: #eef7f4;
+        color: #213b35;
+      }
+
+      .warning {
+        border-left-color: var(--warn);
+        background: #fff6df;
+        color: #4a3711;
+      }
+
+      .danger {
+        border-left-color: var(--danger);
+        background: #fff1f0;
+        color: #5a2525;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .panel {
+        padding: 16px;
+        border: 1px solid var(--soft-line);
+        border-radius: 8px;
+        background: var(--surface-alt);
+      }
+
+      .panel h3 {
+        margin-top: 0;
+      }
+
+      table {
+        width: 100%;
+        margin-top: 14px;
+        border-collapse: collapse;
+        font-size: 14px;
+      }
+
+      th,
+      td {
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        background: var(--surface-alt);
+        color: #263447;
+        font-weight: 700;
+      }
+
+      code {
+        padding: 1px 5px;
+        border-radius: 4px;
+        background: var(--code);
+        color: #1e3659;
+        font-family: "SF Mono", "JetBrains Mono", Consolas, monospace;
+        font-size: 0.92em;
+      }
+
+      pre {
+        overflow: auto;
+        margin: 14px 0 0;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #18202b;
+        color: #edf3fb;
+        line-height: 1.55;
+      }
+
+      pre code {
+        padding: 0;
+        background: transparent;
+        color: inherit;
+      }
+
+      .stage {
+        display: grid;
+        grid-template-columns: 112px minmax(0, 1fr);
+        gap: 14px;
+        padding: 14px 0;
+        border-top: 1px solid var(--soft-line);
+      }
+
+      .stage:first-of-type {
+        border-top: 0;
+      }
+
+      .stage-label {
+        color: var(--accent);
+        font-weight: 700;
+      }
+
+      .status {
+        display: inline-flex;
+        min-width: 84px;
+        justify-content: center;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--surface);
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .status.now {
+        border-color: #c7d3e4;
+        background: #eef4ff;
+        color: #244f8f;
+      }
+
+      .status.next {
+        border-color: #bdded5;
+        background: #edf8f4;
+        color: #0f614f;
+      }
+
+      .status.later {
+        border-color: #dfd4bd;
+        background: #fff7e8;
+        color: #7a5619;
+      }
+
+      footer {
+        margin-top: 34px;
+        padding-top: 20px;
+        border-top: 1px solid var(--line);
+        color: var(--subtle);
+        font-size: 13px;
+      }
+
+      /* ---- 评审批注 ---- */
+      .review-note {
+        position: relative;
+        margin: 14px 0 6px;
+        padding: 12px 14px 12px 16px;
+        border: 1px solid var(--line);
+        border-left: 4px solid var(--accent-2);
+        border-radius: 6px;
+        background: #f4f8fd;
+        font-size: 14px;
+        line-height: 1.62;
+      }
+
+      .review-note.ok {
+        border-left-color: #2f8f6a;
+        background: #f0faf5;
+      }
+
+      .review-note.fix {
+        border-left-color: var(--danger);
+        background: #fdf3f2;
+      }
+
+      .review-note.tweak {
+        border-left-color: var(--warn);
+        background: #fdf8ec;
+      }
+
+      .review-note .rn-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+
+      .rn-tag {
+        display: inline-flex;
+        align-items: center;
+        padding: 1px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1.6;
+      }
+
+      .review-note.ok .rn-tag {
+        background: #d8f1e4;
+        color: #1c6b4c;
+      }
+
+      .review-note.fix .rn-tag {
+        background: #f8dcd9;
+        color: #8a2d2d;
+      }
+
+      .review-note.tweak .rn-tag {
+        background: #f6e8c8;
+        color: #6f4e12;
+      }
+
+      .review-note .rn-who {
+        color: var(--subtle);
+        font-weight: 600;
+        letter-spacing: 0;
+        text-transform: none;
+      }
+
+      .review-note p {
+        margin: 6px 0 0;
+      }
+
+      .review-note p:first-of-type {
+        margin-top: 0;
+      }
+
+      .review-note code {
+        background: #e7eef7;
+      }
+
+      .review-legend {
+        margin: 18px 0 0;
+        padding: 14px 16px;
+        border: 1px dashed var(--accent-2);
+        border-radius: 8px;
+        background: #f7fafe;
+        font-size: 13.5px;
+        color: var(--muted);
+      }
+
+      .review-legend strong {
+        color: var(--ink);
+      }
+
+      .review-legend .rn-tag {
+        margin-right: 4px;
+      }
+
+      @media (max-width: 900px) {
+        .shell {
+          padding: 26px 18px 48px;
+        }
+
+        main {
+          display: block;
+        }
+
+        nav {
+          position: static;
+          margin-bottom: 22px;
+        }
+
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        .stage {
+          grid-template-columns: 1fr;
+        }
+
+        h1 {
+          font-size: 28px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header>
+        <p class="eyebrow">Xuanpu Agent Runtime Plan</p>
+        <h1>xuanpu-agent 长时间自主任务与上下文稳态迭代规划</h1>
+        <p class="summary">
+          本文梳理 150k 上下文预算、provider cache 命中、思维强度透传、长时间自主任务运行时之间的关系，
+          并给出后续从 turn-scoped request runner 演进到 task-run runtime 的分阶段计划。
+        </p>
+        <div class="meta">
+          <span class="pill">日期：2026-06-04</span>
+          <span class="pill">分支：feat/xuanpu-agent-oh-my-pi</span>
+          <span class="pill">状态：迭代设计</span>
+          <span class="pill">范围：xuanpu-agent / XFP / Session HQ / usage analytics</span>
+        </div>
+        <div class="review-legend">
+          <strong>评审批注（2026-06-04，对照 <code>feat/xuanpu-agent-oh-my-pi</code> 实际代码）：</strong>
+          以下章节内嵌的批注块即逐处回复。
+          <span class="rn-tag" style="background:#d8f1e4;color:#1c6b4c">属实</span> 诊断已核实；
+          <span class="rn-tag" style="background:#f8dcd9;color:#8a2d2d">需修订</span> 必须调整后再落地；
+          <span class="rn-tag" style="background:#f6e8c8;color:#6f4e12">建议</span> 优先级 / 措辞调整。
+          总评：诊断扎实、方向正确，主要缺陷是低估了现有 <code>field_*</code> 设施（把扩展写成新建），
+          且重型 task-run 机制相对 ≤5 并发会话规模偏过度工程。
+        </div>
+      </header>
+
+      <main>
+        <article>
+          <section id="verdict">
+            <h2>结论</h2>
+            <p>
+              当前问题不应被归结为“150k 是否足够”。150k 只适合作为单次 provider call 的上下文窗口上限。
+              长时间自主 agent 中，用户一句话可能触发一个持续几十分钟到数小时的任务运行，
+              这个任务会包含多个 epoch、多个 LLM call、多个工具调用和多个 checkpoint。
+            </p>
+            <div class="callout">
+              应废弃“单轮用户请求预算”这个硬上限语义，改成：
+              <strong>单次调用窗口 + epoch guardrail + task run policy + session steady state</strong>。
+            </div>
+            <p>
+              真正的稳态不是累计 tokens 不超过某个固定值，而是每一次 provider call 都能从玄圃持久化的任务状态中
+              重建一个小而准的当前上下文。累计 input 可以很高；当前上下文必须始终可控、可解释、可恢复。
+            </p>
+          </section>
+
+          <section id="evidence">
+            <h2>当前现象与代码侧事实</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>现象</th>
+                  <th>判断</th>
+                  <th>影响</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>同一个 turn id 下出现多条 provider POST</td>
+                  <td>一轮用户任务内部会多次调用 LLM，符合 agent loop 行为</td>
+                  <td>不能把一次用户输入当成一次 LLM 请求来预算</td>
+                </tr>
+                <tr>
+                  <td>多条请求 cache read 为 0 或命中不稳定</td>
+                  <td>provider 看到的真实前缀每轮可能变化，且 provider session state 被禁用</td>
+                  <td>长任务成本和延迟偏高，cache 指标无法稳定解释</td>
+                </tr>
+                <tr>
+                  <td>UI / packet 显示 150k</td>
+                  <td>当前更像单次 request 上限，却容易被理解成任务总预算</td>
+                  <td>用户会误判 agent 无法长时间工作</td>
+                </tr>
+                <tr>
+                  <td>思维强度未传到 provider</td>
+                  <td>配置层和 model resolve 主路径缺少 reasoning effort / provider options</td>
+                  <td>UI 选择与真实 provider 调用不一致，任务表现不可控</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <h3>关键实现点</h3>
+            <ul>
+              <li>
+                <code>src/main/services/xuanpu-agent/runtime.ts</code> 当前每 turn 创建 fresh Agent，
+                并将 <code>providerSessionState</code> 置空。这保证玄圃拥有上下文真相，但牺牲 provider 侧会话延续。
+              </li>
+              <li>
+                <code>src/main/services/xuanpu-agent-implementer.ts</code> 的 anchor 会把完整 XFP packet 放在 provider 前缀中，
+                包含 packet id 和 volatile JSON。<code>prefixHash</code> 稳定不代表真实 provider prompt 前缀稳定。
+              </li>
+              <li>
+                <code>src/main/services/xuanpu-agent/context/context-packer.ts</code> 和
+                <code>context/budget-manager.ts</code> 仍以 80k / 150k / 200k profile 为主。
+              </li>
+              <li>
+                <code>config-loader.ts</code> 已解析 <code>context.contextWindow</code> 和
+                <code>autoCompactTokenLimit</code>，但主路径还没有把它们完整接到 packer、budget manager、snapshot 和 UI。
+              </li>
+            </ul>
+
+            <div class="review-note ok">
+              <div class="rn-head">
+                <span class="rn-tag">属实</span>
+                <span class="rn-who">评审 · 本节四条断言已逐条核实</span>
+              </div>
+              <p>
+                四个「关键实现点」全部属实，诊断没有夸大：
+                <code>runtime.ts:448</code> 确为 <code>providerSessionState: undefined</code>；
+                <code>150_000</code> 硬编码实际散落 <strong>4 处</strong>（<code>budget-manager.ts:80</code>、
+                <code>context-packer.ts:92</code>、<code>harness/compiler.ts:201</code>、<code>implementer.ts:661</code>）；
+                <code>config-loader.ts:246-257</code> 确已解析 <code>contextWindow</code>/<code>autoCompactTokenLimit</code> 但主路径仍走常量。
+              </p>
+              <p>
+                尤其认同 anchor 失真这条：<code>implementer.ts:547</code> 注释自己写明
+                <code>prefixSeed</code> 只取 version+instruction，而真实发送的 anchor 含
+                <code>JSON.stringify(compileResult.packet)</code>（带 packetId/volatile JSON）。
+                <strong>「prefixHash 稳定 ≠ 真实前缀稳定」抓得很准，是本方案最有价值的诊断之一。</strong>
+              </p>
+            </div>
+          </section>
+
+          <section id="model">
+            <h2>新的运行时模型</h2>
+            <p class="lead">
+              后续应把 xuanpu-agent 的核心单位从 turn-scoped request runner 升级为 task-run runtime。
+            </p>
+            <div class="grid">
+              <div class="panel">
+                <h3>Provider Call</h3>
+                <p>单次 LLM 请求。只负责窗口、输出空间、tool schema overhead、provider 参数和 usage。</p>
+                <ul>
+                  <li><code>perCallContextWindow</code></li>
+                  <li><code>maxOutputTokens</code></li>
+                  <li><code>reasoningEffort</code></li>
+                  <li><code>cacheRead/cacheWrite</code></li>
+                </ul>
+              </div>
+              <div class="panel">
+                <h3>Agent Epoch</h3>
+                <p>长任务内部的短周期。用于 checkpoint、压缩、进展判断和防跑飞。</p>
+                <ul>
+                  <li>若干 LLM calls</li>
+                  <li>若干 tool calls</li>
+                  <li>一个 checkpoint</li>
+                  <li>一个 next-step decision</li>
+                </ul>
+              </div>
+              <div class="panel">
+                <h3>Task Run</h3>
+                <p>用户一句话触发的完整任务。可以持续很久，不应默认被低额度硬停。</p>
+                <ul>
+                  <li>可续期 execution lease</li>
+                  <li>任务 ledger</li>
+                  <li>风险策略</li>
+                  <li>成本和进展可视化</li>
+                </ul>
+              </div>
+              <div class="panel">
+                <h3>Session Steady State</h3>
+                <p>跨 epoch / turn / 重启的上下文稳态。目标是恢复能力，不是无限增长 prompt。</p>
+                <ul>
+                  <li>episodes</li>
+                  <li>pinned facts</li>
+                  <li>command traces</li>
+                  <li>working set</li>
+                </ul>
+              </div>
+            </div>
+
+            <pre><code>用户请求
+  -> Task Run
+      -> Epoch 1: 诊断 / 读取 / checkpoint
+          -> Provider Call 1..N
+      -> Epoch 2: 修改 / 验证 / checkpoint
+          -> Provider Call 1..N
+      -> Epoch 3: 修复 / 总结 / checkpoint
+          -> Provider Call 1..N
+  -> 最终交付 / 可恢复状态</code></pre>
+          </section>
+
+          <section id="budgets">
+            <h2>预算语义重定义</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>字段</th>
+                  <th>作用</th>
+                  <th>是否硬停</th>
+                  <th>UI 呈现</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>perCallContextWindow</code></td>
+                  <td>单次 provider call 最大上下文窗口</td>
+                  <td>是</td>
+                  <td>本次请求 14.6k / 150k</td>
+                </tr>
+                <tr>
+                  <td><code>targetFillRatio</code></td>
+                  <td>上下文稳态目标，例如 20%-40%</td>
+                  <td>否</td>
+                  <td>当前上下文健康度</td>
+                </tr>
+                <tr>
+                  <td><code>softCompactRatio</code></td>
+                  <td>触发 episode freeze / working set shrink</td>
+                  <td>否</td>
+                  <td>已触发主动压缩</td>
+                </tr>
+                <tr>
+                  <td><code>epochGuardrail</code></td>
+                  <td>检测工具风暴、重复失败、无进展循环</td>
+                  <td>按原因</td>
+                  <td>当前 epoch watchdog</td>
+                </tr>
+                <tr>
+                  <td><code>taskRunPolicy</code></td>
+                  <td>长时间自主任务策略：权限、成本、风险、lease</td>
+                  <td>通常否</td>
+                  <td>任务运行时长、成本、checkpoint</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div class="warning">
+              不建议默认设置“用户一句话最多 8 次 LLM / 10 分钟”。这会直接违背长时间自主 agent 的目标。
+              这些数字只适合用作短任务 profile 或 epoch-level watchdog。
+            </div>
+
+            <pre><code>type ContextBudget = {
+  perCallContextWindow: number
+  targetFillRatio: number
+  softCompactRatio: number
+  emergencyCompactRatio: number
+}
+
+type EpochGuardrail = {
+  checkpointEveryCalls: number
+  checkpointEveryMs: number
+  maxConsecutiveNoProgressCalls: number
+  maxRepeatedToolCalls: number
+  maxProviderFailures: number
+}
+
+type TaskRunPolicy = {
+  autonomy: 'short' | 'long' | 'overnight'
+  allowAutoLeaseRenewal: boolean
+  costWarningThreshold?: number
+  requireApprovalAboveCost?: number
+  requireApprovalForRiskyWrites: boolean
+}</code></pre>
+
+            <div class="review-note ok">
+              <div class="rn-head">
+                <span class="rn-tag">属实</span>
+                <span class="rn-who">评审 · 语义重定义认同</span>
+              </div>
+              <p>
+                「150k 是单次 call 上限、不是任务总预算」这个语义重定义<strong>正确且是本方案的核心认知价值</strong>。
+                配套的 per-call usage 记录方向也对——当前 <code>agent_turn_usage_events</code>（<code>turn-repository.ts:327</code>）
+                确实是 turn 聚合粒度，扩到每个内部 provider call 是合理的。
+              </p>
+            </div>
+          </section>
+
+          <section id="steady-state">
+            <h2>上下文稳态设计</h2>
+            <p>
+              稳态的核心目标是：不管任务跑了多久，每一次 provider call 都能看到足够的信息，同时不被历史噪声淹没。
+              这要求玄圃拥有一个 durable task state，而不是依赖 provider session 记忆。
+            </p>
+
+            <h3>稳定前缀与动态后缀</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>区域</th>
+                  <th>内容</th>
+                  <th>位置</th>
+                  <th>缓存策略</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Stable runtime policy</td>
+                  <td>系统规则、工具使用原则、安全边界</td>
+                  <td>最前</td>
+                  <td>尽量跨 turn 不变</td>
+                </tr>
+                <tr>
+                  <td>Stable task ledger</td>
+                  <td>目标、约束、已完成项、当前阶段</td>
+                  <td>靠前</td>
+                  <td>只在 checkpoint 时更新</td>
+                </tr>
+                <tr>
+                  <td>Relevant episodes</td>
+                  <td>检索到的历史片段摘要</td>
+                  <td>中段</td>
+                  <td>按相关性进入，不整段重放</td>
+                </tr>
+                <tr>
+                  <td>Working set</td>
+                  <td>最近必要消息、文件片段、diff 摘要</td>
+                  <td>中后段</td>
+                  <td>持续去重、按 digest 管理</td>
+                </tr>
+                <tr>
+                  <td>Live field packet</td>
+                  <td>当前焦点、选择、git 状态、临时现场</td>
+                  <td>靠后</td>
+                  <td>高变内容不得污染稳定前缀</td>
+                </tr>
+                <tr>
+                  <td>Current instruction</td>
+                  <td>本次用户输入或 agent 下一步自我指令</td>
+                  <td>最后</td>
+                  <td>永不压缩</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <h3>长任务 checkpoint</h3>
+            <p>每个 epoch 完成后写入 checkpoint，checkpoint 是后续恢复和压缩的核心事实来源。</p>
+            <pre><code>type TaskCheckpoint = {
+  taskRunId: string
+  epochId: string
+  objective: string
+  completed: string[]
+  inProgress: string[]
+  blockers: string[]
+  touchedFiles: Array&lt;{ path: string; digest?: string; summary: string }&gt;
+  commandTraceRefs: string[]
+  testStatus?: string
+  nextStep: string
+  confidence: 'low' | 'medium' | 'high'
+}</code></pre>
+
+            <div class="review-note fix">
+              <div class="rn-head">
+                <span class="rn-tag">需修订</span>
+                <span class="rn-who">评审 · 本方案最重要的一条</span>
+              </div>
+              <p>
+                这套稳态设计（task ledger / episodes / pinned facts / working set / checkpoint）
+                <strong>玄圃已经有对应的持久化设施</strong>，方案把「已有但未打通」写成了「从零新建」。现有表：
+              </p>
+              <p>
+                <code>field_session_checkpoints</code> ↔ TaskCheckpoint；
+                <code>field_pinned_facts</code> ↔ pinned facts；
+                <code>field_episode_blocks</code> / <code>field_episodic_memory</code> ↔ episodes；
+                <code>field_context_packages</code> ↔ working set；
+                <code>field_memory_pages</code> ↔ 长期记忆。
+              </p>
+              <p>
+                而且 <code>implementer.ts</code> 已有完整的 checkpoint resume 链路：
+                <code>verifyCheckpointForContext</code> → <code>resumedCheckpoint</code> →
+                <code>buildAnchorSection</code> / <code>buildCurrentGoalFromCheckpoint</code>。
+                上面「稳定前缀与动态后缀」那张表，几乎逐行对应现有 <code>packContext</code> 的分区逻辑。
+              </p>
+              <p>
+                <strong>建议</strong>：TaskCheckpoint 应表述为「在 <code>field_session_checkpoints</code> 上叠加
+                <code>taskRunId</code>/<code>epochId</code> 维度」，而非新结构。否则会和 <code>field_*</code> 形成两套并行真相，
+                违背 CLAUDE.md「Session Truth Sources：不要加第四个真相层」的约束。
+              </p>
+            </div>
+          </section>
+
+          <section id="cache">
+            <h2>Provider Cache 与可观测性</h2>
+            <p>
+              provider cache 不能被当作任务记忆，但应该被当作性能优化目标。当前问题在于：
+              玄圃虽然记录 <code>prefixHash</code>，但真实发给 provider 的前缀包含 volatile XFP packet，
+              cache 命中自然不稳定。
+            </p>
+            <ol>
+              <li>把真正发送的前缀拆成 stable prefix 和 volatile suffix。</li>
+              <li>记录 <code>actualPrefixHash</code>，它必须来自真实 provider messages 的前 N tokens，而不是旁路 seed。</li>
+              <li>每次 cache miss 时记录 changed reason：模型变更、工具 schema 变更、stable policy 变更、episode 集合变更、volatile 字段误入。</li>
+              <li>同一个 task run 内展示 cache read/write 趋势，而不是只展示孤立 POST 行。</li>
+              <li>谨慎恢复 provider session state；它只能做 cache/latency 优化，不能成为上下文真相来源。</li>
+            </ol>
+          </section>
+
+          <section id="reasoning">
+            <h2>思维强度与 Provider 参数</h2>
+            <p>
+              xuanpu-agent 需要把 reasoning effort / thinking intensity 作为一等配置透传到 provider。
+              否则 UI、配置、真实调用之间会产生不可见偏差。
+            </p>
+            <pre><code>type XuanpuAgentModelRef = {
+  providerID: string
+  modelID: string
+  variant?: string
+  reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high'
+  verbosity?: 'low' | 'medium' | 'high'
+  providerOptions?: Record&lt;string, unknown&gt;
+}</code></pre>
+            <ul>
+              <li>配置 loader 需要校验 reasoning 字段。</li>
+              <li>model resolver 需要把 provider options 传给 pi-ai / stream function。</li>
+              <li>provider request snapshot hash 必须包含 reasoning 参数。</li>
+              <li>Session HQ / usage view 需要显示“实际传出的 reasoning effort”。</li>
+            </ul>
+
+            <div class="review-note tweak">
+              <div class="rn-head">
+                <span class="rn-tag">建议</span>
+                <span class="rn-who">评审 · 提前优先级</span>
+              </div>
+              <p>
+                断言属实：<code>model-config.ts:5-9</code> 的 <code>XuanpuAgentModelRef</code> 确实只有
+                <code>providerID/modelID/variant</code> 三字段，reasoning 完全没透传。
+              </p>
+              <p>
+                但这是个<strong>用户当前可感知的正确性 bug</strong>（UI 选了高思维强度、真实调用却没带），
+                不是增强。改动也小：扩 <code>ModelRef</code> 三字段 + resolver 透传 <code>providerOptions</code> +
+                snapshot hash 纳入 reasoning。<strong>建议从迭代步骤的 P4 提到 P1 并行做</strong>，不必排在 task-run 架构之后。
+              </p>
+            </div>
+          </section>
+
+          <section id="iteration">
+            <h2>后续迭代步骤</h2>
+
+            <div class="stage">
+              <div class="stage-label">P0</div>
+              <div>
+                <span class="status now">立即修正</span>
+                <h3>纠正预算语义和 UI 呈现</h3>
+                <ul>
+                  <li>把 UI 中的 150k 标注为“单次请求上下文上限”。</li>
+                  <li>新增 task run / epoch / provider call 三层 usage 展示。</li>
+                  <li>把 <code>agent_turn_usage_events</code> 扩展到每个内部 provider call，而不是只看 turn 完成聚合。</li>
+                  <li>把 <code>rg</code> no match 从 error 降级为 no-result，避免误导时间线。</li>
+                </ul>
+              </div>
+            </div>
+
+            <div class="stage">
+              <div class="stage-label">P1</div>
+              <div>
+                <span class="status next">下一阶段</span>
+                <h3>接通真实 per-call context 配置</h3>
+                <ul>
+                  <li>把 <code>context.contextWindow</code> 接到 packer、budget manager、snapshot、context_usage 事件。</li>
+                  <li>移除 xuanpu-agent 主路径中 <code>150_000</code> 的硬编码。</li>
+                  <li>按模型能力设置默认窗口，并保留用户 override。</li>
+                  <li>把 output reserve / tool schema overhead 纳入估算。</li>
+                </ul>
+              </div>
+            </div>
+
+            <div class="stage">
+              <div class="stage-label">P2</div>
+              <div>
+                <span class="status next">下一阶段</span>
+                <h3>建立 task run runtime</h3>
+                <ul>
+                  <li>新增 <code>agent_task_runs</code>、<code>agent_epochs</code>、<code>agent_checkpoints</code>。</li>
+                  <li>把用户 turn 绑定到 task run，允许一个 task run 横跨多个 epoch。</li>
+                  <li>实现 execution lease 和自动续期。</li>
+                  <li>实现 no-progress watchdog、tool-storm watchdog、provider-failure watchdog。</li>
+                </ul>
+              </div>
+            </div>
+
+            <div class="stage">
+              <div class="stage-label">P3</div>
+              <div>
+                <span class="status next">下一阶段</span>
+                <h3>重构稳定前缀与 cache 可观测性</h3>
+                <ul>
+                  <li>把 stable runtime policy、task ledger、episodes、working set、live field 分区发送。</li>
+                  <li>从真实 provider messages 计算 <code>actualPrefixHash</code>。</li>
+                  <li>记录 cache miss reason。</li>
+                  <li>在 Session HQ 展示 task run 级别 cache 趋势。</li>
+                </ul>
+              </div>
+            </div>
+
+            <div class="stage">
+              <div class="stage-label">P4</div>
+              <div>
+                <span class="status later">后续增强</span>
+                <h3>接入思维强度和 provider options</h3>
+                <ul>
+                  <li>扩展 <code>XuanpuAgentModelRef</code> 和 <code>xuanpu-agent.json</code> schema。</li>
+                  <li>把 reasoning effort 透传到 provider。</li>
+                  <li>把 reasoning 参数写入 request snapshot、usage event 和 UI。</li>
+                  <li>为不同 autonomy profile 设置默认 reasoning 策略。</li>
+                </ul>
+              </div>
+            </div>
+
+            <div class="stage">
+              <div class="stage-label">P5</div>
+              <div>
+                <span class="status later">后续增强</span>
+                <h3>长时间自主任务体验</h3>
+                <ul>
+                  <li>Session HQ 增加 task run 总览：运行时长、当前 epoch、最近 checkpoint、下一步。</li>
+                  <li>允许用户暂停、恢复、终止、提高 autonomy lease。</li>
+                  <li>支持跨应用重启恢复 task run。</li>
+                  <li>为高风险修改和高成本任务提供明确审批点。</li>
+                </ul>
+              </div>
+            </div>
+
+            <div class="review-note tweak">
+              <div class="rn-head">
+                <span class="rn-tag">建议</span>
+                <span class="rn-who">评审 · P0 / P2 优先级与范围</span>
+              </div>
+              <p>
+                <strong>P0「<code>rg</code> no match 降级」</strong>与上下文稳态主题无关，是个独立 bug fix。
+                正确，但不该挤在这份架构方案里，建议单独拎成一条 issue。
+              </p>
+              <p>
+                <strong>P2 偏过度工程</strong>（对照记忆约束：实际并发活跃会话 ≤5、有人值守）。
+                execution lease + 自动续期是为「无人值守、规模化、过夜跑」设计的，单机 ≤5 会话基本用不上，建议降级或缓做。
+                三类 watchdog 有价值<em>应保留</em>，但 tool-storm 这条已有 <code>StormDetector</code>（<code>runtime.ts:124</code>），是复用而非新建。
+              </p>
+              <p>
+                <strong>建议把 P2 拆两层</strong>：① 必要核心 = epoch 划分 + 复用现有 watchdog + checkpoint 维度化；
+                ② 可选重型 = lease / autonomy 审批，标注「仅在引入真正无人值守模式时再做」。
+                P5 的「跨重启恢复 task run」同理——有现成 checkpoint resume，是「接通」而非「新建」。
+              </p>
+            </div>
+          </section>
+
+          <section id="acceptance">
+            <h2>验收标准</h2>
+            <ul>
+              <li>同一个长任务可运行多个 epoch，UI 能清楚展示 task run、epoch、provider call 的层级关系。</li>
+              <li>150k 不再被呈现为用户请求总预算，而是单次 provider call 上限。</li>
+              <li><code>context.contextWindow</code> 修改后能影响实际 packer、snapshot 和 context usage 事件。</li>
+              <li>每个内部 provider call 都有独立 usage、cache、reasoning 参数记录。</li>
+              <li>stable prefix 的真实 hash 在无 schema / policy / ledger 变化时保持稳定。</li>
+              <li>长任务累计 input 可以超过单次窗口很多倍，但当前上下文 fill ratio 保持在目标区间。</li>
+              <li>连续无进展、重复工具调用、provider 首事件超时等异常能被 watchdog 明确归因。</li>
+            </ul>
+          </section>
+
+          <section id="non-goals">
+            <h2>非目标</h2>
+            <ul>
+              <li>不通过简单提高 150k 到 500k 来掩盖上下文治理问题。</li>
+              <li>不把 provider session 当作唯一记忆来源。</li>
+              <li>不为了 cache 删除玄圃的现场感知能力。</li>
+              <li>不把长时间自主任务默认限制在固定分钟数或固定 LLM 调用次数内。</li>
+            </ul>
+          </section>
+        </article>
+
+        <nav aria-label="目录">
+          <h2>目录</h2>
+          <ol>
+            <li><a href="#verdict">结论</a></li>
+            <li><a href="#evidence">现象与事实</a></li>
+            <li><a href="#model">运行时模型</a></li>
+            <li><a href="#budgets">预算语义</a></li>
+            <li><a href="#steady-state">上下文稳态</a></li>
+            <li><a href="#cache">Provider Cache</a></li>
+            <li><a href="#reasoning">思维强度</a></li>
+            <li><a href="#iteration">迭代步骤</a></li>
+            <li><a href="#acceptance">验收标准</a></li>
+            <li><a href="#non-goals">非目标</a></li>
+          </ol>
+        </nav>
+      </main>
+
+      <footer>
+        本文档用于指导 xuanpu-agent 从 turn-scoped request runner 演进为可长时间自主运行的 task-run runtime。
+      </footer>
+    </div>
+  </body>
+</html>
