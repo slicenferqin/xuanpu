@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import {
   Activity,
   BarChart3,
+  ChevronDown,
   Files,
   GitPullRequest,
   HelpCircle,
@@ -200,6 +201,41 @@ function SectionLabel({ children }: { children: React.ReactNode }): React.JSX.El
   )
 }
 
+function OverviewDetails({
+  label,
+  children,
+  summaryAddon,
+  defaultOpen = false,
+  tone = 'default'
+}: {
+  label: React.ReactNode
+  children: React.ReactNode
+  summaryAddon?: React.ReactNode
+  defaultOpen?: boolean
+  tone?: 'default' | 'warning'
+}): React.JSX.Element {
+  return (
+    <details
+      open={defaultOpen}
+      className={cn(
+        'group rounded-lg border bg-xp-ops-surface-muted/45 px-3 py-2',
+        tone === 'warning'
+          ? 'border-xp-intent-warning/30 bg-xp-intent-warning/5'
+          : 'border-xp-telemetry-border/50'
+      )}
+    >
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-xp-telemetry-muted [&::-webkit-details-marker]:hidden">
+        <span className="min-w-0 truncate">{label}</span>
+        <span className="flex shrink-0 items-center gap-1">
+          {summaryAddon}
+          <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
+        </span>
+      </summary>
+      <div className="mt-2 space-y-1">{children}</div>
+    </details>
+  )
+}
+
 function OverviewPanel({
   sessions,
   worktreePath,
@@ -227,7 +263,9 @@ function OverviewPanel({
 
   const [sessionSummary, setSessionSummary] = useState<UsageAnalyticsSessionSummary | null>(null)
   const [scopeSummary, setScopeSummary] = useState<UsageAnalyticsScopeSummary | null>(null)
-  const [scopeSummaryStatus, setScopeSummaryStatus] = useState<'loading' | 'ready' | 'error' | 'empty'>('loading')
+  const [scopeSummaryStatus, setScopeSummaryStatus] = useState<
+    'loading' | 'ready' | 'error' | 'empty'
+  >('loading')
 
   const liveTokens = useContextStore(
     useShallow((state) => (activeSessionId ? state.tokensBySession[activeSessionId] : null))
@@ -236,11 +274,13 @@ function OverviewPanel({
     useShallow((state) => (activeSessionId ? (state.costBySession[activeSessionId] ?? 0) : 0))
   )
   const contextSnapshot = useContextStore(
-    useShallow((state) => (activeSessionId ? state.contextSnapshotsBySession[activeSessionId] : null))
+    useShallow((state) =>
+      activeSessionId ? state.contextSnapshotsBySession[activeSessionId] : null
+    )
   )
 
   const activityTick = useSessionRuntimeStore((state) =>
-    activeSessionId ? state.sessions.get(activeSessionId)?.lastActivityAt ?? 0 : 0
+    activeSessionId ? (state.sessions.get(activeSessionId)?.lastActivityAt ?? 0) : 0
   )
 
   // Fetch current session summary
@@ -248,17 +288,24 @@ function OverviewPanel({
     let cancelled = false
     if (!activeSessionId || !window.usageAnalyticsOps?.fetchSessionSummary) {
       setSessionSummary(null)
-      return () => { cancelled = true }
+      return () => {
+        cancelled = true
+      }
     }
 
-    window.usageAnalyticsOps.fetchSessionSummary(activeSessionId).then((result) => {
-      if (cancelled) return
-      setSessionSummary(result.success && result.data ? result.data : null)
-    }).catch(() => {
-      if (!cancelled) setSessionSummary(null)
-    })
+    window.usageAnalyticsOps
+      .fetchSessionSummary(activeSessionId)
+      .then((result) => {
+        if (cancelled) return
+        setSessionSummary(result.success && result.data ? result.data : null)
+      })
+      .catch(() => {
+        if (!cancelled) setSessionSummary(null)
+      })
 
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [activeSessionId, activityTick])
 
   // Fetch worktree aggregate
@@ -267,27 +314,34 @@ function OverviewPanel({
     if (sessionIds.length === 0 || !scopeId || !window.usageAnalyticsOps?.fetchScopeSummary) {
       setScopeSummary(null)
       setScopeSummaryStatus('empty')
-      return () => { cancelled = true }
+      return () => {
+        cancelled = true
+      }
     }
 
     setScopeSummaryStatus('loading')
     const scopeType = isConnectionMode ? 'connection' : 'worktree'
-    window.usageAnalyticsOps.fetchScopeSummary(scopeId, scopeType, sessionIds).then((result) => {
-      if (cancelled) return
-      if (result.success && result.data) {
-        setScopeSummary(result.data)
-        setScopeSummaryStatus('ready')
-      } else {
+    window.usageAnalyticsOps
+      .fetchScopeSummary(scopeId, scopeType, sessionIds)
+      .then((result) => {
+        if (cancelled) return
+        if (result.success && result.data) {
+          setScopeSummary(result.data)
+          setScopeSummaryStatus('ready')
+        } else {
+          setScopeSummary(null)
+          setScopeSummaryStatus('error')
+        }
+      })
+      .catch(() => {
+        if (cancelled) return
         setScopeSummary(null)
         setScopeSummaryStatus('error')
-      }
-    }).catch(() => {
-      if (cancelled) return
-      setScopeSummary(null)
-      setScopeSummaryStatus('error')
-    })
+      })
 
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [sessionIds, sessionIdsKey, scopeId, isConnectionMode])
 
   if (!worktreePath && sessionIds.length === 0) {
@@ -306,12 +360,16 @@ function OverviewPanel({
   const sPartial = sessionSummary?.partial ?? false
   const sModel = sessionSummary?.latest_model_label ?? null
   const sDuration = sessionSummary?.duration_seconds ?? 0
-  const sCacheHitRate = resolvedTokens.cacheReadTokens > 0
-    ? Math.round(
-        (resolvedTokens.cacheReadTokens /
-          (resolvedTokens.cacheReadTokens + resolvedTokens.inputTokens + resolvedTokens.cacheWriteTokens)) * 100
-      )
-    : null
+  const sCacheHitRate =
+    resolvedTokens.cacheReadTokens > 0
+      ? Math.round(
+          (resolvedTokens.cacheReadTokens /
+            (resolvedTokens.cacheReadTokens +
+              resolvedTokens.inputTokens +
+              resolvedTokens.cacheWriteTokens)) *
+            100
+        )
+      : null
 
   // Context: prefer runtime snapshot, then persisted snapshot, then null
   const contextUsed = contextSnapshot?.usedTokens ?? sessionSummary?.context_used_tokens ?? null
@@ -352,11 +410,16 @@ function OverviewPanel({
 
   const wSessionCount = scopeSummary?.session_count ?? sessionIds.length
   const wCoverage = scopeSummary?.coverage
+  const coverageWarningCount = wCoverage
+    ? wCoverage.legacy_undercounted +
+      wCoverage.partial +
+      wCoverage.missing_source +
+      wCoverage.unsupported
+    : 0
 
   return (
     <div className="min-h-0 flex-1 overflow-auto px-2.5 py-3" data-testid="context-panel-overview">
       <div className="space-y-3">
-
         {/* ── Current Session ── */}
         <section className="space-y-2">
           <div className="flex items-center justify-between">
@@ -370,10 +433,11 @@ function OverviewPanel({
 
           <div className="rounded-lg border border-xp-telemetry-border bg-xp-ops-surface-muted px-3 py-2 space-y-1">
             <MetricRow label={t('contextPanel.overview.cost')} value={formatCost(sCost)} />
-            <MetricRow label={t('contextPanel.overview.tokens')} value={formatCompactNumber(resolvedTokens.totalTokens)} />
-            {sModel && (
-              <MetricRow label={t('contextPanel.inspector.model')} value={sModel} />
-            )}
+            <MetricRow
+              label={t('contextPanel.overview.tokens')}
+              value={formatCompactNumber(resolvedTokens.totalTokens)}
+            />
+            {sModel && <MetricRow label={t('contextPanel.inspector.model')} value={sModel} />}
             {sDuration > 0 && (
               <MetricRow
                 label={t('contextPanel.inspector.duration')}
@@ -384,18 +448,26 @@ function OverviewPanel({
 
           {/* Token breakdown */}
           {resolvedTokens.totalTokens > 0 && (
-            <div className="rounded-lg border border-xp-telemetry-border bg-xp-ops-surface-muted px-3 py-2 space-y-1">
-              <SectionLabel>{t('contextPanel.inspector.tokenBreakdown')}</SectionLabel>
-              <MetricRow label={t('contextPanel.overview.input')} value={formatCompactNumber(resolvedTokens.inputTokens)} />
-              <MetricRow label={t('contextPanel.overview.output')} value={formatCompactNumber(resolvedTokens.outputTokens)} />
-              <MetricRow label={t('contextPanel.overview.cacheRead')} value={formatCompactNumber(resolvedTokens.cacheReadTokens)} />
+            <OverviewDetails label={t('contextPanel.inspector.tokenBreakdown')}>
+              <MetricRow
+                label={t('contextPanel.overview.input')}
+                value={formatCompactNumber(resolvedTokens.inputTokens)}
+              />
+              <MetricRow
+                label={t('contextPanel.overview.output')}
+                value={formatCompactNumber(resolvedTokens.outputTokens)}
+              />
+              <MetricRow
+                label={t('contextPanel.overview.cacheRead')}
+                value={formatCompactNumber(resolvedTokens.cacheReadTokens)}
+              />
               {sCacheHitRate !== null && (
                 <MetricRow
                   label={t('contextPanel.overview.cacheHitRate')}
                   value={`${sCacheHitRate}% (${formatCompactNumber(resolvedTokens.cacheReadTokens)} / ${formatCompactNumber(resolvedTokens.cacheReadTokens + resolvedTokens.inputTokens + resolvedTokens.cacheWriteTokens)})`}
                 />
               )}
-            </div>
+            </OverviewDetails>
           )}
         </section>
 
@@ -405,85 +477,97 @@ function OverviewPanel({
             <SectionLabel>{t('contextPanel.overview.contextPressure')}</SectionLabel>
             <div className="rounded-lg border border-xp-telemetry-border bg-xp-ops-surface-muted px-3 py-2">
               {contextWindow && contextWindow > 0 ? (
-                <ContextBar used={contextUsed} max={contextWindow} percent={contextPercent} alert={false} />
+                <ContextBar
+                  used={contextUsed}
+                  max={contextWindow}
+                  percent={contextPercent}
+                  alert={contextAlert}
+                />
               ) : (
-                <MetricRow label={t('contextPanel.inspector.contextUsed')} value={formatCompactNumber(contextUsed)} />
+                <MetricRow
+                  label={t('contextPanel.inspector.contextUsed')}
+                  value={formatCompactNumber(contextUsed)}
+                  alert={contextAlert}
+                />
               )}
             </div>
           </section>
         )}
 
         {/* ── Worktree Aggregate ── */}
-        <section className="space-y-1.5">
-          <SectionLabel>
-            {scopeLabel} · {t('contextPanel.inspector.aggregate')}
+        <OverviewDetails
+          label={`${scopeLabel} · ${t('contextPanel.inspector.aggregate')}`}
+          summaryAddon={
             <span
-              className="ml-1 inline-flex h-3.5 w-3.5 translate-y-[1px] items-center justify-center rounded-full border border-xp-telemetry-border text-xp-telemetry-muted"
+              className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-xp-telemetry-border text-xp-telemetry-muted"
               aria-label={t('contextPanel.overview.sessionBreakdownLabel')}
               title={sessionBreakdownTitle}
             >
               <HelpCircle className="h-2.5 w-2.5" />
             </span>
-          </SectionLabel>
+          }
+        >
           {scopeSummaryStatus === 'loading' && (
-            <div className="rounded-lg border border-xp-telemetry-border/40 bg-xp-ops-surface-muted/30 px-3 py-2">
+            <div className="rounded-md border border-xp-telemetry-border/40 bg-xp-ops-surface-muted/30 px-3 py-2">
               <div className="text-[10px] text-xp-telemetry-muted">
                 {t('contextPanel.inspector.noAggregateData')}
               </div>
             </div>
           )}
           {scopeSummaryStatus === 'error' && (
-            <div className="rounded-lg border border-xp-intent-warning/30 bg-xp-intent-warning/5 px-3 py-2">
+            <div className="rounded-md border border-xp-intent-warning/30 bg-xp-intent-warning/5 px-3 py-2">
               <div className="text-[10px] text-xp-intent-warning">
                 {t('contextPanel.inspector.aggregateError')}
               </div>
             </div>
           )}
           {scopeSummaryStatus === 'empty' && (
-            <div className="rounded-lg border border-xp-telemetry-border/40 bg-xp-ops-surface-muted/30 px-3 py-2">
+            <div className="rounded-md border border-xp-telemetry-border/40 bg-xp-ops-surface-muted/30 px-3 py-2">
               <div className="text-[10px] text-xp-telemetry-muted">
                 {t('contextPanel.inspector.noAggregateData')}
               </div>
             </div>
           )}
           {scopeSummaryStatus === 'ready' && scopeSummary && (
-            <div className="rounded-lg border border-xp-telemetry-border/60 bg-xp-ops-surface-muted/50 px-3 py-2 space-y-1">
+            <div className="rounded-md border border-xp-telemetry-border/60 bg-xp-ops-surface-muted/50 px-3 py-2 space-y-1">
               <MetricRow label={t('contextPanel.inspector.totalCost')} value={formatCost(wCost)} />
-              <MetricRow label={t('contextPanel.inspector.totalTokens')} value={formatCompactNumber(wTokens)} />
               <MetricRow
-                label={t('contextPanel.inspector.sessions')}
-                value={`${wSessionCount}`}
+                label={t('contextPanel.inspector.totalTokens')}
+                value={formatCompactNumber(wTokens)}
               />
+              <MetricRow label={t('contextPanel.inspector.sessions')} value={`${wSessionCount}`} />
             </div>
           )}
-        </section>
+        </OverviewDetails>
 
         {/* ── Diagnostics ── */}
-        {wCoverage && (
-          <section className="space-y-1.5">
-            <SectionLabel>{t('contextPanel.overview.dataQuality')}</SectionLabel>
-            <div className="rounded-lg border border-xp-telemetry-border/60 bg-xp-ops-surface-muted/50 px-3 py-2">
-              <div className="space-y-0.5 font-mono text-[10px] leading-relaxed text-xp-telemetry-muted">
-                {wCoverage.synced > 0 && <div>synced: {wCoverage.synced}</div>}
-                {wCoverage.legacy_undercounted > 0 && (
-                  <div className="text-xp-intent-warning">legacy (undercounted): {wCoverage.legacy_undercounted}</div>
-                )}
-                {wCoverage.partial > 0 && (
-                  <div className="text-xp-intent-warning">partial: {wCoverage.partial}</div>
-                )}
-                {wCoverage.missing_source > 0 && <div>missing source: {wCoverage.missing_source}</div>}
-                {wCoverage.unsupported > 0 && <div>unsupported: {wCoverage.unsupported}</div>}
-              </div>
+        {wCoverage && coverageWarningCount > 0 && (
+          <OverviewDetails
+            label={t('contextPanel.overview.dataQuality')}
+            tone="warning"
+            summaryAddon={
+              <span className="rounded bg-xp-intent-warning/10 px-1 py-0.5 font-mono text-[9px] tracking-normal text-xp-intent-warning">
+                {coverageWarningCount}
+              </span>
+            }
+          >
+            <div className="space-y-0.5 font-mono text-[10px] leading-relaxed text-xp-telemetry-muted">
+              {wCoverage.synced > 0 && <div>synced: {wCoverage.synced}</div>}
+              {wCoverage.legacy_undercounted > 0 && (
+                <div className="text-xp-intent-warning">
+                  legacy (undercounted): {wCoverage.legacy_undercounted}
+                </div>
+              )}
+              {wCoverage.partial > 0 && (
+                <div className="text-xp-intent-warning">partial: {wCoverage.partial}</div>
+              )}
+              {wCoverage.missing_source > 0 && (
+                <div>missing source: {wCoverage.missing_source}</div>
+              )}
+              {wCoverage.unsupported > 0 && <div>unsupported: {wCoverage.unsupported}</div>}
             </div>
-          </section>
+          </OverviewDetails>
         )}
-
-        {/* ── Path ── */}
-        <section className="rounded-lg border border-xp-telemetry-border/40 bg-xp-ops-surface-muted/30 px-3 py-2">
-          <div className="break-all font-mono text-[10px] leading-relaxed text-xp-telemetry-muted">
-            {worktreePath ?? t('contextPanel.empty.noWorktree')}
-          </div>
-        </section>
       </div>
     </div>
   )
@@ -610,12 +694,17 @@ function TasksPanel({ activeSessionId }: { activeSessionId: string | null }): Re
   }
 
   return (
-    <div className="min-h-0 flex flex-1 flex-col overflow-hidden px-3 pb-3 pt-2" data-testid="context-panel-tasks">
+    <div
+      className="min-h-0 flex flex-1 flex-col overflow-hidden px-3 pb-3 pt-2"
+      data-testid="context-panel-tasks"
+    >
       <div className="pb-2">
         <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
           {t('contextPanel.tabs.tasks')}
         </div>
-        <div className="mt-1 text-xs leading-relaxed text-muted-foreground">仅显示当前最新一轮规划。</div>
+        <div className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          仅显示当前最新一轮规划。
+        </div>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
         <TodoCard tasks={tasks} />
@@ -733,13 +822,10 @@ export function ContextPanelHost({
   const cachedOverviewSessionsKey = cachedOverviewSessionKeys.join('|')
   const [overviewSessions, setOverviewSessions] =
     useState<OverviewSession[]>(cachedOverviewSessions)
-  const tabs = useMemo(
-    () => {
-      const baseTabs = SHOW_CONTEXT_DIAGNOSTICS ? DEV_CONTEXT_TABS : CONTEXT_TABS
-      return terminalPanel ? baseTabs : baseTabs.filter((tab) => tab.id !== 'terminal')
-    },
-    [terminalPanel]
-  )
+  const tabs = useMemo(() => {
+    const baseTabs = SHOW_CONTEXT_DIAGNOSTICS ? DEV_CONTEXT_TABS : CONTEXT_TABS
+    return terminalPanel ? baseTabs : baseTabs.filter((tab) => tab.id !== 'terminal')
+  }, [terminalPanel])
   const overviewScopeLabel = isConnectionMode
     ? t('contextPanel.overview.connection')
     : t('contextPanel.overview.worktree')

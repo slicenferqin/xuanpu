@@ -110,6 +110,9 @@ describe('xuanpu-agent native and tool policy', () => {
     expect(prompt).toContain('scoped field tools')
     expect(prompt).toContain('xfp_delegate_subtask')
     expect(prompt).toContain('delegate subtask')
+    expect(prompt).toContain('readable Markdown prose by default')
+    expect(prompt).toContain('Do not output raw JSON')
+    expect(prompt).toContain('historical/frozen episode constraints')
   })
 
   it('keeps pi-natives process control inert in the compatibility alias', async () => {

@@ -18,6 +18,7 @@ import type {
 } from '@shared/types/agent-protocol'
 import type { StreamingPart } from '@shared/lib/timeline-types'
 import type { SessionTask } from '@/lib/session-tasks'
+import { sanitizeRuntimeQueuedAttachments } from '@/lib/file-attachment-utils'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -192,12 +193,17 @@ function getEmptyStreamingBufferSnapshot(sessionId: string): StreamingBuffer {
 
 function resetStreamingBufferOverlayState(
   current: StreamingBuffer,
-  options?: { preserveOptimisticMessages?: boolean; preserveCompactionState?: boolean }
+  options?: {
+    preserveOptimisticMessages?: boolean
+    preserveCompactionState?: boolean
+    preserveRunState?: boolean
+  }
 ): StreamingBuffer {
   return createStreamingBuffer({
     activeRunEpoch: current.activeRunEpoch,
     lastAppliedSequence: current.lastAppliedSequence,
     mirrorVersion: current.mirrorVersion,
+    runStartedAt: options?.preserveRunState ? current.runStartedAt : undefined,
     optimisticMessages: options?.preserveOptimisticMessages
       ? current.optimisticMessages
       : undefined,
@@ -388,7 +394,8 @@ export function syncStreamingBufferGuardState(
         ? {
             ...resetStreamingBufferOverlayState(current, {
               preserveOptimisticMessages: true,
-              preserveCompactionState: true
+              preserveCompactionState: true,
+              preserveRunState: current.isStreaming
             }),
             activeRunEpoch: state.activeRunEpoch,
             lastAppliedSequence: state.lastAppliedSequence
@@ -431,24 +438,27 @@ export function writeEventToStreamingBuffer(
             ? {
                 ...resetStreamingBufferOverlayState(current, {
                   preserveOptimisticMessages: true,
-                  preserveCompactionState: true
+                  preserveCompactionState: true,
+                  preserveRunState: current.runStartedAt !== undefined
                 }),
                 turnId: eventTurnId,
                 isStreaming: true
               }
             : current
+        const activeBase =
+          base.runStartedAt === undefined ? { ...base, runStartedAt: Date.now() } : base
 
         if (event.childSessionId) {
-          const nextChildParts = new Map(base.childParts)
+          const nextChildParts = new Map(activeBase.childParts)
           const existing = [...(nextChildParts.get(event.childSessionId) ?? [])]
 
           if (part.type === 'text') {
             // Phase 5: xuanpu-agent hard gate — only origin === 'model' enters
             // the assistant streaming bubble. Other runtimes (undefined origin)
             // pass through for backward compatibility.
-            if (event.runtimeId === 'xuanpu-agent' && event.origin !== 'model') return base
+            if (event.runtimeId === 'xuanpu-agent' && event.origin !== 'model') return activeBase
             const delta = (partData?.delta as string) ?? (part.text as string) ?? ''
-            if (!delta) return base
+            if (!delta) return activeBase
             const last = existing[existing.length - 1]
             if (last?.type === 'text') {
               existing[existing.length - 1] = { ...last, text: (last.text ?? '') + delta }
@@ -497,7 +507,7 @@ export function writeEventToStreamingBuffer(
 
           nextChildParts.set(event.childSessionId, existing)
           return {
-            ...base,
+            ...activeBase,
             childParts: nextChildParts,
             isStreaming: true
           }
@@ -507,11 +517,11 @@ export function writeEventToStreamingBuffer(
           // Phase 5: xuanpu-agent hard gate — only origin === 'model' enters
           // the assistant streaming bubble. Other runtimes (undefined origin)
           // pass through for backward compatibility.
-          if (event.runtimeId === 'xuanpu-agent' && event.origin !== 'model') return base
+          if (event.runtimeId === 'xuanpu-agent' && event.origin !== 'model') return activeBase
           const delta = (partData?.delta as string) ?? (part.text as string) ?? ''
-          if (!delta) return base
+          if (!delta) return activeBase
 
-          const nextParts = [...base.parts]
+          const nextParts = [...activeBase.parts]
           const last = nextParts[nextParts.length - 1]
           if (last?.type === 'text') {
             nextParts[nextParts.length - 1] = {
@@ -523,9 +533,9 @@ export function writeEventToStreamingBuffer(
           }
 
           return {
-            ...base,
+            ...activeBase,
             parts: nextParts,
-            streamingContent: base.streamingContent + delta,
+            streamingContent: activeBase.streamingContent + delta,
             isStreaming: true
           }
         }
@@ -535,7 +545,7 @@ export function writeEventToStreamingBuffer(
           const toolName = (part.tool as string) || 'unknown'
           const state = (part.state as Record<string, unknown>) || {}
           const stateTime = state.time as Record<string, number> | undefined
-          const nextParts = [...base.parts]
+          const nextParts = [...activeBase.parts]
           const idx = nextParts.findIndex((p) => p.type === 'tool_use' && p.toolUse?.id === toolId)
           // Merge with the previous part rather than rebuild from this update
           // alone — partial updates (e.g. status -> success without input,
@@ -570,7 +580,7 @@ export function writeEventToStreamingBuffer(
           }
 
           return {
-            ...base,
+            ...activeBase,
             parts: nextParts,
             isStreaming: true
           }
@@ -578,8 +588,8 @@ export function writeEventToStreamingBuffer(
 
         if (part.type === 'reasoning') {
           const delta = (partData?.delta as string) ?? (part.text as string) ?? ''
-          if (!delta) return base
-          const nextParts = [...base.parts]
+          if (!delta) return activeBase
+          const nextParts = [...activeBase.parts]
           const last = nextParts[nextParts.length - 1]
           if (last?.type === 'reasoning') {
             nextParts[nextParts.length - 1] = {
@@ -590,15 +600,16 @@ export function writeEventToStreamingBuffer(
             nextParts.push({ type: 'reasoning', reasoning: delta })
           }
           return {
-            ...base,
+            ...activeBase,
             parts: nextParts,
             isStreaming: true
           }
         }
 
         if (part.type === 'subtask') {
-          const subtaskId = (part.callID as string) || (part.id as string) || `subtask-${Date.now()}`
-          const nextParts = [...base.parts]
+          const subtaskId =
+            (part.callID as string) || (part.id as string) || `subtask-${Date.now()}`
+          const nextParts = [...activeBase.parts]
           const idx = nextParts.findIndex(
             (p) => p.type === 'subtask' && p.subtask?.id === subtaskId
           )
@@ -618,8 +629,7 @@ export function writeEventToStreamingBuffer(
               id: subtaskId,
               sessionID: (part.childSessionId as string) ?? previous?.sessionID ?? '',
               prompt: previous?.prompt ?? '',
-              description:
-                (part.description as string) || previous?.description || 'Subtask',
+              description: (part.description as string) || previous?.description || 'Subtask',
               agent: (part.agent as string) || previous?.agent || 'unknown',
               parts: previous?.parts ?? [],
               status,
@@ -628,9 +638,7 @@ export function writeEventToStreamingBuffer(
                   ? ((state.result as string) ?? previous?.result)
                   : previous?.result,
               error:
-                status === 'error'
-                  ? ((state.error as string) ?? previous?.error)
-                  : previous?.error
+                status === 'error' ? ((state.error as string) ?? previous?.error) : previous?.error
             }
           }
 
@@ -641,13 +649,13 @@ export function writeEventToStreamingBuffer(
           }
 
           return {
-            ...base,
+            ...activeBase,
             parts: nextParts,
             isStreaming: true
           }
         }
 
-        return base
+        return activeBase
       }
 
       if (event.type === 'session.status') {
@@ -1000,6 +1008,10 @@ function persistPendingMessageCreate(
 ): void {
   const api = getDurablePendingMessageApi()
   if (!api) return
+  const durableAttachments = sanitizeRuntimeQueuedAttachments(
+    message.runtimeId,
+    message.attachments ?? []
+  )
 
   void api
     .create({
@@ -1008,7 +1020,7 @@ function persistPendingMessageCreate(
       agent_session_id: message.agentSessionId ?? null,
       runtime_id: message.runtimeId ?? 'opencode',
       content: message.content,
-      attachments_json: JSON.stringify(message.attachments ?? []),
+      attachments_json: JSON.stringify(durableAttachments),
       prompt_options_json: stringifyPendingJson(message.promptOptions),
       model_json: stringifyPendingJson(message.model),
       enqueued_at: message.queuedAt

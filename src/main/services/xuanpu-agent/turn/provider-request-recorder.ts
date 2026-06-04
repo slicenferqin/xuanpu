@@ -4,8 +4,31 @@
  * Persists a provider request snapshot to agent_turn_context_snapshots
  * BEFORE the model is called. This ensures even failed turns are auditable.
  */
+import { createHash } from 'node:crypto'
 import { createAgentTurnContextSnapshot } from '../../../db/turn-repository'
+import type { XuanpuPiPromptMessage } from '../context-transform'
 import type { XuanpuProviderRequestSnapshot } from './turn-snapshot'
+
+function sanitizePromptMessageForStorage(message: XuanpuPiPromptMessage): {
+  role: XuanpuPiPromptMessage['role']
+  content: Array<Record<string, unknown>>
+} {
+  return {
+    role: message.role,
+    content: message.content.map((part) => {
+      if (part.type === 'text') {
+        return { type: 'text', text: part.text }
+      }
+      return {
+        type: 'image',
+        mimeType: part.mimeType,
+        dataSha256: createHash('sha256').update(part.data).digest('hex'),
+        byteLength: Buffer.byteLength(part.data, 'base64'),
+        contentOmitted: true
+      }
+    })
+  }
+}
 
 export function recordProviderRequestSnapshot(
   snapshot: XuanpuProviderRequestSnapshot,
@@ -23,14 +46,8 @@ export function recordProviderRequestSnapshot(
     }),
     providerMessagesJson: JSON.stringify({
       systemPrompt: snapshot.systemPrompt,
-      contextMessages: snapshot.contextMessages.map((msg) => ({
-        role: msg.role,
-        content: msg.content
-      })),
-      promptMessage: {
-        role: snapshot.promptMessage.role,
-        content: snapshot.promptMessage.content
-      }
+      contextMessages: snapshot.contextMessages.map(sanitizePromptMessageForStorage),
+      promptMessage: sanitizePromptMessageForStorage(snapshot.promptMessage)
     }),
     providerToolsJson: snapshot.toolsJson,
     providerConfigJson: JSON.stringify({

@@ -48,10 +48,12 @@ function resetStores(): void {
   _resetPendingIdCounter()
 }
 
-function useHarness(options: {
-  lifecycle?: 'idle' | 'busy'
-  pendingCount?: number
-} = {}) {
+function useHarness(
+  options: {
+    lifecycle?: 'idle' | 'busy'
+    pendingCount?: number
+  } = {}
+) {
   return usePendingMessageDrain({
     sessionId: SESSION_ID,
     worktreePath: WORKTREE_PATH,
@@ -107,6 +109,45 @@ describe('usePendingMessageDrain', () => {
     expect(useSessionRuntimeStore.getState().getPendingCount(SESSION_ID)).toBe(0)
     await waitFor(() =>
       expect(useWorktreeStatusStore.getState().lastMessageTimeByWorktree[WORKTREE_ID]).toBeTruthy()
+    )
+  })
+
+  it('auto-drains in-memory xuanpu-agent queued images as current-turn rich parts', async () => {
+    const { prompt } = installAgentOps()
+    const attachment: Attachment = {
+      kind: 'data',
+      id: 'attachment-1',
+      name: 'screen.png',
+      mime: 'image/png',
+      dataUrl: 'data:image/png;base64,abc'
+    }
+    const queued = createPendingMessage('queued follow-up', [attachment], {
+      runtimeId: 'xuanpu-agent',
+      model: { providerID: 'openai', modelID: 'gpt-test' },
+      promptOptions: { goalMode: true, successCriteria: 'green tests' }
+    })
+    useSessionRuntimeStore.getState().queueMessage(SESSION_ID, queued)
+
+    renderHook(() => useHarness({ lifecycle: 'idle', pendingCount: 1 }))
+
+    await waitFor(() => expect(prompt).toHaveBeenCalledOnce())
+
+    const sentPayload = prompt.mock.calls[0][2]
+    expect(sentPayload).toEqual([
+      {
+        type: 'file',
+        mime: 'image/png',
+        url: 'data:image/png;base64,abc',
+        filename: 'screen.png'
+      },
+      { type: 'text', text: 'queued follow-up' }
+    ])
+    expect(prompt).toHaveBeenCalledWith(
+      WORKTREE_PATH,
+      RUNTIME_SESSION_ID,
+      sentPayload,
+      { providerID: 'openai', modelID: 'gpt-test' },
+      { goalMode: true, successCriteria: 'green tests' }
     )
   })
 

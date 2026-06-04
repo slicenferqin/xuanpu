@@ -133,7 +133,9 @@ describe('ContextPanelHost', () => {
         fetchDashboard: vi.fn().mockResolvedValue({ success: false }),
         fetchSessionSummary: vi.fn().mockResolvedValue({ success: false }),
         fetchScopeSummary: vi.fn().mockResolvedValue({ success: false }),
-        resync: vi.fn().mockResolvedValue({ success: true, synced_session_ids: [], partial_session_ids: [] })
+        resync: vi
+          .fn()
+          .mockResolvedValue({ success: true, synced_session_ids: [], partial_session_ids: [] })
       }
     })
     Object.defineProperty(window, 'db', {
@@ -351,9 +353,11 @@ describe('ContextPanelHost', () => {
   it('prefers runtime tasks over durable fallback in the tasks panel', async () => {
     const user = userEvent.setup()
     useSessionStore.setState({ activeSessionId: 'sess-live-tasks' })
-    useSessionRuntimeStore.getState().setSessionTasks('sess-live-tasks', [
-      { id: 'task-live', content: 'Inspect live runtime task', status: 'in_progress' }
-    ])
+    useSessionRuntimeStore
+      .getState()
+      .setSessionTasks('sess-live-tasks', [
+        { id: 'task-live', content: 'Inspect live runtime task', status: 'in_progress' }
+      ])
     Object.defineProperty(window, 'agentOps', {
       configurable: true,
       writable: true,
@@ -498,7 +502,6 @@ describe('ContextPanelHost', () => {
     expect(screen.getByTestId('pr-target-branch-trigger')).toHaveTextContent('origin/main')
   })
 
-
   it('renders and dismisses completed goals from the right goal panel', async () => {
     const user = userEvent.setup()
     useSessionStore.setState({ activeSessionId: 'sess-goal' })
@@ -586,7 +589,13 @@ describe('ContextPanelHost', () => {
         context_used_tokens: null,
         context_window_tokens: null,
         context_percent: null,
-        coverage: { synced: 2, partial: 0, legacy_undercounted: 0, missing_source: 0, unsupported: 0 },
+        coverage: {
+          synced: 2,
+          partial: 0,
+          legacy_undercounted: 0,
+          missing_source: 0,
+          unsupported: 0
+        },
         partial_sessions: []
       }
     })
@@ -597,11 +606,19 @@ describe('ContextPanelHost', () => {
       // Current session data appears in primary section
       expect(screen.getByText('$0.03')).toBeInTheDocument()
       expect(screen.getByText('8.0K')).toBeInTheDocument()
-      // Worktree aggregate appears in secondary section
-      expect(screen.getByText('$0.06')).toBeInTheDocument()
-      expect(screen.getByText('17.5K')).toBeInTheDocument()
-      expect(screen.getByText('2')).toBeInTheDocument()
     })
+
+    const aggregateSummary = screen.getByText('Worktree · Aggregate')
+    const aggregateDetails = aggregateSummary.closest('details')
+    expect(aggregateDetails).toBeInstanceOf(HTMLDetailsElement)
+    expect((aggregateDetails as HTMLDetailsElement).open).toBe(false)
+    expect(screen.queryByText('Data Quality')).not.toBeInTheDocument()
+
+    await user.click(aggregateSummary)
+    expect((aggregateDetails as HTMLDetailsElement).open).toBe(true)
+    expect(screen.getByText('$0.06')).toBeInTheDocument()
+    expect(screen.getByText('17.5K')).toBeInTheDocument()
+    expect(screen.getByText('2')).toBeInTheDocument()
 
     const breakdown = screen.getByLabelText('Session breakdown')
     await user.hover(breakdown)
@@ -744,7 +761,13 @@ describe('ContextPanelHost', () => {
         context_used_tokens: null,
         context_window_tokens: null,
         context_percent: null,
-        coverage: { synced: 0, partial: 1, legacy_undercounted: 0, missing_source: 0, unsupported: 0 },
+        coverage: {
+          synced: 0,
+          partial: 1,
+          legacy_undercounted: 0,
+          missing_source: 0,
+          unsupported: 0
+        },
         partial_sessions: ['sess-claude-syncing']
       }
     })
@@ -752,11 +775,9 @@ describe('ContextPanelHost', () => {
     renderHost()
 
     await waitFor(() => {
-      expect(window.usageAnalyticsOps.fetchScopeSummary).toHaveBeenCalledWith(
-        'wt-1',
-        'worktree',
-        ['sess-claude-syncing']
-      )
+      expect(window.usageAnalyticsOps.fetchScopeSummary).toHaveBeenCalledWith('wt-1', 'worktree', [
+        'sess-claude-syncing'
+      ])
       // Current session and worktree aggregate both show 1.2K
       const elements = screen.getAllByText('1.2K')
       expect(elements.length).toBeGreaterThanOrEqual(1)
@@ -840,7 +861,13 @@ describe('ContextPanelHost', () => {
         context_used_tokens: null,
         context_window_tokens: null,
         context_percent: null,
-        coverage: { synced: 1, partial: 0, legacy_undercounted: 0, missing_source: 0, unsupported: 0 },
+        coverage: {
+          synced: 1,
+          partial: 0,
+          legacy_undercounted: 0,
+          missing_source: 0,
+          unsupported: 0
+        },
         partial_sessions: []
         // No session_contributions — renderer must NOT do base - 0 + live
       }

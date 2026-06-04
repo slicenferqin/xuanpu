@@ -704,6 +704,61 @@ describe('useSessionRuntimeStore', () => {
       expect(snapshot.isStreaming).toBe(true)
     })
 
+    it('preserves run start time when a new turn event resets the live overlay', () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(5_000)
+
+      beginLocalSessionRun('sess-running-row')
+
+      syncStreamingBufferGuardState(
+        'sess-running-row',
+        { activeRunEpoch: 1, lastAppliedSequence: 1 },
+        { resetOverlay: true, notify: 'immediate' }
+      )
+
+      writeEventToStreamingBuffer(
+        'sess-running-row',
+        {
+          type: 'message.part.updated',
+          sessionId: 'sess-running-row',
+          runtimeId: 'xuanpu-agent',
+          runEpoch: 1,
+          sessionSequence: 2,
+          eventId: 'first-tool',
+          sourceChannel: 'agent:stream',
+          turnId: 'turn-1',
+          data: {
+            part: {
+              type: 'tool',
+              id: 'tool-1',
+              callID: 'tool-1',
+              tool: 'git_status',
+              state: {
+                status: 'running',
+                input: {},
+                time: { start: 5_100 }
+              }
+            },
+            turnId: 'turn-1'
+          }
+        } as CanonicalAgentEvent,
+        { activeSessionId: 'sess-running-row' }
+      )
+
+      const snapshot = getStreamingBufferSnapshot('sess-running-row')
+      expect(snapshot.turnId).toBe('turn-1')
+      expect(snapshot.runStartedAt).toBe(5_000)
+      expect(snapshot.parts).toHaveLength(1)
+      expect(snapshot.parts[0]).toMatchObject({
+        type: 'tool_use',
+        toolUse: {
+          id: 'tool-1',
+          name: 'git_status',
+          status: 'running'
+        }
+      })
+    })
+
     it('clears overlay on background idle while preserving compaction state', () => {
       updateStreamingBuffer(
         'sess-idle',
@@ -1026,6 +1081,54 @@ describe('useSessionRuntimeStore', () => {
         model_json: null,
         enqueued_at: 123
       })
+    })
+
+    it('keeps xuanpu-agent queued image data in memory but persists metadata only', () => {
+      const durable = installDurablePendingMessageMock()
+      const message = makePendingMessage({
+        id: 'pending-xuanpu-image',
+        content: 'inspect screenshot',
+        attachments: [
+          {
+            kind: 'data',
+            id: 'img-1',
+            name: 'screen.png',
+            mime: 'image/png',
+            dataUrl: 'data:image/png;base64,abc'
+          }
+        ],
+        queuedAt: 456,
+        runtimeId: 'xuanpu-agent',
+        agentSessionId: 'xuanpu-session-1'
+      })
+
+      useSessionRuntimeStore.getState().queueMessage('sess-1', message)
+
+      expect(useSessionRuntimeStore.getState().getPendingMessages('sess-1')[0].attachments).toEqual(
+        [
+          {
+            kind: 'data',
+            id: 'img-1',
+            name: 'screen.png',
+            mime: 'image/png',
+            dataUrl: 'data:image/png;base64,abc'
+          }
+        ]
+      )
+      expect(durable.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          runtime_id: 'xuanpu-agent',
+          attachments_json: JSON.stringify([
+            {
+              kind: 'data',
+              id: 'img-1',
+              name: 'screen.png',
+              mime: 'image/png',
+              contentOmitted: true
+            }
+          ])
+        })
+      )
     })
 
     it('persists queued prompt options and model snapshot', () => {

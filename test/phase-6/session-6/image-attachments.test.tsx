@@ -3,7 +3,12 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { AttachmentButton } from '../../../src/renderer/src/components/sessions/AttachmentButton'
 import { AttachmentPreview } from '../../../src/renderer/src/components/sessions/AttachmentPreview'
 import type { Attachment } from '../../../src/renderer/src/components/sessions/AttachmentPreview'
-import { buildMessageParts } from '../../../src/renderer/src/lib/file-attachment-utils'
+import {
+  buildAttachmentSummaryText,
+  buildMessageParts,
+  buildRuntimeMessagePayload,
+  sanitizeRuntimeQueuedAttachments
+} from '../../../src/renderer/src/lib/file-attachment-utils'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -85,17 +90,13 @@ describe('Session 6: Image Attachments', () => {
     ]
 
     test('hidden when no attachments', () => {
-      const { container } = render(
-        <AttachmentPreview attachments={[]} onRemove={vi.fn()} />
-      )
+      const { container } = render(<AttachmentPreview attachments={[]} onRemove={vi.fn()} />)
 
       expect(container.innerHTML).toBe('')
     })
 
     test('renders thumbnails for image attachments', () => {
-      render(
-        <AttachmentPreview attachments={mockAttachments} onRemove={vi.fn()} />
-      )
+      render(<AttachmentPreview attachments={mockAttachments} onRemove={vi.fn()} />)
 
       const preview = screen.getByTestId('attachment-preview')
       expect(preview).toBeInTheDocument()
@@ -121,9 +122,7 @@ describe('Session 6: Image Attachments', () => {
         }
       ]
 
-      render(
-        <AttachmentPreview attachments={pdfAttachment} onRemove={vi.fn()} />
-      )
+      render(<AttachmentPreview attachments={pdfAttachment} onRemove={vi.fn()} />)
 
       // PDF should NOT have an img element
       const preview = screen.getByTestId('attachment-preview')
@@ -136,9 +135,7 @@ describe('Session 6: Image Attachments', () => {
 
     test('remove button calls onRemove with correct id', () => {
       const onRemove = vi.fn()
-      render(
-        <AttachmentPreview attachments={mockAttachments} onRemove={onRemove} />
-      )
+      render(<AttachmentPreview attachments={mockAttachments} onRemove={onRemove} />)
 
       const removeButtons = screen.getAllByTestId('attachment-remove')
       expect(removeButtons).toHaveLength(2)
@@ -152,14 +149,30 @@ describe('Session 6: Image Attachments', () => {
 
     test('multiple attachments displayed in row', () => {
       const threeAttachments: Attachment[] = [
-        { kind: 'data', id: '1', name: 'a.png', mime: 'image/png', dataUrl: 'data:image/png;base64,a' },
-        { kind: 'data', id: '2', name: 'b.png', mime: 'image/png', dataUrl: 'data:image/png;base64,b' },
-        { kind: 'data', id: '3', name: 'c.png', mime: 'image/png', dataUrl: 'data:image/png;base64,c' }
+        {
+          kind: 'data',
+          id: '1',
+          name: 'a.png',
+          mime: 'image/png',
+          dataUrl: 'data:image/png;base64,a'
+        },
+        {
+          kind: 'data',
+          id: '2',
+          name: 'b.png',
+          mime: 'image/png',
+          dataUrl: 'data:image/png;base64,b'
+        },
+        {
+          kind: 'data',
+          id: '3',
+          name: 'c.png',
+          mime: 'image/png',
+          dataUrl: 'data:image/png;base64,c'
+        }
       ]
 
-      render(
-        <AttachmentPreview attachments={threeAttachments} onRemove={vi.fn()} />
-      )
+      render(<AttachmentPreview attachments={threeAttachments} onRemove={vi.fn()} />)
 
       const items = screen.getAllByTestId('attachment-item')
       expect(items).toHaveLength(3)
@@ -194,7 +207,7 @@ describe('Session 6: Image Attachments', () => {
         { kind: 'data', id: 'b', name: 'b.png', mime: 'image/png', dataUrl: 'data:b' }
       ]
 
-      const updated = attachments.filter(a => a.id !== 'a')
+      const updated = attachments.filter((a) => a.id !== 'a')
 
       expect(updated).toHaveLength(1)
       expect(updated[0].id).toBe('b')
@@ -244,9 +257,7 @@ describe('Session 6: Image Attachments', () => {
       const attachments: Array<{ kind: 'data'; name: string; mime: string; dataUrl: string }> = []
 
       // Simulate paste event with text data
-      const items = [
-        { type: 'text/plain', getAsFile: () => null }
-      ]
+      const items = [{ type: 'text/plain', getAsFile: () => null }]
 
       for (const item of items) {
         if (item.type.startsWith('image/')) {
@@ -276,7 +287,13 @@ describe('Session 6: Image Attachments', () => {
   describe('Message parts construction', () => {
     test('data attachments included as file parts before text', () => {
       const attachments: Attachment[] = [
-        { kind: 'data', id: '1', name: 'img.png', mime: 'image/png', dataUrl: 'data:image/png;base64,abc' }
+        {
+          kind: 'data',
+          id: '1',
+          name: 'img.png',
+          mime: 'image/png',
+          dataUrl: 'data:image/png;base64,abc'
+        }
       ]
       const promptMessage = 'describe this image'
 
@@ -305,8 +322,8 @@ describe('Session 6: Image Attachments', () => {
       const parts = buildMessageParts(attachments, 'check these files')
 
       expect(parts).toHaveLength(4)
-      expect(parts.filter(p => p.type === 'file')).toHaveLength(3)
-      expect(parts.filter(p => p.type === 'text')).toHaveLength(1)
+      expect(parts.filter((p) => p.type === 'file')).toHaveLength(3)
+      expect(parts.filter((p) => p.type === 'text')).toHaveLength(1)
     })
 
     test('no attachments produces text-only parts', () => {
@@ -320,8 +337,20 @@ describe('Session 6: Image Attachments', () => {
 
     test('path attachments produce XML text block', () => {
       const attachments: Attachment[] = [
-        { kind: 'path', id: '1', name: 'main.ts', mime: 'text/typescript', filePath: '/src/main.ts' },
-        { kind: 'path', id: '2', name: 'utils.ts', mime: 'text/typescript', filePath: '/src/utils.ts' }
+        {
+          kind: 'path',
+          id: '1',
+          name: 'main.ts',
+          mime: 'text/typescript',
+          filePath: '/src/main.ts'
+        },
+        {
+          kind: 'path',
+          id: '2',
+          name: 'utils.ts',
+          mime: 'text/typescript',
+          filePath: '/src/utils.ts'
+        }
       ]
 
       const parts = buildMessageParts(attachments, 'review these')
@@ -339,8 +368,20 @@ describe('Session 6: Image Attachments', () => {
 
     test('mixed data and path attachments produce correct parts', () => {
       const attachments: Attachment[] = [
-        { kind: 'data', id: '1', name: 'screenshot.png', mime: 'image/png', dataUrl: 'data:image/png;base64,abc' },
-        { kind: 'path', id: '2', name: 'code.ts', mime: 'text/typescript', filePath: '/src/code.ts' }
+        {
+          kind: 'data',
+          id: '1',
+          name: 'screenshot.png',
+          mime: 'image/png',
+          dataUrl: 'data:image/png;base64,abc'
+        },
+        {
+          kind: 'path',
+          id: '2',
+          name: 'code.ts',
+          mime: 'text/typescript',
+          filePath: '/src/code.ts'
+        }
       ]
 
       const parts = buildMessageParts(attachments, 'explain')
@@ -363,6 +404,131 @@ describe('Session 6: Image Attachments', () => {
         type: 'text',
         text: 'explain'
       })
+    })
+
+    test('xuanpu-agent current-turn image payload keeps rich file parts', () => {
+      const attachments: Attachment[] = [
+        {
+          kind: 'data',
+          id: '1',
+          name: 'screenshot.png',
+          mime: 'image/png',
+          dataUrl: 'data:image/png;base64,abc'
+        },
+        {
+          kind: 'path',
+          id: '2',
+          name: 'code.ts',
+          mime: 'text/typescript',
+          filePath: '/src/code.ts'
+        }
+      ]
+
+      const payload = buildRuntimeMessagePayload('xuanpu-agent', attachments, 'explain')
+
+      expect(Array.isArray(payload)).toBe(true)
+      expect(payload).toEqual([
+        {
+          type: 'file',
+          mime: 'image/png',
+          url: 'data:image/png;base64,abc',
+          filename: 'screenshot.png'
+        },
+        {
+          type: 'text',
+          text: '<attached_files content="metadata-only">\n  <file kind="path" name="code.ts" mime="text/typescript" path="/src/code.ts">content omitted</file>\n</attached_files>'
+        },
+        { type: 'text', text: 'explain' }
+      ])
+    })
+
+    test('xuanpu-agent non-image data payload uses metadata only', () => {
+      const attachments: Attachment[] = [
+        {
+          kind: 'data',
+          id: '1',
+          name: 'report.pdf',
+          mime: 'application/pdf',
+          dataUrl: 'data:application/pdf;base64,pdf'
+        }
+      ]
+
+      const payload = buildRuntimeMessagePayload('xuanpu-agent', attachments, 'review')
+
+      expect(typeof payload).toBe('string')
+      expect(payload).toContain('report.pdf')
+      expect(payload).toContain('application/pdf')
+      expect(payload).not.toContain('data:application/pdf')
+      expect(payload).not.toContain('base64')
+    })
+
+    test('xuanpu-agent path-only payload uses attachment metadata only', () => {
+      const attachments: Attachment[] = [
+        {
+          kind: 'path',
+          id: '2',
+          name: 'code.ts',
+          mime: 'text/typescript',
+          filePath: '/src/code.ts'
+        }
+      ]
+
+      const payload = buildRuntimeMessagePayload('xuanpu-agent', attachments, 'explain')
+
+      expect(typeof payload).toBe('string')
+      expect(payload).toContain('<attached_files content="metadata-only">')
+      expect(payload).toContain('path="/src/code.ts"')
+      expect(payload).toContain('explain')
+    })
+
+    test('non xuanpu-agent payload keeps rich file parts', () => {
+      const attachments: Attachment[] = [
+        {
+          kind: 'data',
+          id: '1',
+          name: 'screenshot.png',
+          mime: 'image/png',
+          dataUrl: 'data:image/png;base64,abc'
+        }
+      ]
+
+      const payload = buildRuntimeMessagePayload('codex', attachments, 'explain')
+
+      expect(Array.isArray(payload)).toBe(true)
+      expect(payload).toEqual([
+        {
+          type: 'file',
+          mime: 'image/png',
+          url: 'data:image/png;base64,abc',
+          filename: 'screenshot.png'
+        },
+        { type: 'text', text: 'explain' }
+      ])
+    })
+
+    test('xuanpu-agent queued attachments drop data urls', () => {
+      const attachments: Attachment[] = [
+        {
+          kind: 'data',
+          id: '1',
+          name: 'screenshot.png',
+          mime: 'image/png',
+          dataUrl: 'data:image/png;base64,abc'
+        }
+      ]
+
+      const sanitized = sanitizeRuntimeQueuedAttachments('xuanpu-agent', attachments)
+      const summary = buildAttachmentSummaryText(sanitized)
+
+      expect(sanitized[0]).toEqual({
+        kind: 'data',
+        id: '1',
+        name: 'screenshot.png',
+        mime: 'image/png',
+        contentOmitted: true
+      })
+      expect(JSON.stringify(sanitized)).not.toContain('data:image')
+      expect(summary).toContain('screenshot.png')
     })
   })
 })

@@ -18,6 +18,7 @@ import { XUANPU_AGENT_CAPABILITIES } from './agent-runtime-types'
 import { createLogger } from './logger'
 import { resolveXuanpuAgentModelRef, type XuanpuAgentModelRef } from './xuanpu-agent/model-config'
 import { loadXuanpuAgentConfig, type XuanpuAgentConfig } from './xuanpu-agent/config-loader'
+import type { XuanpuPiPromptPart } from './xuanpu-agent/context-transform'
 import {
   XuanpuPiAgentSession,
   type XuanpuAgentToolEndEvent,
@@ -31,7 +32,11 @@ import type { XuanpuAgentHarnessMetrics } from './xuanpu-agent/harness/metrics'
 import { XfpPacketCompiler, type CompilerDecision } from './xuanpu-agent/harness/compiler'
 import { packContext } from './xuanpu-agent/context/context-packer'
 import { listFieldEpisodeBlocks } from '../field/episode-block-repository'
-import { createAgentTurn, createAgentTurnUsageEvent, updateAgentTurnStatus } from '../db/turn-repository'
+import {
+  createAgentTurn,
+  createAgentTurnUsageEvent,
+  updateAgentTurnStatus
+} from '../db/turn-repository'
 import { extractUsageTokens } from '../../shared/usage/message'
 import type {
   XfpAnchorSection,
@@ -96,22 +101,95 @@ interface XuanpuAgentSessionState {
   activeTurnId: string | null
 }
 
-function extractPromptText(
-  message:
-    | string
-    | Array<
-        | { type: 'text'; text: string }
-        | { type: 'file'; mime: string; url: string; filename?: string }
-      >
-): string {
-  if (typeof message === 'string') return message
+type IncomingPromptPart =
+  | { type: 'text'; text: string }
+  | { type: 'file'; mime: string; url: string; filename?: string }
 
-  return message
-    .map((part) => {
-      if (part.type === 'text') return part.text
-      return `[Attached file: ${part.filename ?? part.url}]`
-    })
-    .join('\n')
+interface ParsedPromptInput {
+  contextText: string
+  promptContent: XuanpuPiPromptPart[]
+}
+
+function parseXuanpuAgentPromptInput(message: string | IncomingPromptPart[]): ParsedPromptInput {
+  if (typeof message === 'string') {
+    return {
+      contextText: message,
+      promptContent: [{ type: 'text', text: message }]
+    }
+  }
+
+  const textParts: string[] = []
+  const promptContent: XuanpuPiPromptPart[] = []
+  const attachmentLines: string[] = []
+
+  for (const part of message) {
+    if (part.type === 'text') {
+      textParts.push(part.text)
+      continue
+    }
+
+    const filename = part.filename?.trim() || 'unnamed file'
+    const mime = part.mime?.trim() || 'unknown'
+    const parsedImage = parseDataUriImage(part.url, mime)
+    if (parsedImage) {
+      attachmentLines.push(
+        `<file kind="data" name="${escapeAttachmentAttribute(filename)}" mime="${escapeAttachmentAttribute(parsedImage.mimeType)}">image included in current provider turn only</file>`
+      )
+      promptContent.push({
+        type: 'image',
+        data: parsedImage.data,
+        mimeType: parsedImage.mimeType
+      })
+      continue
+    }
+
+    attachmentLines.push(
+      `<file kind="data" name="${escapeAttachmentAttribute(filename)}" mime="${escapeAttachmentAttribute(mime)}">content omitted</file>`
+    )
+  }
+
+  const metadataText =
+    attachmentLines.length > 0
+      ? ['<attached_files content="metadata-only">', ...attachmentLines, '</attached_files>'].join(
+          '\n'
+        )
+      : ''
+  const text = [...(metadataText ? [metadataText] : []), ...textParts].join('\n\n').trim()
+
+  if (text) {
+    promptContent.unshift({ type: 'text', text })
+  }
+
+  return {
+    contextText: text,
+    promptContent
+  }
+}
+
+function parseDataUriImage(
+  url: string,
+  fallbackMime: string
+): { data: string; mimeType: string } | null {
+  if (!url.startsWith('data:')) return null
+  const commaIndex = url.indexOf(',')
+  if (commaIndex < 0) return null
+  const header = url.slice(5, commaIndex)
+  const payload = url.slice(commaIndex + 1)
+  const isBase64 = header.endsWith(';base64')
+  const mimeType = (isBase64 ? header.slice(0, -';base64'.length) : header) || fallbackMime
+  if (!mimeType.startsWith('image/')) return null
+  try {
+    const data = isBase64
+      ? payload
+      : Buffer.from(decodeURIComponent(payload), 'utf-8').toString('base64')
+    return { data, mimeType }
+  } catch {
+    return null
+  }
+}
+
+function escapeAttachmentAttribute(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
 }
 
 export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
@@ -221,7 +299,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     options?: PromptOptions
   ): Promise<void> {
     const session = this.requireSession(agentSessionId, worktreePath)
-    const text = extractPromptText(message).trim()
+    const parsedPrompt = parseXuanpuAgentPromptInput(message)
+    const text = parsedPrompt.contextText.trim()
     if (!text) return
     const sessionMode = options?.mode ?? 'build'
 
@@ -233,19 +312,26 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     const userMessageId = `xuanpu-agent-user-${randomUUID()}`
     field.persistMessage(session.hiveSessionId, 'user', text, { messageId: userMessageId })
 
-    const modelRef = resolveXuanpuAgentModelRef(modelOverride, this.selectedModelRef, this.getAgentConfig())
+    const modelRef = resolveXuanpuAgentModelRef(
+      modelOverride,
+      this.selectedModelRef,
+      this.getAgentConfig()
+    )
 
     // INV-TURN-2: Every prompt creates a turn record. Must not be best-effort.
-    const turnId = createAgentTurn({
-      sessionId: session.hiveSessionId,
-      worktreeId: worktree?.id ?? null,
-      projectId: worktree?.projectId ?? 'unknown',
-      runtimeId: 'xuanpu-agent',
-      userMessageId,
-      modelProviderId: modelRef.providerID,
-      modelId: modelRef.modelID,
-      modelVariant: modelRef.variant ?? null
-    }, this.db).id
+    const turnId = createAgentTurn(
+      {
+        sessionId: session.hiveSessionId,
+        worktreeId: worktree?.id ?? null,
+        projectId: worktree?.projectId ?? 'unknown',
+        runtimeId: 'xuanpu-agent',
+        userMessageId,
+        modelProviderId: modelRef.providerID,
+        modelId: modelRef.modelID,
+        modelVariant: modelRef.variant ?? null
+      },
+      this.db
+    ).id
     session.activeTurnId = turnId
 
     session.status = 'running'
@@ -435,18 +521,19 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       }
 
       // M7.1: Use Context Packer as sole message assembly entry point
-      const planInstruction = sessionMode === 'plan'
-        ? [
-            '',
-            '<xuanpu-plan-mode>',
-            'You are in PLAN MODE. Your task is to analyze the codebase and produce a concrete implementation plan.',
-            'Do NOT execute any write or modification tools (write_file, edit_file, apply_patch, run_test, format_file).',
-            'Do NOT create subtasks or delegate work. Only read, search, and reason.',
-            'Output your plan in <proposed_plan> tags with clear steps, file paths, and verification criteria.',
-            '</xuanpu-plan-mode>',
-            ''
-          ].join('\n')
-        : ''
+      const planInstruction =
+        sessionMode === 'plan'
+          ? [
+              '',
+              '<xuanpu-plan-mode>',
+              'You are in PLAN MODE. Your task is to analyze the codebase and produce a concrete implementation plan.',
+              'Do NOT execute any write or modification tools (write_file, edit_file, apply_patch, run_test, format_file).',
+              'Do NOT create subtasks or delegate work. Only read, search, and reason.',
+              'Output your plan in <proposed_plan> tags with clear steps, file paths, and verification criteria.',
+              '</xuanpu-plan-mode>',
+              ''
+            ].join('\n')
+          : ''
       const packetAnchor = [
         `<xuanpu-xfp-packet version="${compileResult.packet.version}" packet-id="${compileResult.packet.identity.packetId}">`,
         'The following JSON is a structured Xuanpu Field Protocol packet.',
@@ -454,7 +541,9 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         JSON.stringify(compileResult.packet, null, 2),
         '</xuanpu-xfp-packet>',
         planInstruction
-      ].filter(Boolean).join('\n')
+      ]
+        .filter(Boolean)
+        .join('\n')
       // Stable seed for prefixHash: only version + instruction (no packetId, capturedAt, or volatile JSON)
       const prefixSeed = [
         `<xuanpu-xfp-packet version="${compileResult.packet.version}">`,
@@ -504,10 +593,14 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       // Record fill ratio to budget manager
       piSession.budgetManager.recordPackerFillRatio(packedContext.decisions.fillRatio)
 
-      const harnessMessages = [
-        ...packedContext.providerContextMessages,
-        packedContext.providerPromptMessage
-      ]
+      const promptMessage = {
+        ...packedContext.providerPromptMessage,
+        content:
+          parsedPrompt.promptContent.length > 0
+            ? parsedPrompt.promptContent
+            : packedContext.providerPromptMessage.content
+      }
+      const harnessMessages = [...packedContext.providerContextMessages, promptMessage]
 
       const observedPaths = new Set<string>()
       const result = await piSession.prompt(
@@ -540,7 +633,13 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             )
             const subtaskDetails = extractSubtaskDetails(event.result)
             if (subtaskDetails) {
-              this.emitSubtaskEnd(session.hiveSessionId, event, subtaskDetails, meta.turnId, meta.eventSequence)
+              this.emitSubtaskEnd(
+                session.hiveSessionId,
+                event,
+                subtaskDetails,
+                meta.turnId,
+                meta.eventSequence
+              )
             }
             this.persistToolEnd(session.hiveSessionId, event, meta.turnId)
             this.emitToolEnd(session.hiveSessionId, event, meta.turnId, meta.eventSequence)
@@ -549,10 +648,15 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         sessionMode,
         turnId,
         {
-          profile: packedContext.decisions.fillRatio > 0.5 ? 'focused' :
-                   packedContext.decisions.fillRatio > 0.15 ? 'balanced' : 'extended',
+          profile:
+            packedContext.decisions.fillRatio > 0.5
+              ? 'focused'
+              : packedContext.decisions.fillRatio > 0.15
+                ? 'balanced'
+                : 'extended',
           managedApproxTokens: packedContext.decisions.totalTokens,
-          providerEstimatedInputTokens: packedContext.decisions.totalTokens +
+          providerEstimatedInputTokens:
+            packedContext.decisions.totalTokens +
             estimateProviderOverheadTokens(sessionMode ?? 'build'),
           maxContextTokens: 150_000,
           fillRatio: packedContext.decisions.fillRatio
@@ -578,9 +682,14 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
 
       // Phase 1: Mark turn as completed.
       if (session.activeTurnId) {
-        updateAgentTurnStatus(session.activeTurnId, 'completed', {
-          assistantMessageId: result.messageId
-        }, this.db)
+        updateAgentTurnStatus(
+          session.activeTurnId,
+          'completed',
+          {
+            assistantMessageId: result.messageId
+          },
+          this.db
+        )
       }
       this.emitMessageUpdated(session.hiveSessionId, content, {
         messageId: result.messageId,
@@ -617,8 +726,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             source: 'context-packer'
           },
           providerRequest: {
-            estimatedInputTokens: managedTokens +
-              estimateProviderOverheadTokens(sessionMode ?? 'build'),
+            estimatedInputTokens:
+              managedTokens + estimateProviderOverheadTokens(sessionMode ?? 'build'),
             providerRequestHash: result.snapshotHash ?? packedContext.decisions.prefixHash,
             prefixHash: packedContext.decisions.prefixHash ?? null,
             messageCount: packedContext.providerContextMessages.length + 1,
@@ -640,20 +749,23 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         const total = inputTokens + outputTokens + cacheRead + cacheWrite
         if (total > 0) {
           try {
-            createAgentTurnUsageEvent({
-              turnId,
-              sessionId: session.hiveSessionId,
-              sourceEventId: result.messageId,
-              providerId: result.modelRef.providerID,
-              modelId: result.modelRef.modelID,
-              inputTokens,
-              outputTokens,
-              cacheWriteTokens: cacheWrite,
-              cacheReadTokens: cacheRead,
-              totalTokens: total,
-              rawUsageJson: JSON.stringify(rawUsage),
-              occurredAt: new Date().toISOString()
-            }, this.db)
+            createAgentTurnUsageEvent(
+              {
+                turnId,
+                sessionId: session.hiveSessionId,
+                sourceEventId: result.messageId,
+                providerId: result.modelRef.providerID,
+                modelId: result.modelRef.modelID,
+                inputTokens,
+                outputTokens,
+                cacheWriteTokens: cacheWrite,
+                cacheReadTokens: cacheRead,
+                totalTokens: total,
+                rawUsageJson: JSON.stringify(rawUsage),
+                occurredAt: new Date().toISOString()
+              },
+              this.db
+            )
           } catch (err) {
             log.warn('Failed to persist turn usage event', {
               error: err instanceof Error ? err.message : String(err)
@@ -673,12 +785,16 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
                 result.modelRef.modelID,
                 result.modelRef.providerID
               )
-              const cost = calculateUsageCost(modelKey, {
-                input: inputTokens,
-                output: outputTokens,
-                cacheRead: cacheRead,
-                cacheWrite: cacheWrite
-              }, 'xuanpu-agent')
+              const cost = calculateUsageCost(
+                modelKey,
+                {
+                  input: inputTokens,
+                  output: outputTokens,
+                  cacheRead: cacheRead,
+                  cacheWrite: cacheWrite
+                },
+                'xuanpu-agent'
+              )
               this.db.upsertUsageEntry({
                 session_id: session.hiveSessionId,
                 project_id: dbSession.project_id,
@@ -845,9 +961,14 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
 
     // Phase 1: Mark active turn as aborted.
     if (session.activeTurnId) {
-      updateAgentTurnStatus(session.activeTurnId, 'aborted', {
-        errorMessage: 'Aborted by user'
-      }, this.db)
+      updateAgentTurnStatus(
+        session.activeTurnId,
+        'aborted',
+        {
+          errorMessage: 'Aborted by user'
+        },
+        this.db
+      )
       session.activeTurnId = null
     }
 
@@ -954,7 +1075,11 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       claimVerification?: PostResponseClaimVerification
       harnessMetrics?: XuanpuAgentHarnessMetrics | null
       /** M7.2: Packer output — when provided, skip internal retrieval. */
-      packerOutput?: { messages: unknown[]; decisions: Record<string, unknown>; includedRetrievedEpisodes?: unknown[] }
+      packerOutput?: {
+        messages: unknown[]
+        decisions: Record<string, unknown>
+        includedRetrievedEpisodes?: unknown[]
+      }
       /** M7.4: Soft shrink metadata. */
       softShrinkMeta?: { triggered: boolean; initialFillRatio: number }
       /** Session mode from PromptOptions ('build' | 'plan'). */
@@ -980,7 +1105,9 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       const packerRetrieved = options.packerOutput.decisions.zones.retrievedEpisodes
       episodeCandidates = []
       episodeRetrieval = {
-        included: options.packerOutput.includedRetrievedEpisodes.map((e) => e.episode as unknown as FieldEpisode),
+        included: options.packerOutput.includedRetrievedEpisodes.map(
+          (e) => e.episode as unknown as FieldEpisode
+        ),
         dropped: packerRetrieved.dropped,
         triggers: packerRetrieved.reasons
       }
@@ -1102,8 +1229,10 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
           : null,
         workingSetAudit: options.packerOutput?.decisions?.zones?.workingSet
           ? {
-              includedMessageIds: options.packerOutput.decisions.zones.workingSet.includedMessageIds ?? [],
-              droppedMessageIds: options.packerOutput.decisions.zones.workingSet.droppedMessageIds ?? [],
+              includedMessageIds:
+                options.packerOutput.decisions.zones.workingSet.includedMessageIds ?? [],
+              droppedMessageIds:
+                options.packerOutput.decisions.zones.workingSet.droppedMessageIds ?? [],
               dedupedCount: options.packerOutput.decisions.zones.workingSet.dedupedCount ?? 0
             }
           : null,
@@ -1111,10 +1240,11 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         // INV-TURN-5: Cross-reference fields for snapshot alignment
         turnId: options.turnId ?? null,
         providerRequestHash: options.snapshotHash ?? null,
-        providerEstimatedInputTokens: options.packerOutput?.decisions?.totalTokens != null
-          ? options.packerOutput.decisions.totalTokens +
-            estimateProviderOverheadTokens(options.sessionMode ?? 'build')
-          : null,
+        providerEstimatedInputTokens:
+          options.packerOutput?.decisions?.totalTokens != null
+            ? options.packerOutput.decisions.totalTokens +
+              estimateProviderOverheadTokens(options.sessionMode ?? 'build')
+            : null,
         includedMessageIds:
           options.packerOutput?.decisions?.zones?.workingSet?.includedMessageIds ?? null,
         omittedMessageIds:
@@ -2534,7 +2664,11 @@ function estimateProviderOverheadTokens(sessionMode: 'build' | 'plan'): number {
   const toolsJson = JSON.stringify(
     tools.map((t: unknown) => {
       const tool = t as { name: string; description?: string; parameters?: unknown }
-      return { name: tool.name, description: tool.description ?? '', parameters: tool.parameters ?? {} }
+      return {
+        name: tool.name,
+        description: tool.description ?? '',
+        parameters: tool.parameters ?? {}
+      }
     })
   )
   const toolsTokens = Math.ceil(Buffer.byteLength(toolsJson, 'utf-8') / 4)

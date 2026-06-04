@@ -64,6 +64,7 @@ function useHarness(
   options: {
     goalMode?: boolean
     successCriteria?: string
+    agentSdk?: string | null
   } = {}
 ) {
   const optimisticRef = React.useRef<TimelineMessage[]>([])
@@ -91,7 +92,7 @@ function useHarness(
     sessionId: STORE_SESSION_ID,
     worktreePath: WORKTREE_PATH,
     runtimeSessionId: RUNTIME_SESSION_ID,
-    agentSdk: 'codex',
+    agentSdk: options.agentSdk ?? 'codex',
     requestModel: { providerID: 'openai', modelID: 'gpt-test' },
     promptOptions: { goalMode, successCriteria },
     supportsSessionGoalMode: true,
@@ -250,6 +251,67 @@ describe('useSessionComposerActions', () => {
       ])
     )
     expect(useDiffCommentStore.getState().attachedComments).toEqual([])
+  })
+
+  it('sends xuanpu-agent current-turn image attachments as rich parts', async () => {
+    const { prompt } = installAgentOps()
+    const attachment: Attachment = {
+      kind: 'data',
+      id: 'attachment-1',
+      name: 'screen.png',
+      mime: 'image/png',
+      dataUrl: 'data:image/png;base64,abc'
+    }
+    const { result } = renderHook(() => useHarness({ agentSdk: 'xuanpu-agent' }))
+
+    let consumed = false
+    await act(async () => {
+      consumed = await result.current.handleComposerAction('send', 'inspect this', [attachment])
+    })
+
+    expect(consumed).toBe(true)
+    const sentPayload = prompt.mock.calls[0][2]
+    expect(sentPayload).toEqual([
+      {
+        type: 'file',
+        mime: 'image/png',
+        url: 'data:image/png;base64,abc',
+        filename: 'screen.png'
+      },
+      { type: 'text', text: 'inspect this' }
+    ])
+  })
+
+  it('keeps queued xuanpu-agent images in memory for the needed turn', async () => {
+    installAgentOps()
+    const attachment: Attachment = {
+      kind: 'data',
+      id: 'attachment-1',
+      name: 'screen.png',
+      mime: 'image/png',
+      dataUrl: 'data:image/png;base64,abc'
+    }
+    const { result } = renderHook(() => useHarness({ agentSdk: 'xuanpu-agent' }))
+
+    let consumed = false
+    await act(async () => {
+      consumed = await result.current.handleComposerAction('queue', 'inspect later', [attachment])
+    })
+
+    expect(consumed).toBe(true)
+    const pending = useSessionRuntimeStore.getState().getPendingMessages(STORE_SESSION_ID)[0]
+    expect(pending).toMatchObject({
+      content: 'inspect later',
+      runtimeId: 'xuanpu-agent'
+    })
+    expect(pending.attachments[0]).toEqual({
+      kind: 'data',
+      id: 'attachment-1',
+      name: 'screen.png',
+      mime: 'image/png',
+      dataUrl: 'data:image/png;base64,abc'
+    })
+    expect(JSON.stringify(pending.attachments)).toContain('data:image')
   })
 
   it('does not settle run on prompt return — settlement is via session event stream', async () => {

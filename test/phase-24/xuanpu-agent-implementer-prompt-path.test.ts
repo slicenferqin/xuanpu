@@ -5,7 +5,9 @@ import type { DatabaseService } from '../../src/main/db/database'
 
 const packContextMock = vi.hoisted(() => vi.fn())
 const emitAgentEventMock = vi.hoisted(() => vi.fn())
-const capturedEmittedEvents = vi.hoisted(() => [] as Array<{ type: string; sessionId: string; data: unknown }>)
+const capturedEmittedEvents = vi.hoisted(
+  () => [] as Array<{ type: string; sessionId: string; data: unknown }>
+)
 const capturedUsageEntries = vi.hoisted(() => [] as Array<Record<string, unknown>>)
 const capturedActivities = vi.hoisted(() => [] as Array<Record<string, unknown>>)
 
@@ -152,17 +154,19 @@ const mockPiSession = {
   abort: vi.fn(),
   setPlanModeTools: vi.fn(),
   setBuildModeTools: vi.fn(),
-  prompt: vi.fn(async (messages: unknown[], _modelRef: unknown, _handlers?: Record<string, unknown>) => {
-    capturedPromptMessages = messages as unknown[]
-    return {
-      messageId: 'resp-1',
-      text: 'mock response',
-      modelRef: { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
-      usage: { inputTokens: 100, outputTokens: 50 },
-      rawMessage: null,
-      harnessMetrics: null
+  prompt: vi.fn(
+    async (messages: unknown[], _modelRef: unknown, _handlers?: Record<string, unknown>) => {
+      capturedPromptMessages = messages as unknown[]
+      return {
+        messageId: 'resp-1',
+        text: 'mock response',
+        modelRef: { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
+        usage: { inputTokens: 100, outputTokens: 50 },
+        rawMessage: null,
+        harnessMetrics: null
+      }
     }
-  }),
+  ),
   getBudgetState: vi.fn(() => null),
   budgetManager: {
     recordPackerFillRatio: vi.fn(),
@@ -186,7 +190,9 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
       providerContextMessages: [
         {
           role: 'user',
-          content: [{ type: 'text', text: '<xuanpu-context-anchor>packed anchor</xuanpu-context-anchor>' }],
+          content: [
+            { type: 'text', text: '<xuanpu-context-anchor>packed anchor</xuanpu-context-anchor>' }
+          ],
           timestamp: 1
         }
       ],
@@ -200,7 +206,13 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
         contextTransform: 'm7-context-packer',
         zones: {
           retrievedEpisodes: { tokens: 0, count: 0, dropped: 0, reasons: [], includedIds: [] },
-          workingSet: { tokens: 50, count: 2, dedupedCount: 0, includedMessageIds: ['msg-1', 'msg-2'], droppedMessageIds: [] }
+          workingSet: {
+            tokens: 50,
+            count: 2,
+            dedupedCount: 0,
+            includedMessageIds: ['msg-1', 'msg-2'],
+            droppedMessageIds: []
+          }
         },
         totalTokens: 100,
         fillRatio: 0.01,
@@ -210,21 +222,22 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
   })
 
   it('calls packContext with XFP packet anchor, episodes, working set, and current request', async () => {
-    const { XuanpuAgentImplementer } = await import(
-      '../../src/main/services/xuanpu-agent-implementer'
-    )
+    const { XuanpuAgentImplementer } =
+      await import('../../src/main/services/xuanpu-agent-implementer')
     const implementer = new XuanpuAgentImplementer()
     implementer.setDatabaseService({
       getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
       getSetting: vi.fn(() => null),
       getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' })),
-      upsertUsageEntry: vi.fn((entry: Record<string, unknown>) => { capturedUsageEntries.push(entry) }),
-      upsertSessionActivity: vi.fn((activity: Record<string, unknown>) => { capturedActivities.push(activity) })
+      upsertUsageEntry: vi.fn((entry: Record<string, unknown>) => {
+        capturedUsageEntries.push(entry)
+      }),
+      upsertSessionActivity: vi.fn((activity: Record<string, unknown>) => {
+        capturedActivities.push(activity)
+      })
     } as unknown as DatabaseService)
 
-    const { listFieldEpisodeBlocks } = await import(
-      '../../src/main/field/episode-block-repository'
-    )
+    const { listFieldEpisodeBlocks } = await import('../../src/main/field/episode-block-repository')
     vi.mocked(listFieldEpisodeBlocks).mockReturnValue([
       {
         id: 'ep-1',
@@ -251,9 +264,7 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
 
     await implementer.prompt('/repo', sessionId, 'fix the bug')
 
-    const { XuanpuPiAgentSession } = await import(
-      '../../src/main/services/xuanpu-agent/runtime'
-    )
+    const { XuanpuPiAgentSession } = await import('../../src/main/services/xuanpu-agent/runtime')
     expect(vi.mocked(XuanpuPiAgentSession).mock.calls[0]?.[0]).toBe('session-1')
 
     // Verify packContext was called
@@ -292,10 +303,60 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     expect(allText).toContain('<xuanpu-context-anchor>')
   })
 
-  it('re-reads prior turns after freeze (not using stale data)', async () => {
-    const { XuanpuAgentImplementer } = await import(
-      '../../src/main/services/xuanpu-agent-implementer'
+  it('passes current-turn images to the provider prompt while keeping history text-only', async () => {
+    const { XuanpuAgentImplementer } =
+      await import('../../src/main/services/xuanpu-agent-implementer')
+    const implementer = new XuanpuAgentImplementer()
+    implementer.setDatabaseService({
+      getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
+      getSetting: vi.fn(() => null),
+      getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' })),
+      upsertUsageEntry: vi.fn()
+    } as unknown as DatabaseService)
+
+    const { sessionId } = await implementer.connect('/repo', 'session-1')
+    await implementer.prompt('/repo', sessionId, [
+      {
+        type: 'file',
+        mime: 'image/png',
+        url: 'data:image/png;base64,abc',
+        filename: 'screen.png'
+      },
+      { type: 'text', text: 'explain this screenshot' }
+    ])
+
+    const packInput = packContextMock.mock.calls[0][0]
+    expect(packInput.currentRequest).toContain('<attached_files content="metadata-only">')
+    expect(packInput.currentRequest).toContain('screen.png')
+    expect(packInput.currentRequest).toContain('explain this screenshot')
+    expect(packInput.currentRequest).not.toContain('data:image')
+    expect(packInput.currentRequest).not.toContain('base64,abc')
+
+    const persistedUserCall = mockFieldProvider.persistMessage.mock.calls.find(
+      (call) => call[1] === 'user'
     )
+    expect(persistedUserCall?.[2]).toBe(packInput.currentRequest)
+    expect(String(persistedUserCall?.[2])).not.toContain('data:image')
+
+    const providerPromptMessage = capturedPromptMessages[capturedPromptMessages.length - 1] as {
+      content: Array<Record<string, unknown>>
+    }
+    expect(providerPromptMessage.content).toEqual([
+      expect.objectContaining({
+        type: 'text',
+        text: expect.stringContaining('explain this screenshot')
+      }),
+      {
+        type: 'image',
+        data: 'abc',
+        mimeType: 'image/png'
+      }
+    ])
+  })
+
+  it('re-reads prior turns after freeze (not using stale data)', async () => {
+    const { XuanpuAgentImplementer } =
+      await import('../../src/main/services/xuanpu-agent-implementer')
     const implementer = new XuanpuAgentImplementer()
     implementer.setDatabaseService({
       getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
@@ -335,9 +396,8 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
   it('prefixSeed is stable across turns despite different packetId and capturedAt', async () => {
     // Make compiler return different packetId/capturedAt on each call
     let compileCallCount = 0
-    const { XfpPacketCompiler } = await import(
-      '../../src/main/services/xuanpu-agent/harness/compiler'
-    )
+    const { XfpPacketCompiler } =
+      await import('../../src/main/services/xuanpu-agent/harness/compiler')
     vi.mocked(XfpPacketCompiler).mockImplementation(() => ({
       compile: vi.fn(() => {
         compileCallCount++
@@ -362,9 +422,8 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
       })
     }))
 
-    const { XuanpuAgentImplementer } = await import(
-      '../../src/main/services/xuanpu-agent-implementer'
-    )
+    const { XuanpuAgentImplementer } =
+      await import('../../src/main/services/xuanpu-agent-implementer')
     const implementer = new XuanpuAgentImplementer()
     implementer.setDatabaseService({
       getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
@@ -390,9 +449,8 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
   })
 
   it('emits session.context_usage after prompt with packer breakdown', async () => {
-    const { XuanpuAgentImplementer } = await import(
-      '../../src/main/services/xuanpu-agent-implementer'
-    )
+    const { XuanpuAgentImplementer } =
+      await import('../../src/main/services/xuanpu-agent-implementer')
     const implementer = new XuanpuAgentImplementer()
     implementer.setDatabaseService({
       getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
@@ -418,15 +476,16 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
   })
 
   it('persists usage entry for cost tracking after prompt', async () => {
-    const { XuanpuAgentImplementer } = await import(
-      '../../src/main/services/xuanpu-agent-implementer'
-    )
+    const { XuanpuAgentImplementer } =
+      await import('../../src/main/services/xuanpu-agent-implementer')
     const implementer = new XuanpuAgentImplementer()
     implementer.setDatabaseService({
       getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
       getSetting: vi.fn(() => null),
       getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' })),
-      upsertUsageEntry: vi.fn((entry: Record<string, unknown>) => { capturedUsageEntries.push(entry) })
+      upsertUsageEntry: vi.fn((entry: Record<string, unknown>) => {
+        capturedUsageEntries.push(entry)
+      })
     } as unknown as DatabaseService)
 
     const { sessionId } = await implementer.connect('/repo', 'session-1')
@@ -452,16 +511,17 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
       harnessMetrics: null
     })
 
-    const { XuanpuAgentImplementer } = await import(
-      '../../src/main/services/xuanpu-agent-implementer'
-    )
+    const { XuanpuAgentImplementer } =
+      await import('../../src/main/services/xuanpu-agent-implementer')
     const implementer = new XuanpuAgentImplementer()
     implementer.setDatabaseService({
       getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
       getSetting: vi.fn(() => null),
       getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' })),
       upsertUsageEntry: vi.fn(),
-      upsertSessionActivity: vi.fn((activity: Record<string, unknown>) => { capturedActivities.push(activity) })
+      upsertSessionActivity: vi.fn((activity: Record<string, unknown>) => {
+        capturedActivities.push(activity)
+      })
     } as unknown as DatabaseService)
 
     const { sessionId } = await implementer.connect('/repo', 'session-1')
@@ -479,9 +539,8 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
   })
 
   it('does not emit plan.ready when sessionMode is build', async () => {
-    const { XuanpuAgentImplementer } = await import(
-      '../../src/main/services/xuanpu-agent-implementer'
-    )
+    const { XuanpuAgentImplementer } =
+      await import('../../src/main/services/xuanpu-agent-implementer')
     const implementer = new XuanpuAgentImplementer()
     implementer.setDatabaseService({
       getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
@@ -498,51 +557,52 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
   })
 
   it('persists xuanpu-agent tool activities so reload keeps tool cards before final text', async () => {
-    mockPiSession.prompt.mockImplementationOnce(async (messages: unknown[], _modelRef: unknown, handlers?: Record<string, unknown>) => {
-      capturedPromptMessages = messages as unknown[]
-      const onToolStart = handlers?.onToolStart as
-        | ((event: Record<string, unknown>, meta: Record<string, unknown>) => void)
-        | undefined
-      const onToolEnd = handlers?.onToolEnd as
-        | ((event: Record<string, unknown>, meta: Record<string, unknown>) => void)
-        | undefined
+    mockPiSession.prompt.mockImplementationOnce(
+      async (messages: unknown[], _modelRef: unknown, handlers?: Record<string, unknown>) => {
+        capturedPromptMessages = messages as unknown[]
+        const onToolStart = handlers?.onToolStart as
+          | ((event: Record<string, unknown>, meta: Record<string, unknown>) => void)
+          | undefined
+        const onToolEnd = handlers?.onToolEnd as
+          | ((event: Record<string, unknown>, meta: Record<string, unknown>) => void)
+          | undefined
 
-      onToolStart?.(
-        {
-          toolCallId: 'call-git-status',
-          toolName: 'git_status',
-          args: {},
-          startedAt: 1704067202000
-        },
-        { turnId: 'turn-test-1', eventSequence: 1 }
-      )
-      onToolEnd?.(
-        {
-          toolCallId: 'call-git-status',
-          toolName: 'git_status',
-          args: {},
-          result: { content: [{ type: 'text', text: 'On branch main' }] },
-          isError: false,
-          startedAt: 1704067202000,
-          endedAt: 1704067203000
-        },
-        { turnId: 'turn-test-1', eventSequence: 2 }
-      )
+        onToolStart?.(
+          {
+            toolCallId: 'call-git-status',
+            toolName: 'git_status',
+            args: {},
+            startedAt: 1704067202000
+          },
+          { turnId: 'turn-test-1', eventSequence: 1 }
+        )
+        onToolEnd?.(
+          {
+            toolCallId: 'call-git-status',
+            toolName: 'git_status',
+            args: {},
+            result: { content: [{ type: 'text', text: 'On branch main' }] },
+            isError: false,
+            startedAt: 1704067202000,
+            endedAt: 1704067203000
+          },
+          { turnId: 'turn-test-1', eventSequence: 2 }
+        )
 
-      return {
-        messageId: 'resp-1',
-        text: 'mock response',
-        modelRef: { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
-        usage: { inputTokens: 100, outputTokens: 50 },
-        rawMessage: null,
-        harnessMetrics: null,
-        turnId: 'turn-test-1'
+        return {
+          messageId: 'resp-1',
+          text: 'mock response',
+          modelRef: { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
+          usage: { inputTokens: 100, outputTokens: 50 },
+          rawMessage: null,
+          harnessMetrics: null,
+          turnId: 'turn-test-1'
+        }
       }
-    })
-
-    const { XuanpuAgentImplementer } = await import(
-      '../../src/main/services/xuanpu-agent-implementer'
     )
+
+    const { XuanpuAgentImplementer } =
+      await import('../../src/main/services/xuanpu-agent-implementer')
     const implementer = new XuanpuAgentImplementer()
     implementer.setDatabaseService({
       getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
@@ -584,9 +644,8 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
   })
 
   it('treats abort on an already idle xuanpu-agent session as successful', async () => {
-    const { XuanpuAgentImplementer } = await import(
-      '../../src/main/services/xuanpu-agent-implementer'
-    )
+    const { XuanpuAgentImplementer } =
+      await import('../../src/main/services/xuanpu-agent-implementer')
     const implementer = new XuanpuAgentImplementer()
 
     const { sessionId } = await implementer.connect('/repo', 'session-1')

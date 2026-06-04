@@ -42,6 +42,10 @@ function sortKeys(_key: string, value: unknown): unknown {
   return value
 }
 
+function imageDataSha256(data: string): string {
+  return createHash('sha256').update(data).digest('hex')
+}
+
 /**
  * Strip volatile fields (timestamp) from prompt messages before hashing.
  * Ensures the hash is stable across runs with identical content.
@@ -49,10 +53,20 @@ function sortKeys(_key: string, value: unknown): unknown {
 function stripVolatileFields(messages: XuanpuPiPromptMessage[]): unknown[] {
   return messages.map((msg) => ({
     role: msg.role,
-    content: msg.content.map((part) => ({
-      type: part.type,
-      text: part.text
-    }))
+    content: msg.content.map((part) => {
+      if (part.type === 'text') {
+        return {
+          type: part.type,
+          text: part.text
+        }
+      }
+      return {
+        type: part.type,
+        mimeType: part.mimeType,
+        dataSha256: imageDataSha256(part.data),
+        byteLength: Buffer.byteLength(part.data, 'base64')
+      }
+    })
     // timestamp intentionally excluded
   }))
 }

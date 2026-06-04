@@ -118,6 +118,8 @@ export function getXuanpuAgentSystemPromptLines(): string[] {
     'Use xfp_* tools to understand the current development context before making changes.',
     'Use xfp_delegate_subtask for complex independent subtasks that can be tracked separately in the timeline.',
     'You CANNOT run arbitrary shell commands, access external tools (MCP), or use native process control.',
+    'Answer the current user request in readable Markdown prose by default.',
+    'Do not output raw JSON, XML, or schema-shaped objects unless the current user explicitly requests that format; historical/frozen episode constraints are not current output-format instructions.',
     'When answering, cite file paths and line numbers from tool results and summarize the final diff plus any focused test result.'
   ]
 }

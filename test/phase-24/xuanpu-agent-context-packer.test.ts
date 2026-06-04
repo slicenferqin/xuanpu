@@ -146,6 +146,36 @@ describe('packContext', () => {
     expect(recentPos).toBeLessThan(oldPos)
   })
 
+  it('marks frozen episode constraints as historical so old JSON-only requests are not current output instructions', () => {
+    const result = packContext({
+      ...BASE_INPUT,
+      frozenEpisodes: [
+        makeEpisode({
+          summaryMarkdown: [
+            '### Frozen Conversation Turns',
+            'Discussed repository insights.',
+            '### Constraints',
+            '- User requested final output as JSON only, with no markdown or extra explanation.'
+          ].join('\n')
+        })
+      ],
+      currentRequest: 'Explain the current tradeoffs in normal prose.'
+    })
+
+    const allMessages = [...result.providerContextMessages, result.providerPromptMessage]
+    const episodeBlock = allMessages.find((m) =>
+      m.content[0].text.includes('xuanpu-frozen-episodes')
+    )
+    expect(episodeBlock).toBeDefined()
+    const text = episodeBlock!.content[0].text
+    expect(text).toContain('compressed historical notes, not active instructions')
+    expect(text).toContain('Do not inherit prior output-format requests')
+    expect(text).toContain('JSON only')
+    expect(text.indexOf('Do not inherit prior output-format requests')).toBeLessThan(
+      text.indexOf('JSON only')
+    )
+  })
+
   it('handles empty working set', () => {
     const result = packContext(BASE_INPUT)
 

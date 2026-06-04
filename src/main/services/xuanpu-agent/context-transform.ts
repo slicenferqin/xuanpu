@@ -23,9 +23,17 @@ export interface XuanpuPiPromptTextPart {
   text: string
 }
 
+export interface XuanpuPiPromptImagePart {
+  type: 'image'
+  data: string
+  mimeType: string
+}
+
+export type XuanpuPiPromptPart = XuanpuPiPromptTextPart | XuanpuPiPromptImagePart
+
 export interface XuanpuPiPromptMessage {
   role: 'user' | 'assistant'
-  content: XuanpuPiPromptTextPart[]
+  content: XuanpuPiPromptPart[]
   timestamp: number
 }
 
@@ -57,9 +65,6 @@ export interface XuanpuAgentContextTransformResult {
 }
 
 const DEFAULT_MAX_PRIOR_MESSAGES = 6
-const DEFAULT_MAX_PRIOR_CHARS = 12_000
-const DEFAULT_MAX_FROZEN_EPISODES = 3
-const DEFAULT_MAX_FROZEN_EPISODE_CHARS = 6_000
 
 const CONTEXT_ANCHOR_TEXT = [
   '<xuanpu-context-anchor>',
@@ -90,7 +95,9 @@ export function buildXuanpuAgentPromptMessages(
     const workingSet: FieldTurn[] = log.entries.map((entry) => ({
       messageId: entry.id,
       role: entry.message.role as 'user' | 'assistant',
-      content: entry.message.content.map((p) => p.text).join(''),
+      content: entry.message.content
+        .map((p) => (p.type === 'text' ? p.text : `[image: ${p.mimeType}]`))
+        .join(''),
       createdAt: entry.message.timestamp
     }))
 

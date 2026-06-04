@@ -3,7 +3,7 @@ import { toast } from 'sonner'
 import type { MessagePart } from '@shared/types/opencode'
 import type { DiffComment } from '@shared/types/git'
 import type { Attachment } from '@/components/sessions/AttachmentPreview'
-import { buildMessageParts } from '@/lib/file-attachment-utils'
+import { buildRuntimeMessagePayload } from '@/lib/file-attachment-utils'
 import { refreshSessionLastMessageAt } from '@/lib/session-last-message'
 import { executeSendAction, type ComposerAction } from '@/lib/session-send-actions'
 import {
@@ -179,11 +179,9 @@ export function useSessionComposerActions({
           model: requestModel,
           promptOptions,
           prompt: async (wp, sid, c) => {
-            let messageParts: MessagePart[] | undefined
-            if (attachments.length > 0) {
-              messageParts = await buildMessageParts(attachments, c)
-            }
-            return window.agentOps.prompt(wp, sid, messageParts ?? c, requestModel, promptOptions)
+            const payload =
+              attachments.length > 0 ? buildRuntimeMessagePayload(agentSdk, attachments, c) : c
+            return window.agentOps.prompt(wp, sid, payload, requestModel, promptOptions)
           },
           steer: (wp, sid, c) => window.agentOps.steer(wp, sid, c, requestModel),
           abort: (wp, sid) => window.agentOps.abort(wp, sid),

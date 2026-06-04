@@ -1,10 +1,24 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildProviderRequest, computeProviderRequestHash } from '../../src/main/services/xuanpu-agent/turn/provider-request-builder'
+import {
+  buildProviderRequest,
+  computeProviderRequestHash
+} from '../../src/main/services/xuanpu-agent/turn/provider-request-builder'
 import type { XuanpuPiPromptMessage } from '../../src/main/services/xuanpu-agent/context-transform'
 
 function makeMsg(role: 'user' | 'assistant', text: string): XuanpuPiPromptMessage {
   return { role, content: [{ type: 'text', text }], timestamp: Date.now() }
+}
+
+function makeImageMsg(imageData: string, timestamp = Date.now()): XuanpuPiPromptMessage {
+  return {
+    role: 'user',
+    content: [
+      { type: 'text', text: '<attached_files content="metadata-only">screen.png</attached_files>' },
+      { type: 'image', data: imageData, mimeType: 'image/png' }
+    ],
+    timestamp
+  }
 }
 
 describe('ProviderRequestBuilder', () => {
@@ -15,7 +29,13 @@ describe('ProviderRequestBuilder', () => {
     systemPrompt: ['You are a helpful assistant.'],
     contextMessages: [makeMsg('user', 'context anchor')],
     promptMessage: makeMsg('user', 'current request'),
-    tools: [{ name: 'read_file', description: 'Read a file', parameters: { type: 'object', properties: {} } }],
+    tools: [
+      {
+        name: 'read_file',
+        description: 'Read a file',
+        parameters: { type: 'object', properties: {} }
+      }
+    ],
     providerSessionPolicy: { mode: 'disabled' as const, reason: 'xuanpu owns turn-scoped context' },
     budget: {
       profile: 'balanced' as const,
@@ -61,7 +81,9 @@ describe('ProviderRequestBuilder', () => {
     })
     const hash2 = computeProviderRequestHash({
       ...BASE_INPUT,
-      contextMessages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }], timestamp: 999999 }]
+      contextMessages: [
+        { role: 'user', content: [{ type: 'text', text: 'hello' }], timestamp: 999999 }
+      ]
     })
 
     expect(hash1).toBe(hash2) // timestamp is volatile, excluded from hash
@@ -75,7 +97,7 @@ describe('ProviderRequestBuilder', () => {
     expect(snapshot.providerRequestHash).toMatch(/^[0-9a-f]{64}$/)
     expect(snapshot.systemPrompt).toEqual(['You are a helpful assistant.'])
     expect(snapshot.contextMessages).toHaveLength(1)
-    expect(snapshot.promptMessage.content[0].text).toBe('current request')
+    expect(snapshot.promptMessage.content[0]).toEqual({ type: 'text', text: 'current request' })
     expect(snapshot.toolsJson).toContain('read_file')
     expect(snapshot.providerSessionPolicy.mode).toBe('disabled')
     expect(snapshot.budget.profile).toBe('balanced')
@@ -99,5 +121,31 @@ describe('ProviderRequestBuilder', () => {
     })
 
     expect(hash1).not.toBe(hash2)
+  })
+
+  it('hash includes current-turn image bytes by digest', () => {
+    const hash1 = computeProviderRequestHash({
+      ...BASE_INPUT,
+      promptMessage: makeImageMsg('abc')
+    })
+    const hash2 = computeProviderRequestHash({
+      ...BASE_INPUT,
+      promptMessage: makeImageMsg('def')
+    })
+
+    expect(hash1).not.toBe(hash2)
+  })
+
+  it('image hash is stable across volatile timestamp changes', () => {
+    const hash1 = computeProviderRequestHash({
+      ...BASE_INPUT,
+      promptMessage: makeImageMsg('abc', 1)
+    })
+    const hash2 = computeProviderRequestHash({
+      ...BASE_INPUT,
+      promptMessage: makeImageMsg('abc', 999999)
+    })
+
+    expect(hash1).toBe(hash2)
   })
 })
