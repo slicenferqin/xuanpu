@@ -28,6 +28,7 @@ import { TodoCard } from '@/components/session-hq/cards/TodoCard'
 import { FieldContextDebug } from '@/components/sessions/FieldContextDebug'
 import { extractMissionTasks, type SessionTask } from '@/lib/session-tasks'
 import { resolveUsageTokenTotals } from '@/lib/usage-token-totals'
+import { SHOW_XUANPU_AGENT_DEBUG_UI } from '@/lib/xuanpu-agent-debug-ui'
 import type {
   UsageAnalyticsScopeSummary,
   UsageAnalyticsSessionSummary
@@ -66,10 +67,6 @@ const DEV_CONTEXT_TABS: Array<{
   { id: 'diagnostics', icon: Activity, labelKey: 'contextPanel.tabs.diagnostics' },
   CONTEXT_TABS[CONTEXT_TABS.length - 1]
 ]
-
-const SHOW_CONTEXT_DIAGNOSTICS =
-  typeof process !== 'undefined' &&
-  (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test')
 
 const EMPTY_TASKS: SessionTask[] = []
 
@@ -823,7 +820,7 @@ export function ContextPanelHost({
   const [overviewSessions, setOverviewSessions] =
     useState<OverviewSession[]>(cachedOverviewSessions)
   const tabs = useMemo(() => {
-    const baseTabs = SHOW_CONTEXT_DIAGNOSTICS ? DEV_CONTEXT_TABS : CONTEXT_TABS
+    const baseTabs = SHOW_XUANPU_AGENT_DEBUG_UI ? DEV_CONTEXT_TABS : CONTEXT_TABS
     return terminalPanel ? baseTabs : baseTabs.filter((tab) => tab.id !== 'terminal')
   }, [terminalPanel])
   const overviewScopeLabel = isConnectionMode
@@ -875,7 +872,7 @@ export function ContextPanelHost({
     if (activeTab === 'terminal' && !terminalPanel) {
       setRightContextTab('overview')
     }
-    if (activeTab === 'diagnostics' && !SHOW_CONTEXT_DIAGNOSTICS) {
+    if (activeTab === 'diagnostics' && !SHOW_XUANPU_AGENT_DEBUG_UI) {
       setRightContextTab('overview')
     }
   }, [activeTab, setRightContextTab, terminalPanel])
@@ -939,7 +936,7 @@ export function ContextPanelHost({
       case 'goal':
         return <GoalPanel activeSessionId={activeSessionId} />
       case 'diagnostics':
-        if (!SHOW_CONTEXT_DIAGNOSTICS) return null
+        if (!SHOW_XUANPU_AGENT_DEBUG_UI) return null
         return (
           <DiagnosticsPanel
             activeSessionId={activeSessionId}

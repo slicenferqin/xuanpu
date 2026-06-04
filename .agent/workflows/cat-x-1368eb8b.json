@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "id": "trace-workflow:1368eb8bd945",
+  "slug": "cat-x-1368eb8b",
+  "title": "Workflow: cat x",
+  "materializedAt": "2026-06-04T07:17:35.019Z",
+  "projectId": "7a8a0466-3d89-4086-91c7-a4b243fef2a4",
+  "worktreeId": "ef8337a8-8702-4c73-b17c-46e8251755e2",
+  "signature": "cat {path}x",
+  "occurrenceCount": 4,
+  "successCount": 4,
+  "failureCount": 0,
+  "successRate": 1,
+  "sourceTraceIds": [
+    "cmd-33b51b6d-72cd-43ad-8ce7-d45f5b32f008",
+    "cmd-1a09bfde-e98d-4e1a-b632-6fed2a136a8e",
+    "cmd-dad0bd47-4c57-4597-872b-f6cd25954bdd",
+    "cmd-c51dab62-54bf-4005-8337-0d2c8835399f"
+  ],
+  "retrievalHints": [
+    "cat",
+    "path",
+    "successful-command-path"
+  ],
+  "steps": [
+    {
+      "id": "command-1",
+      "kind": "command",
+      "signature": "cat {path}x",
+      "commandTemplate": "cat {{path1}}x",
+      "parameters": [
+        {
+          "name": "path1",
+          "kind": "path",
+          "example": "test/example.test.ts"
+        }
+      ],
+      "categories": [],
+      "expectedExitCode": 0
+    }
+  ]
+}

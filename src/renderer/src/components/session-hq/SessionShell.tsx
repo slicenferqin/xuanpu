@@ -61,6 +61,7 @@ import { useSessionRuntimeConnection } from '@/hooks/useSessionRuntimeConnection
 import { useSessionThreadStatusRows } from '@/hooks/useSessionThreadStatusRows'
 import { useTimelineToolStatusTransition } from '@/hooks/useTimelineToolStatusTransition'
 import { useSessionAbortReadiness } from '@/hooks/useSessionAbortReadiness'
+import { SHOW_XUANPU_AGENT_DEBUG_UI } from '@/lib/xuanpu-agent-debug-ui'
 
 function DiffCommentAttachments(): React.JSX.Element | null {
   const { t } = useI18n()
@@ -464,7 +465,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     requestModel,
     buildPendingPromptOptions,
     optimisticTimeline,
-    resetLiveOverlay,
+    resetLiveOverlay
   })
 
   useSessionEventSubscription({
@@ -496,7 +497,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     setSuccessCriteria,
     optimisticTimeline,
     resetLiveOverlay,
-    waitForAbortReady,
+    waitForAbortReady
   })
 
   const userMessageActions = useSessionUserMessageActions({
@@ -568,7 +569,11 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
   const composerInterrupt = currentInterrupt?.type === 'plan' ? null : currentInterrupt
 
   return (
-    <div className="relative h-full min-h-0 overflow-hidden" data-focus-mode={focusMode} data-reading-density={readingDensity}>
+    <div
+      className="relative h-full min-h-0 overflow-hidden"
+      data-focus-mode={focusMode}
+      data-reading-density={readingDensity}
+    >
       {/* Timeline fills the full stage */}
       <AgentTimeline
         timelineMessages={timelineMessages}
@@ -642,7 +647,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
               interrupt={currentInterrupt}
               worktreePath={worktreePath}
             />
-            {agentSdk === 'xuanpu-agent' && (
+            {SHOW_XUANPU_AGENT_DEBUG_UI && agentSdk === 'xuanpu-agent' && (
               <ContextBudgetDebugger
                 sessionId={sessionId}
                 runtimeSessionId={droidSessionId}
@@ -680,7 +685,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
         </div>
       </div>
 
-      {process.env.NODE_ENV === 'development' && (
+      {SHOW_XUANPU_AGENT_DEBUG_UI && (
         <div className="absolute right-3 top-3 z-30 w-[min(720px,calc(100%-1.5rem))] rounded-lg border border-border/45 bg-background/92 shadow-lg backdrop-blur">
           <FieldContextDebug
             sessionId={droidSessionId}

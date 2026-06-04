@@ -28,6 +28,7 @@ import { ModelSelector } from '@/components/sessions/ModelSelector'
 import { SessionTabs } from '@/components/sessions/SessionTabs'
 import { BudgetBar } from '@/components/sessions/budget-bar'
 import { ErrorBoundary } from '@/components/error'
+import { SHOW_XUANPU_AGENT_DEBUG_UI } from '@/lib/xuanpu-agent-debug-ui'
 
 import { usePRDetection } from '@/hooks/usePRDetection'
 import appLogo from '@/assets/icon.png'
@@ -198,7 +199,9 @@ function HeaderSessionGlance({
           </span>
         </div>
       )}
-      {session.agent_sdk === 'xuanpu-agent' && <BudgetBar sessionId={session.id} />}
+      {SHOW_XUANPU_AGENT_DEBUG_UI && session.agent_sdk === 'xuanpu-agent' && (
+        <BudgetBar sessionId={session.id} />
+      )}
       {costLabel && (
         <span
           className="shrink-0 rounded-full border border-neon-pink/20 bg-neon-pink-soft px-1.5 py-0.5 font-mono text-[10px] text-neon-pink dark:bg-neon-pink-soft/40"
