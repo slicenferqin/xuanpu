@@ -21,7 +21,10 @@ const runtimeIdSchema = z.enum(['opencode', 'claude-code', 'codex', 'terminal', 
 const modelRefSchema = z.object({
   providerID: z.string(),
   modelID: z.string(),
-  variant: z.string().optional()
+  variant: z.string().optional(),
+  reasoningEffort: z.enum(['minimal', 'low', 'medium', 'high']).optional(),
+  verbosity: z.enum(['low', 'medium', 'high']).optional(),
+  providerOptions: z.record(z.string(), z.unknown()).optional()
 })
 
 // ---------------------------------------------------------------------------
@@ -58,6 +61,9 @@ export const setModelSchema = z.tuple([
       providerID: z.string(),
       modelID: z.string(),
       variant: z.string().optional(),
+      reasoningEffort: z.enum(['minimal', 'low', 'medium', 'high']).optional(),
+      verbosity: z.enum(['low', 'medium', 'high']).optional(),
+      providerOptions: z.record(z.string(), z.unknown()).optional(),
       runtimeId: runtimeIdSchema.optional()
     })
     .nullable()
@@ -89,9 +95,7 @@ export const commandSchema = z.tuple([
   })
 ])
 
-export const undoSchema = z.tuple([
-  z.object({ worktreePath: z.string(), sessionId: z.string() })
-])
+export const undoSchema = z.tuple([z.object({ worktreePath: z.string(), sessionId: z.string() })])
 
 export const redoSchema = undoSchema
 
@@ -116,9 +120,7 @@ export const permissionReplySchema = z.tuple([
   })
 ])
 
-export const permissionListSchema = z.tuple([
-  z.object({ worktreePath: z.string().optional() })
-])
+export const permissionListSchema = z.tuple([z.object({ worktreePath: z.string().optional() })])
 
 export const renameSessionSchema = z.tuple([
   z.object({
@@ -136,9 +138,7 @@ export const forkSchema = z.tuple([
   })
 ])
 
-export const capabilitiesSchema = z.tuple([
-  z.object({ sessionId: z.string().optional() })
-])
+export const capabilitiesSchema = z.tuple([z.object({ sessionId: z.string().optional() })])
 
 export const planApproveSchema = z.tuple([
   z.object({

@@ -195,6 +195,7 @@ export class DatabaseService {
     this.ensureDiffCommentsTable()
     this.ensureSessionPendingMessagesTable()
     this.ensureCommandTracesTable()
+    this.ensureTaskRunRuntimeTables()
   }
 
   private ensureCommandTracesTable(): void {
@@ -226,6 +227,149 @@ export class DatabaseService {
 
     this.safeAddColumn('command_traces', 'raw_output_ref', 'TEXT')
     this.safeAddColumn('command_traces', 'raw_output_bytes', 'INTEGER')
+  }
+
+  private ensureTaskRunRuntimeTables(): void {
+    const db = this.getDb()
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS agent_task_runs (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        worktree_id TEXT REFERENCES worktrees(id) ON DELETE SET NULL,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        origin_message_id TEXT,
+        status TEXT NOT NULL CHECK (status IN ('running','paused','completed','failed','aborted')),
+        autonomy TEXT NOT NULL DEFAULT 'short'
+          CHECK (autonomy IN ('short','long','overnight')),
+        objective TEXT,
+        lease_expires_at TEXT,
+        total_input_tokens INTEGER NOT NULL DEFAULT 0,
+        total_output_tokens INTEGER NOT NULL DEFAULT 0,
+        total_cost REAL NOT NULL DEFAULT 0,
+        epoch_count INTEGER NOT NULL DEFAULT 0,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        error_message TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_agent_task_runs_session
+        ON agent_task_runs(session_id, started_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_agent_task_runs_status
+        ON agent_task_runs(status);
+    `)
+
+    this.ensureFieldSessionCheckpointsTaskRunShape()
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS agent_epochs (
+        id TEXT PRIMARY KEY,
+        task_run_id TEXT NOT NULL REFERENCES agent_task_runs(id) ON DELETE CASCADE,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        ordinal INTEGER NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('running','checkpointed','compacted','closed','failed')),
+        checkpoint_id TEXT REFERENCES field_session_checkpoints(id) ON DELETE SET NULL,
+        provider_call_count INTEGER NOT NULL DEFAULT 0,
+        start_fill_ratio REAL,
+        end_fill_ratio REAL,
+        close_reason TEXT,
+        started_at TEXT NOT NULL,
+        closed_at TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_epochs_run_ordinal
+        ON agent_epochs(task_run_id, ordinal);
+      CREATE INDEX IF NOT EXISTS idx_agent_epochs_run
+        ON agent_epochs(task_run_id, started_at ASC);
+    `)
+
+    if (this.tableExists('agent_turns')) {
+      this.safeAddColumn('agent_turns', 'task_run_id', 'TEXT')
+      this.safeAddColumn('agent_turns', 'epoch_id', 'TEXT')
+    }
+    if (this.tableExists('agent_turn_usage_events')) {
+      this.safeAddColumn('agent_turn_usage_events', 'epoch_id', 'TEXT')
+      this.safeAddColumn('agent_turn_usage_events', 'provider_call_seq', 'INTEGER')
+      this.safeAddColumn('agent_turn_usage_events', 'reasoning_effort', 'TEXT')
+      this.safeAddColumn('agent_turn_usage_events', 'actual_prefix_hash', 'TEXT')
+    }
+  }
+
+  private ensureFieldSessionCheckpointsTaskRunShape(): void {
+    if (!this.tableExists('field_session_checkpoints')) return
+
+    const db = this.getDb()
+    const tableSqlRow = db
+      .prepare(
+        `SELECT sql
+           FROM sqlite_master
+          WHERE type = 'table'
+            AND name = 'field_session_checkpoints'`
+      )
+      .get() as { sql?: string } | undefined
+    const tableSql = tableSqlRow?.sql ?? ''
+    const columns = this.getTableColumns('field_session_checkpoints')
+    const needsRebuild =
+      !tableSql.includes("'epoch'") ||
+      !columns.has('epoch_id') ||
+      !columns.has('task_run_id') ||
+      !columns.has('checkpoint_purpose')
+
+    if (!needsRebuild) return
+
+    const epochExpr = columns.has('epoch_id') ? 'epoch_id' : 'NULL AS epoch_id'
+    const taskRunExpr = columns.has('task_run_id') ? 'task_run_id' : 'NULL AS task_run_id'
+    const purposeExpr = columns.has('checkpoint_purpose')
+      ? "COALESCE(checkpoint_purpose, 'resume') AS checkpoint_purpose"
+      : "'resume' AS checkpoint_purpose"
+
+    db.pragma('foreign_keys = OFF')
+    try {
+      db.exec('DROP TABLE IF EXISTS field_session_checkpoints__v35')
+      db.exec(`
+        CREATE TABLE field_session_checkpoints__v35 (
+          id TEXT PRIMARY KEY,
+          created_at INTEGER NOT NULL,
+          worktree_id TEXT NOT NULL,
+          session_id TEXT NOT NULL,
+          branch TEXT,
+          repo_head TEXT,
+          source TEXT NOT NULL CHECK (source IN ('abort', 'shutdown', 'epoch')),
+          summary TEXT NOT NULL,
+          current_goal TEXT,
+          next_action TEXT,
+          blocking_reason TEXT,
+          hot_files_json TEXT NOT NULL,
+          hot_file_digests_json TEXT,
+          packet_hash TEXT NOT NULL,
+          epoch_id TEXT,
+          task_run_id TEXT,
+          checkpoint_purpose TEXT DEFAULT 'resume'
+            CHECK (checkpoint_purpose IN ('resume','task-epoch'))
+        );
+        INSERT OR IGNORE INTO field_session_checkpoints__v35 (
+          id, created_at, worktree_id, session_id,
+          branch, repo_head, source,
+          summary, current_goal, next_action, blocking_reason,
+          hot_files_json, hot_file_digests_json,
+          packet_hash, epoch_id, task_run_id, checkpoint_purpose
+        )
+        SELECT
+          id, created_at, worktree_id, session_id,
+          branch, repo_head, source,
+          summary, current_goal, next_action, blocking_reason,
+          hot_files_json, hot_file_digests_json,
+          packet_hash, ${epochExpr}, ${taskRunExpr}, ${purposeExpr}
+        FROM field_session_checkpoints;
+        DROP INDEX IF EXISTS idx_field_session_checkpoints_worktree_hash;
+        DROP INDEX IF EXISTS idx_field_session_checkpoints_worktree_created;
+        DROP TABLE field_session_checkpoints;
+        ALTER TABLE field_session_checkpoints__v35 RENAME TO field_session_checkpoints;
+        CREATE INDEX IF NOT EXISTS idx_field_session_checkpoints_worktree_created
+          ON field_session_checkpoints(worktree_id, created_at DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_field_session_checkpoints_worktree_hash
+          ON field_session_checkpoints(worktree_id, packet_hash);
+      `)
+    } finally {
+      db.pragma('foreign_keys = ON')
+    }
   }
 
   private ensureFieldContextPackagesTable(): void {

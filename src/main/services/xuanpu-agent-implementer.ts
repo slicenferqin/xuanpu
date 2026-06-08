@@ -1,5 +1,5 @@
 import type { BrowserWindow } from 'electron'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   isAbsolute as pathIsAbsolute,
   relative as pathRelative,
@@ -37,7 +37,29 @@ import {
   createAgentTurnUsageEvent,
   updateAgentTurnStatus
 } from '../db/turn-repository'
+import {
+  accumulateUsage as accumulateTaskRunUsage,
+  appendEpoch,
+  closeEpoch,
+  createTaskRun,
+  getTaskRun,
+  incrementEpochProviderCallCount,
+  renewLease,
+  updateEpochStartFillRatio,
+  updateTaskRunStatus
+} from '../db/task-run-repository'
 import { extractUsageTokens } from '../../shared/usage/message'
+import type {
+  AgentTaskRun,
+  EpochCloseReason,
+  EpochStatus,
+  TaskRunAutonomy
+} from '../../shared/types/agent-task-run'
+import {
+  evaluateLeaseAtBoundary,
+  NO_PROGRESS_LIMIT,
+  shouldCloseEpoch
+} from './xuanpu-agent/task-run-policy'
 import type {
   XfpAnchorSection,
   XfpCommandTraceSection,
@@ -85,10 +107,14 @@ import {
   verifyPostResponseClaims,
   type PostResponseClaimVerification
 } from './xuanpu-agent/harness/post-response-claim-verifier'
+import { generateCheckpoint } from '../field/checkpoint-generator'
+import { insertCheckpoint, type CheckpointRecord } from '../field/checkpoint-repository'
 import { verifyCheckpoint, type ResumedCheckpointBlock } from '../field/checkpoint-verifier'
 import { calculateUsageCost, resolvePricingModelKey } from '@shared/usage/pricing'
 
 const log = createLogger({ component: 'XuanpuAgentImplementer' })
+const DEFAULT_CONTEXT_WINDOW_TOKENS = 150_000
+const LEASE_WINDOW_MS = 20 * 60 * 1000
 
 interface XuanpuAgentSessionState {
   sessionId: string
@@ -99,6 +125,8 @@ interface XuanpuAgentSessionState {
   piSession: XuanpuPiAgentSession | null
   /** The currently active turn id (Phase 1 — turn-scoped execution boundary). */
   activeTurnId: string | null
+  activeTaskRunId: string | null
+  activeEpochId: string | null
 }
 
 type IncomingPromptPart =
@@ -200,7 +228,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
   private db: DatabaseService | null = null
   private field: FieldProvider | null = null
   private sessions = new Map<string, XuanpuAgentSessionState>()
-  private selectedModelRef: { providerID: string; modelID: string; variant?: string } | null = null
+  private selectedModelRef: XuanpuAgentModelRef | null = null
   private agentConfig: XuanpuAgentConfig | null = null
 
   setMainWindow(window: BrowserWindow): void {
@@ -228,7 +256,9 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       status: 'ready',
       abortController: null,
       piSession: null,
-      activeTurnId: null
+      activeTurnId: null,
+      activeTaskRunId: null,
+      activeEpochId: null
     })
 
     log.info('Connected xuanpu-agent session', { worktreePath, hiveSessionId, sessionId })
@@ -248,7 +278,9 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       status: 'ready',
       abortController: null,
       piSession: null,
-      activeTurnId: null
+      activeTurnId: null,
+      activeTaskRunId: null,
+      activeEpochId: null
     })
     return { success: true, sessionStatus: 'idle' }
   }
@@ -295,7 +327,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
           | { type: 'text'; text: string }
           | { type: 'file'; mime: string; url: string; filename?: string }
         >,
-    modelOverride?: { providerID: string; modelID: string; variant?: string },
+    modelOverride?: XuanpuAgentModelRef,
     options?: PromptOptions
   ): Promise<void> {
     const session = this.requireSession(agentSessionId, worktreePath)
@@ -305,17 +337,68 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     const sessionMode = options?.mode ?? 'build'
 
     const field = this.requireField()
+    const db = this.requireDatabase()
     const worktree = field.getWorktree(session.worktreePath)
-    let priorMessages = field.getPriorTurns(session.hiveSessionId)
+    const fieldSession = field.getSession(session.hiveSessionId)
+    const projectId = worktree?.projectId ?? fieldSession?.projectId
+    if (!projectId) {
+      throw new Error(`xuanpu-agent session has no project binding: ${session.hiveSessionId}`)
+    }
+    const priorMessages = field.getPriorTurns(session.hiveSessionId)
 
     beginSessionRun(session.hiveSessionId)
     const userMessageId = `xuanpu-agent-user-${randomUUID()}`
     field.persistMessage(session.hiveSessionId, 'user', text, { messageId: userMessageId })
 
-    const modelRef = resolveXuanpuAgentModelRef(
-      modelOverride,
-      this.selectedModelRef,
-      this.getAgentConfig()
+    const agentConfig = this.getAgentConfig()
+    const modelRef = resolveXuanpuAgentModelRef(modelOverride, this.selectedModelRef, agentConfig)
+    const requestedTaskRun = options?.taskRunId ? getTaskRun(options.taskRunId, db) : null
+    const reusableTaskRun =
+      requestedTaskRun &&
+      requestedTaskRun.sessionId === session.hiveSessionId &&
+      (requestedTaskRun.status === 'running' || requestedTaskRun.status === 'paused')
+        ? requestedTaskRun
+        : null
+    const requestedAutonomy: TaskRunAutonomy =
+      options?.taskRunAutonomy ?? inferTaskRunAutonomyFromPromptText(text) ?? 'short'
+    const taskRunAutonomy: TaskRunAutonomy = reusableTaskRun?.autonomy ?? requestedAutonomy
+    const taskRun: AgentTaskRun =
+      reusableTaskRun ??
+      createTaskRun(
+        {
+          sessionId: session.hiveSessionId,
+          worktreeId: worktree?.id ?? null,
+          projectId,
+          originMessageId: userMessageId,
+          autonomy: taskRunAutonomy,
+          objective: text,
+          leaseExpiresAt:
+            taskRunAutonomy === 'short'
+              ? null
+              : new Date(Date.now() + LEASE_WINDOW_MS).toISOString()
+        },
+        db
+      )
+    if (reusableTaskRun?.status === 'paused') {
+      updateTaskRunStatus(
+        taskRun.id,
+        'running',
+        {
+          leaseExpiresAt:
+            taskRun.leaseExpiresAt ??
+            (taskRunAutonomy === 'short'
+              ? null
+              : new Date(Date.now() + LEASE_WINDOW_MS).toISOString())
+        },
+        db
+      )
+    }
+    const epoch = appendEpoch(
+      {
+        taskRunId: taskRun.id,
+        sessionId: session.hiveSessionId
+      },
+      db
     )
 
     // INV-TURN-2: Every prompt creates a turn record. Must not be best-effort.
@@ -323,16 +406,20 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       {
         sessionId: session.hiveSessionId,
         worktreeId: worktree?.id ?? null,
-        projectId: worktree?.projectId ?? 'unknown',
+        projectId,
         runtimeId: 'xuanpu-agent',
+        taskRunId: taskRun.id,
+        epochId: epoch.id,
         userMessageId,
         modelProviderId: modelRef.providerID,
         modelId: modelRef.modelID,
         modelVariant: modelRef.variant ?? null
       },
-      this.db
+      db
     ).id
     session.activeTurnId = turnId
+    session.activeTaskRunId = taskRun.id
+    session.activeEpochId = epoch.id
 
     session.status = 'running'
     // NOTE: AbortController is a placeholder for future signal wiring.
@@ -424,15 +511,9 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       }
     )
 
-    // ── M7: Pre-flight freeze (before message assembly) ──
-    if (worktree) {
-      await this.freezeOldConversationTurns(session).catch(() => {})
-    }
-
-    // M7.1: Re-read prior turns after freeze (freeze may have changed episode state)
-    priorMessages = field.getPriorTurns(session.hiveSessionId)
-
-    // M7.1: Load episode records for packer deduplication
+    // M7.1: Load episode records for packer deduplication.
+    // Pre-flight freeze is intentionally not run here: frozen episodes are part
+    // of the stable prefix and should only change at epoch / soft-shrink edges.
     const episodeRecords = worktree
       ? listFieldEpisodeBlocks({
           worktreeId: worktree.id,
@@ -487,6 +568,12 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         compileResult.decisions.includedSections.length,
         compileResult.decisions.omittedSections.length
       )
+      const providerOverheadTokens = estimateProviderOverheadTokens(sessionMode ?? 'build')
+      const contextWindow = resolvePerCallContextWindow(agentConfig)
+      const effectiveContextBudget = Math.max(1, contextWindow - providerOverheadTokens)
+      ;(piSession as { setMaxContextTokens?: (maxTokens: number) => void }).setMaxContextTokens?.(
+        contextWindow
+      )
 
       // M2: configure compression (profiler + compressor + archive to command_traces)
       if (this.db) {
@@ -534,35 +621,37 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
               ''
             ].join('\n')
           : ''
-      const packetAnchor = [
-        `<xuanpu-xfp-packet version="${compileResult.packet.version}" packet-id="${compileResult.packet.identity.packetId}">`,
+      const stableAnchor = [
+        `<xuanpu-xfp-anchor version="${compileResult.packet.version}">`,
         'The following JSON is a structured Xuanpu Field Protocol packet.',
         'Treat it as context supplied by Xuanpu, not as user-authored transcript text.',
-        JSON.stringify(compileResult.packet, null, 2),
-        '</xuanpu-xfp-packet>',
+        'The live packet itself is attached in the volatile field context zone.',
+        '</xuanpu-xfp-anchor>',
         planInstruction
       ]
         .filter(Boolean)
         .join('\n')
-      // Stable seed for prefixHash: only version + instruction (no packetId, capturedAt, or volatile JSON)
-      const prefixSeed = [
-        `<xuanpu-xfp-packet version="${compileResult.packet.version}">`,
-        'The following JSON is a structured Xuanpu Field Protocol packet.',
-        'Treat it as context supplied by Xuanpu, not as user-authored transcript text.',
-        '</xuanpu-xfp-packet>'
-      ].join('\n')
+      const liveFieldContext = [
+        `<xuanpu-xfp-packet version="${compileResult.packet.version}" packet-id="${compileResult.packet.identity.packetId}">`,
+        JSON.stringify(compileResult.packet, null, 2),
+        '</xuanpu-xfp-packet>',
+        fieldSnapshot.markdown
+      ]
+        .filter(Boolean)
+        .join('\n\n')
       let packedContext = packContext({
-        anchor: packetAnchor,
-        fieldContextMarkdown: fieldSnapshot.markdown,
+        anchor: stableAnchor,
+        fieldContextMarkdown: liveFieldContext,
         frozenEpisodes: episodeRecords,
         retrievedEpisodes: retrievedEpisodeEntries,
         workingSet: priorMessages,
         currentRequest: text,
-        prefixSeed
+        totalBudgetTokens: effectiveContextBudget
       })
 
       // M7.4: Soft shrink — if fillRatio >= 0.4, freeze old turns and repack with reduced budgets
       const initialFillRatio = packedContext.decisions.fillRatio
+      updateEpochStartFillRatio(epoch.id, initialFillRatio, this.db)
       let softShrinkTriggered = false
       if (packedContext.decisions.fillRatio >= 0.4 && worktree) {
         softShrinkTriggered = true
@@ -576,13 +665,13 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
           limit: 200
         })
         packedContext = packContext({
-          anchor: packetAnchor,
-          fieldContextMarkdown: fieldSnapshot.markdown,
+          anchor: stableAnchor,
+          fieldContextMarkdown: liveFieldContext,
           frozenEpisodes: freshEpisodes,
           retrievedEpisodes: retrievedEpisodeEntries,
           workingSet: freshPriors,
           currentRequest: text,
-          prefixSeed,
+          totalBudgetTokens: effectiveContextBudget,
           budgetOverrides: {
             workingSet: 15_000,
             frozenEpisodes: 6_000
@@ -591,7 +680,10 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       }
 
       // Record fill ratio to budget manager
-      piSession.budgetManager.recordPackerFillRatio(packedContext.decisions.fillRatio)
+      piSession.budgetManager.recordPackerFillRatio(
+        packedContext.decisions.fillRatio,
+        packedContext.decisions.totalTokens
+      )
 
       const promptMessage = {
         ...packedContext.providerPromptMessage,
@@ -603,12 +695,178 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       const harnessMessages = [...packedContext.providerContextMessages, promptMessage]
 
       const observedPaths = new Set<string>()
+      let toolResultCount = 0
+      let latestAssistantText = ''
+      const providerCallEvents: Array<{ sourceEventId: string; cost: number }> = []
+      let taskRunCost = 0
+      let noProgressCalls = 0
+      let lastProgressSignal = -1
+      let beforeYieldCount = 0
+      let leaseExpiresAt = taskRun.leaseExpiresAt
+      let epochClosed = false
+      let taskRunContinuationQueued = false
+      let taskRunPaused = false
+      let taskRunPauseReason: string | null = null
+      const epochStartedAt = Date.now()
+      const dbSessionForUsage = this.db?.getSession(session.hiveSessionId)
+      const currentEpochFillRatio = (): number => {
+        const runtimeFillRatio = piSession.budgetManager.state.fillRatio
+        return typeof runtimeFillRatio === 'number' && runtimeFillRatio > 0
+          ? runtimeFillRatio
+          : packedContext.decisions.fillRatio
+      }
+      const closeEpochOnce = async (
+        reason: EpochCloseReason,
+        status?: EpochStatus
+      ): Promise<string | null> => {
+        if (epochClosed) return null
+
+        const checkpointId =
+          worktree && (reason === 'compact' || reason === 'checkpoint' || reason === 'watchdog')
+            ? await this.persistEpochCheckpoint({
+                session,
+                worktree,
+                taskRunId: taskRun.id,
+                epochId: epoch.id,
+                reason,
+                objective: taskRun.objective ?? text,
+                latestAssistantText,
+                gitState
+              })
+            : null
+        closeEpoch(
+          epoch.id,
+          {
+            status: status ?? epochStatusForCloseReason(reason),
+            checkpointId,
+            endFillRatio: currentEpochFillRatio(),
+            closeReason: reason
+          },
+          this.db
+        )
+        epochClosed = true
+        return checkpointId
+      }
+      const pauseTaskRun = async (reason: string): Promise<void> => {
+        await closeEpochOnce('watchdog', 'failed')
+        updateTaskRunStatus(taskRun.id, 'paused', { errorMessage: reason }, this.db)
+        taskRunPaused = true
+        taskRunPauseReason = reason
+      }
+      const evaluateLease = async (): Promise<boolean> => {
+        if (!leaseExpiresAt) return true
+        const leaseDeadlineMs = Date.parse(leaseExpiresAt)
+        if (!Number.isFinite(leaseDeadlineMs) || Date.now() < leaseDeadlineMs) return true
+
+        const decision = evaluateLeaseAtBoundary({
+          autonomy: taskRunAutonomy,
+          noProgressCalls,
+          costSinceStart: taskRunCost,
+          hasPendingRiskyWrite: false
+        })
+        if (decision.action === 'renew') {
+          renewLease(taskRun.id, decision.nextExpiresAt, this.db)
+          leaseExpiresAt = decision.nextExpiresAt
+          return true
+        }
+
+        await closeEpochOnce('checkpoint', 'checkpointed')
+        updateTaskRunStatus(
+          taskRun.id,
+          'paused',
+          {
+            errorMessage:
+              decision.action === 'pause'
+                ? decision.reason
+                : `Approval required: ${decision.prompt}`
+          },
+          this.db
+        )
+        taskRunPaused = true
+        taskRunPauseReason =
+          decision.action === 'pause' ? decision.reason : `Approval required: ${decision.prompt}`
+        return false
+      }
+      const queueContinuation = (content?: string): void => {
+        if (taskRunContinuationQueued || taskRunPaused || taskRunAutonomy === 'short') return
+        if (!this.db) return
+        try {
+          this.db.createSessionPendingMessage({
+            session_id: session.hiveSessionId,
+            agent_session_id: session.sessionId,
+            runtime_id: 'xuanpu-agent',
+            content: content ?? buildEpochContinuationPrompt(taskRun.objective ?? text),
+            prompt_options_json: JSON.stringify({
+              mode: sessionMode,
+              taskRunAutonomy,
+              taskRunId: taskRun.id
+            }),
+            model_json: JSON.stringify(modelRef)
+          })
+          taskRunContinuationQueued = true
+        } catch (error) {
+          log.warn('Failed to enqueue xuanpu-agent epoch continuation', {
+            taskRunId: taskRun.id,
+            epochId: epoch.id,
+            error: error instanceof Error ? error.message : String(error)
+          })
+        }
+      }
+      piSession.setFollowUpMode('one-at-a-time')
+      piSession.setOnBeforeYield(async () => {
+        beforeYieldCount++
+        const progressSignal = observedPaths.size + toolResultCount
+        if (progressSignal <= lastProgressSignal) {
+          noProgressCalls++
+        } else {
+          noProgressCalls = 0
+        }
+        lastProgressSignal = progressSignal
+
+        const leaseOk = await evaluateLease()
+        if (!leaseOk) return
+
+        if (taskRunAutonomy !== 'short' && isCompleteLongTaskResponse(latestAssistantText)) return
+
+        if (taskRunAutonomy !== 'short' && noProgressCalls >= NO_PROGRESS_LIMIT) {
+          await pauseTaskRun('no progress')
+          return
+        }
+
+        const providerCallCount = Math.max(providerCallEvents.length, beforeYieldCount)
+        const boundary = shouldCloseEpoch({
+          fillRatio: currentEpochFillRatio(),
+          providerCallCount,
+          elapsedMs: Date.now() - epochStartedAt,
+          autonomy: taskRunAutonomy
+        })
+
+        if (boundary.close) {
+          await closeEpochOnce(boundary.reason)
+          if (taskRunAutonomy !== 'short' && boundary.reason !== 'turn_end') {
+            queueContinuation()
+          }
+          return
+        }
+
+        if (taskRunAutonomy !== 'short' && !piSession.hasQueuedMessages()) {
+          piSession.followUp({
+            role: 'user',
+            content: [
+              { type: 'text', text: buildInEpochFollowUpPrompt(taskRun.objective ?? text) }
+            ],
+            timestamp: Date.now()
+          })
+        }
+      })
       const result = await piSession.prompt(
         harnessMessages,
         modelRef,
         {
-          onTextDelta: (delta, meta) =>
-            this.emitTextDelta(session.hiveSessionId, delta, meta.turnId, meta.eventSequence),
+          onTextDelta: (delta, meta) => {
+            latestAssistantText += delta
+            this.emitTextDelta(session.hiveSessionId, delta, meta.turnId, meta.eventSequence)
+          },
           onToolStart: (event, meta) => {
             collectObservedToolPaths(
               session.worktreePath,
@@ -624,6 +882,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             this.emitToolStart(session.hiveSessionId, event, meta.turnId, meta.eventSequence)
           },
           onToolEnd: (event, meta) => {
+            toolResultCount++
             collectObservedToolPaths(
               session.worktreePath,
               event.toolName,
@@ -643,6 +902,84 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             }
             this.persistToolEnd(session.hiveSessionId, event, meta.turnId)
             this.emitToolEnd(session.hiveSessionId, event, meta.turnId, meta.eventSequence)
+          },
+          onProviderCall: (call) => {
+            const tokenCounts = extractUsageTokens({ usage: call.usage })
+            if (!tokenCounts) return
+            const inputTokens = tokenCounts.input ?? 0
+            const outputTokens = tokenCounts.output ?? 0
+            const cacheRead = tokenCounts.cacheRead ?? 0
+            const cacheWrite = tokenCounts.cacheWrite ?? 0
+            const total = inputTokens + outputTokens + cacheRead + cacheWrite
+            if (total <= 0) return
+
+            const sourceEventId = `${turnId}:provider-call:${call.providerCallSeq}`
+            const modelKey = resolvePricingModelKey(call.modelID, call.providerID)
+            const cost = calculateUsageCost(
+              modelKey,
+              {
+                input: inputTokens,
+                output: outputTokens,
+                cacheRead,
+                cacheWrite
+              },
+              'xuanpu-agent'
+            )
+            const occurredAt = new Date().toISOString()
+            try {
+              createAgentTurnUsageEvent(
+                {
+                  turnId,
+                  sessionId: session.hiveSessionId,
+                  sourceEventId,
+                  providerId: call.providerID,
+                  modelId: call.modelID,
+                  inputTokens,
+                  outputTokens,
+                  cacheWriteTokens: cacheWrite,
+                  cacheReadTokens: cacheRead,
+                  totalTokens: total,
+                  cost,
+                  rawUsageJson: JSON.stringify(call.usage),
+                  epochId: epoch.id,
+                  providerCallSeq: call.providerCallSeq,
+                  reasoningEffort: call.reasoningEffort ?? modelRef.reasoningEffort ?? null,
+                  actualPrefixHash:
+                    call.actualPrefixHash || packedContext.decisions.actualPrefixHash,
+                  occurredAt
+                },
+                this.db
+              )
+              incrementEpochProviderCallCount(epoch.id, this.db)
+              accumulateTaskRunUsage(taskRun.id, { inputTokens, outputTokens, cost }, this.db)
+              taskRunCost += cost
+              providerCallEvents.push({ sourceEventId, cost })
+
+              if (this.db && dbSessionForUsage) {
+                this.db.upsertUsageEntry({
+                  session_id: session.hiveSessionId,
+                  project_id: dbSessionForUsage.project_id,
+                  worktree_id: dbSessionForUsage.worktree_id ?? null,
+                  agent_sdk: 'xuanpu-agent',
+                  source_kind: 'xuanpu-agent-provider-call',
+                  source_message_id: sourceEventId,
+                  provider_id: call.providerID,
+                  model_id: modelKey,
+                  model_label: call.modelID,
+                  input_tokens: inputTokens,
+                  output_tokens: outputTokens,
+                  cache_write_tokens: cacheWrite,
+                  cache_read_tokens: cacheRead,
+                  total_tokens: total,
+                  cost,
+                  occurred_at: occurredAt
+                })
+              }
+            } catch (err) {
+              log.warn('Failed to persist provider-call usage event', {
+                error: err instanceof Error ? err.message : String(err)
+              })
+            }
           }
         },
         sessionMode,
@@ -656,17 +993,17 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
                 : 'extended',
           managedApproxTokens: packedContext.decisions.totalTokens,
           providerEstimatedInputTokens:
-            packedContext.decisions.totalTokens +
-            estimateProviderOverheadTokens(sessionMode ?? 'build'),
-          maxContextTokens: 150_000,
+            packedContext.decisions.totalTokens + providerOverheadTokens,
+          maxContextTokens: contextWindow,
           fillRatio: packedContext.decisions.fillRatio
         },
-        packedContext.decisions.prefixHash,
+        packedContext.decisions.actualPrefixHash,
         compileResult.packet.identity.packetId
       )
 
       const assistantText = result.text.trim()
       const content = assistantText || '(empty response)'
+      latestAssistantText = content
       const claimVerification = verifyPostResponseClaims({
         text: content,
         worktreePath: session.worktreePath,
@@ -706,7 +1043,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       const outputTokens = tokenCounts?.output ?? null
       const cacheRead = tokenCounts?.cacheRead ?? null
       const cacheWrite = tokenCounts?.cacheWrite ?? null
-      const contextWindow = piSession.budgetManager.state.maxTokens
+      const runtimeContextWindow = piSession.budgetManager.state.maxTokens
       const managedTokens = packedContext.decisions.totalTokens
       const providerActualInput = tokenCounts?.input ?? null
       const providerActualCacheRead = tokenCounts?.cacheRead ?? null
@@ -720,16 +1057,15 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         data: {
           managedContext: {
             approxTokens: managedTokens,
-            maxContextTokens: contextWindow,
+            maxContextTokens: runtimeContextWindow,
             fillRatio: packedContext.decisions.fillRatio,
             includedMessages: packedContext.providerContextMessages.length + 1,
             source: 'context-packer'
           },
           providerRequest: {
-            estimatedInputTokens:
-              managedTokens + estimateProviderOverheadTokens(sessionMode ?? 'build'),
-            providerRequestHash: result.snapshotHash ?? packedContext.decisions.prefixHash,
-            prefixHash: packedContext.decisions.prefixHash ?? null,
+            estimatedInputTokens: managedTokens + providerOverheadTokens,
+            providerRequestHash: result.snapshotHash ?? packedContext.decisions.actualPrefixHash,
+            prefixHash: packedContext.decisions.actualPrefixHash ?? null,
             messageCount: packedContext.providerContextMessages.length + 1,
             source: 'provider-request-snapshot'
           },
@@ -745,7 +1081,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       })
 
       // ── INV-TURN-4: Per-turn usage ledger ──
-      if (tokenCounts) {
+      if (providerCallEvents.length === 0 && tokenCounts) {
         const total = inputTokens + outputTokens + cacheRead + cacheWrite
         if (total > 0) {
           try {
@@ -762,6 +1098,10 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
                 cacheReadTokens: cacheRead,
                 totalTokens: total,
                 rawUsageJson: JSON.stringify(rawUsage),
+                epochId: epoch.id,
+                providerCallSeq: 0,
+                reasoningEffort: modelRef.reasoningEffort ?? null,
+                actualPrefixHash: packedContext.decisions.actualPrefixHash,
                 occurredAt: new Date().toISOString()
               },
               this.db
@@ -775,7 +1115,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       }
 
       // Persist usage entry for cost tracking
-      if (this.db && tokenCounts) {
+      if (providerCallEvents.length === 0 && this.db && tokenCounts) {
         try {
           const dbSession = this.db.getSession(session.hiveSessionId)
           if (dbSession) {
@@ -795,6 +1135,9 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
                 },
                 'xuanpu-agent'
               )
+              incrementEpochProviderCallCount(epoch.id, this.db)
+              accumulateTaskRunUsage(taskRun.id, { inputTokens, outputTokens, cost }, this.db)
+              taskRunCost += cost
               this.db.upsertUsageEntry({
                 session_id: session.hiveSessionId,
                 project_id: dbSession.project_id,
@@ -922,6 +1265,49 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         })
       }
 
+      const shouldContinueIncompleteLongTask =
+        taskRunAutonomy !== 'short' && isIncompleteLongTaskResponse(content)
+      const completedLongTaskResponse =
+        taskRunAutonomy !== 'short' && isCompleteLongTaskResponse(content)
+
+      if (shouldContinueIncompleteLongTask && !epochClosed) {
+        await closeEpochOnce('turn_end')
+        queueContinuation(
+          buildIncompleteResponseContinuationPrompt({
+            objective: taskRun.objective ?? text,
+            latestAssistantText: content
+          })
+        )
+      }
+
+      if (!epochClosed) {
+        const providerCallCount = Math.max(providerCallEvents.length, beforeYieldCount)
+        const boundary = shouldCloseEpoch({
+          fillRatio: currentEpochFillRatio(),
+          providerCallCount,
+          elapsedMs: Date.now() - epochStartedAt,
+          autonomy: taskRunAutonomy
+        })
+        const reason: EpochCloseReason = softShrinkTriggered ? 'compact' : boundary.reason
+        if (softShrinkTriggered || boundary.close || taskRunAutonomy === 'short') {
+          await closeEpochOnce(reason)
+          if (taskRunAutonomy !== 'short' && reason !== 'turn_end') {
+            queueContinuation()
+          }
+        }
+      }
+      if (completedLongTaskResponse && !epochClosed) {
+        await closeEpochOnce('turn_end')
+      }
+      if (
+        (!taskRunPaused || (taskRunPauseReason === 'no progress' && completedLongTaskResponse)) &&
+        !taskRunContinuationQueued
+      ) {
+        updateTaskRunStatus(taskRun.id, 'completed', undefined, this.db)
+      }
+      session.activeTurnId = null
+      session.activeTaskRunId = null
+      session.activeEpochId = null
       session.status = 'ready'
       session.abortController = null
       this.emitStatus(session.hiveSessionId, 'idle')
@@ -938,10 +1324,27 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       if (session.activeTurnId) {
         updateAgentTurnStatus(session.activeTurnId, 'failed', { errorMessage }, this.db)
       }
+      if (session.activeEpochId) {
+        closeEpoch(
+          session.activeEpochId,
+          {
+            status: 'failed',
+            endFillRatio: null,
+            closeReason: 'watchdog'
+          },
+          this.db
+        )
+      }
+      if (session.activeTaskRunId) {
+        updateTaskRunStatus(session.activeTaskRunId, 'failed', { errorMessage }, this.db)
+      }
 
       field.persistMessage(session.hiveSessionId, 'assistant', errorMessage)
       session.status = 'error'
       session.abortController = null
+      session.activeTurnId = null
+      session.activeTaskRunId = null
+      session.activeEpochId = null
       this.emitError(session.hiveSessionId, errorMessage)
       this.emitStatus(session.hiveSessionId, 'idle')
       throw new Error(errorMessage)
@@ -970,6 +1373,27 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         this.db
       )
       session.activeTurnId = null
+    }
+    if (session.activeEpochId) {
+      closeEpoch(
+        session.activeEpochId,
+        {
+          status: 'failed',
+          endFillRatio: null,
+          closeReason: 'watchdog'
+        },
+        this.db
+      )
+      session.activeEpochId = null
+    }
+    if (session.activeTaskRunId) {
+      updateTaskRunStatus(
+        session.activeTaskRunId,
+        'aborted',
+        { errorMessage: 'Aborted by user' },
+        this.db
+      )
+      session.activeTaskRunId = null
     }
 
     session.abortController.abort()
@@ -1014,7 +1438,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     return null
   }
 
-  setSelectedModel(model: { providerID: string; modelID: string; variant?: string }): void {
+  setSelectedModel(model: XuanpuAgentModelRef): void {
     this.selectedModelRef = model
   }
 
@@ -1076,7 +1500,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       harnessMetrics?: XuanpuAgentHarnessMetrics | null
       /** M7.2: Packer output — when provided, skip internal retrieval. */
       packerOutput?: {
-        messages: unknown[]
+        providerContextMessages: unknown[]
+        providerPromptMessage: unknown
         decisions: Record<string, unknown>
         includedRetrievedEpisodes?: unknown[]
       }
@@ -1105,7 +1530,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       const packerRetrieved = options.packerOutput.decisions.zones.retrievedEpisodes
       episodeCandidates = []
       episodeRetrieval = {
-        included: options.packerOutput.includedRetrievedEpisodes.map(
+        included: (options.packerOutput.includedRetrievedEpisodes ?? []).map(
           (e) => e.episode as unknown as FieldEpisode
         ),
         dropped: packerRetrieved.dropped,
@@ -1522,6 +1947,51 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     await field.freezeEpisodes(worktree.id, session.hiveSessionId)
   }
 
+  private async persistEpochCheckpoint(input: {
+    session: XuanpuAgentSessionState
+    worktree: FieldWorktree
+    taskRunId: string
+    epochId: string
+    reason: EpochCloseReason
+    objective: string
+    latestAssistantText: string
+    gitState: XfpGitState
+  }): Promise<string | null> {
+    try {
+      const generated = await generateCheckpoint({
+        worktreeId: input.worktree.id,
+        worktreePath: input.session.worktreePath,
+        sessionId: input.session.hiveSessionId,
+        source: 'epoch'
+      })
+      const checkpoint: CheckpointRecord =
+        generated ??
+        buildFallbackEpochCheckpoint({
+          worktreeId: input.worktree.id,
+          sessionId: input.session.hiveSessionId,
+          reason: input.reason,
+          objective: input.objective,
+          latestAssistantText: input.latestAssistantText,
+          gitState: input.gitState
+        })
+      const taskCheckpoint: CheckpointRecord = {
+        ...checkpoint,
+        source: 'epoch',
+        taskRunId: input.taskRunId,
+        epochId: input.epochId,
+        checkpointPurpose: 'task-epoch'
+      }
+      return insertCheckpoint(taskCheckpoint) ? taskCheckpoint.id : null
+    } catch (error) {
+      log.warn('Failed to persist xuanpu-agent epoch checkpoint', {
+        taskRunId: input.taskRunId,
+        epochId: input.epochId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return null
+    }
+  }
+
   private requireField(): FieldProvider {
     if (!this.field) {
       throw new Error(
@@ -1529,6 +1999,15 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       )
     }
     return this.field
+  }
+
+  private requireDatabase(): DatabaseService {
+    if (!this.db) {
+      throw new Error(
+        'XuanpuAgentImplementer: DatabaseService not set. Call setDatabaseService() first.'
+      )
+    }
+    return this.db
   }
 
   private requireSession(agentSessionId: string, worktreePath: string): XuanpuAgentSessionState {
@@ -2170,6 +2649,160 @@ function renderCheckpointResumeMarkdown(checkpoint: ResumedCheckpointBlock): str
     .join('\n')
 }
 
+function epochStatusForCloseReason(reason: EpochCloseReason): EpochStatus {
+  if (reason === 'compact') return 'compacted'
+  if (reason === 'checkpoint') return 'checkpointed'
+  if (reason === 'watchdog') return 'failed'
+  return 'closed'
+}
+
+function buildInEpochFollowUpPrompt(objective: string): string {
+  return [
+    '<xuanpu-task-run-continuation scope="same-epoch">',
+    `Objective: ${objective}`,
+    'Continue from the current accumulated context. If the task is complete, respond with the final concise summary and do not invent extra work. Otherwise, perform the next concrete step.',
+    '</xuanpu-task-run-continuation>'
+  ].join('\n')
+}
+
+function isIncompleteLongTaskResponse(text: string): boolean {
+  const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase()
+  if (!normalized) return false
+
+  return [
+    /响应预算.*(?:已到|用完|耗尽|不足)/,
+    /本次响应预算已到/,
+    /尚未完成/,
+    /(?:任务|目标|工作|审计|检查|实现|修复).{0,8}(?:未|尚未|没有|还没|还没有)完成/,
+    /未完成.*(?:阶段|任务|用例|检查|审计|测试)/,
+    /只完成到/,
+    /只(?:读|读取|完成)到/,
+    /还(?:没|没有).*完成/,
+    /need to continue/,
+    /not (?:yet )?(?:complete|completed|finished)/,
+    /response budget.*(?:reached|exhausted|insufficient|limit)/
+  ].some((pattern) => pattern.test(normalized))
+}
+
+function isCompleteLongTaskResponse(text: string): boolean {
+  const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase()
+  if (!normalized || isIncompleteLongTaskResponse(normalized)) return false
+
+  return [
+    /任务.{0,12}(?:已|已经)完成/,
+    /(?:审计|检查|核查|实现|修复|工作|目标).{0,12}(?:已|已经)完成/,
+    /(?:不继续新增工作|无需继续|不需要继续)/,
+    /\b(?:task|objective|audit|implementation|work)\s+(?:is\s+|was\s+|has\s+been\s+)?(?:complete|completed|finished)\b/,
+    /\b(?:no further work|nothing more to do)\b/
+  ].some((pattern) => pattern.test(normalized))
+}
+
+function inferTaskRunAutonomyFromPromptText(text: string): TaskRunAutonomy | null {
+  const normalized = text.trim().toLowerCase()
+  if (!normalized) return null
+
+  const prefixMatch = normalized.match(
+    /^(?:\/|#)?(short|long|overnight)(?:\s+(?:task[-\s]?run|autonomy))?\b/
+  )
+  if (prefixMatch) return prefixMatch[1] as TaskRunAutonomy
+
+  const naturalMatch = normalized.match(
+    /^(?:请按|按|以|用|使用|please\s+use)\s*(short|long|overnight)\s+(?:task[-\s]?run|autonomy)\b/
+  )
+  return naturalMatch ? (naturalMatch[1] as TaskRunAutonomy) : null
+}
+
+function tailForContinuation(text: string, maxChars = 1600): string {
+  const trimmed = text.trim()
+  if (trimmed.length <= maxChars) return trimmed
+  return trimmed.slice(trimmed.length - maxChars)
+}
+
+function buildIncompleteResponseContinuationPrompt(input: {
+  objective: string
+  latestAssistantText: string
+}): string {
+  return [
+    '继续当前 xuanpu-agent task run。',
+    '',
+    '<xuanpu-task-run-continuation scope="next-turn" reason="incomplete-response">',
+    `Objective: ${input.objective}`,
+    '',
+    'The previous assistant response explicitly said the task was not complete or that the response budget was reached. Continue from the last completed step. Do not restart from scratch and do not stop until the objective is complete or a runtime boundary asks you to yield.',
+    '',
+    '<previous-assistant-tail>',
+    tailForContinuation(input.latestAssistantText),
+    '</previous-assistant-tail>',
+    '</xuanpu-task-run-continuation>'
+  ].join('\n')
+}
+
+function buildEpochContinuationPrompt(objective: string): string {
+  return [
+    '继续当前 xuanpu-agent task run。',
+    '',
+    `<xuanpu-task-run-continuation scope="next-epoch">`,
+    `Objective: ${objective}`,
+    'Resume from the latest task-epoch checkpoint and continue with the next concrete step. Do not restart from scratch.',
+    '</xuanpu-task-run-continuation>'
+  ].join('\n')
+}
+
+function buildFallbackEpochCheckpoint(input: {
+  worktreeId: string
+  sessionId: string
+  reason: EpochCloseReason
+  objective: string
+  latestAssistantText: string
+  gitState: XfpGitState
+}): CheckpointRecord {
+  const createdAt = Date.now()
+  const summary = [
+    `xuanpu-agent epoch closed with reason: ${input.reason}.`,
+    input.latestAssistantText
+      ? `Latest assistant progress: ${truncateText(input.latestAssistantText, 400)}`
+      : null
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n')
+  const nextAction =
+    input.reason === 'turn_end'
+      ? null
+      : 'Resume from this task-epoch checkpoint and continue the current objective.'
+  return {
+    id: randomUUID(),
+    createdAt,
+    worktreeId: input.worktreeId,
+    sessionId: input.sessionId,
+    branch: input.gitState.branchName || null,
+    repoHead: input.gitState.headShort || null,
+    source: 'epoch',
+    summary,
+    currentGoal: truncateText(input.objective, 500),
+    nextAction,
+    blockingReason: input.reason === 'watchdog' ? 'watchdog' : null,
+    hotFiles: input.gitState.dirtyFiles.slice(0, 5).map((file) => file.path),
+    hotFileDigests: null,
+    packetHash: createEpochCheckpointHash({
+      createdAt,
+      sessionId: input.sessionId,
+      objective: input.objective,
+      reason: input.reason,
+      summary
+    })
+  }
+}
+
+function createEpochCheckpointHash(input: Record<string, unknown>): string {
+  return createHash('sha1').update(JSON.stringify(input)).digest('hex')
+}
+
+function truncateText(value: string, maxLength: number): string {
+  const trimmed = value.trim()
+  if (trimmed.length <= maxLength) return trimmed
+  return `${trimmed.slice(0, maxLength - 3)}...`
+}
+
 function collectObservedToolPaths(
   worktreePath: string,
   toolName: string,
@@ -2675,4 +3308,12 @@ function estimateProviderOverheadTokens(sessionMode: 'build' | 'plan'): number {
   // plan mode uses a subset — reflect that proportionally
   const modeFactor = sessionMode === 'plan' ? 0.4 : 1.0
   return Math.round((systemTokens + toolsTokens) * modeFactor)
+}
+
+function resolvePerCallContextWindow(config?: XuanpuAgentConfig): number {
+  const configured = config?.context?.contextWindow
+  if (typeof configured === 'number' && Number.isFinite(configured) && configured > 0) {
+    return Math.floor(configured)
+  }
+  return DEFAULT_CONTEXT_WINDOW_TOKENS
 }

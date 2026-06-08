@@ -28,7 +28,7 @@ export interface BuildProviderRequestInput {
   prefixHash?: string
 }
 
-function stableStringify(value: unknown): string {
+export function stableStringify(value: unknown): string {
   return JSON.stringify(value, sortKeys)
 }
 
@@ -50,7 +50,7 @@ function imageDataSha256(data: string): string {
  * Strip volatile fields (timestamp) from prompt messages before hashing.
  * Ensures the hash is stable across runs with identical content.
  */
-function stripVolatileFields(messages: XuanpuPiPromptMessage[]): unknown[] {
+export function stripVolatileFields(messages: XuanpuPiPromptMessage[]): unknown[] {
   return messages.map((msg) => ({
     role: msg.role,
     content: msg.content.map((part) => {
@@ -84,7 +84,10 @@ export function computeProviderRequestHash(input: BuildProviderRequestInput): st
     modelRef: {
       providerID: input.modelRef.providerID,
       modelID: input.modelRef.modelID,
-      variant: input.modelRef.variant ?? null
+      variant: input.modelRef.variant ?? null,
+      reasoningEffort: input.modelRef.reasoningEffort ?? null,
+      verbosity: input.modelRef.verbosity ?? null,
+      providerOptions: input.modelRef.providerOptions ?? null
     },
     providerSessionPolicy: {
       mode: input.providerSessionPolicy.mode,

@@ -54,7 +54,10 @@ export function recordProviderRequestSnapshot(
       modelRef: {
         providerID: snapshot.modelRef.providerID,
         modelID: snapshot.modelRef.modelID,
-        variant: snapshot.modelRef.variant ?? null
+        variant: snapshot.modelRef.variant ?? null,
+        reasoningEffort: snapshot.modelRef.reasoningEffort ?? null,
+        verbosity: snapshot.modelRef.verbosity ?? null,
+        providerOptions: snapshot.modelRef.providerOptions ?? null
       },
       providerSessionPolicy: snapshot.providerSessionPolicy
     }),

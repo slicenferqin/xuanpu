@@ -6,7 +6,13 @@ export interface XuanpuAgentModelRef {
   providerID: string
   modelID: string
   variant?: string
+  reasoningEffort?: XuanpuAgentReasoningEffort
+  verbosity?: XuanpuAgentVerbosity
+  providerOptions?: Record<string, unknown>
 }
+
+export type XuanpuAgentReasoningEffort = 'minimal' | 'low' | 'medium' | 'high'
+export type XuanpuAgentVerbosity = 'low' | 'medium' | 'high'
 
 export interface ResolvedPiModel {
   modelRef: XuanpuAgentModelRef
@@ -54,10 +60,7 @@ function maskKey(key: string | undefined): string | null {
   return `${key.slice(0, 4)}...${key.slice(-4)}`
 }
 
-function readAuthFileKey(
-  authFile: string,
-  authKey: string
-): string | null {
+function readAuthFileKey(authFile: string, authKey: string): string | null {
   try {
     const expanded = expandTilde(authFile)
     const content = readFileSync(expanded, 'utf-8')
@@ -77,7 +80,28 @@ export function resolveXuanpuAgentModelRef(
   selectedModel?: XuanpuAgentModelRef | null,
   config?: XuanpuAgentConfig
 ): XuanpuAgentModelRef {
-  return modelOverride ?? selectedModel ?? config?.mainModel ?? DEFAULT_MODEL_REF
+  return normalizeModelRef(modelOverride ?? selectedModel ?? config?.mainModel ?? DEFAULT_MODEL_REF)
+}
+
+export function normalizeReasoningEffort(
+  value: string | undefined | null
+): XuanpuAgentReasoningEffort | undefined {
+  if (value === 'minimal' || value === 'low' || value === 'medium' || value === 'high') {
+    return value
+  }
+  return undefined
+}
+
+function normalizeModelRef(modelRef: XuanpuAgentModelRef): XuanpuAgentModelRef {
+  const reasoningEffort =
+    normalizeReasoningEffort(modelRef.reasoningEffort) ?? normalizeReasoningEffort(modelRef.variant)
+  if (!reasoningEffort || modelRef.reasoningEffort === reasoningEffort) {
+    return modelRef
+  }
+  return {
+    ...modelRef,
+    reasoningEffort
+  }
 }
 
 interface ResolvedCredential {
@@ -106,9 +130,7 @@ function resolveCredential(
   if (!defaultEnvKeys) return null
 
   const providerConfig = config?.providers?.[canonicalProviderID]
-  const envKeys = providerConfig?.apiKeyEnv
-    ? [providerConfig.apiKeyEnv]
-    : defaultEnvKeys
+  const envKeys = providerConfig?.apiKeyEnv ? [providerConfig.apiKeyEnv] : defaultEnvKeys
 
   // Step 3: env var
   for (const key of envKeys) {
@@ -209,7 +231,11 @@ export async function resolvePiModel(
     })
 
     return {
-      modelRef: { providerID: 'xuanpu-agent', modelID: 'xuanpu-agent-mock' },
+      modelRef: normalizeModelRef({
+        ...modelRef,
+        providerID: 'xuanpu-agent',
+        modelID: 'xuanpu-agent-mock'
+      }),
       model: mock.model,
       streamFn: mock.stream
     }
@@ -227,8 +253,9 @@ export async function resolvePiModel(
   const providerID = PROVIDER_ALIASES[modelRef.providerID] ?? modelRef.providerID
   const model = getBundledModel(providerID, modelRef.modelID)
   if (model) {
+    const resolvedModelRef = normalizeModelRef({ ...modelRef, providerID })
     return {
-      modelRef: { ...modelRef, providerID },
+      modelRef: resolvedModelRef,
       model: applyProviderBaseUrlOverride(providerID, model, config)
     }
   }

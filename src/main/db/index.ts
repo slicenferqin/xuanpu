@@ -11,6 +11,20 @@ export {
   listAgentTurnUsageEvents,
   sumAgentTurnUsageTokens
 } from './turn-repository'
+export {
+  createTaskRun,
+  getTaskRun,
+  getActiveTaskRun,
+  appendEpoch,
+  updateEpochStartFillRatio,
+  incrementEpochProviderCallCount,
+  closeEpoch,
+  updateTaskRunStatus,
+  renewLease,
+  accumulateUsage,
+  bindTurnToTaskRun,
+  getEpoch
+} from './task-run-repository'
 export type {
   AgentTurnStatus,
   AgentTurnCreate,
@@ -20,6 +34,11 @@ export type {
   AgentTurnUsageEventCreate,
   AgentTurnUsageEventRecord
 } from './turn-repository'
+export type {
+  AgentTaskRunCreate,
+  AgentEpochCreate,
+  AgentTaskRunUsageDelta
+} from './task-run-repository'
 export type {
   Project,
   ProjectCreate,

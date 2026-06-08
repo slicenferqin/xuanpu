@@ -21,7 +21,7 @@ import { join, relative, isAbsolute } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { createLogger } from '../services/logger'
 import { getRecentFieldEvents, type StoredFieldEvent } from './repository'
-import type { CheckpointRecord } from './checkpoint-repository'
+import type { CheckpointRecord, CheckpointSource } from './checkpoint-repository'
 
 const log = createLogger({ component: 'CheckpointGenerator' })
 
@@ -48,7 +48,7 @@ export interface GeneratorInput {
   worktreeId: string
   worktreePath: string
   sessionId: string
-  source: 'abort' | 'shutdown'
+  source: CheckpointSource
   /** Optional, only set for abort flows. */
   blockingReason?: string | null
   /** Caller-supplied clock (mockable). Defaults to Date.now(). */

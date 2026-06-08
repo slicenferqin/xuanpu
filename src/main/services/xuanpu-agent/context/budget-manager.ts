@@ -83,6 +83,7 @@ const BUDGET_TOKENS: Record<BudgetProfile, number> = {
 
 interface BudgetManagerOptions {
   profile?: BudgetProfile
+  maxTokens?: number
 }
 
 export class ContextBudgetManager {
@@ -94,7 +95,7 @@ export class ContextBudgetManager {
     this.state = {
       profile: this.profile,
       estimatedTokens: 0,
-      maxTokens: BUDGET_TOKENS[this.profile],
+      maxTokens: options.maxTokens ?? BUDGET_TOKENS[this.profile],
       fillRatio: 0,
       lastShrinkAt: 0,
       emergencyShrunk: false,
@@ -113,6 +114,11 @@ export class ContextBudgetManager {
     this.state.maxTokens = BUDGET_TOKENS[profile]
   }
 
+  setMaxTokens(maxTokens: number): void {
+    if (!Number.isFinite(maxTokens) || maxTokens <= 0) return
+    this.state.maxTokens = Math.floor(maxTokens)
+  }
+
   /** Record compression stats for UI. */
   recordCompression(beforeBytes: number, afterBytes: number): void {
     this.state.totalBeforeBytes += beforeBytes
@@ -125,9 +131,9 @@ export class ContextBudgetManager {
   }
 
   /** Record fill ratio from Context Packer decisions (M7). */
-  recordPackerFillRatio(fillRatio: number): void {
+  recordPackerFillRatio(fillRatio: number, estimatedTokens?: number): void {
     this.state.fillRatio = fillRatio
-    this.state.estimatedTokens = Math.round(fillRatio * this.state.maxTokens)
+    this.state.estimatedTokens = Math.round(estimatedTokens ?? fillRatio * this.state.maxTokens)
   }
 
   /**

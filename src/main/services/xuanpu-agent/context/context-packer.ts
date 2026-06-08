@@ -6,15 +6,18 @@
  *
  * Zone layout:
  *   1. Anchor        — cache-friendly rules (~1K tokens, fixed)
- *   2. CurrentField  — XFP field packet (~2-5K tokens)
- *   3. FrozenEpisodes — model-summarized history (~2-6K tokens)
+ *   2. FrozenEpisodes — model-summarized history (~2-6K tokens)
+ *   3. RetrievedEpisodes — gated historical retrieval (volatile)
  *   4. WorkingSet    — recent N turns, deduped against episodes (~5-15K tokens)
- *   5. CurrentRequest — user's message (never compressed)
- *   6. Buffer        — implicit (remaining budget)
+ *   5. CurrentField  — live XFP / field packet (~2-5K tokens, volatile)
+ *   6. CurrentRequest — user's message (never compressed)
+ *   7. Buffer        — implicit (remaining budget)
  */
 import type { XuanpuPiPromptMessage } from '../context-transform'
 import type { FieldTurn } from '../field/provider'
 import type { FieldEpisodeBlockRecord } from '../../../field/episode-block-repository'
+import { createHash } from 'node:crypto'
+import { stableStringify, stripVolatileFields } from '../turn/provider-request-builder'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -39,6 +42,7 @@ export interface ContextPackerInput {
   totalBudgetTokens?: number
   /** Stable string for prefixHash computation. Falls back to anchor if omitted. */
   prefixSeed?: string
+  previousActualPrefixHash?: string | null
   now?: number
 }
 
@@ -67,6 +71,9 @@ export interface ContextPackerDecisions {
   fillRatio: number
   /** Hash of stable prefix (anchor + frozen episodes). Same across turns if content unchanged. */
   prefixHash: string
+  /** SHA-256 over the real stable-prefix provider messages. */
+  actualPrefixHash: string
+  prefixChangeReason?: 'model' | 'tool_schema' | 'ledger' | 'episodes' | 'pinned' | 'none'
 }
 
 interface ContextZoneBudgets {
@@ -107,15 +114,6 @@ function estimateTokens(text: string): number {
   return Math.max(1, Math.ceil(Buffer.byteLength(text, 'utf-8') / 4))
 }
 
-/** Simple djb2 hash for prefix stability check. Returns hex string. */
-function djb2Hash(text: string): string {
-  let hash = 5381
-  for (let i = 0; i < text.length; i++) {
-    hash = ((hash << 5) + hash + text.charCodeAt(i)) | 0
-  }
-  return (hash >>> 0).toString(16)
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Deduplication
 // ─────────────────────────────────────────────────────────────────────────────
@@ -140,31 +138,17 @@ export function packContext(input: ContextPackerInput): ContextPackerOutput {
   const totalBudget = input.totalBudgetTokens ?? DEFAULT_TOTAL_BUDGET
 
   const messages: XuanpuPiPromptMessage[] = []
+  const stablePrefixMessages: XuanpuPiPromptMessage[] = []
   let usedTokens = 0
 
   // ── Zone 1: Anchor ──
   const anchorTokens = estimateTokens(input.anchor)
-  messages.push(createUserMessage(input.anchor, now))
+  const anchorMessage = createUserMessage(input.anchor, now)
+  messages.push(anchorMessage)
+  stablePrefixMessages.push(anchorMessage)
   usedTokens += anchorTokens
 
-  // ── Zone 2: CurrentField ──
-  let fieldTokens = 0
-  let fieldIncluded = false
-  if (input.fieldContextMarkdown?.trim()) {
-    const fieldText = [
-      '<xuanpu-current-field-context>',
-      input.fieldContextMarkdown.trim(),
-      '</xuanpu-current-field-context>'
-    ].join('\n')
-    fieldTokens = estimateTokens(fieldText)
-    if (usedTokens + fieldTokens <= totalBudget) {
-      messages.push(createUserMessage(fieldText, now))
-      usedTokens += fieldTokens
-      fieldIncluded = true
-    }
-  }
-
-  // ── Zone 3: FrozenEpisodes ──
+  // ── Zone 2: FrozenEpisodes ──
   const { included: includedEpisodes, dropped: droppedEpisodes, tokens: episodeTokens } =
     packEpisodes(input.frozenEpisodes, budgets.frozenEpisodes, totalBudget - usedTokens, now)
   let frozenEpisodeText = ''
@@ -175,14 +159,20 @@ export function packContext(input: ContextPackerInput): ContextPackerOutput {
       ...includedEpisodes.map(formatEpisode),
       '</xuanpu-frozen-episodes>'
     ].join('\n\n')
-    messages.push(createUserMessage(frozenEpisodeText, now))
+    const frozenEpisodeMessage = createUserMessage(frozenEpisodeText, now)
+    messages.push(frozenEpisodeMessage)
+    stablePrefixMessages.push(frozenEpisodeMessage)
     usedTokens += episodeTokens
   }
 
-  // Prefix hash: stable across turns when anchor + frozen episodes unchanged
-  const prefixHash = djb2Hash((input.prefixSeed ?? input.anchor) + frozenEpisodeText)
+  const actualPrefixHash = computeActualPrefixHash(stablePrefixMessages)
+  const prefixHash = actualPrefixHash
+  const prefixChangeReason =
+    input.previousActualPrefixHash && input.previousActualPrefixHash !== actualPrefixHash
+      ? 'episodes'
+      : 'none'
 
-  // ── Zone 3b: RetrievedEpisodes ──
+  // ── Zone 3: RetrievedEpisodes ──
   const retrievedEntries = input.retrievedEpisodes ?? []
   const {
     included: includedRetrieved,
@@ -226,7 +216,24 @@ export function packContext(input: ContextPackerInput): ContextPackerOutput {
     usedTokens += estimateTokens(turn.content)
   }
 
-  // ── Zone 5: CurrentRequest ──
+  // ── Zone 5: CurrentField (volatile suffix) ──
+  let fieldTokens = 0
+  let fieldIncluded = false
+  if (input.fieldContextMarkdown?.trim()) {
+    const fieldText = [
+      '<xuanpu-current-field-context>',
+      input.fieldContextMarkdown.trim(),
+      '</xuanpu-current-field-context>'
+    ].join('\n')
+    fieldTokens = estimateTokens(fieldText)
+    if (usedTokens + fieldTokens <= totalBudget) {
+      messages.push(createUserMessage(fieldText, now))
+      usedTokens += fieldTokens
+      fieldIncluded = true
+    }
+  }
+
+  // ── Zone 6: CurrentRequest ──
   const requestTokens = estimateTokens(input.currentRequest)
   messages.push(createUserMessage(input.currentRequest, now))
   usedTokens += requestTokens
@@ -268,9 +275,16 @@ export function packContext(input: ContextPackerInput): ContextPackerOutput {
       },
       totalTokens: usedTokens,
       fillRatio: usedTokens / totalBudget,
-      prefixHash
+      prefixHash,
+      actualPrefixHash,
+      prefixChangeReason
     }
   }
+}
+
+export function computeActualPrefixHash(stablePrefixMessages: XuanpuPiPromptMessage[]): string {
+  const canonical = stableStringify(stripVolatileFields(stablePrefixMessages))
+  return createHash('sha256').update(canonical).digest('hex')
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

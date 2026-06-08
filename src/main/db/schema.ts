@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 34
+export const CURRENT_SCHEMA_VERSION = 35
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -276,14 +276,17 @@ CREATE TABLE IF NOT EXISTS field_session_checkpoints (
   session_id TEXT NOT NULL,
   branch TEXT,
   repo_head TEXT,
-  source TEXT NOT NULL CHECK (source IN ('abort', 'shutdown')),
+  source TEXT NOT NULL CHECK (source IN ('abort', 'shutdown', 'epoch')),
   summary TEXT NOT NULL,
   current_goal TEXT,
   next_action TEXT,
   blocking_reason TEXT,
   hot_files_json TEXT NOT NULL,
   hot_file_digests_json TEXT,
-  packet_hash TEXT NOT NULL
+  packet_hash TEXT NOT NULL,
+  epoch_id TEXT,
+  task_run_id TEXT,
+  checkpoint_purpose TEXT DEFAULT 'resume' CHECK (checkpoint_purpose IN ('resume', 'task-epoch'))
 );
 CREATE INDEX IF NOT EXISTS idx_field_session_checkpoints_worktree_created
   ON field_session_checkpoints(worktree_id, created_at DESC);
@@ -1302,6 +1305,8 @@ export const MIGRATIONS: Migration[] = [
         worktree_id TEXT REFERENCES worktrees(id) ON DELETE SET NULL,
         project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
         runtime_id TEXT NOT NULL,
+        task_run_id TEXT,
+        epoch_id TEXT,
         user_message_id TEXT,
         assistant_message_id TEXT,
         status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed', 'aborted')),
@@ -1353,6 +1358,10 @@ export const MIGRATIONS: Migration[] = [
         total_tokens INTEGER NOT NULL DEFAULT 0,
         cost REAL NOT NULL DEFAULT 0,
         raw_usage_json TEXT NOT NULL,
+        epoch_id TEXT,
+        provider_call_seq INTEGER,
+        reasoning_effort TEXT,
+        actual_prefix_hash TEXT,
         occurred_at TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
@@ -1370,6 +1379,68 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_agent_turns_status;
       DROP INDEX IF EXISTS idx_agent_turns_session_started;
       DROP TABLE IF EXISTS agent_turns;
+    `
+  },
+  {
+    version: 35,
+    name: 'add_task_run_runtime',
+    up: `
+      -- Task-run runtime: one durable user objective across epochs.
+      CREATE TABLE IF NOT EXISTS agent_task_runs (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        worktree_id TEXT REFERENCES worktrees(id) ON DELETE SET NULL,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        origin_message_id TEXT,
+        status TEXT NOT NULL CHECK (status IN ('running','paused','completed','failed','aborted')),
+        autonomy TEXT NOT NULL DEFAULT 'short'
+          CHECK (autonomy IN ('short','long','overnight')),
+        objective TEXT,
+        lease_expires_at TEXT,
+        total_input_tokens INTEGER NOT NULL DEFAULT 0,
+        total_output_tokens INTEGER NOT NULL DEFAULT 0,
+        total_cost REAL NOT NULL DEFAULT 0,
+        epoch_count INTEGER NOT NULL DEFAULT 0,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        error_message TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_agent_task_runs_session
+        ON agent_task_runs(session_id, started_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_agent_task_runs_status
+        ON agent_task_runs(status);
+
+      CREATE TABLE IF NOT EXISTS agent_epochs (
+        id TEXT PRIMARY KEY,
+        task_run_id TEXT NOT NULL REFERENCES agent_task_runs(id) ON DELETE CASCADE,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        ordinal INTEGER NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('running','checkpointed','compacted','closed','failed')),
+        checkpoint_id TEXT REFERENCES field_session_checkpoints(id) ON DELETE SET NULL,
+        provider_call_count INTEGER NOT NULL DEFAULT 0,
+        start_fill_ratio REAL,
+        end_fill_ratio REAL,
+        close_reason TEXT,
+        started_at TEXT NOT NULL,
+        closed_at TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_epochs_run_ordinal
+        ON agent_epochs(task_run_id, ordinal);
+      CREATE INDEX IF NOT EXISTS idx_agent_epochs_run
+        ON agent_epochs(task_run_id, started_at ASC);
+
+      -- Nullable association columns and checkpoint CHECK rebuild are handled
+      -- by DatabaseService.ensureTaskRunRuntimeTables() so v35 stays idempotent
+      -- on fresh databases whose SCHEMA_SQL already includes the latest shape.
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_agent_epochs_run;
+      DROP INDEX IF EXISTS idx_agent_epochs_run_ordinal;
+      DROP TABLE IF EXISTS agent_epochs;
+      DROP INDEX IF EXISTS idx_agent_task_runs_status;
+      DROP INDEX IF EXISTS idx_agent_task_runs_session;
+      DROP TABLE IF EXISTS agent_task_runs;
+      -- SQLite cannot DROP COLUMN reliably; nullable association columns are left in place.
     `
   }
 ]

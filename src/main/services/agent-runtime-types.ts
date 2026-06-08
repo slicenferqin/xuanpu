@@ -1,4 +1,6 @@
 import type { BrowserWindow } from 'electron'
+import type { TaskRunAutonomy } from '@shared/types/agent-task-run'
+import type { XuanpuAgentModelRef } from './xuanpu-agent/model-config'
 
 export type AgentRuntimeId = 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
 
@@ -35,6 +37,10 @@ export interface PromptOptions {
   goalObjective?: string
   /** Main-process internal message before Field Context injection. */
   originalMessage?: AgentPromptMessage
+  /** xuanpu-agent task-run autonomy. Defaults to short when omitted. */
+  taskRunAutonomy?: TaskRunAutonomy
+  /** xuanpu-agent internal continuation target. Renderer should only pass values from durable pending messages. */
+  taskRunId?: string
 }
 
 export interface AgentRuntimeAdapter {
@@ -61,14 +67,14 @@ export interface AgentRuntimeAdapter {
     worktreePath: string,
     agentSessionId: string,
     message: AgentPromptMessage,
-    modelOverride?: { providerID: string; modelID: string; variant?: string },
+    modelOverride?: XuanpuAgentModelRef,
     options?: PromptOptions
   ): Promise<void>
   steer?(
     worktreePath: string,
     agentSessionId: string,
     message: AgentPromptMessage,
-    modelOverride?: { providerID: string; modelID: string; variant?: string },
+    modelOverride?: XuanpuAgentModelRef,
     options?: PromptOptions
   ): Promise<void>
   abort(worktreePath: string, agentSessionId: string): Promise<boolean>
@@ -89,7 +95,7 @@ export interface AgentRuntimeAdapter {
     limit: { context: number; input?: number; output: number }
     supportsFastMode?: boolean
   } | null>
-  setSelectedModel(model: { providerID: string; modelID: string; variant?: string }): void
+  setSelectedModel(model: XuanpuAgentModelRef): void
   /**
    * Clear the globally-selected model override. Optional because only OpenCode
    * tracks a global model; other agents select per-prompt and treat this as a

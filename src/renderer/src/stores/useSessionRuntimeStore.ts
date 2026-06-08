@@ -44,6 +44,8 @@ export interface PendingMessagePromptOptions {
   mode?: 'build' | 'plan'
   goalMode?: boolean
   successCriteria?: string
+  taskRunAutonomy?: 'short' | 'long' | 'overnight'
+  taskRunId?: string
 }
 
 export interface PendingMessageModelSnapshot {

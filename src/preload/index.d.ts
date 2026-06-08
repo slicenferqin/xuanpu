@@ -29,6 +29,49 @@ interface ConnectionWithMembers extends Connection {
   })[]
 }
 
+type XuanpuAgentModelRef = {
+  providerID: string
+  modelID: string
+  variant?: string
+  reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high'
+  verbosity?: 'low' | 'medium' | 'high'
+  providerOptions?: Record<string, unknown>
+}
+
+type XuanpuAgentTaskRun = {
+  id: string
+  sessionId: string
+  worktreeId: string | null
+  projectId: string
+  originMessageId: string | null
+  status: 'running' | 'paused' | 'completed' | 'failed' | 'aborted'
+  autonomy: 'short' | 'long' | 'overnight'
+  objective: string | null
+  leaseExpiresAt: string | null
+  totalInputTokens: number
+  totalOutputTokens: number
+  totalCost: number
+  epochCount: number
+  startedAt: string
+  completedAt: string | null
+  errorMessage: string | null
+}
+
+type XuanpuAgentEpoch = {
+  id: string
+  taskRunId: string
+  sessionId: string
+  ordinal: number
+  status: 'running' | 'checkpointed' | 'compacted' | 'closed' | 'failed'
+  checkpointId: string | null
+  providerCallCount: number
+  startFillRatio: number | null
+  endFillRatio: number | null
+  closeReason: 'checkpoint' | 'compact' | 'watchdog' | 'turn_end' | null
+  startedAt: string
+  closedAt: string | null
+}
+
 interface Project {
   id: string
   name: string
@@ -628,11 +671,7 @@ declare global {
         xuanpuAgent: boolean
       }>
       getXuanpuAgentRuntimeStatus: (
-        modelOverride?: {
-          providerID: string
-          modelID: string
-          variant?: string
-        } | null
+        modelOverride?: XuanpuAgentModelRef | null
       ) => Promise<XuanpuAgentRuntimeStatus>
       setKeepAwakeEnabled: (enabled: boolean) => Promise<{ success: boolean }>
       setSessionQueuedState: (sessionId: string, queued: boolean) => Promise<{ success: boolean }>
@@ -725,12 +764,14 @@ declare global {
         worktreePath: string,
         sessionId: string,
         messageOrParts: string | MessagePart[],
-        model?: { providerID: string; modelID: string; variant?: string },
+        model?: XuanpuAgentModelRef,
         options?: {
           codexFastMode?: boolean
           mode?: 'build' | 'plan'
           goalMode?: boolean
           successCriteria?: string
+          taskRunAutonomy?: 'short' | 'long' | 'overnight'
+          taskRunId?: string
         }
       ) => Promise<import('../shared/types/agent-ipc').AgentIpcResult>
       // Abort a streaming session
@@ -851,7 +892,7 @@ declare global {
         sessionId: string,
         command: string,
         args: string,
-        model?: { providerID: string; modelID: string; variant?: string }
+        model?: XuanpuAgentModelRef
       ) => Promise<import('../shared/types/agent-ipc').AgentIpcResult>
       // List available slash commands from the SDK
       commands: (
@@ -862,7 +903,7 @@ declare global {
         worktreePath: string,
         sessionId: string,
         messageOrParts: string | MessagePart[],
-        model?: { providerID: string; modelID: string; variant?: string },
+        model?: XuanpuAgentModelRef,
         options?: { codexFastMode?: boolean }
       ) => Promise<import('../shared/types/agent-ipc').AgentIpcResult>
       // Rename a session's title via the agent PATCH API
@@ -1551,6 +1592,20 @@ declare global {
         totalAfterBytes: number
         sectionStats: { included: number; omitted: number }
       } | null>
+    }
+    xuanpuAgentOps: {
+      listTaskRuns: (sessionId: string) => Promise<XuanpuAgentTaskRun[]>
+      listEpochs: (taskRunId: string) => Promise<XuanpuAgentEpoch[]>
+      pauseTaskRun: (taskRunId: string) => Promise<{
+        success: boolean
+        taskRun?: XuanpuAgentTaskRun | null
+        error?: string
+      }>
+      resumeTaskRun: (taskRunId: string) => Promise<{
+        success: boolean
+        taskRun?: XuanpuAgentTaskRun | null
+        error?: string
+      }>
     }
     fieldOps: {
       reportWorktreeSwitch: (

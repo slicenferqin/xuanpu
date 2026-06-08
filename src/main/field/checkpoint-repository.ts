@@ -10,6 +10,9 @@
  */
 import { getDatabase } from '../db'
 
+export type CheckpointSource = 'abort' | 'shutdown' | 'epoch'
+export type CheckpointPurpose = 'resume' | 'task-epoch'
+
 export interface CheckpointRecord {
   id: string
   createdAt: number
@@ -17,7 +20,7 @@ export interface CheckpointRecord {
   sessionId: string
   branch: string | null
   repoHead: string | null
-  source: 'abort' | 'shutdown'
+  source: CheckpointSource
   summary: string
   currentGoal: string | null
   nextAction: string | null
@@ -26,6 +29,9 @@ export interface CheckpointRecord {
   /** path -> sha1 hex; null entries mean digest could not be computed */
   hotFileDigests: Record<string, string | null> | null
   packetHash: string
+  epochId?: string | null
+  taskRunId?: string | null
+  checkpointPurpose?: CheckpointPurpose
 }
 
 interface Row {
@@ -35,7 +41,7 @@ interface Row {
   session_id: string
   branch: string | null
   repo_head: string | null
-  source: 'abort' | 'shutdown'
+  source: CheckpointSource
   summary: string
   current_goal: string | null
   next_action: string | null
@@ -43,6 +49,9 @@ interface Row {
   hot_files_json: string
   hot_file_digests_json: string | null
   packet_hash: string
+  epoch_id?: string | null
+  task_run_id?: string | null
+  checkpoint_purpose?: CheckpointPurpose | null
 }
 
 function rowToRecord(row: Row): CheckpointRecord {
@@ -80,7 +89,10 @@ function rowToRecord(row: Row): CheckpointRecord {
     blockingReason: row.blocking_reason,
     hotFiles,
     hotFileDigests,
-    packetHash: row.packet_hash
+    packetHash: row.packet_hash,
+    epochId: row.epoch_id ?? null,
+    taskRunId: row.task_run_id ?? null,
+    checkpointPurpose: row.checkpoint_purpose ?? 'resume'
   }
 }
 
@@ -95,8 +107,8 @@ export function insertCheckpoint(record: CheckpointRecord): boolean {
       branch, repo_head, source,
       summary, current_goal, next_action, blocking_reason,
       hot_files_json, hot_file_digests_json,
-      packet_hash
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      packet_hash, epoch_id, task_run_id, checkpoint_purpose
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `
   const result = getDatabase()
     .getDbHandle()
@@ -115,14 +127,18 @@ export function insertCheckpoint(record: CheckpointRecord): boolean {
       record.blockingReason,
       JSON.stringify(record.hotFiles),
       record.hotFileDigests ? JSON.stringify(record.hotFileDigests) : null,
-      record.packetHash
+      record.packetHash,
+      record.epochId ?? null,
+      record.taskRunId ?? null,
+      record.checkpointPurpose ?? (record.source === 'epoch' ? 'task-epoch' : 'resume')
     )
   return result.changes > 0
 }
 
 /**
  * Latest checkpoint for a worktree, or null if none. Verifier's read-only
- * entry point.
+ * entry point. Task-epoch checkpoints are intentionally excluded so they do
+ * not shadow abort/shutdown resume checkpoints.
  */
 export function getLatestCheckpoint(worktreeId: string): CheckpointRecord | null {
   const sql = `
@@ -130,13 +146,31 @@ export function getLatestCheckpoint(worktreeId: string): CheckpointRecord | null
            branch, repo_head, source,
            summary, current_goal, next_action, blocking_reason,
            hot_files_json, hot_file_digests_json,
-           packet_hash
+           packet_hash, epoch_id, task_run_id, checkpoint_purpose
       FROM field_session_checkpoints
      WHERE worktree_id = ?
+       AND COALESCE(checkpoint_purpose, 'resume') = 'resume'
      ORDER BY created_at DESC
      LIMIT 1
   `
   const row = getDatabase().getDbHandle().prepare(sql).get(worktreeId) as Row | undefined
+  return row ? rowToRecord(row) : null
+}
+
+export function getLatestEpochCheckpoint(taskRunId: string): CheckpointRecord | null {
+  const sql = `
+    SELECT id, created_at, worktree_id, session_id,
+           branch, repo_head, source,
+           summary, current_goal, next_action, blocking_reason,
+           hot_files_json, hot_file_digests_json,
+           packet_hash, epoch_id, task_run_id, checkpoint_purpose
+      FROM field_session_checkpoints
+     WHERE task_run_id = ?
+       AND COALESCE(checkpoint_purpose, 'resume') = 'task-epoch'
+     ORDER BY created_at DESC
+     LIMIT 1
+  `
+  const row = getDatabase().getDbHandle().prepare(sql).get(taskRunId) as Row | undefined
   return row ? rowToRecord(row) : null
 }
 

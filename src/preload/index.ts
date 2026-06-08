@@ -15,6 +15,49 @@ type PreloadMessagePart =
   | { type: 'text'; text: string }
   | { type: 'file'; mime: string; url: string; filename?: string }
 
+type XuanpuAgentModelRef = {
+  providerID: string
+  modelID: string
+  variant?: string
+  reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high'
+  verbosity?: 'low' | 'medium' | 'high'
+  providerOptions?: Record<string, unknown>
+}
+
+type XuanpuAgentTaskRun = {
+  id: string
+  sessionId: string
+  worktreeId: string | null
+  projectId: string
+  originMessageId: string | null
+  status: 'running' | 'paused' | 'completed' | 'failed' | 'aborted'
+  autonomy: 'short' | 'long' | 'overnight'
+  objective: string | null
+  leaseExpiresAt: string | null
+  totalInputTokens: number
+  totalOutputTokens: number
+  totalCost: number
+  epochCount: number
+  startedAt: string
+  completedAt: string | null
+  errorMessage: string | null
+}
+
+type XuanpuAgentEpoch = {
+  id: string
+  taskRunId: string
+  sessionId: string
+  ordinal: number
+  status: 'running' | 'checkpointed' | 'compacted' | 'closed' | 'failed'
+  checkpointId: string | null
+  providerCallCount: number
+  startFillRatio: number | null
+  endFillRatio: number | null
+  closeReason: 'checkpoint' | 'compact' | 'watchdog' | 'turn_end' | null
+  startedAt: string
+  closedAt: string | null
+}
+
 // Apply persisted UI zoom level from localStorage before first paint to avoid flash.
 // Ghostty's getContainerRect() has visualViewport.scale compensation for non-100% zoom.
 try {
@@ -519,13 +562,7 @@ const systemOps = {
     xuanpuAgent: boolean
   }> => ipcRenderer.invoke('system:detectAgentRuntimes'),
 
-  getXuanpuAgentRuntimeStatus: (
-    modelOverride?: {
-      providerID: string
-      modelID: string
-      variant?: string
-    } | null
-  ): Promise<unknown> =>
+  getXuanpuAgentRuntimeStatus: (modelOverride?: XuanpuAgentModelRef | null): Promise<unknown> =>
     ipcRenderer.invoke('system:getXuanpuAgentRuntimeStatus', modelOverride ?? null),
 
   setKeepAwakeEnabled: (enabled: boolean): Promise<{ success: boolean }> =>
@@ -1296,12 +1333,14 @@ const agentOps = {
           | { type: 'text'; text: string }
           | { type: 'file'; mime: string; url: string; filename?: string }
         >,
-    model?: { providerID: string; modelID: string; variant?: string },
+    model?: XuanpuAgentModelRef,
     options?: {
       codexFastMode?: boolean
       mode?: 'build' | 'plan'
       goalMode?: boolean
       successCriteria?: string
+      taskRunAutonomy?: 'short' | 'long' | 'overnight'
+      taskRunId?: string
     }
   ): Promise<{ success: boolean; error?: string }> => {
     const parts =
@@ -1377,7 +1416,7 @@ const agentOps = {
     worktreePath: string,
     sessionId: string,
     messageOrParts: string | PreloadMessagePart[],
-    model?: { providerID: string; modelID: string; variant?: string },
+    model?: XuanpuAgentModelRef,
     options?: { codexFastMode?: boolean }
   ): Promise<{ success: boolean; error?: string; errorCode?: string }> =>
     ipcRenderer.invoke('agent:steer', worktreePath, sessionId, messageOrParts, model, options),
@@ -1480,7 +1519,7 @@ const agentOps = {
     sessionId: string,
     command: string,
     args: string,
-    model?: { providerID: string; modelID: string; variant?: string }
+    model?: XuanpuAgentModelRef
   ): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('agent:command', {
       worktreePath,
@@ -2243,6 +2282,25 @@ const budgetOps = {
     > | null>
 }
 
+const xuanpuAgentOps = {
+  listTaskRuns: (sessionId: string) =>
+    ipcRenderer.invoke('xuanpu-agent:listTaskRuns', sessionId) as Promise<XuanpuAgentTaskRun[]>,
+  listEpochs: (taskRunId: string) =>
+    ipcRenderer.invoke('xuanpu-agent:listEpochs', taskRunId) as Promise<XuanpuAgentEpoch[]>,
+  pauseTaskRun: (taskRunId: string) =>
+    ipcRenderer.invoke('xuanpu-agent:pauseTaskRun', taskRunId) as Promise<{
+      success: boolean
+      taskRun?: XuanpuAgentTaskRun | null
+      error?: string
+    }>,
+  resumeTaskRun: (taskRunId: string) =>
+    ipcRenderer.invoke('xuanpu-agent:resumeTaskRun', taskRunId) as Promise<{
+      success: boolean
+      taskRun?: XuanpuAgentTaskRun | null
+      error?: string
+    }>
+}
+
 // Hub mode (#34): mobile / remote-control over Claude Code sessions.
 // All channels prefix `hub:`; events are pushed via webContents.send.
 const hubOps = {
@@ -2296,6 +2354,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('skillOps', skillOps)
     contextBridge.exposeInMainWorld('fieldOps', fieldOps)
     contextBridge.exposeInMainWorld('budgetOps', budgetOps)
+    contextBridge.exposeInMainWorld('xuanpuAgentOps', xuanpuAgentOps)
     contextBridge.exposeInMainWorld('hubOps', hubOps)
     contextBridge.exposeInMainWorld('voiceOps', voiceOps)
   } catch (error) {

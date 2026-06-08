@@ -49,6 +49,33 @@ const turnRepoMock = vi.hoisted(() => ({
 
 vi.mock('../../src/main/db/turn-repository', () => turnRepoMock)
 
+const taskRunRepoMock = vi.hoisted(() => ({
+  createTaskRun: vi.fn(() => ({ id: 'task-run-test-1' })),
+  getTaskRun: vi.fn(() => null),
+  appendEpoch: vi.fn(() => ({ id: 'epoch-test-1' })),
+  updateEpochStartFillRatio: vi.fn(),
+  incrementEpochProviderCallCount: vi.fn(),
+  closeEpoch: vi.fn(),
+  updateTaskRunStatus: vi.fn(),
+  accumulateUsage: vi.fn(),
+  renewLease: vi.fn()
+}))
+
+vi.mock('../../src/main/db/task-run-repository', () => taskRunRepoMock)
+
+const checkpointRuntimeMocks = vi.hoisted(() => ({
+  generateCheckpoint: vi.fn(async () => null),
+  insertCheckpoint: vi.fn(() => true)
+}))
+
+vi.mock('../../src/main/field/checkpoint-generator', () => ({
+  generateCheckpoint: checkpointRuntimeMocks.generateCheckpoint
+}))
+
+vi.mock('../../src/main/field/checkpoint-repository', () => ({
+  insertCheckpoint: checkpointRuntimeMocks.insertCheckpoint
+}))
+
 vi.mock('../../src/main/field/episode-block-repository', () => ({
   listFieldEpisodeBlocks: vi.fn(() => [])
 }))
@@ -82,6 +109,7 @@ const mockFieldProvider = {
     context: 'test project',
     projectId: 'p-1'
   })),
+  getSession: vi.fn(() => ({ id: 'session-1', projectId: 'p-1' })),
   getPriorTurns: vi.fn(() => [
     { messageId: 'msg-1', role: 'user' as const, content: 'first question', createdAt: 1000 },
     { messageId: 'msg-2', role: 'assistant' as const, content: 'first answer', createdAt: 2000 },
@@ -151,6 +179,10 @@ const mockPiSession = {
   setBudgetProfile: vi.fn(),
   recordBudgetSections: vi.fn(),
   configureCompression: vi.fn(),
+  setOnBeforeYield: vi.fn(),
+  setFollowUpMode: vi.fn(),
+  followUp: vi.fn(() => true),
+  hasQueuedMessages: vi.fn(() => false),
   abort: vi.fn(),
   setPlanModeTools: vi.fn(),
   setBuildModeTools: vi.fn(),
@@ -186,6 +218,13 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     capturedEmittedEvents.length = 0
     capturedUsageEntries.length = 0
     capturedActivities.length = 0
+    mockPiSession.hasQueuedMessages.mockReturnValue(false)
+    mockPiSession.followUp.mockReturnValue(true)
+    taskRunRepoMock.getTaskRun.mockReturnValue(null)
+    taskRunRepoMock.createTaskRun.mockReturnValue({ id: 'task-run-test-1' })
+    taskRunRepoMock.appendEpoch.mockReturnValue({ id: 'epoch-test-1' })
+    checkpointRuntimeMocks.generateCheckpoint.mockResolvedValue(null)
+    checkpointRuntimeMocks.insertCheckpoint.mockReturnValue(true)
     packContextMock.mockReturnValue({
       providerContextMessages: [
         {
@@ -216,7 +255,9 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
         },
         totalTokens: 100,
         fillRatio: 0.01,
-        prefixHash: 'abc123'
+        prefixHash: 'abc123',
+        actualPrefixHash: 'abc123',
+        prefixChangeReason: 'none'
       }
     })
   })
@@ -271,9 +312,9 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     expect(packContextMock).toHaveBeenCalled()
     const packInput = packContextMock.mock.calls[0][0]
 
-    // Verify anchor contains XFP packet
-    expect(packInput.anchor).toContain('<xuanpu-xfp-packet')
-    expect(packInput.anchor).toContain('test-packet')
+    // Verify stable anchor excludes volatile packet body.
+    expect(packInput.anchor).toContain('<xuanpu-xfp-anchor')
+    expect(packInput.anchor).not.toContain('test-packet')
 
     // Verify working set has prior turns (after freeze re-read)
     expect(packInput.workingSet).toBeDefined()
@@ -354,46 +395,35 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     ])
   })
 
-  it('re-reads prior turns after freeze (not using stale data)', async () => {
+  it('does not pre-flight freeze before packing stable prefix', async () => {
     const { XuanpuAgentImplementer } =
       await import('../../src/main/services/xuanpu-agent-implementer')
     const implementer = new XuanpuAgentImplementer()
     implementer.setDatabaseService({
       getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
-      getSetting: vi.fn(() => null)
+      getSetting: vi.fn(() => null),
+      getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' }))
     } as unknown as DatabaseService)
 
-    // First call returns 10 turns, second call (after freeze) returns 8
-    mockFieldProvider.getPriorTurns
-      .mockReturnValueOnce([
-        ...Array.from({ length: 10 }, (_, i) => ({
-          messageId: `msg-${i}`,
-          role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
-          content: `turn ${i}`,
-          createdAt: i * 1000
-        }))
-      ])
-      .mockReturnValueOnce([
-        ...Array.from({ length: 8 }, (_, i) => ({
-          messageId: `msg-${i}`,
-          role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
-          content: `turn ${i}`,
-          createdAt: i * 1000
-        }))
-      ])
+    mockFieldProvider.getPriorTurns.mockReturnValueOnce([
+      ...Array.from({ length: 10 }, (_, i) => ({
+        messageId: `msg-${i}`,
+        role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
+        content: `turn ${i}`,
+        createdAt: i * 1000
+      }))
+    ])
 
     const { sessionId } = await implementer.connect('/repo', 'session-1')
     await implementer.prompt('/repo', sessionId, 'continue')
 
-    // packContext should receive the re-read turns (8), not the stale ones (10)
     const packInput = packContextMock.mock.calls[0][0]
-    expect(packInput.workingSet.length).toBe(8)
-
-    // getPriorTurns should be called twice: once before freeze, once after
-    expect(mockFieldProvider.getPriorTurns).toHaveBeenCalledTimes(2)
+    expect(packInput.workingSet.length).toBe(10)
+    expect(mockFieldProvider.freezeEpisodes).not.toHaveBeenCalled()
+    expect(mockFieldProvider.getPriorTurns).toHaveBeenCalledTimes(1)
   })
 
-  it('prefixSeed is stable across turns despite different packetId and capturedAt', async () => {
+  it('stable anchor is unchanged across turns despite different packetId and capturedAt', async () => {
     // Make compiler return different packetId/capturedAt on each call
     let compileCallCount = 0
     const { XfpPacketCompiler } =
@@ -427,25 +457,23 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     const implementer = new XuanpuAgentImplementer()
     implementer.setDatabaseService({
       getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
-      getSetting: vi.fn(() => null)
+      getSetting: vi.fn(() => null),
+      getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' }))
     } as unknown as DatabaseService)
 
     const { sessionId } = await implementer.connect('/repo', 'session-1')
 
     // First turn
     await implementer.prompt('/repo', sessionId, 'first request')
-    const firstPrefixSeed = packContextMock.mock.calls[0][0].prefixSeed
+    const firstAnchor = packContextMock.mock.calls[0][0].anchor
 
     // Second turn — different packetId and capturedAt
     await implementer.prompt('/repo', sessionId, 'second request')
-    const secondPrefixSeed = packContextMock.mock.calls[1][0].prefixSeed
+    const secondAnchor = packContextMock.mock.calls[1][0].anchor
 
-    // prefixSeed must be identical despite different packetId/capturedAt
-    expect(firstPrefixSeed).toBe(secondPrefixSeed)
-    // prefixSeed must NOT contain the packetId
-    expect(firstPrefixSeed).not.toContain('test-packet-')
-    // prefixSeed should still contain version
-    expect(firstPrefixSeed).toContain('version="1.0"')
+    expect(firstAnchor).toBe(secondAnchor)
+    expect(firstAnchor).not.toContain('test-packet-')
+    expect(firstAnchor).toContain('version="1.0"')
   })
 
   it('emits session.context_usage after prompt with packer breakdown', async () => {
@@ -641,6 +669,307 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
       output: 'On branch main',
       status: 'completed'
     })
+  })
+
+  it('queues an in-epoch follow-up for long task runs before yielding', async () => {
+    mockPiSession.prompt.mockImplementationOnce(
+      async (messages: unknown[], _modelRef: unknown, handlers?: Record<string, unknown>) => {
+        capturedPromptMessages = messages as unknown[]
+        const onProviderCall = handlers?.onProviderCall as
+          | ((event: Record<string, unknown>, meta: Record<string, unknown>) => void)
+          | undefined
+        onProviderCall?.(
+          {
+            providerCallSeq: 0,
+            usage: { input: 10, output: 5 },
+            providerID: 'anthropic',
+            modelID: 'claude-sonnet-4-6',
+            actualPrefixHash: 'abc123',
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0
+          },
+          { turnId: 'turn-test-1' }
+        )
+
+        const beforeYield = mockPiSession.setOnBeforeYield.mock.calls.at(-1)?.[0] as
+          | (() => Promise<void>)
+          | undefined
+        await beforeYield?.()
+
+        return {
+          messageId: 'resp-1',
+          text: 'partial progress',
+          modelRef: { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
+          usage: { input: 10, output: 5 },
+          rawMessage: null,
+          harnessMetrics: null,
+          turnId: 'turn-test-1'
+        }
+      }
+    )
+
+    const { XuanpuAgentImplementer } =
+      await import('../../src/main/services/xuanpu-agent-implementer')
+    const implementer = new XuanpuAgentImplementer()
+    implementer.setDatabaseService({
+      getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
+      getSetting: vi.fn(() => null),
+      getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' })),
+      upsertUsageEntry: vi.fn()
+    } as unknown as DatabaseService)
+
+    const { sessionId } = await implementer.connect('/repo', 'session-1')
+    await implementer.prompt('/repo', sessionId, 'continue for a while', undefined, {
+      taskRunAutonomy: 'long'
+    })
+
+    expect(mockPiSession.setFollowUpMode).toHaveBeenCalledWith('one-at-a-time')
+    expect(mockPiSession.followUp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: 'user',
+        content: [expect.objectContaining({ text: expect.stringContaining('same-epoch') })]
+      })
+    )
+  })
+
+  it('infers long task-run autonomy from prompt text when options omit it', async () => {
+    const { XuanpuAgentImplementer } =
+      await import('../../src/main/services/xuanpu-agent-implementer')
+    const implementer = new XuanpuAgentImplementer()
+    implementer.setDatabaseService({
+      getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
+      getSetting: vi.fn(() => null),
+      getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' })),
+      upsertUsageEntry: vi.fn()
+    } as unknown as DatabaseService)
+
+    const { sessionId } = await implementer.connect('/repo', 'session-1')
+    await implementer.prompt(
+      '/repo',
+      sessionId,
+      '请按 long task run 执行一次分阶段审计',
+      undefined,
+      {
+        mode: 'build'
+      }
+    )
+
+    expect(taskRunRepoMock.createTaskRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        autonomy: 'long',
+        leaseExpiresAt: expect.any(String)
+      }),
+      expect.anything()
+    )
+  })
+
+  it('closes and checkpoints an epoch boundary, then queues the next epoch continuation', async () => {
+    const createSessionPendingMessage = vi.fn()
+    mockPiSession.prompt.mockImplementationOnce(
+      async (messages: unknown[], _modelRef: unknown, handlers?: Record<string, unknown>) => {
+        capturedPromptMessages = messages as unknown[]
+        const onProviderCall = handlers?.onProviderCall as
+          | ((event: Record<string, unknown>, meta: Record<string, unknown>) => void)
+          | undefined
+        for (let index = 0; index < 12; index++) {
+          onProviderCall?.(
+            {
+              providerCallSeq: index,
+              usage: { input: 10, output: 5 },
+              providerID: 'anthropic',
+              modelID: 'claude-sonnet-4-6',
+              actualPrefixHash: 'abc123',
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0
+            },
+            { turnId: 'turn-test-1' }
+          )
+        }
+
+        const beforeYield = mockPiSession.setOnBeforeYield.mock.calls.at(-1)?.[0] as
+          | (() => Promise<void>)
+          | undefined
+        await beforeYield?.()
+
+        return {
+          messageId: 'resp-1',
+          text: 'checkpoint progress',
+          modelRef: { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
+          usage: { input: 10, output: 5 },
+          rawMessage: null,
+          harnessMetrics: null,
+          turnId: 'turn-test-1'
+        }
+      }
+    )
+
+    const { XuanpuAgentImplementer } =
+      await import('../../src/main/services/xuanpu-agent-implementer')
+    const implementer = new XuanpuAgentImplementer()
+    implementer.setDatabaseService({
+      getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
+      getSetting: vi.fn(() => null),
+      getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' })),
+      upsertUsageEntry: vi.fn(),
+      createSessionPendingMessage
+    } as unknown as DatabaseService)
+
+    const { sessionId } = await implementer.connect('/repo', 'session-1')
+    await implementer.prompt('/repo', sessionId, 'long implementation task', undefined, {
+      taskRunAutonomy: 'long'
+    })
+
+    expect(checkpointRuntimeMocks.insertCheckpoint).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: 'epoch',
+        taskRunId: 'task-run-test-1',
+        epochId: 'epoch-test-1',
+        checkpointPurpose: 'task-epoch'
+      })
+    )
+    expect(taskRunRepoMock.closeEpoch).toHaveBeenCalledWith(
+      'epoch-test-1',
+      expect.objectContaining({
+        status: 'checkpointed',
+        closeReason: 'checkpoint'
+      }),
+      expect.anything()
+    )
+    expect(createSessionPendingMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        session_id: 'session-1',
+        runtime_id: 'xuanpu-agent',
+        prompt_options_json: expect.stringContaining('task-run-test-1')
+      })
+    )
+    expect(
+      taskRunRepoMock.updateTaskRunStatus.mock.calls.some(
+        (call) => call[0] === 'task-run-test-1' && call[1] === 'completed'
+      )
+    ).toBe(false)
+  })
+
+  it('queues a next-turn continuation when a long response explicitly says it is incomplete', async () => {
+    const createSessionPendingMessage = vi.fn()
+    mockPiSession.prompt.mockResolvedValueOnce({
+      messageId: 'resp-1',
+      text: '由于本次响应预算已到，我只完成到阶段 2 的文件读取开头，尚未完成 15 阶段。',
+      modelRef: { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
+      usage: { input: 10, output: 5 },
+      rawMessage: null,
+      harnessMetrics: null,
+      turnId: 'turn-test-1'
+    })
+
+    const { XuanpuAgentImplementer } =
+      await import('../../src/main/services/xuanpu-agent-implementer')
+    const implementer = new XuanpuAgentImplementer()
+    implementer.setDatabaseService({
+      getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
+      getSetting: vi.fn(() => null),
+      getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' })),
+      upsertUsageEntry: vi.fn(),
+      createSessionPendingMessage
+    } as unknown as DatabaseService)
+
+    const { sessionId } = await implementer.connect('/repo', 'session-1')
+    await implementer.prompt('/repo', sessionId, 'long staged audit', undefined, {
+      taskRunAutonomy: 'long'
+    })
+
+    expect(taskRunRepoMock.closeEpoch).toHaveBeenCalledWith(
+      'epoch-test-1',
+      expect.objectContaining({
+        status: 'closed',
+        closeReason: 'turn_end'
+      }),
+      expect.anything()
+    )
+    expect(createSessionPendingMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        session_id: 'session-1',
+        runtime_id: 'xuanpu-agent',
+        content: expect.stringContaining('incomplete-response'),
+        prompt_options_json: expect.stringContaining('"taskRunAutonomy":"long"')
+      })
+    )
+    expect(createSessionPendingMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt_options_json: expect.stringContaining('"taskRunId":"task-run-test-1"')
+      })
+    )
+    expect(
+      taskRunRepoMock.updateTaskRunStatus.mock.calls.some(
+        (call) => call[0] === 'task-run-test-1' && call[1] === 'completed'
+      )
+    ).toBe(false)
+  })
+
+  it('completes a long task instead of pausing when no-progress yields contain final completion text', async () => {
+    const createSessionPendingMessage = vi.fn()
+    mockPiSession.prompt.mockImplementationOnce(
+      async (messages: unknown[], _modelRef: unknown, handlers?: Record<string, unknown>) => {
+        capturedPromptMessages = messages as unknown[]
+        const onTextDelta = handlers?.onTextDelta as
+          | ((delta: string, meta: { turnId: string; eventSequence: number }) => void)
+          | undefined
+        onTextDelta?.('任务已完成，不继续新增工作。', {
+          turnId: 'turn-test-1',
+          eventSequence: 1
+        })
+
+        const beforeYield = mockPiSession.setOnBeforeYield.mock.calls.at(-1)?.[0] as
+          | (() => Promise<void>)
+          | undefined
+        for (let index = 0; index < 5; index++) {
+          await beforeYield?.()
+        }
+
+        return {
+          messageId: 'resp-1',
+          text: '任务已完成，不继续新增工作。最终简要汇总：已完成审计。',
+          modelRef: { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
+          usage: { input: 10, output: 5 },
+          rawMessage: null,
+          harnessMetrics: null,
+          turnId: 'turn-test-1'
+        }
+      }
+    )
+
+    const { XuanpuAgentImplementer } =
+      await import('../../src/main/services/xuanpu-agent-implementer')
+    const implementer = new XuanpuAgentImplementer()
+    implementer.setDatabaseService({
+      getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
+      getSetting: vi.fn(() => null),
+      getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' })),
+      upsertUsageEntry: vi.fn(),
+      createSessionPendingMessage
+    } as unknown as DatabaseService)
+
+    const { sessionId } = await implementer.connect('/repo', 'session-1')
+    await implementer.prompt('/repo', sessionId, 'long staged audit', undefined, {
+      taskRunAutonomy: 'long'
+    })
+
+    expect(
+      taskRunRepoMock.updateTaskRunStatus.mock.calls.some((call) => call[1] === 'paused')
+    ).toBe(false)
+    expect(taskRunRepoMock.closeEpoch).toHaveBeenCalledWith(
+      'epoch-test-1',
+      expect.objectContaining({
+        status: 'closed',
+        closeReason: 'turn_end'
+      }),
+      expect.anything()
+    )
+    expect(
+      taskRunRepoMock.updateTaskRunStatus.mock.calls.some(
+        (call) => call[0] === 'task-run-test-1' && call[1] === 'completed'
+      )
+    ).toBe(true)
+    expect(createSessionPendingMessage).not.toHaveBeenCalled()
   })
 
   it('treats abort on an already idle xuanpu-agent session as successful', async () => {

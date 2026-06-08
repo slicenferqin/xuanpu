@@ -26,6 +26,7 @@ import React, {
 import { AgentTimeline } from './AgentTimeline'
 import { InterruptDock } from './InterruptDock'
 import { ComposerBar } from './ComposerBar'
+import { XuanpuAgentTaskRunPanel } from './XuanpuAgentTaskRunPanel'
 import { FieldContextDebug } from '@/components/sessions/FieldContextDebug'
 import { MemoryPanel } from '@/components/sessions/MemoryPanel'
 import { ContextBudgetDebugger } from '@/components/sessions/ContextBudgetDebugger'
@@ -148,6 +149,8 @@ type RendererPromptOptions = {
   mode?: 'build' | 'plan'
   goalMode?: boolean
   successCriteria?: string
+  taskRunAutonomy?: 'short' | 'long' | 'overnight'
+  taskRunId?: string
 }
 
 export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Element {
@@ -461,6 +464,7 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     sessionId,
     worktreePath,
     runtimeSessionId: droidSessionId,
+    agentSdk,
     mode,
     requestModel,
     buildPendingPromptOptions,
@@ -642,6 +646,14 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
 
         <div className="pointer-events-auto">
           <div ref={timelineBottomAreaRef} className="min-h-0">
+            {agentSdk === 'xuanpu-agent' && (
+              <XuanpuAgentTaskRunPanel
+                sessionId={sessionId}
+                lifecycle={lifecycle}
+                pendingCount={pendingCount}
+                onResumeQueued={drainQueuedMessage}
+              />
+            )}
             <InterruptDock
               sessionId={sessionId}
               interrupt={currentInterrupt}

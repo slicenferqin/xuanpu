@@ -19,6 +19,7 @@ import { stat as statAsync, readFile as readFileAsync } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createLogger } from '../services/logger'
 import { getLatestCheckpoint } from './checkpoint-repository'
+import type { CheckpointSource } from './checkpoint-repository'
 import { realGitProbe, type GitProbe } from './checkpoint-generator'
 
 const log = createLogger({ component: 'CheckpointVerifier' })
@@ -42,7 +43,7 @@ const GIT_TIMEOUT_MS = 5_000
 export interface ResumedCheckpointBlock {
   createdAt: number
   ageMinutes: number
-  source: 'abort' | 'shutdown'
+  source: CheckpointSource
   summary: string
   /** Heuristic guess; formatter MUST mark with "(heuristic)" tag */
   currentGoal: string | null

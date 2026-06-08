@@ -26,7 +26,11 @@ import {
 import { buildProviderRequest } from './turn/provider-request-builder'
 import { recordProviderRequestSnapshot } from './turn/provider-request-recorder'
 import type { XuanpuTurnBudget } from './turn/turn-snapshot'
-import { getAgentTurnContextSnapshot, updateAgentTurnContextSnapshot } from '../../db/turn-repository'
+import {
+  getAgentTurnContextSnapshot,
+  updateAgentTurnContextSnapshot
+} from '../../db/turn-repository'
+import { extractUsageTokens } from '../../../shared/usage/message'
 
 interface PiTextContent {
   type: 'text'
@@ -72,6 +76,11 @@ interface PiAgentLike {
   replaceMessages(msgs: XuanpuPiPromptMessage[]): void
   subscribe(listener: (event: PiAgentEvent) => void): () => void
   prompt(input: string | XuanpuPiPromptMessage[]): Promise<void>
+  setThinkingLevel?(effort: string): void
+  setOnBeforeYield?(fn: (() => Promise<void> | void) | undefined): void
+  followUp?(message: XuanpuPiPromptMessage): void
+  setFollowUpMode?(mode: 'all' | 'one-at-a-time'): void
+  hasQueuedMessages?(): boolean
   abort(): void
 }
 
@@ -79,8 +88,18 @@ type PiAgentConstructor = new (options?: Record<string, unknown>) => PiAgentLike
 
 export interface XuanpuAgentPromptEventHandlers {
   onTextDelta?: (delta: string, meta: { turnId?: string; eventSequence: number }) => void
-  onToolStart?: (event: XuanpuAgentToolStartEvent, meta: { turnId?: string; eventSequence: number }) => void
-  onToolEnd?: (event: XuanpuAgentToolEndEvent, meta: { turnId?: string; eventSequence: number }) => void
+  onToolStart?: (
+    event: XuanpuAgentToolStartEvent,
+    meta: { turnId?: string; eventSequence: number }
+  ) => void
+  onToolEnd?: (
+    event: XuanpuAgentToolEndEvent,
+    meta: { turnId?: string; eventSequence: number }
+  ) => void
+  onProviderCall?: (
+    call: XuanpuAgentProviderCallEvent,
+    meta: { turnId?: string; epochId?: string }
+  ) => void
 }
 
 export interface XuanpuAgentToolStartEvent {
@@ -98,6 +117,17 @@ export interface XuanpuAgentToolEndEvent {
   isError: boolean
   startedAt: number
   endedAt: number
+}
+
+export interface XuanpuAgentProviderCallEvent {
+  providerCallSeq: number
+  usage: Record<string, unknown>
+  providerID: string
+  modelID: string
+  reasoningEffort?: string
+  actualPrefixHash: string
+  cacheReadTokens: number
+  cacheWriteTokens: number
 }
 
 export interface XuanpuAgentPromptResult {
@@ -119,6 +149,8 @@ export class XuanpuPiAgentSession {
   private lastModelKey: string | null = null
   private _worktreePath: string | null = null
   private prompting = false
+  private onBeforeYield: (() => Promise<void> | void) | undefined
+  private followUpMode: 'all' | 'one-at-a-time' = 'one-at-a-time'
 
   /** M1.5: 工具调用去重检测。挂载为 beforeToolCall 钩子。 */
   readonly stormDetector = new StormDetector({ windowSize: 5, threshold: 3 })
@@ -171,9 +203,33 @@ export class XuanpuPiAgentSession {
     this.budgetManager.setProfile(profile)
   }
 
+  setMaxContextTokens(maxTokens: number): void {
+    this.budgetManager.setMaxTokens(maxTokens)
+  }
+
   /** M3: Record XFP compiler section decisions for Context Budget UI. */
   recordBudgetSections(included: number, omitted: number): void {
     this.budgetManager.recordSections(included, omitted)
+  }
+
+  setOnBeforeYield(handler: (() => Promise<void> | void) | undefined): void {
+    this.onBeforeYield = handler
+    this.agent?.setOnBeforeYield?.(handler)
+  }
+
+  setFollowUpMode(mode: 'all' | 'one-at-a-time'): void {
+    this.followUpMode = mode
+    this.agent?.setFollowUpMode?.(mode)
+  }
+
+  followUp(message: XuanpuPiPromptMessage): boolean {
+    if (!this.agent?.followUp) return false
+    this.agent.followUp(message)
+    return true
+  }
+
+  hasQueuedMessages(): boolean {
+    return this.agent?.hasQueuedMessages?.() ?? false
   }
 
   async prompt(
@@ -187,7 +243,9 @@ export class XuanpuPiAgentSession {
     xfpPacketId?: string
   ): Promise<XuanpuAgentPromptResult> {
     if (this.prompting) {
-      throw new Error('xuanpu-agent: overlapping prompt() calls are not allowed on the same session')
+      throw new Error(
+        'xuanpu-agent: overlapping prompt() calls are not allowed on the same session'
+      )
     }
     this.prompting = true
     const messageId = `xuanpu-agent-${Date.now()}`
@@ -201,7 +259,11 @@ export class XuanpuPiAgentSession {
 
     // INV-TURN-1: Fresh Agent per turn — no stateful carryover.
     const agent = await this.createAgentForTurn(
-      resolved.modelRef, resolved.model, resolved.streamFn, getApiKey, turnId
+      resolved.modelRef,
+      resolved.model,
+      resolved.streamFn,
+      getApiKey,
+      turnId
     )
 
     // Apply tool mode AFTER agent creation so it's not a no-op on first prompt
@@ -215,10 +277,15 @@ export class XuanpuPiAgentSession {
       const contextMessages = Array.isArray(input) ? input.slice(0, -1) : []
       const promptMessage = Array.isArray(input)
         ? input[input.length - 1]
-        : { role: 'user' as const, content: [{ type: 'text' as const, text: String(input) }], timestamp: Date.now() }
-      const currentTools = toolMode === 'plan'
-        ? [...READ_ONLY_TOOLS, ...XFP_FIELD_TOOLS]
-        : getXuanpuAgentAllowedTools()
+        : {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: String(input) }],
+            timestamp: Date.now()
+          }
+      const currentTools =
+        toolMode === 'plan'
+          ? [...READ_ONLY_TOOLS, ...XFP_FIELD_TOOLS]
+          : getXuanpuAgentAllowedTools()
       const snapshot = buildProviderRequest({
         turnId,
         sessionId: this.hiveSessionId,
@@ -246,6 +313,7 @@ export class XuanpuPiAgentSession {
     const stateMessageCountBeforePrompt = agent.state.messages?.length ?? 0
     const pendingAssistantMessages: PiAssistantMessage[] = []
     const toolNames: string[] = []
+    let providerCallSeq = 0
     const toolStarts = new Map<
       string,
       { toolName: string; args: Record<string, unknown>; startedAt: number }
@@ -268,6 +336,24 @@ export class XuanpuPiAgentSession {
 
       if (event.type === 'message_end' && event.message?.role === 'assistant') {
         pendingAssistantMessages.push(event.message)
+        const usage = event.message.usage
+        if (usage && typeof usage === 'object') {
+          const tokenCounts = extractUsageTokens({ usage })
+          handlers.onProviderCall?.(
+            {
+              providerCallSeq,
+              usage,
+              providerID: event.message.provider ?? resolved.modelRef.providerID,
+              modelID: event.message.model ?? resolved.modelRef.modelID,
+              reasoningEffort: resolved.modelRef.reasoningEffort,
+              actualPrefixHash: snapshotPrefixHash ?? '',
+              cacheReadTokens: tokenCounts?.cacheRead ?? 0,
+              cacheWriteTokens: tokenCounts?.cacheWrite ?? 0
+            },
+            { turnId, epochId: undefined }
+          )
+          providerCallSeq++
+        }
         const nextText = extractText(event.message)
         if (nextText.length > streamedText.length && nextText.startsWith(streamedText)) {
           const delta = nextText.slice(streamedText.length)
@@ -321,73 +407,71 @@ export class XuanpuPiAgentSession {
     })
 
     try {
-    // INV-TURN-3 fix: split context messages from the current prompt.
-    // Context messages are pre-loaded via replaceMessages() so they appear
-    // in agent.state.messages but do NOT get prompt-echoed by agentLoop.
-    // Only the final message (the user's actual prompt) is passed to
-    // agent.prompt(), so only it produces message_start/message_end echo.
-    if (Array.isArray(input) && input.length > 1) {
-      const contextMessages = input.slice(0, -1)
-      const promptMessage = input[input.length - 1]
-      agent.replaceMessages(contextMessages)
-      await agent.prompt(promptMessage)
-    } else {
-      await agent.prompt(input)
-    }
-
-    // INV-TURN-5: If emergency shrink fired, annotate the snapshot so audit
-    // knows the provider saw fewer/pruned messages than the original snapshot.
-    if (turnId && this.budgetManager.state.emergencyShrunk) {
-      try {
-        const existing = getAgentTurnContextSnapshot(turnId)
-        if (existing) {
-          const prevDecisions: Record<string, unknown> =
-            typeof existing.decisionsJson === 'string'
-              ? JSON.parse(existing.decisionsJson)
-              : {}
-          const updatedDecisions = {
-            ...prevDecisions,
-            emergencyShrunk: true,
-            emergencyShrinkFillRatio: this.budgetManager.state.fillRatio,
-            emergencyShrinkEstimatedTokens: this.budgetManager.state.estimatedTokens,
-            emergencyShrinkPrunedMessages: this.budgetManager.state.prunedMessageCount
-          }
-          updateAgentTurnContextSnapshot(turnId, JSON.stringify(updatedDecisions))
-        }
-      } catch {
-        // Best-effort: don't fail the prompt over snapshot annotation.
+      // INV-TURN-3 fix: split context messages from the current prompt.
+      // Context messages are pre-loaded via replaceMessages() so they appear
+      // in agent.state.messages but do NOT get prompt-echoed by agentLoop.
+      // Only the final message (the user's actual prompt) is passed to
+      // agent.prompt(), so only it produces message_start/message_end echo.
+      if (Array.isArray(input) && input.length > 1) {
+        const contextMessages = input.slice(0, -1)
+        const promptMessage = input[input.length - 1]
+        agent.replaceMessages(contextMessages)
+        await agent.prompt(promptMessage)
+      } else {
+        await agent.prompt(input)
       }
-    }
 
-    const turnStateMessages = getNewTurnMessages(
-      agent.state.messages,
-      stateMessageCountBeforePrompt
-    )
-    const message =
-      findLastAssistantMessage(pendingAssistantMessages) ??
-      findLastAssistantMessage(turnStateMessages)
-    const errorMessage = message?.errorMessage ?? agent.state.error
-    if (errorMessage) {
-      throw new Error(errorMessage)
-    }
+      // INV-TURN-5: If emergency shrink fired, annotate the snapshot so audit
+      // knows the provider saw fewer/pruned messages than the original snapshot.
+      if (turnId && this.budgetManager.state.emergencyShrunk) {
+        try {
+          const existing = getAgentTurnContextSnapshot(turnId)
+          if (existing) {
+            const prevDecisions: Record<string, unknown> =
+              typeof existing.decisionsJson === 'string' ? JSON.parse(existing.decisionsJson) : {}
+            const updatedDecisions = {
+              ...prevDecisions,
+              emergencyShrunk: true,
+              emergencyShrinkFillRatio: this.budgetManager.state.fillRatio,
+              emergencyShrinkEstimatedTokens: this.budgetManager.state.estimatedTokens,
+              emergencyShrinkPrunedMessages: this.budgetManager.state.prunedMessageCount
+            }
+            updateAgentTurnContextSnapshot(turnId, JSON.stringify(updatedDecisions))
+          }
+        } catch {
+          // Best-effort: don't fail the prompt over snapshot annotation.
+        }
+      }
 
-    const finalText = extractText(message) || streamedText
-    const harnessMetrics = buildXuanpuAgentHarnessMetrics({
-      usage: message?.usage,
-      toolNames,
-      isParallelSafeTool: isXuanpuAgentParallelSafeTool,
-      budgetState: this.getBudgetState()
-    })
-    return {
-      messageId,
-      text: finalText,
-      modelRef: resolved.modelRef,
-      usage: message?.usage,
-      rawMessage: message ?? undefined,
-      harnessMetrics,
-      snapshotHash,
-      turnId
-    }
+      const turnStateMessages = getNewTurnMessages(
+        agent.state.messages,
+        stateMessageCountBeforePrompt
+      )
+      const message =
+        findLastAssistantMessage(pendingAssistantMessages) ??
+        findLastAssistantMessage(turnStateMessages)
+      const errorMessage = message?.errorMessage ?? agent.state.error
+      if (errorMessage) {
+        throw new Error(errorMessage)
+      }
+
+      const finalText = extractText(message) || streamedText
+      const harnessMetrics = buildXuanpuAgentHarnessMetrics({
+        usage: message?.usage,
+        toolNames,
+        isParallelSafeTool: isXuanpuAgentParallelSafeTool,
+        budgetState: this.getBudgetState()
+      })
+      return {
+        messageId,
+        text: finalText,
+        modelRef: resolved.modelRef,
+        usage: message?.usage,
+        rawMessage: message ?? undefined,
+        harnessMetrics,
+        snapshotHash,
+        turnId
+      }
     } finally {
       // Restore full tool set after plan mode prompt
       if (toolMode === 'plan') {
@@ -461,6 +545,11 @@ export class XuanpuPiAgentSession {
     this.agent.setSystemPrompt(getXuanpuAgentSystemPromptLines())
     this.agent.setTools(tools)
     this.agent.setModel(model)
+    if (modelRef.reasoningEffort) {
+      this.agent.setThinkingLevel?.(modelRef.reasoningEffort)
+    }
+    this.agent.setFollowUpMode?.(this.followUpMode)
+    this.agent.setOnBeforeYield?.(this.onBeforeYield)
     return this.agent
   }
 }

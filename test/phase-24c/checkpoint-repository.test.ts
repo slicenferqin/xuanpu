@@ -11,8 +11,7 @@ vi.mock('@shared/app-identity', () => ({
 }))
 
 vi.mock('../../src/main/db', async () => {
-  const actual =
-    await vi.importActual<typeof import('../../src/main/db')>('../../src/main/db')
+  const actual = await vi.importActual<typeof import('../../src/main/db')>('../../src/main/db')
   return {
     ...actual,
     getDatabase: () => {
@@ -29,6 +28,7 @@ import { DatabaseService } from '../../src/main/db/database'
 import {
   insertCheckpoint,
   getLatestCheckpoint,
+  getLatestEpochCheckpoint,
   deleteCheckpointsForWorktree,
   type CheckpointRecord
 } from '../../src/main/field/checkpoint-repository'
@@ -51,7 +51,10 @@ function makeRecord(overrides: Partial<CheckpointRecord> = {}): CheckpointRecord
     blockingReason: null,
     hotFiles: ['src/auth/refresh.ts', 'src/auth/index.ts'],
     hotFileDigests: { 'src/auth/refresh.ts': 'sha1aaa', 'src/auth/index.ts': 'sha1bbb' },
-    packetHash: 'hash-1'
+    packetHash: 'hash-1',
+    epochId: null,
+    taskRunId: null,
+    checkpointPurpose: 'resume'
   }
   return { ...base, ...overrides }
 }
@@ -101,6 +104,28 @@ describe('checkpoint-repository (Phase 24C)', () => {
       insertCheckpoint(makeRecord({ hotFiles: [] }))
       expect(getLatestCheckpoint('w-1')?.hotFiles).toEqual([])
     })
+
+    it('stores epoch checkpoints as task-epoch by default', () => {
+      insertCheckpoint(
+        makeRecord({
+          id: 'ck-epoch',
+          source: 'epoch',
+          packetHash: 'h-epoch',
+          epochId: 'epoch-1',
+          taskRunId: 'task-run-1',
+          checkpointPurpose: undefined
+        })
+      )
+
+      expect(getLatestCheckpoint('w-1')).toBeNull()
+      expect(getLatestEpochCheckpoint('task-run-1')).toMatchObject({
+        id: 'ck-epoch',
+        source: 'epoch',
+        epochId: 'epoch-1',
+        taskRunId: 'task-run-1',
+        checkpointPurpose: 'task-epoch'
+      })
+    })
   })
 
   describe('idempotency', () => {
@@ -135,19 +160,33 @@ describe('checkpoint-repository (Phase 24C)', () => {
     it('returns the row with greatest created_at, not insertion order', () => {
       insertCheckpoint(makeRecord({ id: 'ck-old', packetHash: 'h-old', createdAt: 5000 }))
       insertCheckpoint(makeRecord({ id: 'ck-new', packetHash: 'h-new', createdAt: 9000 }))
-      insertCheckpoint(
-        makeRecord({ id: 'ck-mid', packetHash: 'h-mid', createdAt: 7000 })
-      )
+      insertCheckpoint(makeRecord({ id: 'ck-mid', packetHash: 'h-mid', createdAt: 7000 }))
       expect(getLatestCheckpoint('w-1')?.id).toBe('ck-new')
     })
 
     it('isolates per-worktree reads', () => {
       insertCheckpoint(makeRecord({ id: 'ck-1', worktreeId: 'w-1' }))
-      insertCheckpoint(
-        makeRecord({ id: 'ck-2', worktreeId: 'w-2', packetHash: 'h-w2' })
-      )
+      insertCheckpoint(makeRecord({ id: 'ck-2', worktreeId: 'w-2', packetHash: 'h-w2' }))
       expect(getLatestCheckpoint('w-1')?.id).toBe('ck-1')
       expect(getLatestCheckpoint('w-2')?.id).toBe('ck-2')
+    })
+
+    it('does not let task-epoch checkpoints shadow resume checkpoints', () => {
+      insertCheckpoint(makeRecord({ id: 'ck-resume', packetHash: 'h-resume', createdAt: 1000 }))
+      insertCheckpoint(
+        makeRecord({
+          id: 'ck-task',
+          source: 'epoch',
+          packetHash: 'h-task',
+          createdAt: 2000,
+          taskRunId: 'task-run-1',
+          epochId: 'epoch-1',
+          checkpointPurpose: 'task-epoch'
+        })
+      )
+
+      expect(getLatestCheckpoint('w-1')?.id).toBe('ck-resume')
+      expect(getLatestEpochCheckpoint('task-run-1')?.id).toBe('ck-task')
     })
   })
 

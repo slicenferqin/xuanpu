@@ -29,18 +29,19 @@ export interface XuanpuAgentProviderConfig {
   authKey?: string
 }
 
+type ConfigModelRef = {
+  providerID: string
+  modelID: string
+  variant?: string
+  reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high'
+  verbosity?: 'low' | 'medium' | 'high'
+  providerOptions?: Record<string, unknown>
+}
+
 export interface XuanpuAgentConfig {
   enabled: boolean
-  mainModel: {
-    providerID: string
-    modelID: string
-    variant?: string
-  }
-  compactionModel?: {
-    providerID: string
-    modelID: string
-    variant?: string
-  } | null
+  mainModel: ConfigModelRef
+  compactionModel?: ConfigModelRef | null
   providers?: Record<string, XuanpuAgentProviderConfig>
   context?: {
     contextWindow?: number
@@ -69,6 +70,8 @@ const DEFAULT_PROVIDER_ENV_KEYS: Record<string, string> = {
 }
 
 const VALID_PROVIDER_IDS = new Set(['openai', 'anthropic', 'google'])
+const VALID_REASONING_EFFORTS = new Set(['minimal', 'low', 'medium', 'high'])
+const VALID_VERBOSITY = new Set(['low', 'medium', 'high'])
 
 function getConfigPath(): string {
   return join(homedir(), CONFIG_DIR, CONFIG_FILE)
@@ -105,14 +108,14 @@ function validateModelID(modelID: unknown, field: string): string {
 function validateModelRef(
   raw: unknown,
   field: string
-): { providerID: string; modelID: string; variant?: string } {
+): ConfigModelRef {
   if (!raw || typeof raw !== 'object') {
     throw new Error(`Invalid ${field}: expected an object with providerID and modelID.`)
   }
   const obj = raw as Record<string, unknown>
   const providerID = validateProviderID(obj.providerID, field)
   const modelID = validateModelID(obj.modelID, field)
-  const result: { providerID: string; modelID: string; variant?: string } = {
+  const result: ConfigModelRef = {
     providerID,
     modelID
   }
@@ -121,6 +124,29 @@ function validateModelRef(
       throw new Error(`Invalid ${field}.variant: expected a string.`)
     }
     result.variant = obj.variant
+  }
+  if (obj.reasoningEffort !== undefined) {
+    if (
+      typeof obj.reasoningEffort !== 'string' ||
+      !VALID_REASONING_EFFORTS.has(obj.reasoningEffort)
+    ) {
+      throw new Error(
+        `Invalid ${field}.reasoningEffort: expected one of minimal, low, medium, high.`
+      )
+    }
+    result.reasoningEffort = obj.reasoningEffort as ConfigModelRef['reasoningEffort']
+  }
+  if (obj.verbosity !== undefined) {
+    if (typeof obj.verbosity !== 'string' || !VALID_VERBOSITY.has(obj.verbosity)) {
+      throw new Error(`Invalid ${field}.verbosity: expected one of low, medium, high.`)
+    }
+    result.verbosity = obj.verbosity as ConfigModelRef['verbosity']
+  }
+  if (obj.providerOptions !== undefined) {
+    if (!obj.providerOptions || typeof obj.providerOptions !== 'object' || Array.isArray(obj.providerOptions)) {
+      throw new Error(`Invalid ${field}.providerOptions: expected an object.`)
+    }
+    result.providerOptions = obj.providerOptions as Record<string, unknown>
   }
   return result
 }

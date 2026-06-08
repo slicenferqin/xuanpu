@@ -50,11 +50,15 @@ const fakeRuntime = vi.hoisted(() => {
   const prompts: Array<string | FakePromptMessage[]> = []
   const replaceMessagesCalls: FakePromptMessage[][] = []
   const aborts: string[] = []
+  const beforeYieldHandlers: Array<(() => Promise<void> | void) | undefined> = []
+  const followUps: FakePromptMessage[] = []
+  const followUpModes: Array<'all' | 'one-at-a-time'> = []
 
   class FakeAgent {
     readonly state: { messages: FakeAssistantMessage[]; error?: string } = { messages: [] }
     private readonly listeners = new Set<FakeAgentListener>()
     private model: Record<string, unknown> | null = null
+    private onBeforeYield: (() => Promise<void> | void) | undefined
 
     constructor(readonly options?: Record<string, unknown>) {}
 
@@ -84,6 +88,23 @@ const fakeRuntime = vi.hoisted(() => {
         model: 'xuanpu-agent-mock',
         usage: {}
       }))
+    }
+
+    setOnBeforeYield(fn: (() => Promise<void> | void) | undefined): void {
+      this.onBeforeYield = fn
+      beforeYieldHandlers.push(fn)
+    }
+
+    followUp(message: FakePromptMessage): void {
+      followUps.push(message)
+    }
+
+    setFollowUpMode(mode: 'all' | 'one-at-a-time'): void {
+      followUpModes.push(mode)
+    }
+
+    hasQueuedMessages(): boolean {
+      return followUps.length > 0
     }
 
     async prompt(input: string | FakePromptMessage[]): Promise<void> {
@@ -148,6 +169,7 @@ const fakeRuntime = vi.hoisted(() => {
       }
 
       this.emit({ type: 'message_end', message })
+      await this.onBeforeYield?.()
       this.state.messages.push(message)
       this.emit({ type: 'agent_end', messages: this.state.messages })
     }
@@ -163,6 +185,9 @@ const fakeRuntime = vi.hoisted(() => {
 
   return {
     aborts,
+    beforeYieldHandlers,
+    followUps,
+    followUpModes,
     prompts,
     replaceMessagesCalls,
     setToolsCalls,
@@ -174,6 +199,9 @@ const fakeRuntime = vi.hoisted(() => {
       setToolsCalls.length = 0
       systemPrompts.length = 0
       replaceMessagesCalls.length = 0
+      beforeYieldHandlers.length = 0
+      followUps.length = 0
+      followUpModes.length = 0
     }
   }
 })
@@ -296,6 +324,46 @@ describe('XuanpuPiAgentSession', () => {
     expect(fakeRuntime.aborts).toEqual(['abort'])
   })
 
+  it('passes onBeforeYield through to the wrapped pi Agent', async () => {
+    process.env.XUANPU_AGENT_MOCK_RESPONSE = 'yield ok'
+
+    const { XuanpuPiAgentSession } = await import('../../src/main/services/xuanpu-agent/runtime')
+    const session = new XuanpuPiAgentSession('test-session')
+    const onBeforeYield = vi.fn()
+
+    session.setOnBeforeYield(onBeforeYield)
+    await session.prompt('hello', { providerID: 'anthropic', modelID: 'claude-haiku-4-5' })
+
+    expect(fakeRuntime.beforeYieldHandlers.at(-1)).toBe(onBeforeYield)
+    expect(onBeforeYield).toHaveBeenCalledTimes(1)
+  })
+
+  it('queues follow-up messages through the wrapped pi Agent', async () => {
+    process.env.XUANPU_AGENT_MOCK_RESPONSE = 'follow up ok'
+
+    const { XuanpuPiAgentSession } = await import('../../src/main/services/xuanpu-agent/runtime')
+    const session = new XuanpuPiAgentSession('test-session')
+
+    session.setFollowUpMode('all')
+    await session.prompt('hello', { providerID: 'anthropic', modelID: 'claude-haiku-4-5' })
+    const queued = session.followUp({
+      role: 'user',
+      content: [{ type: 'text', text: 'continue' }],
+      timestamp: 123
+    })
+
+    expect(queued).toBe(true)
+    expect(fakeRuntime.followUpModes).toContain('all')
+    expect(fakeRuntime.followUps).toEqual([
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'continue' }],
+        timestamp: 123
+      }
+    ])
+    expect(session.hasQueuedMessages()).toBe(true)
+  })
+
   it('splits context messages into replaceMessages and only prompts the last message', async () => {
     process.env.XUANPU_AGENT_MOCK_RESPONSE = 'array ok'
 
@@ -329,7 +397,9 @@ describe('XuanpuPiAgentSession', () => {
     // Context messages (all but last) go to replaceMessages — no prompt echo.
     expect(fakeRuntime.replaceMessagesCalls).toHaveLength(1)
     expect(fakeRuntime.replaceMessagesCalls[0]).toHaveLength(2) // anchor + prior assistant
-    expect(fakeRuntime.replaceMessagesCalls[0][0].content[0].text).toContain('xuanpu-context-anchor')
+    expect(fakeRuntime.replaceMessagesCalls[0][0].content[0].text).toContain(
+      'xuanpu-context-anchor'
+    )
     expect(fakeRuntime.replaceMessagesCalls[0][1].content[0].text).toBe('prior assistant turn')
 
     // Only the last message (current request) goes to agent.prompt — gets echoed normally.
@@ -555,9 +625,7 @@ describe('XuanpuPiAgentSession', () => {
     process.env.XUANPU_AGENT_MOCK_RESPONSE = 'test'
     process.env.CUSTOM_API_KEY = 'sk-custom-1234'
 
-    const { XuanpuPiAgentSession } = await import(
-      '../../src/main/services/xuanpu-agent/runtime'
-    )
+    const { XuanpuPiAgentSession } = await import('../../src/main/services/xuanpu-agent/runtime')
 
     const config = {
       enabled: true,
@@ -600,9 +668,7 @@ describe('XuanpuPiAgentSession', () => {
     process.env.XUANPU_AGENT_MOCK_RESPONSE = 'real model answer'
     process.env.XUANPU_AGENT_FAKE_EVENT_MODE = 'prompt-echoes'
 
-    const { XuanpuPiAgentSession } = await import(
-      '../../src/main/services/xuanpu-agent/runtime'
-    )
+    const { XuanpuPiAgentSession } = await import('../../src/main/services/xuanpu-agent/runtime')
     const session = new XuanpuPiAgentSession('test-prompt-echo')
 
     // Simulate what Context Packer produces: anchor (user), prior assistant
@@ -610,7 +676,9 @@ describe('XuanpuPiAgentSession', () => {
     const promptMessages: FakePromptMessage[] = [
       {
         role: 'user',
-        content: [{ type: 'text', text: '<xuanpu-context-anchor>system context</xuanpu-context-anchor>' }],
+        content: [
+          { type: 'text', text: '<xuanpu-context-anchor>system context</xuanpu-context-anchor>' }
+        ],
         timestamp: 1
       },
       {
@@ -627,12 +695,16 @@ describe('XuanpuPiAgentSession', () => {
 
     const deltas: string[] = []
 
-    const result = await session.prompt(promptMessages, {
-      providerID: 'anthropic',
-      modelID: 'claude-haiku-4-5'
-    }, {
-      onTextDelta: (delta) => deltas.push(delta)
-    })
+    const result = await session.prompt(
+      promptMessages,
+      {
+        providerID: 'anthropic',
+        modelID: 'claude-haiku-4-5'
+      },
+      {
+        onTextDelta: (delta) => deltas.push(delta)
+      }
+    )
 
     // Post-fix invariant: the final text must be the real model output only.
     expect(result.text).toBe('real model answer')

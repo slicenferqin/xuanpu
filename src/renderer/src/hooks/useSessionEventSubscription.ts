@@ -133,7 +133,12 @@ export function useSessionEventSubscription({
                 // call resetLiveOverlay(true) before any new stream lands.
               })
 
-            void drainQueuedMessage()
+            void useSessionRuntimeStore
+              .getState()
+              .hydratePendingMessages(sessionId)
+              .finally(() => {
+                void drainQueuedMessage()
+              })
           }
         }
 

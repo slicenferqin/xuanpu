@@ -9,6 +9,7 @@ import type {
   AgentRuntimeAdapter,
   PromptOptions
 } from '../services/agent-runtime-types'
+import type { XuanpuAgentModelRef } from '../services/xuanpu-agent/model-config'
 import { ClaudeCodeImplementer } from '../services/claude-code-implementer'
 import { emitFieldEvent } from '../field/emit'
 import { isFieldCollectionEnabled } from '../field/privacy'
@@ -144,8 +145,64 @@ function parsePromptOptions(
       options.successCriteria = successCriteria
     }
   }
+  if (
+    rawOptions.taskRunAutonomy === 'short' ||
+    rawOptions.taskRunAutonomy === 'long' ||
+    rawOptions.taskRunAutonomy === 'overnight'
+  ) {
+    options.taskRunAutonomy = rawOptions.taskRunAutonomy
+  }
+  if (typeof rawOptions.taskRunId === 'string') {
+    const taskRunId = rawOptions.taskRunId.trim()
+    if (taskRunId) {
+      options.taskRunId = taskRunId
+    }
+  }
 
   return Object.keys(options).length > 0 ? options : undefined
+}
+
+function parseXuanpuAgentModelRef(
+  rawModel: Record<string, unknown> | undefined
+): XuanpuAgentModelRef | undefined {
+  if (
+    !rawModel ||
+    typeof rawModel.providerID !== 'string' ||
+    typeof rawModel.modelID !== 'string'
+  ) {
+    return undefined
+  }
+
+  const model: XuanpuAgentModelRef = {
+    providerID: rawModel.providerID,
+    modelID: rawModel.modelID
+  }
+  if (typeof rawModel.variant === 'string') {
+    model.variant = rawModel.variant
+  }
+  if (
+    rawModel.reasoningEffort === 'minimal' ||
+    rawModel.reasoningEffort === 'low' ||
+    rawModel.reasoningEffort === 'medium' ||
+    rawModel.reasoningEffort === 'high'
+  ) {
+    model.reasoningEffort = rawModel.reasoningEffort
+  }
+  if (
+    rawModel.verbosity === 'low' ||
+    rawModel.verbosity === 'medium' ||
+    rawModel.verbosity === 'high'
+  ) {
+    model.verbosity = rawModel.verbosity
+  }
+  if (
+    rawModel.providerOptions &&
+    typeof rawModel.providerOptions === 'object' &&
+    !Array.isArray(rawModel.providerOptions)
+  ) {
+    model.providerOptions = rawModel.providerOptions as Record<string, unknown>
+  }
+  return model
 }
 
 function buildGoalObjective(promptText: string, successCriteria?: string): string {
@@ -305,7 +362,7 @@ export function registerAgentHandlers(
         let worktreePath: string
         let runtimeSessionId: string
         let messageOrParts: MessageOrParts
-        let model: { providerID: string; modelID: string; variant?: string } | undefined
+        let model: XuanpuAgentModelRef | undefined
         let options: PromptOptions | undefined
 
         // Support object-style call: { worktreePath, sessionId, parts }
@@ -315,17 +372,7 @@ export function registerAgentHandlers(
           runtimeSessionId = obj.sessionId as string
           messageOrParts = normalizeMessageOrParts(obj.parts, obj.message)
           const rawModel = obj.model as Record<string, unknown> | undefined
-          if (
-            rawModel &&
-            typeof rawModel.providerID === 'string' &&
-            typeof rawModel.modelID === 'string'
-          ) {
-            model = {
-              providerID: rawModel.providerID,
-              modelID: rawModel.modelID,
-              variant: typeof rawModel.variant === 'string' ? rawModel.variant : undefined
-            }
-          }
+          model = parseXuanpuAgentModelRef(rawModel)
           options = parsePromptOptions(obj.options as Record<string, unknown> | undefined)
         } else {
           // Legacy positional args: (worktreePath, sessionId, message)
@@ -333,17 +380,7 @@ export function registerAgentHandlers(
           runtimeSessionId = args[1] as string
           messageOrParts = normalizeMessageOrParts(args[2])
           const rawModel = args[3] as Record<string, unknown> | undefined
-          if (
-            rawModel &&
-            typeof rawModel.providerID === 'string' &&
-            typeof rawModel.modelID === 'string'
-          ) {
-            model = {
-              providerID: rawModel.providerID,
-              modelID: rawModel.modelID,
-              variant: typeof rawModel.variant === 'string' ? rawModel.variant : undefined
-            }
-          }
+          model = parseXuanpuAgentModelRef(rawModel)
           options = parsePromptOptions(args[4] as Record<string, unknown> | undefined)
         }
 
@@ -527,7 +564,7 @@ export function registerAgentHandlers(
         let worktreePath: string
         let runtimeSessionId: string
         let messageOrParts: MessageOrParts
-        let model: { providerID: string; modelID: string; variant?: string } | undefined
+        let model: XuanpuAgentModelRef | undefined
         let options: PromptOptions | undefined
 
         if (args.length === 1 && typeof args[0] === 'object' && args[0] !== null) {
@@ -536,17 +573,7 @@ export function registerAgentHandlers(
           runtimeSessionId = obj.sessionId as string
           messageOrParts = normalizeMessageOrParts(obj.parts, obj.message)
           const rawModel = obj.model as Record<string, unknown> | undefined
-          if (
-            rawModel &&
-            typeof rawModel.providerID === 'string' &&
-            typeof rawModel.modelID === 'string'
-          ) {
-            model = {
-              providerID: rawModel.providerID,
-              modelID: rawModel.modelID,
-              variant: typeof rawModel.variant === 'string' ? rawModel.variant : undefined
-            }
-          }
+          model = parseXuanpuAgentModelRef(rawModel)
           const rawOptions = obj.options as Record<string, unknown> | undefined
           if (rawOptions && typeof rawOptions.codexFastMode === 'boolean') {
             options = { codexFastMode: rawOptions.codexFastMode }
@@ -556,17 +583,7 @@ export function registerAgentHandlers(
           runtimeSessionId = args[1] as string
           messageOrParts = normalizeMessageOrParts(args[2])
           const rawModel = args[3] as Record<string, unknown> | undefined
-          if (
-            rawModel &&
-            typeof rawModel.providerID === 'string' &&
-            typeof rawModel.modelID === 'string'
-          ) {
-            model = {
-              providerID: rawModel.providerID,
-              modelID: rawModel.modelID,
-              variant: typeof rawModel.variant === 'string' ? rawModel.variant : undefined
-            }
-          }
+          model = parseXuanpuAgentModelRef(rawModel)
           const rawOptions = args[4] as Record<string, unknown> | undefined
           if (rawOptions && typeof rawOptions.codexFastMode === 'boolean') {
             options = { codexFastMode: rawOptions.codexFastMode }

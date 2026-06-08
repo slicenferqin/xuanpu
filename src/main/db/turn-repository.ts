@@ -13,6 +13,8 @@ export interface AgentTurnCreate {
   worktreeId?: string | null
   projectId: string
   runtimeId: string
+  taskRunId?: string | null
+  epochId?: string | null
   userMessageId?: string | null
   modelProviderId?: string | null
   modelId?: string | null
@@ -62,6 +64,10 @@ export interface AgentTurnUsageEventCreate {
   totalTokens?: number
   cost?: number
   rawUsageJson: string
+  epochId?: string | null
+  providerCallSeq?: number | null
+  reasoningEffort?: string | null
+  actualPrefixHash?: string | null
   occurredAt: string
 }
 
@@ -108,10 +114,11 @@ export function createAgentTurn(
     .prepare(
       `INSERT INTO agent_turns (
         id, session_id, worktree_id, project_id, runtime_id,
+        task_run_id, epoch_id,
         user_message_id, assistant_message_id, status,
         model_provider_id, model_id, model_variant,
         started_at, completed_at, error_message
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       record.id,
@@ -119,6 +126,8 @@ export function createAgentTurn(
       record.worktreeId ?? null,
       record.projectId,
       record.runtimeId,
+      record.taskRunId ?? null,
+      record.epochId ?? null,
       record.userMessageId ?? null,
       record.assistantMessageId,
       record.status,
@@ -170,6 +179,7 @@ export function getAgentTurn(
     .prepare(
       `SELECT id, session_id AS sessionId, worktree_id AS worktreeId,
               project_id AS projectId, runtime_id AS runtimeId,
+              task_run_id AS taskRunId, epoch_id AS epochId,
               user_message_id AS userMessageId,
               assistant_message_id AS assistantMessageId,
               status,
@@ -197,6 +207,7 @@ export function listAgentTurns(
     .prepare(
       `SELECT id, session_id AS sessionId, worktree_id AS worktreeId,
               project_id AS projectId, runtime_id AS runtimeId,
+              task_run_id AS taskRunId, epoch_id AS epochId,
               user_message_id AS userMessageId,
               assistant_message_id AS assistantMessageId,
               status,
@@ -324,15 +335,16 @@ export function createAgentTurnUsageEvent(
 
   resolveDb(db)
     .prepare(
-      `INSERT INTO agent_turn_usage_events (
+      `INSERT OR IGNORE INTO agent_turn_usage_events (
         id, turn_id, session_id, source_event_id,
         provider_id, model_id,
         input_tokens, output_tokens,
         cache_write_tokens, cache_read_tokens,
         total_tokens, cost,
         raw_usage_json,
+        epoch_id, provider_call_seq, reasoning_effort, actual_prefix_hash,
         occurred_at, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       record.id,
@@ -348,6 +360,10 @@ export function createAgentTurnUsageEvent(
       record.totalTokens ?? 0,
       record.cost ?? 0,
       record.rawUsageJson,
+      record.epochId ?? null,
+      record.providerCallSeq ?? null,
+      record.reasoningEffort ?? null,
+      record.actualPrefixHash ?? null,
       record.occurredAt,
       record.createdAt
     )
@@ -369,6 +385,10 @@ export function listAgentTurnUsageEvents(
               cache_read_tokens AS cacheReadTokens,
               total_tokens AS totalTokens, cost,
               raw_usage_json AS rawUsageJson,
+              epoch_id AS epochId,
+              provider_call_seq AS providerCallSeq,
+              reasoning_effort AS reasoningEffort,
+              actual_prefix_hash AS actualPrefixHash,
               occurred_at AS occurredAt, created_at AS createdAt
        FROM agent_turn_usage_events
        WHERE turn_id = ?

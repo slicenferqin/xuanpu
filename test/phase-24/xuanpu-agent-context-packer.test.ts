@@ -34,7 +34,7 @@ describe('packContext', () => {
     currentRequest: 'Hello, help me with this task.'
   }
 
-  it('produces messages in zone order: anchor, field, episodes, working set, request', () => {
+  it('produces messages in zone order: anchor, stable episodes, working set, volatile field, request', () => {
     const result = packContext({
       ...BASE_INPUT,
       fieldContextMarkdown: 'Current file: src/main.ts',
@@ -51,28 +51,31 @@ describe('packContext', () => {
 
     // Anchor first
     expect(texts[0]).toContain('helpful assistant')
-    // Field context second
-    expect(texts[1]).toContain('src/main.ts')
-    // Episodes third
-    expect(texts[2]).toContain('xuanpu-frozen-episodes')
+    // Stable frozen episodes second
+    expect(texts[1]).toContain('xuanpu-frozen-episodes')
     // Working set (as conversation messages)
     expect(texts.some((t) => t.includes('Previous question'))).toBe(true)
+    // Field context is a volatile suffix before the current request
+    expect(texts[texts.length - 2]).toContain('src/main.ts')
     // Current request last
     expect(texts[texts.length - 1]).toBe('What about this?')
   })
 
   it('deduplicates working set against frozen episode rawRefs', () => {
     const episode = makeEpisode({
-      rawRefs: [
-        { type: 'session_message', id: 'msg-shared', role: 'user' }
-      ]
+      rawRefs: [{ type: 'session_message', id: 'msg-shared', role: 'user' }]
     })
 
     const result = packContext({
       ...BASE_INPUT,
       frozenEpisodes: [episode],
       workingSet: [
-        { messageId: 'msg-shared', role: 'user', content: 'This should be deduped', createdAt: 1000 },
+        {
+          messageId: 'msg-shared',
+          role: 'user',
+          content: 'This should be deduped',
+          createdAt: 1000
+        },
         { messageId: 'msg-unique', role: 'user', content: 'This should remain', createdAt: 2000 }
       ],
       currentRequest: 'Hello'
@@ -125,8 +128,16 @@ describe('packContext', () => {
   })
 
   it('sorts episodes by most recent first', () => {
-    const old = makeEpisode({ id: 'ep-old', createdAt: 1000, summaryMarkdown: 'Old episode content' })
-    const recent = makeEpisode({ id: 'ep-recent', createdAt: 9000, summaryMarkdown: 'Recent episode content' })
+    const old = makeEpisode({
+      id: 'ep-old',
+      createdAt: 1000,
+      summaryMarkdown: 'Old episode content'
+    })
+    const recent = makeEpisode({
+      id: 'ep-recent',
+      createdAt: 9000,
+      summaryMarkdown: 'Recent episode content'
+    })
 
     const result = packContext({
       ...BASE_INPUT,
@@ -244,23 +255,23 @@ describe('packContext', () => {
     expect(result1.decisions.prefixHash).not.toBe(result2.decisions.prefixHash)
   })
 
-  it('uses prefixSeed for hash when provided, ignoring volatile anchor changes', () => {
-    const stableSeed = 'stable-seed-v1'
+  it('excludes volatile field context from prefixHash', () => {
     const result1 = packContext({
       ...BASE_INPUT,
-      anchor: 'anchor with capturedAt=1000',
+      fieldContextMarkdown: 'packetId=one capturedAt=1000',
       frozenEpisodes: [makeEpisode()],
-      prefixSeed: stableSeed
+      currentRequest: 'same request'
     })
     const result2 = packContext({
       ...BASE_INPUT,
-      anchor: 'anchor with capturedAt=9999',
+      fieldContextMarkdown: 'packetId=two capturedAt=9999',
       frozenEpisodes: [makeEpisode()],
-      prefixSeed: stableSeed
+      currentRequest: 'same request'
     })
 
-    // Same prefixSeed + same frozen episodes → same prefixHash despite different anchor
+    // Same anchor + same frozen episodes -> same stable prefix despite volatile field changes.
     expect(result1.decisions.prefixHash).toBe(result2.decisions.prefixHash)
+    expect(result1.decisions.actualPrefixHash).toBe(result2.decisions.actualPrefixHash)
   })
 
   it('includes retrieved episodes with reasons in a separate zone', () => {
@@ -270,11 +281,19 @@ describe('packContext', () => {
       frozenEpisodes: [],
       retrievedEpisodes: [
         {
-          episode: makeEpisode({ id: 'ret-1', title: 'Auth Bug Discussion', summaryMarkdown: 'Discussed auth.ts fix' }),
+          episode: makeEpisode({
+            id: 'ret-1',
+            title: 'Auth Bug Discussion',
+            summaryMarkdown: 'Discussed auth.ts fix'
+          }),
           retrievalReason: 'keyword:auth'
         },
         {
-          episode: makeEpisode({ id: 'ret-2', title: 'Test Setup', summaryMarkdown: 'Set up vitest config' }),
+          episode: makeEpisode({
+            id: 'ret-2',
+            title: 'Test Setup',
+            summaryMarkdown: 'Set up vitest config'
+          }),
           retrievalReason: 'keyword:test'
         }
       ],
@@ -289,7 +308,10 @@ describe('packContext', () => {
     expect(allText).toContain('keyword:auth')
     expect(allText).toContain('Test Setup')
     expect(result.decisions.zones.retrievedEpisodes.count).toBe(2)
-    expect(result.decisions.zones.retrievedEpisodes.reasons).toEqual(['keyword:auth', 'keyword:test'])
+    expect(result.decisions.zones.retrievedEpisodes.reasons).toEqual([
+      'keyword:auth',
+      'keyword:test'
+    ])
   })
 
   it('deduplicates working set against retrieved episodes', () => {
