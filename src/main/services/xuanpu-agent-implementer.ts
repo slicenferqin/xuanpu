@@ -42,6 +42,7 @@ import {
   appendEpoch,
   closeEpoch,
   createTaskRun,
+  getActiveTaskRun,
   getTaskRun,
   incrementEpochProviderCallCount,
   renewLease,
@@ -352,7 +353,13 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
 
     const agentConfig = this.getAgentConfig()
     const modelRef = resolveXuanpuAgentModelRef(modelOverride, this.selectedModelRef, agentConfig)
-    const requestedTaskRun = options?.taskRunId ? getTaskRun(options.taskRunId, db) : null
+    const explicitTaskRun = options?.taskRunId ? getTaskRun(options.taskRunId, db) : null
+    const implicitTaskRun =
+      !explicitTaskRun && shouldResumeActiveTaskRunFromPromptText(text)
+        ? getActiveTaskRun(session.hiveSessionId, db)
+        : null
+    const requestedTaskRun =
+      explicitTaskRun ?? (implicitTaskRun?.status === 'paused' ? implicitTaskRun : null)
     const reusableTaskRun =
       requestedTaskRun &&
       requestedTaskRun.sessionId === session.hiveSessionId &&
@@ -2710,6 +2717,20 @@ function inferTaskRunAutonomyFromPromptText(text: string): TaskRunAutonomy | nul
     /^(?:请按|按|以|用|使用|please\s+use)\s*(short|long|overnight)\s+(?:task[-\s]?run|autonomy)\b/
   )
   return naturalMatch ? (naturalMatch[1] as TaskRunAutonomy) : null
+}
+
+function shouldResumeActiveTaskRunFromPromptText(text: string): boolean {
+  const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase()
+  if (!normalized) return false
+
+  return [
+    /^继续\b/,
+    /^请继续\b/,
+    /继续(?:当前|这个|上个|上一|跑|执行|推进|完成|处理|剩下|余下|后续)/,
+    /(?:跑完|完成|处理).{0,12}(?:剩下|余下|剩余|后续)/,
+    /(?:接着|续跑|继续跑)/,
+    /\b(?:resume|continue)\b/
+  ].some((pattern) => pattern.test(normalized))
 }
 
 function tailForContinuation(text: string, maxChars = 1600): string {

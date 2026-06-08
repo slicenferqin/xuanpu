@@ -52,6 +52,7 @@ vi.mock('../../src/main/db/turn-repository', () => turnRepoMock)
 const taskRunRepoMock = vi.hoisted(() => ({
   createTaskRun: vi.fn(() => ({ id: 'task-run-test-1' })),
   getTaskRun: vi.fn(() => null),
+  getActiveTaskRun: vi.fn(() => null),
   appendEpoch: vi.fn(() => ({ id: 'epoch-test-1' })),
   updateEpochStartFillRatio: vi.fn(),
   incrementEpochProviderCallCount: vi.fn(),
@@ -221,6 +222,7 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     mockPiSession.hasQueuedMessages.mockReturnValue(false)
     mockPiSession.followUp.mockReturnValue(true)
     taskRunRepoMock.getTaskRun.mockReturnValue(null)
+    taskRunRepoMock.getActiveTaskRun.mockReturnValue(null)
     taskRunRepoMock.createTaskRun.mockReturnValue({ id: 'task-run-test-1' })
     taskRunRepoMock.appendEpoch.mockReturnValue({ id: 'epoch-test-1' })
     checkpointRuntimeMocks.generateCheckpoint.mockResolvedValue(null)
@@ -757,6 +759,58 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     expect(taskRunRepoMock.createTaskRun).toHaveBeenCalledWith(
       expect.objectContaining({
         autonomy: 'long',
+        leaseExpiresAt: expect.any(String)
+      }),
+      expect.anything()
+    )
+  })
+
+  it('reuses a paused active task run when the user sends a continuation prompt', async () => {
+    taskRunRepoMock.getActiveTaskRun.mockReturnValue({
+      id: 'task-run-paused-1',
+      sessionId: 'session-1',
+      worktreeId: 'w-1',
+      projectId: 'p-1',
+      originMessageId: 'origin-1',
+      status: 'paused',
+      autonomy: 'long',
+      objective: 'original long objective',
+      leaseExpiresAt: null,
+      totalInputTokens: 100,
+      totalOutputTokens: 50,
+      totalCost: 0.5,
+      epochCount: 2,
+      startedAt: '2026-06-08T00:00:00.000Z',
+      completedAt: null,
+      errorMessage: 'no progress'
+    })
+
+    const { XuanpuAgentImplementer } =
+      await import('../../src/main/services/xuanpu-agent-implementer')
+    const implementer = new XuanpuAgentImplementer()
+    implementer.setDatabaseService({
+      getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
+      getSetting: vi.fn(() => null),
+      getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' })),
+      upsertUsageEntry: vi.fn()
+    } as unknown as DatabaseService)
+
+    const { sessionId } = await implementer.connect('/repo', 'session-1')
+    await implementer.prompt('/repo', sessionId, '继续跑完剩下的')
+
+    expect(taskRunRepoMock.getActiveTaskRun).toHaveBeenCalledWith('session-1', expect.anything())
+    expect(taskRunRepoMock.createTaskRun).not.toHaveBeenCalled()
+    expect(taskRunRepoMock.appendEpoch).toHaveBeenCalledWith(
+      {
+        taskRunId: 'task-run-paused-1',
+        sessionId: 'session-1'
+      },
+      expect.anything()
+    )
+    expect(taskRunRepoMock.updateTaskRunStatus).toHaveBeenCalledWith(
+      'task-run-paused-1',
+      'running',
+      expect.objectContaining({
         leaseExpiresAt: expect.any(String)
       }),
       expect.anything()
