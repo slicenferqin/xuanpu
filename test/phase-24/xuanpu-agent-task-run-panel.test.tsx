@@ -4,6 +4,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { XuanpuAgentTaskRunPanel } from '../../src/renderer/src/components/session-hq/XuanpuAgentTaskRunPanel'
 import { TooltipProvider } from '../../src/renderer/src/components/ui/tooltip'
+import { useSessionRuntimeStore } from '../../src/renderer/src/stores/useSessionRuntimeStore'
 
 const xuanpuAgentOps = {
   listTaskRuns: vi.fn(),
@@ -12,12 +13,26 @@ const xuanpuAgentOps = {
   resumeTaskRun: vi.fn()
 }
 
+class ResizeObserverMock {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
 describe('XuanpuAgentTaskRunPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     Object.defineProperty(window, 'xuanpuAgentOps', {
       configurable: true,
       value: xuanpuAgentOps
+    })
+    Object.defineProperty(window, 'ResizeObserver', {
+      configurable: true,
+      value: ResizeObserverMock
+    })
+    Object.defineProperty(globalThis, 'ResizeObserver', {
+      configurable: true,
+      value: ResizeObserverMock
     })
     xuanpuAgentOps.listTaskRuns.mockResolvedValue([
       {
@@ -70,10 +85,13 @@ describe('XuanpuAgentTaskRunPanel', () => {
       }
     ])
     xuanpuAgentOps.pauseTaskRun.mockResolvedValue({ success: true })
+    xuanpuAgentOps.resumeTaskRun.mockResolvedValue({ success: true })
   })
 
   afterEach(() => {
     Reflect.deleteProperty(window, 'xuanpuAgentOps')
+    Reflect.deleteProperty(window, 'ResizeObserver')
+    Reflect.deleteProperty(globalThis, 'ResizeObserver')
   })
 
   it('renders task-run metrics and pauses an idle running task run', async () => {
@@ -100,5 +118,56 @@ describe('XuanpuAgentTaskRunPanel', () => {
     await waitFor(() => {
       expect(xuanpuAgentOps.pauseTaskRun).toHaveBeenCalledWith('task-run-1')
     })
+  })
+
+  it('resumes a paused idle task run and drains queued pending messages', async () => {
+    const hydratePendingMessages = vi
+      .spyOn(useSessionRuntimeStore.getState(), 'hydratePendingMessages')
+      .mockResolvedValueOnce()
+    const onResumeQueued = vi.fn(async () => true)
+    xuanpuAgentOps.listTaskRuns.mockResolvedValue([
+      {
+        id: 'task-run-1',
+        sessionId: 'session-1',
+        worktreeId: 'w-1',
+        projectId: 'p-1',
+        originMessageId: 'msg-1',
+        status: 'paused',
+        autonomy: 'long',
+        objective: 'finish the runtime',
+        leaseExpiresAt: '2026-06-05T01:00:00.000Z',
+        totalInputTokens: 1200,
+        totalOutputTokens: 300,
+        totalCost: 0.04,
+        epochCount: 2,
+        startedAt: '2026-06-05T00:00:00.000Z',
+        completedAt: null,
+        errorMessage: 'no progress'
+      }
+    ])
+
+    render(
+      <TooltipProvider>
+        <XuanpuAgentTaskRunPanel
+          sessionId="session-1"
+          lifecycle="idle"
+          pendingCount={0}
+          onResumeQueued={onResumeQueued}
+        />
+      </TooltipProvider>
+    )
+
+    expect(await screen.findByText('paused')).toBeInTheDocument()
+    expect(screen.getByText('no progress')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByLabelText('Resume task run'))
+
+    await waitFor(() => {
+      expect(xuanpuAgentOps.resumeTaskRun).toHaveBeenCalledWith('task-run-1')
+      expect(hydratePendingMessages).toHaveBeenCalledWith('session-1')
+      expect(onResumeQueued).toHaveBeenCalled()
+    })
+
+    hydratePendingMessages.mockRestore()
   })
 })

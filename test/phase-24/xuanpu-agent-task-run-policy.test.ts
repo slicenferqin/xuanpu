@@ -103,5 +103,36 @@ describe('xuanpu-agent task-run policy', () => {
         nextExpiresAt: new Date(nowMs + DEFAULT_LEASE_WINDOW_MS).toISOString()
       })
     })
+
+    it('renews eligible long tasks across successive lease windows', () => {
+      const firstBoundaryMs = Date.UTC(2026, 5, 5, 0, 20, 0)
+      const secondBoundaryMs = firstBoundaryMs + DEFAULT_LEASE_WINDOW_MS
+
+      expect(
+        evaluateLeaseAtBoundary({
+          autonomy: 'long',
+          noProgressCalls: 0,
+          costSinceStart: 0.1,
+          hasPendingRiskyWrite: false,
+          nowMs: firstBoundaryMs
+        })
+      ).toEqual({
+        action: 'renew',
+        nextExpiresAt: new Date(firstBoundaryMs + DEFAULT_LEASE_WINDOW_MS).toISOString()
+      })
+
+      expect(
+        evaluateLeaseAtBoundary({
+          autonomy: 'long',
+          noProgressCalls: 0,
+          costSinceStart: 0.2,
+          hasPendingRiskyWrite: false,
+          nowMs: secondBoundaryMs
+        })
+      ).toEqual({
+        action: 'renew',
+        nextExpiresAt: new Date(secondBoundaryMs + DEFAULT_LEASE_WINDOW_MS).toISOString()
+      })
+    })
   })
 })

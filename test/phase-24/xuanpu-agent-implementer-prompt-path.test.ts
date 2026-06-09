@@ -817,6 +817,133 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     )
   })
 
+  it('does not reuse a paused active task run for an unrelated prompt', async () => {
+    taskRunRepoMock.getActiveTaskRun.mockReturnValue({
+      id: 'task-run-paused-1',
+      sessionId: 'session-1',
+      worktreeId: 'w-1',
+      projectId: 'p-1',
+      originMessageId: 'origin-1',
+      status: 'paused',
+      autonomy: 'long',
+      objective: 'original long objective',
+      leaseExpiresAt: null,
+      totalInputTokens: 100,
+      totalOutputTokens: 50,
+      totalCost: 0.5,
+      epochCount: 2,
+      startedAt: '2026-06-08T00:00:00.000Z',
+      completedAt: null,
+      errorMessage: 'no progress'
+    })
+
+    const { XuanpuAgentImplementer } =
+      await import('../../src/main/services/xuanpu-agent-implementer')
+    const implementer = new XuanpuAgentImplementer()
+    implementer.setDatabaseService({
+      getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
+      getSetting: vi.fn(() => null),
+      getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' })),
+      upsertUsageEntry: vi.fn()
+    } as unknown as DatabaseService)
+
+    const { sessionId } = await implementer.connect('/repo', 'session-1')
+    await implementer.prompt('/repo', sessionId, '解释一下当前架构')
+
+    expect(taskRunRepoMock.getActiveTaskRun).not.toHaveBeenCalled()
+    expect(taskRunRepoMock.createTaskRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        autonomy: 'short',
+        objective: '解释一下当前架构'
+      }),
+      expect.anything()
+    )
+  })
+
+  it('renews an expired long task-run lease across multiple yield boundaries', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-06-09T00:21:00.000Z'))
+    taskRunRepoMock.getTaskRun.mockReturnValue({
+      id: 'task-run-expired-1',
+      sessionId: 'session-1',
+      worktreeId: 'w-1',
+      projectId: 'p-1',
+      originMessageId: 'origin-1',
+      status: 'running',
+      autonomy: 'long',
+      objective: 'original long objective',
+      leaseExpiresAt: '2026-06-09T00:20:00.000Z',
+      totalInputTokens: 100,
+      totalOutputTokens: 50,
+      totalCost: 0.5,
+      epochCount: 2,
+      startedAt: '2026-06-09T00:00:00.000Z',
+      completedAt: null,
+      errorMessage: null
+    })
+    mockPiSession.prompt.mockImplementationOnce(
+      async (messages: unknown[], _modelRef: unknown, _handlers?: Record<string, unknown>) => {
+        capturedPromptMessages = messages as unknown[]
+        const beforeYield = mockPiSession.setOnBeforeYield.mock.calls.at(-1)?.[0] as
+          | (() => Promise<void>)
+          | undefined
+
+        await beforeYield?.()
+        vi.setSystemTime(new Date('2026-06-09T00:42:00.000Z'))
+        await beforeYield?.()
+
+        return {
+          messageId: 'resp-1',
+          text: 'still working through the long task',
+          modelRef: { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
+          usage: { input: 10, output: 5 },
+          rawMessage: null,
+          harnessMetrics: null,
+          turnId: 'turn-test-1'
+        }
+      }
+    )
+
+    try {
+      const { XuanpuAgentImplementer } =
+        await import('../../src/main/services/xuanpu-agent-implementer')
+      const implementer = new XuanpuAgentImplementer()
+      implementer.setDatabaseService({
+        getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
+        getSetting: vi.fn(() => null),
+        getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' })),
+        upsertUsageEntry: vi.fn()
+      } as unknown as DatabaseService)
+
+      const { sessionId } = await implementer.connect('/repo', 'session-1')
+      await implementer.prompt('/repo', sessionId, 'continue expired lease', undefined, {
+        taskRunId: 'task-run-expired-1'
+      })
+
+      expect(taskRunRepoMock.createTaskRun).not.toHaveBeenCalled()
+      expect(taskRunRepoMock.renewLease).toHaveBeenCalledTimes(2)
+      expect(taskRunRepoMock.renewLease).toHaveBeenNthCalledWith(
+        1,
+        'task-run-expired-1',
+        '2026-06-09T00:41:00.000Z',
+        expect.anything()
+      )
+      expect(taskRunRepoMock.renewLease).toHaveBeenNthCalledWith(
+        2,
+        'task-run-expired-1',
+        '2026-06-09T01:02:00.000Z',
+        expect.anything()
+      )
+      expect(
+        taskRunRepoMock.updateTaskRunStatus.mock.calls.some(
+          (call) => call[0] === 'task-run-expired-1' && call[1] === 'paused'
+        )
+      ).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('closes and checkpoints an epoch boundary, then queues the next epoch continuation', async () => {
     const createSessionPendingMessage = vi.fn()
     mockPiSession.prompt.mockImplementationOnce(
