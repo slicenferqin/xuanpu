@@ -54,11 +54,13 @@ Required automated assertions:
 - final completion text does not become `paused / no progress`.
 - a continuation prompt such as `继续跑完剩下的` reuses a paused active task run.
 - unrelated prompts do not accidentally bind to a paused task run.
+- realistic multi-document package prompts infer `autonomy = long` without requiring the user to
+  explicitly say `long task run`.
 - eligible long task runs renew expired leases across multiple yield boundaries.
 - long task runs that exceed policy gates still pause / ask instead of renewing blindly.
 - task-run panel pause/resume buttons call the dedicated IPC operations.
 
-### 2. Clean Manual Session
+### 2. Realistic Manual Session
 
 Create a new xuanpu-agent session from the schnauzer worktree after restarting the app from the
 latest build. Record the new runtime session id and Hive session id before testing:
@@ -69,31 +71,35 @@ rg -n "Connected xuanpu-agent session" ~/.xuanpu/logs/xuanpu-2026-06-09.log
 
 If the date changed, use the current log file.
 
-Use a prompt that is deterministic enough to drive multiple stages but small enough to finish:
+Use a prompt that matches normal daily work. The user should not have to say "long task run"
+explicitly for a multi-document deliverable:
 
 ```text
-请按 long task run 执行一次干净测试，不要一次性给最终结论。
-每个阶段只做一个小检查，然后继续下一个阶段，至少完成 4 个阶段。
-
-阶段范围：
-1. src/main/services/xuanpu-agent/task-run-policy.ts
-2. src/main/db/task-run-repository.ts
-3. src/renderer/src/components/session-hq/XuanpuAgentTaskRunPanel.tsx
-4. test/phase-24/xuanpu-agent-task-run-policy.test.ts
-
-要求：
-- 不修改文件。
-- 每阶段说明检查对象和结果。
-- 完成 4 个阶段后明确写：任务已完成，不继续新增工作。
+帮我基于当前仓库代码，整理一套 xuanpu-agent task-run 机制的内部工程文档包。文档要求：
+- 先读取相关源码或测试文件，再写文档。
+- 文档里要引用实际文件路径，例如 src/main/services/xuanpu-agent/task-run-policy.ts。
+- 每份文档要包含：背景、关键流程、相关代码、常见故障、验证方式。
+- 写完每份后更新 manifest.json，记录文件路径、主题、估算字符数、状态、引用过的源码文件。
+- 如果某份还没写完，manifest.json 里要标记 partial，不要假装完成。
+- 完成全部后，生成 README.md 作为入口索引。
 ```
 
 Expected live behavior:
 
 - bottom task-run panel shows one `running /long` run while active
 - it does not create a second `short` task run
-- completion should settle as `completed`, not `paused / no progress`
+- if the first response budget is reached before files are complete, it should queue or preserve
+  continuation under the same long task run instead of closing as a completed short task
+- completion should settle as `completed`, not `paused / no progress`, only after the README and
+  manifest indicate the package is complete
 - if it pauses, pressing the panel play button should resume the same task run
 - directly typing `继续跑完剩下的` should also resume the same task run
+- expected files should appear under the target path chosen by the assistant, and `manifest.json`
+  should not claim `completed` for files that do not exist or are only partial
+
+Use the old four-stage prompt only as a small sanity fixture. It is not sufficient as the primary
+manual acceptance case because users do not naturally write prompts around artificial numbered
+lease stages.
 
 ### 3. DB Acceptance Queries
 

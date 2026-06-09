@@ -765,6 +765,45 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     )
   })
 
+  it('infers long autonomy for a realistic multi-document package request', async () => {
+    const { XuanpuAgentImplementer } =
+      await import('../../src/main/services/xuanpu-agent-implementer')
+    const implementer = new XuanpuAgentImplementer()
+    implementer.setDatabaseService({
+      getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
+      getSetting: vi.fn(() => null),
+      getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' })),
+      upsertUsageEntry: vi.fn()
+    } as unknown as DatabaseService)
+
+    const { sessionId } = await implementer.connect('/repo', 'session-1')
+    await implementer.prompt(
+      '/repo',
+      sessionId,
+      [
+        '帮我基于当前仓库代码，整理一套 xuanpu-agent task-run 机制的内部工程文档包。文档要求：',
+        '- 先读取相关源码或测试文件，再写文档。',
+        '- 文档里要引用实际文件路径，例如 src/main/services/xuanpu-agent/task-run-policy.ts。',
+        '- 每份文档要包含：背景、关键流程、相关代码、常见故障、验证方式。',
+        '- 写完每份后更新 manifest.json，记录文件路径、主题、估算字符数、状态、引用过的源码文件。',
+        '- 如果某份还没写完，manifest.json 里要标记 partial，不要假装完成。',
+        '- 完成全部后，生成 README.md 作为入口索引。'
+      ].join('\n'),
+      undefined,
+      {
+        mode: 'build'
+      }
+    )
+
+    expect(taskRunRepoMock.createTaskRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        autonomy: 'long',
+        leaseExpiresAt: expect.any(String)
+      }),
+      expect.anything()
+    )
+  })
+
   it('reuses a paused active task run when the user sends a continuation prompt', async () => {
     taskRunRepoMock.getActiveTaskRun.mockReturnValue({
       id: 'task-run-paused-1',

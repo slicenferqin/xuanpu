@@ -61,6 +61,7 @@ import {
   NO_PROGRESS_LIMIT,
   shouldCloseEpoch
 } from './xuanpu-agent/task-run-policy'
+import { inferTaskRunAutonomyFromPromptText } from './xuanpu-agent/task-run-intent'
 import type {
   XfpAnchorSection,
   XfpCommandTraceSection,
@@ -2702,21 +2703,6 @@ function isCompleteLongTaskResponse(text: string): boolean {
     /\b(?:task|objective|audit|implementation|work)\s+(?:is\s+|was\s+|has\s+been\s+)?(?:complete|completed|finished)\b/,
     /\b(?:no further work|nothing more to do)\b/
   ].some((pattern) => pattern.test(normalized))
-}
-
-function inferTaskRunAutonomyFromPromptText(text: string): TaskRunAutonomy | null {
-  const normalized = text.trim().toLowerCase()
-  if (!normalized) return null
-
-  const prefixMatch = normalized.match(
-    /^(?:\/|#)?(short|long|overnight)(?:\s+(?:task[-\s]?run|autonomy))?\b/
-  )
-  if (prefixMatch) return prefixMatch[1] as TaskRunAutonomy
-
-  const naturalMatch = normalized.match(
-    /^(?:请按|按|以|用|使用|please\s+use)\s*(short|long|overnight)\s+(?:task[-\s]?run|autonomy)\b/
-  )
-  return naturalMatch ? (naturalMatch[1] as TaskRunAutonomy) : null
 }
 
 function shouldResumeActiveTaskRunFromPromptText(text: string): boolean {
