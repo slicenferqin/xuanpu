@@ -53,6 +53,7 @@ const fakeRuntime = vi.hoisted(() => {
   const beforeYieldHandlers: Array<(() => Promise<void> | void) | undefined> = []
   const followUps: FakePromptMessage[] = []
   const followUpModes: Array<'all' | 'one-at-a-time'> = []
+  const agentOptions: Array<Record<string, unknown> | undefined> = []
 
   class FakeAgent {
     readonly state: { messages: FakeAssistantMessage[]; error?: string } = { messages: [] }
@@ -60,7 +61,9 @@ const fakeRuntime = vi.hoisted(() => {
     private model: Record<string, unknown> | null = null
     private onBeforeYield: (() => Promise<void> | void) | undefined
 
-    constructor(readonly options?: Record<string, unknown>) {}
+    constructor(readonly options?: Record<string, unknown>) {
+      agentOptions.push(options)
+    }
 
     setModel(model: unknown): void {
       this.model = model && typeof model === 'object' ? (model as Record<string, unknown>) : null
@@ -185,6 +188,7 @@ const fakeRuntime = vi.hoisted(() => {
 
   return {
     aborts,
+    agentOptions,
     beforeYieldHandlers,
     followUps,
     followUpModes,
@@ -202,6 +206,7 @@ const fakeRuntime = vi.hoisted(() => {
       beforeYieldHandlers.length = 0
       followUps.length = 0
       followUpModes.length = 0
+      agentOptions.length = 0
     }
   }
 })
@@ -336,6 +341,29 @@ describe('XuanpuPiAgentSession', () => {
 
     expect(fakeRuntime.beforeYieldHandlers.at(-1)).toBe(onBeforeYield)
     expect(onBeforeYield).toHaveBeenCalledTimes(1)
+  })
+
+  it('normalizes tool call arguments before pi Agent schema validation', async () => {
+    process.env.XUANPU_AGENT_MOCK_RESPONSE = 'arguments ok'
+
+    const { XuanpuPiAgentSession } = await import('../../src/main/services/xuanpu-agent/runtime')
+    const session = new XuanpuPiAgentSession('test-session')
+
+    await session.prompt('hello', { providerID: 'anthropic', modelID: 'claude-haiku-4-5' })
+
+    const transform = fakeRuntime.agentOptions.at(-1)?.transformToolCallArguments as
+      | ((args: Record<string, unknown>, toolName: string) => Record<string, unknown>)
+      | undefined
+    expect(transform).toBeTypeOf('function')
+    expect(transform?.({ pattern: 'needle', maxResults: 300 }, 'rg_search')).toMatchObject({
+      pattern: 'needle',
+      maxResults: 200
+    })
+    expect(transform?.({ pattern: 'needle', maxResults: '12' }, 'rg_search')).toMatchObject({
+      pattern: 'needle',
+      maxResults: 12
+    })
+    expect(transform?.({ command: 'pnpm test' }, 'run_test')).toEqual({ command: 'pnpm test' })
   })
 
   it('queues follow-up messages through the wrapped pi Agent', async () => {

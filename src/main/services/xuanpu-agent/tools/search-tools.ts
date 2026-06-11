@@ -8,6 +8,7 @@ import * as path from 'path'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import type { AgentTool, AgentToolResult, AgentToolContext } from '@oh-my-pi/pi-agent-core'
+import { normalizeRgSearchMaxResults } from '../harness/tool-call-repair/arguments'
 
 const execFileAsync = promisify(execFile)
 
@@ -16,6 +17,10 @@ type JsonSchema<T> = Record<string, unknown> & { static: T }
 interface ToolDetails {
   command: string
   cwd: string
+  exitCode?: number
+  durationMs?: number
+  timedOut?: boolean
+  aborted?: boolean
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -58,7 +63,10 @@ function safeResolve(worktreePath: string, userPath: string): string | null {
     return resolved
   }
 
-  const relPath = path.relative(root, resolved)
+  const targetForRelative = fs.existsSync(resolved)
+    ? fs.realpathSync(resolved)
+    : path.resolve(root, path.relative(resolvedRoot, resolved))
+  const relPath = path.relative(root, targetForRelative)
   if (relPath === '' || relPath === '.') return root
   if (relPath.startsWith('..') || path.isAbsolute(relPath)) return null
 
@@ -154,23 +162,32 @@ export const rgSearchTool: AgentTool<typeof rgSearchParams> = {
     try {
       const worktreePath = resolveWorktreePath(ctx)
       const target = params.path ?? '.'
+      const maxResults = normalizeRgSearchMaxResults(params.maxResults)
       const resolved = safeResolve(worktreePath, target)
       if (!resolved) {
-        const command =
-          `rg ${params.glob ? `--glob ${params.glob} ` : ''}${params.pattern} ${target}`.trim()
+        const command = [
+          'rg',
+          '--max-count',
+          String(maxResults),
+          params.glob ? `--glob ${params.glob}` : '',
+          params.pattern,
+          target
+        ]
+          .filter(Boolean)
+          .join(' ')
         return errorResult(`Path escapes worktree: ${target}`, { command, cwd: worktreePath })
       }
 
-      // If target resolves to a file, search that file (pass as arg, cwd = worktree).
-      // If target resolves to a directory, use it as cwd.
-      const isFile = fs.statSync(resolved).isFile()
-      const cwd = isFile ? worktreePath : resolved
-      const fileArg = isFile ? resolved : null
+      fs.statSync(resolved)
+      const cwd = worktreePath
       const command = [
         'rg',
+        !(params.caseSensitive ?? false) ? '--ignore-case' : '',
+        '--max-count',
+        String(maxResults),
         params.glob ? `--glob ${params.glob}` : '',
         params.pattern,
-        fileArg ?? target
+        target
       ]
         .filter(Boolean)
         .join(' ')
@@ -181,15 +198,16 @@ export const rgSearchTool: AgentTool<typeof rgSearchParams> = {
         '--color',
         'never',
         '--max-count',
-        String(params.maxResults ?? 50)
+        String(maxResults)
       ]
 
       if (!(params.caseSensitive ?? false)) args.push('--ignore-case')
       if (params.glob) args.push('--glob', params.glob)
 
       args.push('--', params.pattern)
-      if (fileArg) args.push(fileArg)
+      args.push(target)
 
+      const startedAt = Date.now()
       try {
         const { stdout } = await execFileAsync('rg', args, {
           cwd,
@@ -198,27 +216,49 @@ export const rgSearchTool: AgentTool<typeof rgSearchParams> = {
         })
         const output = stdout.trim()
         if (!output) {
-          return textResult(`No matches found for pattern: ${params.pattern}`, details)
+          return textResult(`No matches found for pattern: ${params.pattern}`, {
+            ...details,
+            exitCode: 0,
+            durationMs: Date.now() - startedAt
+          })
         }
         // Prefix with match count
         const matchCount = output.split('\n').length
-        return textResult(
-          `Found ${matchCount} match(es) for "${params.pattern}":\n\n${output}`,
-          details
-        )
+        return textResult(`Found ${matchCount} match(es) for "${params.pattern}":\n\n${output}`, {
+          ...details,
+          exitCode: 0,
+          durationMs: Date.now() - startedAt
+        })
       } catch (err) {
-        const code = (err as NodeJS.ErrnoException).code
+        const error = err as NodeJS.ErrnoException & {
+          killed?: boolean
+          signal?: NodeJS.Signals
+          stdout?: string
+          stderr?: string
+        }
+        const code = error.code
+        const durationMs = Date.now() - startedAt
         if (code === 'ENOENT') {
           return errorResult(
             'ripgrep (rg) is not installed. Install it: https://github.com/BurntSushi/ripgrep',
-            details
+            { ...details, durationMs }
           )
         }
         // rg returns exit code 1 for "no matches" — not an error
-        if ((err as { code?: number }).code === 1) {
-          return textResult(`No matches found for pattern: ${params.pattern}`, details)
+        if (code === 1) {
+          return textResult(`No matches found for pattern: ${params.pattern}`, {
+            ...details,
+            exitCode: 1,
+            durationMs
+          })
         }
-        throw err
+        const timedOut = error.killed === true && error.signal === 'SIGTERM'
+        return errorResult(error instanceof Error ? error.message : String(error), {
+          ...details,
+          exitCode: typeof code === 'number' ? code : undefined,
+          durationMs,
+          timedOut
+        })
       }
     } catch (err) {
       return errorResult(err instanceof Error ? err.message : String(err))

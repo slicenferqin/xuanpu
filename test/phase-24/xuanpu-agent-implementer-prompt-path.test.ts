@@ -1125,6 +1125,178 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     ).toBe(false)
   })
 
+  it('queues a recovery continuation instead of pausing on the first no-progress window', async () => {
+    const createSessionPendingMessage = vi.fn()
+    mockPiSession.prompt.mockImplementationOnce(
+      async (messages: unknown[], _modelRef: unknown, handlers?: Record<string, unknown>) => {
+        capturedPromptMessages = messages as unknown[]
+        const onToolStart = handlers?.onToolStart as
+          | ((event: Record<string, unknown>, meta: Record<string, unknown>) => void)
+          | undefined
+        const onToolEnd = handlers?.onToolEnd as
+          | ((event: Record<string, unknown>, meta: Record<string, unknown>) => void)
+          | undefined
+
+        onToolStart?.(
+          {
+            toolCallId: 'call-bad-rg',
+            toolName: 'rg_search',
+            args: { pattern: 'task run', maxResults: 300 },
+            startedAt: 1704067202000
+          },
+          { turnId: 'turn-test-1', eventSequence: 1 }
+        )
+        onToolEnd?.(
+          {
+            toolCallId: 'call-bad-rg',
+            toolName: 'rg_search',
+            args: { pattern: 'task run', maxResults: 300 },
+            result: {
+              content: [{ type: 'text', text: 'Validation failed: maxResults must be <= 200' }]
+            },
+            isError: true,
+            startedAt: 1704067202000,
+            endedAt: 1704067203000
+          },
+          { turnId: 'turn-test-1', eventSequence: 2 }
+        )
+
+        const beforeYield = mockPiSession.setOnBeforeYield.mock.calls.at(-1)?.[0] as
+          | (() => Promise<void>)
+          | undefined
+        for (let index = 0; index < 4; index++) {
+          await beforeYield?.()
+        }
+
+        return {
+          messageId: 'resp-1',
+          text: '任务尚未完成；本轮没有新的文件读取或写入。',
+          modelRef: { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
+          usage: { input: 10, output: 5 },
+          rawMessage: null,
+          harnessMetrics: null,
+          turnId: 'turn-test-1'
+        }
+      }
+    )
+
+    const { XuanpuAgentImplementer } =
+      await import('../../src/main/services/xuanpu-agent-implementer')
+    const implementer = new XuanpuAgentImplementer()
+    implementer.setDatabaseService({
+      getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
+      getSetting: vi.fn(() => null),
+      getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' })),
+      upsertUsageEntry: vi.fn(),
+      createSessionPendingMessage
+    } as unknown as DatabaseService)
+
+    const { sessionId } = await implementer.connect('/repo', 'session-1')
+    await implementer.prompt('/repo', sessionId, 'long staged audit', undefined, {
+      taskRunAutonomy: 'long'
+    })
+
+    expect(taskRunRepoMock.closeEpoch).toHaveBeenCalledWith(
+      'epoch-test-1',
+      expect.objectContaining({
+        status: 'checkpointed',
+        closeReason: 'watchdog'
+      }),
+      expect.anything()
+    )
+    expect(createSessionPendingMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        session_id: 'session-1',
+        runtime_id: 'xuanpu-agent',
+        content: expect.stringContaining('no-progress-recovery'),
+        prompt_options_json: expect.stringContaining('"taskRunId":"task-run-test-1"')
+      })
+    )
+    expect(
+      taskRunRepoMock.updateTaskRunStatus.mock.calls.some(
+        (call) => call[0] === 'task-run-test-1' && call[1] === 'paused'
+      )
+    ).toBe(false)
+    expect(
+      taskRunRepoMock.updateTaskRunStatus.mock.calls.some(
+        (call) => call[0] === 'task-run-test-1' && call[1] === 'completed'
+      )
+    ).toBe(false)
+  })
+
+  it('pauses only after a no-progress recovery continuation also makes no progress', async () => {
+    const createSessionPendingMessage = vi.fn()
+    mockPiSession.prompt.mockImplementationOnce(
+      async (messages: unknown[], _modelRef: unknown, _handlers?: Record<string, unknown>) => {
+        capturedPromptMessages = messages as unknown[]
+        const beforeYield = mockPiSession.setOnBeforeYield.mock.calls.at(-1)?.[0] as
+          | (() => Promise<void>)
+          | undefined
+        for (let index = 0; index < 4; index++) {
+          await beforeYield?.()
+        }
+
+        return {
+          messageId: 'resp-1',
+          text: '任务尚未完成；本轮没有新的文件读取或写入。',
+          modelRef: { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
+          usage: { input: 10, output: 5 },
+          rawMessage: null,
+          harnessMetrics: null,
+          turnId: 'turn-test-1'
+        }
+      }
+    )
+
+    const { XuanpuAgentImplementer } =
+      await import('../../src/main/services/xuanpu-agent-implementer')
+    const implementer = new XuanpuAgentImplementer()
+    implementer.setDatabaseService({
+      getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
+      getSetting: vi.fn(() => null),
+      getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' })),
+      upsertUsageEntry: vi.fn(),
+      createSessionPendingMessage
+    } as unknown as DatabaseService)
+
+    const { sessionId } = await implementer.connect('/repo', 'session-1')
+    await implementer.prompt(
+      '/repo',
+      sessionId,
+      [
+        '继续当前 xuanpu-agent task run。',
+        '<xuanpu-task-run-continuation scope="next-epoch" reason="no-progress-recovery">',
+        'Objective: long staged audit',
+        '</xuanpu-task-run-continuation>'
+      ].join('\n'),
+      undefined,
+      {
+        taskRunAutonomy: 'long'
+      }
+    )
+
+    expect(taskRunRepoMock.closeEpoch).toHaveBeenCalledWith(
+      'epoch-test-1',
+      expect.objectContaining({
+        status: 'failed',
+        closeReason: 'watchdog'
+      }),
+      expect.anything()
+    )
+    expect(taskRunRepoMock.updateTaskRunStatus).toHaveBeenCalledWith(
+      'task-run-test-1',
+      'paused',
+      { errorMessage: 'no progress after recovery' },
+      expect.anything()
+    )
+    expect(createSessionPendingMessage).not.toHaveBeenCalled()
+    expect(
+      taskRunRepoMock.updateTaskRunStatus.mock.calls.some(
+        (call) => call[0] === 'task-run-test-1' && call[1] === 'completed'
+      )
+    ).toBe(false)
+  })
+
   it('completes a long task instead of pausing when no-progress yields contain final completion text', async () => {
     const createSessionPendingMessage = vi.fn()
     mockPiSession.prompt.mockImplementationOnce(

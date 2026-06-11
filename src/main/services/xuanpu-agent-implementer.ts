@@ -708,13 +708,14 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       const providerCallEvents: Array<{ sourceEventId: string; cost: number }> = []
       let taskRunCost = 0
       let noProgressCalls = 0
-      let lastProgressSignal = -1
+      let lastProgressSignal = 0
       let beforeYieldCount = 0
       let leaseExpiresAt = taskRun.leaseExpiresAt
       let epochClosed = false
       let taskRunContinuationQueued = false
       let taskRunPaused = false
       let taskRunPauseReason: string | null = null
+      const promptIsNoProgressRecovery = isNoProgressRecoveryContinuationPrompt(text)
       const epochStartedAt = Date.now()
       const dbSessionForUsage = this.db?.getSession(session.hiveSessionId)
       const currentEpochFillRatio = (): number => {
@@ -760,6 +761,15 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         updateTaskRunStatus(taskRun.id, 'paused', { errorMessage: reason }, this.db)
         taskRunPaused = true
         taskRunPauseReason = reason
+      }
+      const queueNoProgressRecovery = async (): Promise<void> => {
+        await closeEpochOnce('watchdog', 'checkpointed')
+        queueContinuation(
+          buildNoProgressRecoveryContinuationPrompt({
+            objective: taskRun.objective ?? text,
+            latestAssistantText
+          })
+        )
       }
       const evaluateLease = async (): Promise<boolean> => {
         if (!leaseExpiresAt) return true
@@ -831,15 +841,19 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         }
         lastProgressSignal = progressSignal
 
-        const leaseOk = await evaluateLease()
-        if (!leaseOk) return
-
         if (taskRunAutonomy !== 'short' && isCompleteLongTaskResponse(latestAssistantText)) return
 
         if (taskRunAutonomy !== 'short' && noProgressCalls >= NO_PROGRESS_LIMIT) {
-          await pauseTaskRun('no progress')
+          if (promptIsNoProgressRecovery) {
+            await pauseTaskRun('no progress after recovery')
+          } else {
+            await queueNoProgressRecovery()
+          }
           return
         }
+
+        const leaseOk = await evaluateLease()
+        if (!leaseOk) return
 
         const providerCallCount = Math.max(providerCallEvents.length, beforeYieldCount)
         const boundary = shouldCloseEpoch({
@@ -876,13 +890,6 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             this.emitTextDelta(session.hiveSessionId, delta, meta.turnId, meta.eventSequence)
           },
           onToolStart: (event, meta) => {
-            collectObservedToolPaths(
-              session.worktreePath,
-              event.toolName,
-              event.args,
-              null,
-              observedPaths
-            )
             if (event.toolName === 'xfp_delegate_subtask') {
               this.emitSubtaskStart(session.hiveSessionId, event, meta.turnId, meta.eventSequence)
             }
@@ -890,14 +897,16 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             this.emitToolStart(session.hiveSessionId, event, meta.turnId, meta.eventSequence)
           },
           onToolEnd: (event, meta) => {
-            toolResultCount++
-            collectObservedToolPaths(
-              session.worktreePath,
-              event.toolName,
-              event.args,
-              event.result,
-              observedPaths
-            )
+            if (!event.isError) {
+              toolResultCount++
+              collectObservedToolPaths(
+                session.worktreePath,
+                event.toolName,
+                event.args,
+                event.result,
+                observedPaths
+              )
+            }
             const subtaskDetails = extractSubtaskDetails(event.result)
             if (subtaskDetails) {
               this.emitSubtaskEnd(
@@ -2744,15 +2753,48 @@ function buildIncompleteResponseContinuationPrompt(input: {
   ].join('\n')
 }
 
+function buildNoProgressRecoveryContinuationPrompt(input: {
+  objective: string
+  latestAssistantText: string
+}): string {
+  return [
+    '继续当前 xuanpu-agent task run。',
+    '',
+    '<xuanpu-task-run-continuation scope="next-epoch" reason="no-progress-recovery">',
+    `Objective: ${input.objective}`,
+    '',
+    'The previous epoch reached the no-progress watchdog without a successful tool result or verified file observation. Recover by performing concrete work, not by only reporting status.',
+    '',
+    'Recovery protocol:',
+    '1. Inspect the existing target artifacts related to this objective, especially any output directory, manifest.json, or README.md named by the task or prior response.',
+    '2. If the task uses a manifest, read it when present; if it is required but missing, create or update it with partial status before broad summarization.',
+    '3. Choose the first missing concrete artifact or source-grounded step, then complete at least one successful read/write cycle before summarizing.',
+    '4. If a tool call failed, adjust the arguments or narrow the search. Do not repeat an invalid call shape.',
+    '5. Do not claim a file, section, or manifest entry is complete unless it exists and matches the requested status.',
+    '',
+    '<previous-assistant-tail>',
+    tailForContinuation(input.latestAssistantText),
+    '</previous-assistant-tail>',
+    '</xuanpu-task-run-continuation>'
+  ].join('\n')
+}
+
 function buildEpochContinuationPrompt(objective: string): string {
   return [
     '继续当前 xuanpu-agent task run。',
     '',
-    `<xuanpu-task-run-continuation scope="next-epoch">`,
+    `<xuanpu-task-run-continuation scope="next-epoch" reason="epoch-boundary">`,
     `Objective: ${objective}`,
     'Resume from the latest task-epoch checkpoint and continue with the next concrete step. Do not restart from scratch.',
+    'Before summarizing, verify existing artifacts related to the objective, including any output directory, manifest.json, or README.md already produced.',
+    'Pick the next missing concrete step and perform successful tool-backed work before claiming progress.',
+    'If a manifest or index is part of the objective, keep partial/incomplete items marked honestly.',
     '</xuanpu-task-run-continuation>'
   ].join('\n')
+}
+
+function isNoProgressRecoveryContinuationPrompt(text: string): boolean {
+  return /<xuanpu-task-run-continuation\b[^>]*reason=["']no-progress-recovery["']/i.test(text)
 }
 
 function buildFallbackEpochCheckpoint(input: {

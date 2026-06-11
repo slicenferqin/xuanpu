@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { ToolOutputTruncator } from '../../src/main/services/xuanpu-agent/harness/tool-call-repair'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import {
+  normalizeRgSearchMaxResults,
+  ToolOutputTruncator
+} from '../../src/main/services/xuanpu-agent/harness/tool-call-repair'
 import type { ArchivePayload } from '../../src/main/services/xuanpu-agent/harness/tool-call-repair/truncation'
 import { rgSearchTool } from '../../src/main/services/xuanpu-agent/tools/search-tools'
 import { createCommandProfiler } from '../../src/main/services/xuanpu-agent/context/profiler'
@@ -125,5 +131,39 @@ describe('xuanpu-agent tool output compression', () => {
     expect(result.content[0]?.type === 'text' ? result.content[0].text : '').toContain(
       'Path escapes worktree'
     )
+  })
+
+  it('normalizes rg_search maxResults before executing ripgrep', async () => {
+    expect(normalizeRgSearchMaxResults(300)).toBe(200)
+    expect(normalizeRgSearchMaxResults('12')).toBe(12)
+    expect(normalizeRgSearchMaxResults(0)).toBe(1)
+    expect(normalizeRgSearchMaxResults('not-a-number')).toBe(50)
+
+    const worktreePath = mkdtempSync(join(tmpdir(), 'xuanpu-rg-'))
+    try {
+      mkdirSync(join(worktreePath, 'src'), { recursive: true })
+      writeFileSync(join(worktreePath, 'src', 'sample.ts'), 'needle\n')
+      const result = await rgSearchTool.execute(
+        'tool-1',
+        {
+          pattern: 'needle',
+          path: 'src',
+          glob: '*.ts',
+          maxResults: 300
+        } as Parameters<typeof rgSearchTool.execute>[1],
+        undefined,
+        undefined,
+        { worktreePath }
+      )
+
+      expect((result.details as { command?: string } | undefined)?.command).toContain(
+        '--max-count 200'
+      )
+      expect((result.details as { cwd?: string } | undefined)?.cwd).toBe(worktreePath)
+      expect((result.details as { command?: string } | undefined)?.command).toContain(' src')
+      expect(result.isError).toBeFalsy()
+    } finally {
+      rmSync(worktreePath, { recursive: true, force: true })
+    }
   })
 })

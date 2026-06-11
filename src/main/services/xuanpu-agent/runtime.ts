@@ -16,6 +16,7 @@ import {
 import { READ_ONLY_TOOLS, XFP_FIELD_TOOLS } from './tools'
 import { StormDetector } from './harness/tool-call-repair/storm'
 import { ToolOutputTruncator, type ArchivePayload } from './harness/tool-call-repair/truncation'
+import { normalizeToolCallArgumentsHook } from './harness/tool-call-repair/arguments'
 import { buildXuanpuAgentHarnessMetrics, type XuanpuAgentHarnessMetrics } from './harness/metrics'
 import type { CommandProfiler, CommandCompressor } from './context/compressor'
 import {
@@ -531,6 +532,7 @@ export class XuanpuPiAgentSession {
       sessionId: turnId ?? this.hiveSessionId,
       providerSessionState: undefined, // INV-TURN-1: disabled
       ...(getApiKey ? { getApiKey } : {}),
+      transformToolCallArguments: normalizeToolCallArgumentsHook,
       beforeToolCall: this.stormDetector.hook,
       afterToolCall: this.toolTruncator.hook,
       transformContext: this.budgetManager.transformContext,
