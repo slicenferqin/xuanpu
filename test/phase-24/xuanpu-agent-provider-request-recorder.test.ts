@@ -104,6 +104,25 @@ describe('ProviderRequestRecorder', () => {
         providerEstimatedInputTokens: 12,
         maxContextTokens: 150000,
         fillRatio: 0.01
+      },
+      providerNativeReplay: {
+        replayableCount: 1,
+        refs: [
+          {
+            source: 'frozen-episode',
+            episodeId: 'episode-1',
+            provider: 'openai',
+            ref: 'provider-native-compaction:sha-a',
+            path: '/tmp/archive/a.json',
+            sha256: 'sha-a',
+            bytes: 512,
+            replacementHistoryCount: 2,
+            compactionItemType: 'compaction',
+            replayable: true,
+            historyReplacementId: 'hr-1',
+            firstKeptEntryId: 'entry-9'
+          }
+        ]
       }
     }
 
@@ -125,14 +144,20 @@ describe('ProviderRequestRecorder', () => {
       userRoundId: 'round-1',
       contextSegmentId: 'segment-1',
       contextSegmentOrdinal: 2,
-      providerCallSeq: 0
+      providerCallSeq: 0,
+      providerNativeReplay: {
+        replayableCount: 1
+      }
     })
     expect(JSON.parse(stored.decisionsJson)).toMatchObject({
       taskRunId: 'task-run-1',
       userRoundId: 'round-1',
       contextSegmentId: 'segment-1',
       contextSegmentOrdinal: 2,
-      providerCallSeq: 0
+      providerCallSeq: 0,
+      providerNativeReplay: {
+        replayableCount: 1
+      }
     })
     expect(taskRunRepoMock.incrementUserRoundProviderRequestCount).toHaveBeenCalledWith('round-1')
   })

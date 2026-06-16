@@ -116,6 +116,25 @@ describe('xuanpu-agent task-run report export', () => {
       },
       db
     )
+    const providerNativeReplay = {
+      replayableCount: 1,
+      refs: [
+        {
+          source: 'frozen-episode',
+          episodeId: 'episode-1',
+          provider: 'openai',
+          ref: 'provider-native-compaction:sha-a',
+          path: join(tmpDir, 'archive', 'sha-a.json'),
+          sha256: 'sha-a',
+          bytes: 512,
+          replacementHistoryCount: 2,
+          compactionItemType: 'compaction',
+          replayable: true,
+          historyReplacementId: 'hr-1',
+          firstKeptEntryId: 'entry-9'
+        }
+      ]
+    }
     const snapshot = createAgentTurnContextSnapshot(
       {
         turnId: turn.id,
@@ -128,7 +147,11 @@ describe('xuanpu-agent task-run report export', () => {
         providerCallSeq: 0,
         providerRequestHash: 'hash-abcdef',
         prefixHash: 'prefix-123456',
-        managedContextJson: JSON.stringify({ budget: { fillRatio: 0.2 }, messageCount: 3 }),
+        managedContextJson: JSON.stringify({
+          budget: { fillRatio: 0.2 },
+          messageCount: 3,
+          providerNativeReplay
+        }),
         providerMessagesJson: JSON.stringify({ promptMessage: { role: 'user' } }),
         providerToolsJson: JSON.stringify([{ name: 'read_file' }]),
         providerConfigJson: JSON.stringify({
@@ -150,7 +173,8 @@ describe('xuanpu-agent task-run report export', () => {
             providerEstimatedInputTokens: 221000,
             providerContextWindowTokens: 1000000,
             fillRatio: 1.105
-          }
+          },
+          providerNativeReplay
         }),
         managedApproxTokens: 1200,
         providerEstimatedInputTokens: 1500,
@@ -202,7 +226,21 @@ describe('xuanpu-agent task-run report export', () => {
         gateway: {
           action: 'compact',
           providerEstimatedInputTokens: 221000
+        },
+        providerNativeReplay: {
+          replayableCount: 1
         }
+      },
+      providerNativeReplay: {
+        replayableCount: 1,
+        refs: [
+          {
+            ref: 'provider-native-compaction:sha-a',
+            replayable: true,
+            replacementHistoryCount: 2,
+            compactionItemType: 'compaction'
+          }
+        ]
       },
       replayPayloadBytes: {
         providerMessagesJson: expect.any(Number),
@@ -221,6 +259,8 @@ describe('xuanpu-agent task-run report export', () => {
     expect(markdown).toContain('## ProviderRequests')
     expect(markdown).toContain('compact extended 111% 221000/250000')
     expect(markdown).toContain('packet-1')
+    expect(markdown).toContain('## Provider Native Replay Refs')
+    expect(markdown).toContain('provider-native-compaction:sha-a')
     expect(markdown).toContain('## Related Command Trace Raw Refs')
     expect(markdown).toContain('trace-1')
   })

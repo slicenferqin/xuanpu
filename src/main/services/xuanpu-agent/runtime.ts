@@ -28,7 +28,7 @@ import {
 } from './context/budget-manager'
 import { buildProviderRequest } from './turn/provider-request-builder'
 import { recordProviderRequestSnapshot } from './turn/provider-request-recorder'
-import type { XuanpuTurnBudget } from './turn/turn-snapshot'
+import type { ProviderNativeReplayLedger, XuanpuTurnBudget } from './turn/turn-snapshot'
 import {
   getAgentTurnContextSnapshot,
   updateAgentTurnContextSnapshot
@@ -255,7 +255,8 @@ export class XuanpuPiAgentSession {
     snapshotBudget?: XuanpuTurnBudget,
     snapshotPrefixHash?: string,
     xfpPacketId?: string,
-    snapshotScope?: XuanpuProviderRequestScope
+    snapshotScope?: XuanpuProviderRequestScope,
+    snapshotProviderNativeReplay?: ProviderNativeReplayLedger | null
   ): Promise<XuanpuAgentPromptResult> {
     if (this.prompting) {
       throw new Error(
@@ -323,7 +324,8 @@ export class XuanpuPiAgentSession {
         }),
         providerSessionPolicy: { mode: 'disabled', reason: 'xuanpu owns turn-scoped context' },
         budget: snapshotBudget,
-        prefixHash: snapshotPrefixHash
+        prefixHash: snapshotPrefixHash,
+        providerNativeReplay: snapshotProviderNativeReplay ?? null
       })
       recordProviderRequestSnapshot(snapshot, xfpPacketId)
       snapshotHash = snapshot.providerRequestHash

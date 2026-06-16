@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto'
 import type { XuanpuPiPromptMessage } from '../context-transform'
 import type { XuanpuAgentModelRef } from '../model-config'
 import type {
+  ProviderNativeReplayLedger,
   ProviderSessionPolicy,
   XuanpuProviderRequestSnapshot,
   XuanpuToolDefinition,
@@ -31,6 +32,7 @@ export interface BuildProviderRequestInput {
   providerSessionPolicy: ProviderSessionPolicy
   budget: XuanpuTurnBudget
   prefixHash?: string
+  providerNativeReplay?: ProviderNativeReplayLedger | null
 }
 
 export function stableStringify(value: unknown): string {
@@ -97,7 +99,8 @@ export function computeProviderRequestHash(input: BuildProviderRequestInput): st
     providerSessionPolicy: {
       mode: input.providerSessionPolicy.mode,
       providerSessionId: input.providerSessionPolicy.providerSessionId ?? null
-    }
+    },
+    providerNativeReplay: normalizeProviderNativeReplay(input.providerNativeReplay)
   }
 
   const payload = stableStringify(canonical)
@@ -125,6 +128,27 @@ export function buildProviderRequest(
     toolsJson: stableStringify(input.tools),
     modelRef: input.modelRef,
     providerSessionPolicy: input.providerSessionPolicy,
-    budget: input.budget
+    budget: input.budget,
+    providerNativeReplay: input.providerNativeReplay ?? null
+  }
+}
+
+function normalizeProviderNativeReplay(input?: ProviderNativeReplayLedger | null): unknown {
+  if (!input || input.refs.length === 0) return null
+  return {
+    replayableCount: input.replayableCount,
+    refs: input.refs.map((ref) => ({
+      source: ref.source,
+      episodeId: ref.episodeId,
+      provider: ref.provider,
+      ref: ref.ref,
+      sha256: ref.sha256,
+      bytes: ref.bytes,
+      replacementHistoryCount: ref.replacementHistoryCount,
+      compactionItemType: ref.compactionItemType,
+      replayable: ref.replayable,
+      historyReplacementId: ref.historyReplacementId,
+      firstKeptEntryId: ref.firstKeptEntryId
+    }))
   }
 }

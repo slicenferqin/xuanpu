@@ -54,7 +54,8 @@ export function recordProviderRequestSnapshot(
       contextSegmentId: snapshot.contextSegmentId ?? null,
       contextSegmentOrdinal: snapshot.contextSegmentOrdinal ?? null,
       providerCallSeq: snapshot.providerCallSeq ?? 0,
-      messageCount: snapshot.contextMessages.length + 1
+      messageCount: snapshot.contextMessages.length + 1,
+      providerNativeReplay: snapshot.providerNativeReplay ?? null
     }),
     providerMessagesJson: JSON.stringify({
       systemPrompt: snapshot.systemPrompt,
@@ -82,7 +83,8 @@ export function recordProviderRequestSnapshot(
       contextSegmentOrdinal: snapshot.contextSegmentOrdinal ?? null,
       providerCallSeq: snapshot.providerCallSeq ?? 0,
       includedMessageCount: snapshot.contextMessages.length,
-      gateway: snapshot.budget.gateway ?? null
+      gateway: snapshot.budget.gateway ?? null,
+      providerNativeReplay: snapshot.providerNativeReplay ?? null
     }),
     managedApproxTokens: snapshot.budget.managedApproxTokens,
     providerEstimatedInputTokens: snapshot.budget.providerEstimatedInputTokens,

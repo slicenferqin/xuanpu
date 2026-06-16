@@ -14,6 +14,8 @@ import {
 } from '../../db/turn-repository'
 import type {
   AgentProviderRequestSummary,
+  AgentProviderNativeReplayLedger,
+  AgentProviderNativeReplayRef,
   AgentProviderRequestReplay,
   AgentTaskRunReport,
   AgentTaskRunReportCommandTrace,
@@ -143,6 +145,10 @@ export function renderTaskRunReportMarkdown(report: AgentTaskRunReport): string 
       `- \`${request.id}\`: xfp=${request.xfpPacketId ? `\`${request.xfpPacketId}\`` : '-'}, managed=${request.replayPayloadBytes.managedContextJson}B, messages=${request.replayPayloadBytes.providerMessagesJson}B, tools=${request.replayPayloadBytes.providerToolsJson}B, config=${request.replayPayloadBytes.providerConfigJson}B, decisions=${request.replayPayloadBytes.decisionsJson}B`
     ]),
     '',
+    '## Provider Native Replay Refs',
+    '',
+    ...renderProviderNativeReplayRefs(report.providerRequests),
+    '',
     '## Related Command Trace Raw Refs',
     '',
     ...renderCommandTraceRefs(report.relatedCommandTraces)
@@ -189,6 +195,9 @@ function buildProviderRequestReport(
   replayOrSummary: AgentProviderRequestReplay | AgentProviderRequestReportSource
 ): AgentTaskRunReportProviderRequest {
   const replay = isReplay(replayOrSummary) ? replayOrSummary : null
+  const providerConfig = replay ? safeJsonParse(replay.providerConfigJson) : null
+  const decisions = replay ? safeJsonParse(replay.decisionsJson) : null
+  const managedContext = replay ? safeJsonParse(replay.managedContextJson) : null
   return {
     id: replayOrSummary.id,
     turnId: replayOrSummary.turnId,
@@ -205,9 +214,10 @@ function buildProviderRequestReport(
     maxContextTokens: replayOrSummary.maxContextTokens,
     createdAt: replayOrSummary.createdAt,
     xfpPacketId: replay?.xfpPacketId ?? null,
-    providerConfig: replay ? safeJsonParse(replay.providerConfigJson) : null,
-    decisions: replay ? safeJsonParse(replay.decisionsJson) : null,
-    managedContext: replay ? safeJsonParse(replay.managedContextJson) : null,
+    providerConfig,
+    decisions,
+    managedContext,
+    providerNativeReplay: extractProviderNativeReplay(decisions, managedContext),
     replayPayloadBytes: {
       managedContextJson: byteLength(replay?.managedContextJson),
       providerMessagesJson: byteLength(replay?.providerMessagesJson),
@@ -245,6 +255,70 @@ function mapCommandTrace(trace: CommandTraceSummary): AgentTaskRunReportCommandT
     ruleHits: trace.ruleHits,
     createdAt: trace.createdAt
   }
+}
+
+function extractProviderNativeReplay(
+  ...sources: unknown[]
+): AgentProviderNativeReplayLedger | null {
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') continue
+    const candidate = (source as { providerNativeReplay?: unknown }).providerNativeReplay
+    const normalized = normalizeProviderNativeReplay(candidate)
+    if (normalized) return normalized
+  }
+  return null
+}
+
+function normalizeProviderNativeReplay(input: unknown): AgentProviderNativeReplayLedger | null {
+  if (!input || typeof input !== 'object') return null
+  const record = input as Record<string, unknown>
+  if (!Array.isArray(record.refs)) return null
+
+  const refs = record.refs
+    .map(normalizeProviderNativeReplayRef)
+    .filter((ref): ref is AgentProviderNativeReplayRef => Boolean(ref))
+  const replayableCount =
+    typeof record.replayableCount === 'number'
+      ? record.replayableCount
+      : refs.filter((ref) => ref.replayable).length
+  if (refs.length === 0 && replayableCount === 0) return null
+  return { replayableCount, refs }
+}
+
+function normalizeProviderNativeReplayRef(input: unknown): AgentProviderNativeReplayRef | null {
+  if (!input || typeof input !== 'object') return null
+  const record = input as Record<string, unknown>
+  if (typeof record.episodeId !== 'string') return null
+  if (typeof record.ref !== 'string') return null
+  if (typeof record.sha256 !== 'string') return null
+
+  return {
+    source: typeof record.source === 'string' ? record.source : 'unknown',
+    episodeId: record.episodeId,
+    provider: typeof record.provider === 'string' ? record.provider : null,
+    ref: record.ref,
+    path: typeof record.path === 'string' ? record.path : null,
+    sha256: record.sha256,
+    bytes: typeof record.bytes === 'number' ? record.bytes : 0,
+    replacementHistoryCount:
+      typeof record.replacementHistoryCount === 'number' ? record.replacementHistoryCount : 0,
+    compactionItemType:
+      typeof record.compactionItemType === 'string' ? record.compactionItemType : null,
+    replayable: record.replayable === true,
+    historyReplacementId:
+      typeof record.historyReplacementId === 'string' ? record.historyReplacementId : null,
+    firstKeptEntryId: typeof record.firstKeptEntryId === 'string' ? record.firstKeptEntryId : null
+  }
+}
+
+function renderProviderNativeReplayRefs(requests: AgentTaskRunReportProviderRequest[]): string[] {
+  const lines = requests.flatMap((request) =>
+    (request.providerNativeReplay?.refs ?? []).map(
+      (ref) =>
+        `- \`${request.id}\`: provider=${ref.provider ?? '-'}, source=${ref.source}, episode=\`${ref.episodeId}\`, ref=\`${ref.ref}\`, bytes=${ref.bytes}, sha256=\`${shortHash(ref.sha256)}\`, replacementHistory=${ref.replacementHistoryCount}, item=${ref.compactionItemType ?? '-'}, replayable=${ref.replayable ? 'yes' : 'no'}`
+    )
+  )
+  return lines.length > 0 ? lines : ['- none']
 }
 
 function renderCommandTraceRefs(traces: AgentTaskRunReportCommandTrace[]): string[] {

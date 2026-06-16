@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto'
-
 import type { FieldEpisodeBlockRecord } from '../../../field/episode-block-repository'
 import {
   buildRuleBasedEpisodeFromTurns,
@@ -12,7 +10,11 @@ import {
   type XuanpuAgentEpisodeFreezeOptions,
   type XuanpuAgentFreezeMessage
 } from '../episode-freezer'
-import { stableStringify } from '../turn/provider-request-builder'
+import {
+  computeProviderNativePreserveSha256,
+  ProviderNativeCompactionArchiveStore,
+  summarizeProviderNativePreserveData
+} from './provider-native-compaction'
 
 export type SegmentCompactionReason =
   | 'context-full'
@@ -37,6 +39,11 @@ export interface SegmentCompactorInput {
   existingEpisodes: FieldEpisodeBlockRecord[]
   providerNative?: ProviderNativeCompactAudit | null
   options?: XuanpuAgentEpisodeFreezeOptions
+}
+
+export interface SegmentCompactorOptions {
+  providerNativeArchiveRoot?: string
+  archiveProviderNativePreserveData?: boolean
 }
 
 export type SegmentCompactionResult =
@@ -74,10 +81,21 @@ export interface SegmentCompactionAudit {
     historyReplacementId: string | null
     preserveDataSha256: string | null
     preserveDataBytes: number
+    preserveDataRef: string | null
+    preserveDataPath: string | null
+    replacementHistoryCount: number
+    compactionItemType: string | null
+    replayable: boolean
   }
 }
 
 export class SegmentCompactor {
+  private readonly options: SegmentCompactorOptions
+
+  constructor(options: SegmentCompactorOptions = {}) {
+    this.options = options
+  }
+
   compact(input: SegmentCompactorInput): SegmentCompactionResult {
     const selected = selectMessagesForEpisodeFreeze(
       input.messages,
@@ -109,7 +127,7 @@ export class SegmentCompactor {
       createdAt: message.createdAt ?? null
     }))
     const selectedMessageIds = selected.map((message) => message.id)
-    const providerNativeAudit = buildProviderNativeAudit(input.providerNative)
+    const providerNativeAudit = this.buildProviderNativeAudit(input.providerNative)
     const audit: SegmentCompactionAudit = {
       version: 1,
       strategy: 'rule-based-fallback',
@@ -147,6 +165,54 @@ export class SegmentCompactor {
       audit
     }
   }
+
+  private buildProviderNativeAudit(
+    providerNative?: ProviderNativeCompactAudit | null
+  ): SegmentCompactionAudit['providerNative'] {
+    const preserveData = providerNative?.preserveData
+    if (preserveData === undefined) {
+      return {
+        provider: providerNative?.provider ?? null,
+        firstKeptEntryId: providerNative?.firstKeptEntryId ?? null,
+        historyReplacementId: providerNative?.historyReplacementId ?? null,
+        preserveDataSha256: null,
+        preserveDataBytes: 0,
+        preserveDataRef: null,
+        preserveDataPath: null,
+        replacementHistoryCount: 0,
+        compactionItemType: null,
+        replayable: false
+      }
+    }
+
+    const encoded = computeProviderNativePreserveSha256(preserveData)
+    const replaySummary = summarizeProviderNativePreserveData(
+      preserveData,
+      providerNative?.provider
+    )
+    const archive =
+      this.options.archiveProviderNativePreserveData === false
+        ? null
+        : new ProviderNativeCompactionArchiveStore({
+            rootDir: this.options.providerNativeArchiveRoot
+          }).writePreserveData({
+            provider: providerNative?.provider ?? null,
+            preserveData
+          })
+
+    return {
+      provider: providerNative?.provider ?? replaySummary.provider,
+      firstKeptEntryId: providerNative?.firstKeptEntryId ?? null,
+      historyReplacementId: providerNative?.historyReplacementId ?? null,
+      preserveDataSha256: encoded.sha256,
+      preserveDataBytes: encoded.bytes,
+      preserveDataRef: archive?.ref ?? null,
+      preserveDataPath: archive?.path ?? null,
+      replacementHistoryCount: replaySummary.replacementHistoryCount,
+      compactionItemType: replaySummary.compactionItemType,
+      replayable: replaySummary.replayable && Boolean(archive?.ref)
+    }
+  }
 }
 
 function collectKeptRecentMessageIds(
@@ -166,20 +232,4 @@ function collectKeptRecentMessageIds(
     .filter((message) => !selectedIds.has(message.id))
     .slice(-keepRecentMessages)
     .map((message) => message.id)
-}
-
-function buildProviderNativeAudit(
-  providerNative?: ProviderNativeCompactAudit | null
-): SegmentCompactionAudit['providerNative'] {
-  const preserveData = providerNative?.preserveData
-  const preserveDataText = preserveData === undefined ? null : stableStringify(preserveData)
-  return {
-    provider: providerNative?.provider ?? null,
-    firstKeptEntryId: providerNative?.firstKeptEntryId ?? null,
-    historyReplacementId: providerNative?.historyReplacementId ?? null,
-    preserveDataSha256: preserveDataText
-      ? createHash('sha256').update(preserveDataText).digest('hex')
-      : null,
-    preserveDataBytes: preserveDataText ? Buffer.byteLength(preserveDataText, 'utf-8') : 0
-  }
 }

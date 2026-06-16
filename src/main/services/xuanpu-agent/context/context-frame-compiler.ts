@@ -10,6 +10,10 @@ import {
   type RetrievedEpisodeEntry
 } from './context-packer'
 import { stableStringify } from '../turn/provider-request-builder'
+import {
+  extractProviderNativeReplayRefs,
+  type ProviderNativeCompactionReplayRef
+} from './provider-native-compaction'
 
 export interface ContextFrameCompilerScope {
   taskRunId?: string | null
@@ -54,6 +58,11 @@ export interface ContextFrameRawRefLedger {
   workingSetRawRefs: FieldEpisodeRawRef[]
 }
 
+export interface ContextFrameProviderNativeReplayLedger {
+  replayableCount: number
+  refs: ProviderNativeCompactionReplayRef[]
+}
+
 export interface ContextFrame {
   schemaVersion: 1
   frameId: string
@@ -68,11 +77,13 @@ export interface ContextFrame {
     buildReason: ContextFrameBuildReason
     providerMessageCount: number
     rawRefCount: number
+    providerNativeReplay: ContextFrameProviderNativeReplayLedger
     ledger: ContextFrameZoneLedger
   }
   ledger: {
     zones: ContextFrameZoneLedger
     rawRefs: ContextFrameRawRefLedger
+    providerNativeReplay: ContextFrameProviderNativeReplayLedger
   }
 }
 
@@ -87,6 +98,7 @@ export class ContextFrameCompiler {
       rawRefs.frozenEpisodeRawRefs.length +
       rawRefs.retrievedEpisodeRawRefs.length +
       rawRefs.workingSetRawRefs.length
+    const providerNativeReplay = buildProviderNativeReplayLedger(packed, input)
     const frameId = computeContextFrameId({
       prefixHash: packed.decisions.actualPrefixHash,
       promptMessage: packed.providerPromptMessage,
@@ -100,6 +112,7 @@ export class ContextFrameCompiler {
       buildReason,
       providerMessageCount: packed.providerContextMessages.length + 1,
       rawRefCount,
+      providerNativeReplay,
       ledger: zoneLedger
     }
 
@@ -114,7 +127,8 @@ export class ContextFrameCompiler {
       decisions,
       ledger: {
         zones: zoneLedger,
-        rawRefs
+        rawRefs,
+        providerNativeReplay
       }
     }
   }
@@ -174,6 +188,33 @@ function buildRawRefLedger(
         role: turn.role,
         at: turn.createdAt
       }))
+  }
+}
+
+function buildProviderNativeReplayLedger(
+  output: ContextPackerOutput,
+  input: ContextFrameCompilerInput
+): ContextFrameProviderNativeReplayLedger {
+  const frozenRefs = sortEpisodesForPacking(input.frozenEpisodes)
+    .slice(0, output.decisions.zones.frozenEpisodes.count)
+    .flatMap((episode) =>
+      extractProviderNativeReplayRefs({
+        episodeId: episode.id,
+        source: 'frozen-episode',
+        metadata: episode.metadata
+      })
+    )
+  const retrievedRefs = output.includedRetrievedEpisodes.flatMap((entry) =>
+    extractProviderNativeReplayRefs({
+      episodeId: entry.episode.id,
+      source: 'retrieved-episode',
+      metadata: entry.episode.metadata
+    })
+  )
+  const refs = [...frozenRefs, ...retrievedRefs]
+  return {
+    replayableCount: refs.filter((ref) => ref.replayable).length,
+    refs
   }
 }
 

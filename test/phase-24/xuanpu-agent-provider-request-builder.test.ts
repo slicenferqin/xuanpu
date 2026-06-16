@@ -21,6 +21,28 @@ function makeImageMsg(imageData: string, timestamp = Date.now()): XuanpuPiPrompt
   }
 }
 
+function makeProviderNativeReplay(path = '/tmp/archive/a.json') {
+  return {
+    replayableCount: 1,
+    refs: [
+      {
+        source: 'frozen-episode' as const,
+        episodeId: 'episode-1',
+        provider: 'openai',
+        ref: 'provider-native-compaction:sha-a',
+        path,
+        sha256: 'sha-a',
+        bytes: 512,
+        replacementHistoryCount: 2,
+        compactionItemType: 'compaction',
+        replayable: true,
+        historyReplacementId: 'hr-1',
+        firstKeptEntryId: 'entry-9'
+      }
+    ]
+  }
+}
+
 describe('ProviderRequestBuilder', () => {
   const BASE_INPUT = {
     turnId: 'turn-1',
@@ -159,6 +181,29 @@ describe('ProviderRequestBuilder', () => {
       contextSegmentId: 'segment-2',
       contextSegmentOrdinal: 9,
       providerCallSeq: 7
+    })
+
+    expect(hash1).toBe(hash2)
+  })
+
+  it('includes provider-native replay refs in the providerRequestHash', () => {
+    const hash1 = computeProviderRequestHash(BASE_INPUT)
+    const hash2 = computeProviderRequestHash({
+      ...BASE_INPUT,
+      providerNativeReplay: makeProviderNativeReplay()
+    })
+
+    expect(hash1).not.toBe(hash2)
+  })
+
+  it('excludes local provider-native archive paths from the providerRequestHash', () => {
+    const hash1 = computeProviderRequestHash({
+      ...BASE_INPUT,
+      providerNativeReplay: makeProviderNativeReplay('/tmp/archive/a.json')
+    })
+    const hash2 = computeProviderRequestHash({
+      ...BASE_INPUT,
+      providerNativeReplay: makeProviderNativeReplay('/private/tmp/archive/a.json')
     })
 
     expect(hash1).toBe(hash2)

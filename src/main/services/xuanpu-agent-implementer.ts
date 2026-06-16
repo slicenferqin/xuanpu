@@ -962,7 +962,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             reason: 'xuanpu owns turn-scoped context'
           },
           budget: snapshotBudget,
-          prefixHash: packedContext.decisions.actualPrefixHash
+          prefixHash: packedContext.decisions.actualPrefixHash,
+          providerNativeReplay: packedContext.ledger.providerNativeReplay
         })
         recordProviderRequestSnapshot(snapshot, compileResult.packet.identity.packetId)
         if (!epochClosed) {
@@ -1204,7 +1205,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
           userRoundId: userRound.id,
           contextSegmentId: epoch.id,
           contextSegmentOrdinal: epoch.ordinal
-        }
+        },
+        packedContext.ledger.providerNativeReplay
       )
 
       const assistantText = result.text.trim()

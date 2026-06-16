@@ -100,11 +100,32 @@ export interface AgentProviderRequestReplay extends AgentProviderRequestSummary 
   decisionsJson: string
 }
 
+export interface AgentProviderNativeReplayRef {
+  source: 'frozen-episode' | 'retrieved-episode' | string
+  episodeId: string
+  provider: string | null
+  ref: string
+  path: string | null
+  sha256: string
+  bytes: number
+  replacementHistoryCount: number
+  compactionItemType: string | null
+  replayable: boolean
+  historyReplacementId: string | null
+  firstKeptEntryId: string | null
+}
+
+export interface AgentProviderNativeReplayLedger {
+  replayableCount: number
+  refs: AgentProviderNativeReplayRef[]
+}
+
 export interface AgentTaskRunReportProviderRequest extends AgentProviderRequestSummary {
   xfpPacketId: string | null
   providerConfig: unknown
   decisions: unknown
   managedContext: unknown
+  providerNativeReplay: AgentProviderNativeReplayLedger | null
   replayPayloadBytes: {
     managedContextJson: number
     providerMessagesJson: number

@@ -3,6 +3,25 @@ import { describe, expect, it } from 'vitest'
 import { ContextFrameCompiler } from '../../src/main/services/xuanpu-agent/context/context-frame-compiler'
 import type { FieldEpisodeBlockRecord } from '../../src/main/field/episode-block-repository'
 
+function makeProviderNativeMetadata(refId: string) {
+  return {
+    segmentCompaction: {
+      providerNative: {
+        provider: 'openai',
+        preserveDataRef: `provider-native-compaction:${refId}`,
+        preserveDataPath: `/tmp/xuanpu/${refId}.json`,
+        preserveDataSha256: refId,
+        preserveDataBytes: 256,
+        replacementHistoryCount: 2,
+        compactionItemType: 'compaction',
+        replayable: true,
+        historyReplacementId: `hr-${refId}`,
+        firstKeptEntryId: `entry-${refId}`
+      }
+    }
+  }
+}
+
 function makeEpisode(overrides: Partial<FieldEpisodeBlockRecord> = {}): FieldEpisodeBlockRecord {
   return {
     id: 'ep-1',
@@ -31,12 +50,17 @@ describe('ContextFrameCompiler', () => {
     const frame = compiler.compile({
       anchor: 'stable anchor',
       fieldContextMarkdown: 'field state',
-      frozenEpisodes: [makeEpisode()],
+      frozenEpisodes: [
+        makeEpisode({
+          metadata: makeProviderNativeMetadata('frozen-sha')
+        })
+      ],
       retrievedEpisodes: [
         {
           episode: makeEpisode({
             id: 'ep-retrieved',
-            rawRefs: [{ type: 'session_message', id: 'msg-retrieved', role: 'assistant' }]
+            rawRefs: [{ type: 'session_message', id: 'msg-retrieved', role: 'assistant' }],
+            metadata: makeProviderNativeMetadata('retrieved-sha')
           }),
           retrievalReason: 'keyword:previous'
         }
@@ -79,6 +103,24 @@ describe('ContextFrameCompiler', () => {
     expect(frame.ledger.rawRefs.workingSetRawRefs).toContainEqual(
       expect.objectContaining({ id: 'msg-live' })
     )
+    expect(frame.ledger.providerNativeReplay.replayableCount).toBe(2)
+    expect(frame.ledger.providerNativeReplay.refs).toEqual([
+      expect.objectContaining({
+        source: 'frozen-episode',
+        episodeId: 'ep-1',
+        ref: 'provider-native-compaction:frozen-sha',
+        sha256: 'frozen-sha',
+        replayable: true
+      }),
+      expect.objectContaining({
+        source: 'retrieved-episode',
+        episodeId: 'ep-retrieved',
+        ref: 'provider-native-compaction:retrieved-sha',
+        sha256: 'retrieved-sha',
+        replayable: true
+      })
+    ])
+    expect(frame.decisions.providerNativeReplay.replayableCount).toBe(2)
   })
 
   it('keeps frameId stable for identical inputs and scope', () => {
