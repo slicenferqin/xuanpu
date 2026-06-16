@@ -4,7 +4,8 @@
  * The XuanpuAgentImplementer registers itself via setXuanpuAgentRuntime()
  * on creation and clears via clearXuanpuAgentRuntime() on disposal.
  */
-import { ipcMain } from 'electron'
+import { app, ipcMain } from 'electron'
+import { join } from 'node:path'
 import { createLogger } from '../services/logger'
 import type { XuanpuAgentImplementer } from '../services/xuanpu-agent-implementer'
 import { getDatabase } from '../db'
@@ -22,6 +23,7 @@ import {
   listProviderRequestSummariesForTaskRun
 } from '../db/turn-repository'
 import { DEFAULT_LEASE_WINDOW_MS } from '../services/xuanpu-agent/task-run-policy'
+import { exportTaskRunReport } from '../services/xuanpu-agent/task-run-report'
 
 const log = createLogger({ component: 'XuanpuAgentIpc' })
 
@@ -121,6 +123,35 @@ export function registerXuanpuAgentHandlers(): void {
       return null
     }
   })
+
+  ipcMain.handle(
+    'xuanpu-agent:exportTaskRunReport',
+    async (_event, input: { taskRunId: string; format?: 'markdown' | 'json' }) => {
+      const taskRunId = input?.taskRunId
+      const format = input?.format ?? 'markdown'
+      try {
+        if (!taskRunId) {
+          return { success: false, error: 'taskRunId is required' }
+        }
+        return exportTaskRunReport(taskRunId, {
+          format,
+          reportDir: join(app.getPath('userData'), 'xuanpu-agent', 'task-run-reports')
+        })
+      } catch (error) {
+        log.warn('xuanpu-agent:exportTaskRunReport failed', {
+          taskRunId,
+          format,
+          error: error instanceof Error ? error.message : String(error)
+        })
+        return {
+          success: false,
+          taskRunId,
+          format,
+          error: error instanceof Error ? error.message : String(error)
+        }
+      }
+    }
+  )
 
   ipcMain.handle('xuanpu-agent:pauseTaskRun', async (_event, taskRunId: string) => {
     try {

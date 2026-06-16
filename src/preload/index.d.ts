@@ -117,6 +117,9 @@ type XuanpuAgentProviderRequestReplay = XuanpuAgentProviderRequestSummary & {
   decisionsJson: string
 }
 
+type XuanpuAgentTaskRunReportExportResult =
+  import('../shared/types/agent-task-run').AgentTaskRunReportExportResult
+
 interface Project {
   id: string
   name: string
@@ -1647,6 +1650,10 @@ declare global {
       getProviderRequestReplay: (
         snapshotId: string
       ) => Promise<XuanpuAgentProviderRequestReplay | null>
+      exportTaskRunReport: (input: {
+        taskRunId: string
+        format?: 'markdown' | 'json'
+      }) => Promise<XuanpuAgentTaskRunReportExportResult>
       pauseTaskRun: (taskRunId: string) => Promise<{
         success: boolean
         taskRun?: XuanpuAgentTaskRun | null

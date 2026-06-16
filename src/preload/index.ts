@@ -103,6 +103,9 @@ type XuanpuAgentProviderRequestReplay = XuanpuAgentProviderRequestSummary & {
   decisionsJson: string
 }
 
+type XuanpuAgentTaskRunReportExportResult =
+  import('../shared/types/agent-task-run').AgentTaskRunReportExportResult
+
 // Apply persisted UI zoom level from localStorage before first paint to avoid flash.
 // Ghostty's getContainerRect() has visualViewport.scale compensation for non-100% zoom.
 try {
@@ -2347,6 +2350,11 @@ const xuanpuAgentOps = {
       'xuanpu-agent:getProviderRequestReplay',
       snapshotId
     ) as Promise<XuanpuAgentProviderRequestReplay | null>,
+  exportTaskRunReport: (input: { taskRunId: string; format?: 'markdown' | 'json' }) =>
+    ipcRenderer.invoke(
+      'xuanpu-agent:exportTaskRunReport',
+      input
+    ) as Promise<XuanpuAgentTaskRunReportExportResult>,
   pauseTaskRun: (taskRunId: string) =>
     ipcRenderer.invoke('xuanpu-agent:pauseTaskRun', taskRunId) as Promise<{
       success: boolean

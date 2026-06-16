@@ -99,3 +99,67 @@ export interface AgentProviderRequestReplay extends AgentProviderRequestSummary 
   providerConfigJson: string
   decisionsJson: string
 }
+
+export interface AgentTaskRunReportProviderRequest extends AgentProviderRequestSummary {
+  xfpPacketId: string | null
+  providerConfig: unknown
+  decisions: unknown
+  managedContext: unknown
+  replayPayloadBytes: {
+    managedContextJson: number
+    providerMessagesJson: number
+    providerToolsJson: number
+    providerConfigJson: number
+    decisionsJson: number
+  }
+}
+
+export interface AgentTaskRunReportCommandTrace {
+  id: string
+  sessionId: string | null
+  worktreeId: string | null
+  command: string
+  cwd: string | null
+  exitCode: number | null
+  durationMs: number | null
+  timedOut: boolean
+  aborted: boolean
+  rawOutputRef: string | null
+  rawOutputBytes: number | null
+  rawOutputSha256: string | null
+  compressionRatio: number | null
+  category: string | null
+  ruleHits: string | null
+  createdAt: string
+}
+
+export interface AgentTaskRunReport {
+  schemaVersion: 1
+  generatedAt: string
+  taskRun: AgentTaskRun
+  totals: {
+    userRoundCount: number
+    contextSegmentCount: number
+    providerRequestCount: number
+    providerCallCount: number
+    totalInputTokens: number
+    totalOutputTokens: number
+    totalTokens: number
+    totalCost: number
+    relatedCommandTraceCount: number
+  }
+  userRounds: AgentUserRound[]
+  contextSegments: AgentContextSegment[]
+  providerRequests: AgentTaskRunReportProviderRequest[]
+  relatedCommandTraces: AgentTaskRunReportCommandTrace[]
+}
+
+export interface AgentTaskRunReportExportResult {
+  success: boolean
+  taskRunId?: string
+  format?: 'markdown' | 'json'
+  filePath?: string
+  content?: string
+  report?: AgentTaskRunReport
+  error?: string
+}

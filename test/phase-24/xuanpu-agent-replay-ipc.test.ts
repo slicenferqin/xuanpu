@@ -41,8 +41,20 @@ const taskRunRepoMock = vi.hoisted(() => ({
   renewLease: vi.fn(),
   updateTaskRunStatus: vi.fn()
 }))
+const taskRunReportMock = vi.hoisted(() => ({
+  exportTaskRunReport: vi.fn(() => ({
+    success: true,
+    taskRunId: 'task-run-1',
+    format: 'markdown',
+    filePath: '/tmp/xuanpu-agent-task-run-report.md',
+    content: '# report'
+  }))
+}))
 
 vi.mock('electron', () => ({
+  app: {
+    getPath: vi.fn(() => '/tmp/xuanpu-user-data')
+  },
   ipcMain: {
     handle: (channel: string, cb: IpcCallback) => handlers.set(channel, cb)
   }
@@ -66,6 +78,7 @@ vi.mock('../../src/main/db', () => ({
 
 vi.mock('../../src/main/db/task-run-repository', () => taskRunRepoMock)
 vi.mock('../../src/main/db/turn-repository', () => turnRepoMock)
+vi.mock('../../src/main/services/xuanpu-agent/task-run-report', () => taskRunReportMock)
 
 import { registerXuanpuAgentHandlers } from '../../src/main/ipc/xuanpu-agent-handlers'
 
@@ -89,5 +102,24 @@ describe('xuanpu-agent replay IPC', () => {
       decisionsJson: '{"providerExecution":"enabled"}'
     })
     expect(turnRepoMock.getProviderRequestReplay).toHaveBeenCalledWith('snapshot-1')
+  })
+
+  it('exports a task-run report through IPC', async () => {
+    registerXuanpuAgentHandlers()
+
+    const exportReport = handlers.get('xuanpu-agent:exportTaskRunReport')
+    expect(exportReport).toBeTypeOf('function')
+
+    await expect(
+      exportReport?.({}, { taskRunId: 'task-run-1', format: 'markdown' })
+    ).resolves.toMatchObject({
+      success: true,
+      taskRunId: 'task-run-1',
+      filePath: '/tmp/xuanpu-agent-task-run-report.md'
+    })
+    expect(taskRunReportMock.exportTaskRunReport).toHaveBeenCalledWith('task-run-1', {
+      format: 'markdown',
+      reportDir: '/tmp/xuanpu-user-data/xuanpu-agent/task-run-reports'
+    })
   })
 })

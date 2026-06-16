@@ -55,6 +55,14 @@
 - [x] `loadPiAgentCoreModule()` 默认加载新的 runtime facade，避免 Desktop 业务直接依赖上游行为细节。
 - [x] `runTurn()` contract test 覆盖 context 不 prompt-echo、fresh Agent per turn、providerSessionState 默认 disabled。
 
+### Track F：TaskRun report export
+
+- [x] 新增 `TaskRunReport` 结构化报告，聚合 TaskRun、UserRound、ContextSegment、ProviderRequest 与 related command trace raw refs。
+- [x] 报告 Markdown 保留 provider snapshot、prefix/hash、token、config、decision payload byte size 和 raw output ref，便于失败复盘。
+- [x] IPC/preload 增加 `exportTaskRunReport()`，导出 `.md` / `.json` 到 app userData 下的 `xuanpu-agent/task-run-reports/`。
+- [x] Session HQ TaskRun panel 增加 report export action，导出后打开生成文件。
+- [x] 测试覆盖结构化报告、Markdown/JSON 文件导出、missing task-run 错误、IPC 通道和 panel action。
+
 ## 当前实现顺序
 
 1. 已完成 Track B 的 `ToolCallGovernor`，覆盖高噪声工具调用，避免无效执行。
@@ -62,6 +70,7 @@
 3. 已完成 Track A/D 的 `ContextSegment`/`UserRound` 语义与测试，证明当前 epoch 存储可作为 internal segment。
 4. 已完成 Context Budget Debugger 回放与 runtime 生命周期拆包，当前阶段不再保留功能性未完成项。
 5. 已完成 oh-my-pi-derived runtime 主包边界、upstream metadata 与 contract test。
+6. 已完成 TaskRun report export，Session HQ 可一键导出任务复盘文件。
 
 ## 验收命令
 
@@ -76,6 +85,7 @@ pnpm vitest run \
   test/phase-24/xuanpu-agent-provider-request-recorder.test.ts \
   test/phase-24/xuanpu-agent-implementer-prompt-path.test.ts \
   test/phase-24/xuanpu-agent-task-run-repository.test.ts \
+  test/phase-24/xuanpu-agent-task-run-report.test.ts \
   test/phase-24/xuanpu-agent-task-run-panel.test.tsx
 ```
 
@@ -90,6 +100,7 @@ pnpm exec eslint \
   src/main/db/task-run-repository.ts \
   src/main/db/turn-repository.ts \
   src/renderer/src/components/session-hq/XuanpuAgentTaskRunPanel.tsx \
+  src/main/services/xuanpu-agent/task-run-report.ts \
   packages/xuanpu-oh-my-pi-runtime/src/index.ts \
   packages/xuanpu-oh-my-pi-runtime/src/agent-loop.ts
 ```
@@ -97,8 +108,10 @@ pnpm exec eslint \
 ## 当前验证记录
 
 - `pnpm exec tsc -p tsconfig.json --noEmit`：通过。
-- runtime 包边界相关 ESLint：通过，无 warning。
-- xuanpu-agent 可运行验收集：24 个测试文件、138 个测试通过。
+- runtime/report export 相关 ESLint：通过，无 warning。
+- xuanpu-agent 可运行验收集：25 个测试文件、143 个测试通过。
+- `pnpm build`：通过，保留既有 Vite dynamic import chunking warnings。
 - `TaskRunScheduler` / `UserRoundRunner` 模块级测试覆盖新建/恢复 TaskRun、UserRound 起点、ContextSegment/Turn scope、失败/中止落库路径。
 - `@xuanpu/oh-my-pi-runtime` contract test 覆盖 turn-scoped `runTurn()` 的核心不变量。
+- `TaskRunReport` 测试覆盖结构化报告、Markdown/JSON 文件导出、ProviderRequest replay refs、related command trace raw refs、missing task-run 错误路径。
 - `test/phase-24/xuanpu-agent-runtime-status.test.ts` 当前在 Node/Vitest 环境下因上游 `@oh-my-pi/pi-ai` 的 `bun:sqlite` 解析失败，未纳入本轮通过集；该失败早于本轮 runtime 逻辑执行。

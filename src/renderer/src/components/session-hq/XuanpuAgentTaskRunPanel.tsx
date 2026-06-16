@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, CircleDot, Pause, Play, RefreshCw } from 'lucide-react'
+import { CheckCircle2, CircleDot, FileDown, Pause, Play, RefreshCw } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -30,6 +31,7 @@ export function XuanpuAgentTaskRunPanel({
   const [providerRequests, setProviderRequests] = useState<AgentProviderRequestSummary[]>([])
   const [loading, setLoading] = useState(false)
   const [actionBusy, setActionBusy] = useState(false)
+  const [exportBusy, setExportBusy] = useState(false)
 
   const latestRun = useMemo(
     () =>
@@ -109,6 +111,31 @@ export function XuanpuAgentTaskRunPanel({
     }
   }
 
+  const handleExportReport = async (): Promise<void> => {
+    if (exportBusy) return
+    setExportBusy(true)
+    try {
+      const result = await window.xuanpuAgentOps.exportTaskRunReport({
+        taskRunId: latestRun.id,
+        format: 'markdown'
+      })
+      if (!result.success || !result.filePath) {
+        toast.error(result.error ?? 'Failed to export task run report')
+        return
+      }
+      const openError = await window.projectOps.openPath(result.filePath)
+      if (openError) {
+        toast.success(`Task run report exported: ${result.filePath}`)
+      } else {
+        toast.success('Task run report exported')
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error))
+    } finally {
+      setExportBusy(false)
+    }
+  }
+
   return (
     <div
       className="mx-4 mb-2 flex min-h-12 items-center gap-3 rounded-lg border border-border/60 bg-background/92 px-3 py-2 text-xs shadow-lg backdrop-blur"
@@ -169,6 +196,22 @@ export function XuanpuAgentTaskRunPanel({
             </Button>
           </TooltipTrigger>
           <TooltipContent side="top">Refresh task run</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => void handleExportReport()}
+              disabled={exportBusy}
+              aria-label="Export task run report"
+            >
+              <FileDown className={cn('h-3.5 w-3.5', exportBusy && 'animate-pulse')} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top">Export task run report</TooltipContent>
         </Tooltip>
         {latestRun.status === 'paused' ? (
           <Tooltip>

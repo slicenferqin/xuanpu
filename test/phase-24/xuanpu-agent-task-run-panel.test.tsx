@@ -12,8 +12,13 @@ const xuanpuAgentOps = {
   listUserRounds: vi.fn(),
   listContextSegments: vi.fn(),
   listProviderRequests: vi.fn(),
+  exportTaskRunReport: vi.fn(),
   pauseTaskRun: vi.fn(),
   resumeTaskRun: vi.fn()
+}
+
+const projectOps = {
+  openPath: vi.fn()
 }
 
 class ResizeObserverMock {
@@ -28,6 +33,10 @@ describe('XuanpuAgentTaskRunPanel', () => {
     Object.defineProperty(window, 'xuanpuAgentOps', {
       configurable: true,
       value: xuanpuAgentOps
+    })
+    Object.defineProperty(window, 'projectOps', {
+      configurable: true,
+      value: projectOps
     })
     Object.defineProperty(window, 'ResizeObserver', {
       configurable: true,
@@ -126,10 +135,18 @@ describe('XuanpuAgentTaskRunPanel', () => {
     ])
     xuanpuAgentOps.pauseTaskRun.mockResolvedValue({ success: true })
     xuanpuAgentOps.resumeTaskRun.mockResolvedValue({ success: true })
+    xuanpuAgentOps.exportTaskRunReport.mockResolvedValue({
+      success: true,
+      taskRunId: 'task-run-1',
+      format: 'markdown',
+      filePath: '/tmp/task-run-report.md'
+    })
+    projectOps.openPath.mockResolvedValue('')
   })
 
   afterEach(() => {
     Reflect.deleteProperty(window, 'xuanpuAgentOps')
+    Reflect.deleteProperty(window, 'projectOps')
     Reflect.deleteProperty(window, 'ResizeObserver')
     Reflect.deleteProperty(globalThis, 'ResizeObserver')
   })
@@ -216,5 +233,30 @@ describe('XuanpuAgentTaskRunPanel', () => {
     })
 
     hydratePendingMessages.mockRestore()
+  })
+
+  it('exports a task-run report from the panel action', async () => {
+    render(
+      <TooltipProvider>
+        <XuanpuAgentTaskRunPanel
+          sessionId="session-1"
+          lifecycle="idle"
+          pendingCount={0}
+          onResumeQueued={vi.fn(async () => false)}
+        />
+      </TooltipProvider>
+    )
+
+    expect(await screen.findByText('running')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByLabelText('Export task run report'))
+
+    await waitFor(() => {
+      expect(xuanpuAgentOps.exportTaskRunReport).toHaveBeenCalledWith({
+        taskRunId: 'task-run-1',
+        format: 'markdown'
+      })
+      expect(projectOps.openPath).toHaveBeenCalledWith('/tmp/task-run-report.md')
+    })
   })
 })
