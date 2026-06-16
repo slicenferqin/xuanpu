@@ -32,7 +32,11 @@ import {
 import { READ_ONLY_TOOLS, XFP_FIELD_TOOLS } from './xuanpu-agent/tools'
 import type { XuanpuAgentHarnessMetrics } from './xuanpu-agent/harness/metrics'
 import { XfpPacketCompiler, type CompilerDecision } from './xuanpu-agent/harness/compiler'
-import { packContext } from './xuanpu-agent/context/context-packer'
+import {
+  ContextFrameCompiler,
+  type ContextFrame,
+  type ContextFrameCompilerInput
+} from './xuanpu-agent/context/context-frame-compiler'
 import { listFieldEpisodeBlocks } from '../field/episode-block-repository'
 import { createAgentTurnUsageEvent, updateAgentTurnStatus } from '../db/turn-repository'
 import {
@@ -669,11 +673,13 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       const taskStateSummary = taskStateManager?.buildContextSummary() ?? null
       let activeWorkingSet = priorMessages
       let activeFrozenEpisodes = episodeRecords
+      const contextFrameCompiler = new ContextFrameCompiler()
       const packForBudget = (
         totalBudgetTokens: number,
-        budgetOverrides?: Parameters<typeof packContext>[0]['budgetOverrides']
-      ) =>
-        packContext({
+        budgetOverrides?: ContextFrameCompilerInput['budgetOverrides'],
+        buildReason: ContextFrameCompilerInput['buildReason'] = 'user-round-start'
+      ): ContextFrame =>
+        contextFrameCompiler.compile({
           anchor: stableAnchor,
           fieldContextMarkdown: liveFieldContext,
           frozenEpisodes: activeFrozenEpisodes,
@@ -682,7 +688,14 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
           currentRequest: text,
           taskStateSummary,
           totalBudgetTokens,
-          budgetOverrides
+          budgetOverrides,
+          buildReason,
+          scope: {
+            taskRunId: taskRun.id,
+            userRoundId: userRound.id,
+            contextSegmentId: epoch.id,
+            contextSegmentOrdinal: epoch.ordinal
+          }
         })
 
       let packedContext = packForBudget(effectiveContextBudget)
@@ -704,10 +717,14 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         })
         activeWorkingSet = freshPriors
         activeFrozenEpisodes = freshEpisodes
-        packedContext = packForBudget(effectiveContextBudget, {
-          workingSet: 15_000,
-          frozenEpisodes: 6_000
-        })
+        packedContext = packForBudget(
+          effectiveContextBudget,
+          {
+            workingSet: 15_000,
+            frozenEpisodes: 6_000
+          },
+          'segment-boundary'
+        )
       }
 
       let gatewayDecision = evaluateGatewayBudget({
@@ -734,11 +751,15 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             gatewayDecision.maintenanceTokenLimit - providerOverheadTokens
           )
         )
-        packedContext = packForBudget(gatewayCompactBudget, {
-          currentField: 3_000,
-          workingSet: 8_000,
-          frozenEpisodes: 4_000
-        })
+        packedContext = packForBudget(
+          gatewayCompactBudget,
+          {
+            currentField: 3_000,
+            workingSet: 8_000,
+            frozenEpisodes: 4_000
+          },
+          'gateway-compact'
+        )
         const postCompactDecision = evaluateGatewayBudget({
           requestedProfile: compileResult.packet.budget.profile,
           providerEstimatedInputTokens:

@@ -11,13 +11,11 @@ import type { DatabaseService } from '../../../db/database'
 import type { SessionMessage } from '../../../db/types'
 import { buildFieldContextSnapshot } from '../../../field/context-builder'
 import { formatFieldContext } from '../../../field/context-formatter'
-import {
-  listFieldEpisodeBlocks
-} from '../../../field/episode-block-repository'
+import { listFieldEpisodeBlocks } from '../../../field/episode-block-repository'
 import { createFieldContextPackage } from '../../../field/context-package-repository'
 import { selectRetrievedEpisodesForContext } from '../episode-retrieval'
-import { selectMessagesForEpisodeFreeze } from '../episode-freezer'
 import { summarizeEpisode } from '../context/episode-summarizer'
+import { SegmentCompactor } from '../context/segment-compactor'
 import type { XuanpuAgentModelRef } from '../model-config'
 import { loadXuanpuAgentConfig } from '../config-loader'
 import { createLogger } from '../../logger'
@@ -248,24 +246,20 @@ export class IdeFieldProvider implements FieldProvider {
         sessionId,
         limit: 200
       })
-      const selected = selectMessagesForEpisodeFreeze(
-        messages.map((msg) => ({
+      const compaction = new SegmentCompactor().compact({
+        worktreeId,
+        sessionId,
+        reason: 'context-full',
+        messages: messages.map((msg) => ({
           id: msg.opencode_message_id ?? msg.id,
           role: msg.role,
           content: msg.content,
           createdAt: msg.created_at
         })),
         existingEpisodes
-      )
+      })
 
-      if (selected.length === 0) return
-
-      const turns = selected.map((msg) => ({
-        messageId: msg.id ?? '',
-        role: msg.role as 'user' | 'assistant',
-        content: msg.content,
-        createdAt: msg.createdAt
-      }))
+      if (compaction.status === 'skipped') return
 
       // Resolve compaction model from settings
       const resolution = await this.resolveCompactionResolution()
@@ -274,18 +268,25 @@ export class IdeFieldProvider implements FieldProvider {
         worktreeId,
         sessionId,
         title: 'Frozen Conversation Turns',
-        turns,
+        turns: compaction.turns,
         resolution
       })
 
       // summarizeEpisode returns FieldEpisodeBlockCreate; persist it
       const { createFieldEpisodeBlock } = await import('../../../field/episode-block-repository')
-      createFieldEpisodeBlock(episode)
+      createFieldEpisodeBlock({
+        ...episode,
+        metadata: {
+          ...(episode.metadata ?? {}),
+          segmentCompaction: compaction.audit
+        }
+      })
 
       log.info('Frozen conversation episode', {
         sessionId,
         worktreeId,
-        messageCount: selected.length,
+        messageCount: compaction.selectedMessageIds.length,
+        firstKeptEntryId: compaction.firstKeptEntryId,
         modelSource: resolution.source
       })
     } catch (error) {

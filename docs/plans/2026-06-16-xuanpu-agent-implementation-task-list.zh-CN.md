@@ -71,6 +71,17 @@
 - [x] 当估算越过 hard limit 时，provider 调用前直接 pause，并写入 snapshot / task-run / turn audit。
 - [x] 测试覆盖 220K maintenance、250K hard pause、1M provider window cap、snapshot/report gateway 透传。
 
+### Track H：ContextFrameCompiler / SegmentCompactor
+
+- [x] 新增 `ContextFrameCompiler`，在不替换现有 `packContext()` 行为的前提下，把 provider-visible context 包装成可审计 frame。
+- [x] `ContextFrame` 记录 `frameId`、`buildReason`、TaskRun/UserRound/ContextSegment scope、provider messages、retrieved episodes 和 packer decisions。
+- [x] `ContextFrame` 增加 zone ledger 与 raw-ref ledger，暴露 frozen/retrieved/working-set included/omitted 证据。
+- [x] `xuanpu-agent-implementer.ts` 的 user-round start、segment boundary、gateway compact 路径统一使用 `ContextFrameCompiler`。
+- [x] 新增 `SegmentCompactor`，复用既有 episode freezer 选择规则，产出 deterministic rule-based fallback episode create data。
+- [x] `SegmentCompactor` 记录 selected/kept recent message ids、`firstKeptEntryId`、TaskRun/ContextSegment scope 和 provider-native audit 摘要。
+- [x] provider-native `preserveData` 当前只记录 sha256 与 byte size，不把原始 payload 写入 episode metadata。
+- [x] `IdeFieldProvider.freezeEpisodes()` 接入 `SegmentCompactor`，继续保留原有 model summarizer 路径，并把 compaction audit 写入 episode metadata。
+
 ## 当前实现顺序
 
 1. 已完成 Track B 的 `ToolCallGovernor`，覆盖高噪声工具调用，避免无效执行。
@@ -80,12 +91,12 @@
 5. 已完成 oh-my-pi-derived runtime 主包边界、upstream metadata 与 contract test。
 6. 已完成 TaskRun report export，Session HQ 可一键导出任务复盘文件。
 7. 已完成 Gateway context budget guard，provider 调用前不再依赖 1M 上下文。
+8. 已完成 ContextFrameCompiler / SegmentCompactor 的首批落地，具备 frame 级审计和 segment compaction audit 基础。
 
 ## 仍待落实的大项
 
-- `ContextFrameCompiler` / `SegmentCompactor`
 - 独立 `@xuanpu/agent-cli`
-- OpenAI remote compact preserve data 的 replay / audit
+- OpenAI remote compact preserve data 的完整 replay / audit：当前只在 `SegmentCompactor` 中记录 hash/bytes 摘要，尚未接 provider-native history 重放。
 - v16.x upgrade spike
 
 ## 验收命令
@@ -97,6 +108,8 @@ pnpm vitest run \
   test/phase-24/xuanpu-oh-my-pi-runtime-contract.test.ts \
   test/phase-24/xuanpu-agent-media-offload.test.ts \
   test/phase-24/xuanpu-agent-tool-output-truncation.test.ts \
+  test/phase-24/xuanpu-agent-context-frame-compiler.test.ts \
+  test/phase-24/xuanpu-agent-segment-compactor.test.ts \
   test/phase-24/xuanpu-agent-task-run-policy.test.ts \
   test/phase-24/xuanpu-agent-provider-request-builder.test.ts \
   test/phase-24/xuanpu-agent-provider-request-recorder.test.ts \
@@ -110,6 +123,8 @@ pnpm vitest run \
 
 ```bash
 pnpm exec eslint \
+  src/main/services/xuanpu-agent/context/context-frame-compiler.ts \
+  src/main/services/xuanpu-agent/context/segment-compactor.ts \
   src/main/services/xuanpu-agent/task-run-policy.ts \
   src/main/services/xuanpu-agent/turn/turn-snapshot.ts \
   src/main/services/xuanpu-agent/turn/provider-request-recorder.ts \
@@ -136,4 +151,6 @@ pnpm exec eslint \
 - `@xuanpu/oh-my-pi-runtime` contract test 覆盖 turn-scoped `runTurn()` 的核心不变量。
 - `TaskRunReport` 测试覆盖结构化报告、Markdown/JSON 文件导出、ProviderRequest replay refs、related command trace raw refs、missing task-run 错误路径。
 - Gateway budget guard 测试覆盖 220K maintenance compact、250K hard pause、1M provider context window cap、snapshot/report gateway audit。
+- `ContextFrameCompiler` / `SegmentCompactor` 测试覆盖 frame metadata、zone/raw-ref ledger、stable frame id、rule-based fallback、existing episode 去重、provider-native preserve data hash-only audit。
+- `pnpm vitest run test/phase-24/xuanpu-agent-context-frame-compiler.test.ts test/phase-24/xuanpu-agent-segment-compactor.test.ts test/phase-24/xuanpu-agent-context-packer.test.ts test/phase-24/xuanpu-agent-context-steady-state.test.ts test/phase-24/xuanpu-agent-implementer-prompt-path.test.ts test/phase-24/xuanpu-agent-episode-freezer.test.ts test/phase-24/xuanpu-agent-episode-summarizer.test.ts`：7 个测试文件、63 个测试通过。
 - `test/phase-24/xuanpu-agent-runtime-status.test.ts` 当前在 Node/Vitest 环境下因上游 `@oh-my-pi/pi-ai` 的 `bun:sqlite` 解析失败，未纳入本轮通过集；该失败早于本轮 runtime 逻辑执行。

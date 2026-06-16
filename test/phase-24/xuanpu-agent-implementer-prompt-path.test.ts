@@ -303,6 +303,38 @@ vi.mock('../../src/main/services/xuanpu-agent/runtime', () => ({
   XuanpuPiAgentSession: vi.fn(() => mockPiSession)
 }))
 
+function makePackerDecisions(
+  overrides: Partial<Record<string, unknown>> & {
+    zones?: Record<string, unknown>
+  } = {}
+): Record<string, unknown> {
+  return {
+    contextTransform: 'm7-context-packer',
+    zones: {
+      anchor: { tokens: 10 },
+      taskState: { tokens: 0, included: false },
+      currentField: { tokens: 0, included: false },
+      frozenEpisodes: { tokens: 0, count: 0, dropped: 0 },
+      retrievedEpisodes: { tokens: 0, count: 0, dropped: 0, reasons: [], includedIds: [] },
+      workingSet: {
+        tokens: 50,
+        count: 2,
+        dedupedCount: 0,
+        includedMessageIds: ['msg-1', 'msg-2'],
+        droppedMessageIds: []
+      },
+      currentRequest: { tokens: 10 },
+      ...(overrides.zones ?? {})
+    },
+    totalTokens: 100,
+    fillRatio: 0.01,
+    prefixHash: 'abc123',
+    actualPrefixHash: 'abc123',
+    prefixChangeReason: 'none',
+    ...overrides
+  }
+}
+
 describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -385,24 +417,7 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
         timestamp: 2
       },
       includedRetrievedEpisodes: [],
-      decisions: {
-        contextTransform: 'm7-context-packer',
-        zones: {
-          retrievedEpisodes: { tokens: 0, count: 0, dropped: 0, reasons: [], includedIds: [] },
-          workingSet: {
-            tokens: 50,
-            count: 2,
-            dedupedCount: 0,
-            includedMessageIds: ['msg-1', 'msg-2'],
-            droppedMessageIds: []
-          }
-        },
-        totalTokens: 100,
-        fillRatio: 0.01,
-        prefixHash: 'abc123',
-        actualPrefixHash: 'abc123',
-        prefixChangeReason: 'none'
-      }
+      decisions: makePackerDecisions()
     })
   })
 
@@ -544,14 +559,13 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
         timestamp: 2
       },
       includedRetrievedEpisodes: [],
-      decisions: {
-        zones: {},
+      decisions: makePackerDecisions({
         totalTokens: 260_000,
         fillRatio: 1.3,
         prefixHash: 'too-large',
         actualPrefixHash: 'too-large',
         prefixChangeReason: 'none'
-      }
+      })
     }
     packContextMock.mockReset()
     packContextMock.mockReturnValue(oversizedPack)
@@ -677,14 +691,13 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
           timestamp: 2
         },
         includedRetrievedEpisodes: [],
-        decisions: {
-          zones: {},
+        decisions: makePackerDecisions({
           totalTokens: 80_000,
           fillRatio: 0.45,
           prefixHash: 'abc123',
           actualPrefixHash: 'abc123',
           prefixChangeReason: 'none'
-        }
+        })
       })
       .mockReturnValueOnce({
         providerContextMessages: [
@@ -696,14 +709,13 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
           timestamp: 2
         },
         includedRetrievedEpisodes: [],
-        decisions: {
-          zones: {},
+        decisions: makePackerDecisions({
           totalTokens: 40_000,
           fillRatio: 0.2,
           prefixHash: 'def456',
           actualPrefixHash: 'def456',
           prefixChangeReason: 'episodes'
-        }
+        })
       })
 
     mockFieldProvider.getPriorTurns
