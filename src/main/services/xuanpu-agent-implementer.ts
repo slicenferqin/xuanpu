@@ -33,39 +33,28 @@ import type { XuanpuAgentHarnessMetrics } from './xuanpu-agent/harness/metrics'
 import { XfpPacketCompiler, type CompilerDecision } from './xuanpu-agent/harness/compiler'
 import { packContext } from './xuanpu-agent/context/context-packer'
 import { listFieldEpisodeBlocks } from '../field/episode-block-repository'
-import {
-  createAgentTurn,
-  createAgentTurnUsageEvent,
-  updateAgentTurnStatus
-} from '../db/turn-repository'
+import { createAgentTurnUsageEvent, updateAgentTurnStatus } from '../db/turn-repository'
 import {
   accumulateUsage as accumulateTaskRunUsage,
-  appendContextSegment,
   closeEpoch,
-  createTaskRun,
-  createUserRound,
-  getActiveTaskRun,
-  getTaskRun,
   incrementEpochProviderCallCount,
   renewLease,
   updateEpochStartFillRatio,
-  updateUserRoundStatus,
   updateTaskRunStatus
 } from '../db/task-run-repository'
 import { extractUsageTokens } from '../../shared/usage/message'
 import type {
-  AgentTaskRun,
   EpochCloseReason,
   EpochStatus,
-  TaskRunAutonomy,
-  UserRoundOrigin
+  TaskRunAutonomy
 } from '../../shared/types/agent-task-run'
 import {
   evaluateLeaseAtBoundary,
   NO_PROGRESS_LIMIT,
   shouldCloseEpoch
 } from './xuanpu-agent/task-run-policy'
-import { inferTaskRunAutonomyFromPromptText } from './xuanpu-agent/task-run-intent'
+import { TaskRunScheduler } from './xuanpu-agent/task-run-scheduler'
+import { UserRoundRunner } from './xuanpu-agent/user-round-runner'
 import type {
   XfpAnchorSection,
   XfpCommandTraceSection,
@@ -397,53 +386,18 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
 
     const agentConfig = this.getAgentConfig()
     const modelRef = resolveXuanpuAgentModelRef(modelOverride, this.selectedModelRef, agentConfig)
-    const explicitTaskRun = options?.taskRunId ? getTaskRun(options.taskRunId, db) : null
-    const implicitTaskRun =
-      !explicitTaskRun && shouldResumeActiveTaskRunFromPromptText(text)
-        ? getActiveTaskRun(session.hiveSessionId, db)
-        : null
-    const requestedTaskRun =
-      explicitTaskRun ?? (implicitTaskRun?.status === 'paused' ? implicitTaskRun : null)
-    const reusableTaskRun =
-      requestedTaskRun &&
-      requestedTaskRun.sessionId === session.hiveSessionId &&
-      (requestedTaskRun.status === 'running' || requestedTaskRun.status === 'paused')
-        ? requestedTaskRun
-        : null
-    const requestedAutonomy: TaskRunAutonomy =
-      options?.taskRunAutonomy ?? inferTaskRunAutonomyFromPromptText(text) ?? 'short'
-    const taskRunAutonomy: TaskRunAutonomy = reusableTaskRun?.autonomy ?? requestedAutonomy
-    const taskRun: AgentTaskRun =
-      reusableTaskRun ??
-      createTaskRun(
-        {
-          sessionId: session.hiveSessionId,
-          worktreeId: worktree?.id ?? null,
-          projectId,
-          originMessageId: userMessageId,
-          autonomy: taskRunAutonomy,
-          objective: text,
-          leaseExpiresAt:
-            taskRunAutonomy === 'short'
-              ? null
-              : new Date(Date.now() + LEASE_WINDOW_MS).toISOString()
-        },
-        db
-      )
-    if (reusableTaskRun?.status === 'paused') {
-      updateTaskRunStatus(
-        taskRun.id,
-        'running',
-        {
-          leaseExpiresAt:
-            taskRun.leaseExpiresAt ??
-            (taskRunAutonomy === 'short'
-              ? null
-              : new Date(Date.now() + LEASE_WINDOW_MS).toISOString())
-        },
-        db
-      )
-    }
+    const taskRunSchedule = new TaskRunScheduler(db).schedule({
+      sessionId: session.hiveSessionId,
+      worktreeId: worktree?.id ?? null,
+      projectId,
+      originMessageId: userMessageId,
+      promptText: text,
+      requestedTaskRunId: options?.taskRunId ?? null,
+      requestedAutonomy: options?.taskRunAutonomy,
+      leaseWindowMs: LEASE_WINDOW_MS
+    })
+    const { taskRun } = taskRunSchedule
+    const taskRunAutonomy: TaskRunAutonomy = taskRunSchedule.autonomy
 
     let taskStateManager: TaskStateManager | null = null
     try {
@@ -461,43 +415,19 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       })
     }
 
-    const userRound = createUserRound(
-      {
-        taskRunId: taskRun.id,
-        sessionId: session.hiveSessionId,
-        origin: inferUserRoundOrigin(text, options?.taskRunId ?? null),
-        userMessageId,
-        promptText: text
-      },
-      db
-    )
-
-    const epoch = appendContextSegment(
-      {
-        taskRunId: taskRun.id,
-        sessionId: session.hiveSessionId,
-        userRoundId: userRound.id
-      },
-      db
-    )
-
     // INV-TURN-2: Every prompt creates a turn record. Must not be best-effort.
-    const turnId = createAgentTurn(
-      {
-        sessionId: session.hiveSessionId,
-        worktreeId: worktree?.id ?? null,
-        projectId,
-        runtimeId: 'xuanpu-agent',
-        taskRunId: taskRun.id,
-        userRoundId: userRound.id,
-        epochId: epoch.id,
-        userMessageId,
-        modelProviderId: modelRef.providerID,
-        modelId: modelRef.modelID,
-        modelVariant: modelRef.variant ?? null
-      },
-      db
-    ).id
+    const userRoundScope = new UserRoundRunner(db).start({
+      taskRunId: taskRun.id,
+      sessionId: session.hiveSessionId,
+      worktreeId: worktree?.id ?? null,
+      projectId,
+      runtimeId: 'xuanpu-agent',
+      promptText: text,
+      requestedTaskRunId: options?.taskRunId ?? null,
+      userMessageId,
+      modelRef
+    })
+    const { userRound, contextSegment: epoch, turnId } = userRoundScope
     session.activeTurnId = turnId
     session.activeTaskRunId = taskRun.id
     session.activeUserRoundId = userRound.id
@@ -1439,7 +1369,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       ) {
         updateTaskRunStatus(taskRun.id, 'completed', undefined, this.db)
       }
-      updateUserRoundStatus(userRound.id, 'completed', undefined, this.db)
+      new UserRoundRunner(db).completeUserRound(userRound.id)
       session.activeTurnId = null
       session.activeTaskRunId = null
       session.activeUserRoundId = null
@@ -1457,26 +1387,15 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         .join('\n')
 
       // Phase 1: Mark turn as failed.
-      if (session.activeTurnId) {
-        updateAgentTurnStatus(session.activeTurnId, 'failed', { errorMessage }, this.db)
-      }
-      if (session.activeEpochId) {
-        closeEpoch(
-          session.activeEpochId,
-          {
-            status: 'failed',
-            endFillRatio: null,
-            closeReason: 'watchdog'
-          },
-          this.db
-        )
-      }
-      if (session.activeTaskRunId) {
-        updateTaskRunStatus(session.activeTaskRunId, 'failed', { errorMessage }, this.db)
-      }
-      if (session.activeUserRoundId) {
-        updateUserRoundStatus(session.activeUserRoundId, 'failed', { errorMessage }, this.db)
-      }
+      new UserRoundRunner(db).failActiveScope(
+        {
+          turnId: session.activeTurnId,
+          contextSegmentId: session.activeEpochId,
+          taskRunId: session.activeTaskRunId,
+          userRoundId: session.activeUserRoundId
+        },
+        errorMessage
+      )
 
       field.persistMessage(session.hiveSessionId, 'assistant', errorMessage)
       session.status = 'error'
@@ -1502,48 +1421,22 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       return true
     }
 
-    // Phase 1: Mark active turn as aborted.
-    if (session.activeTurnId) {
-      updateAgentTurnStatus(
-        session.activeTurnId,
-        'aborted',
+    // Phase 1: Mark active task-run scope as aborted.
+    if (this.db) {
+      new UserRoundRunner(this.db).abortActiveScope(
         {
-          errorMessage: 'Aborted by user'
+          turnId: session.activeTurnId,
+          contextSegmentId: session.activeEpochId,
+          taskRunId: session.activeTaskRunId,
+          userRoundId: session.activeUserRoundId
         },
-        this.db
+        'Aborted by user'
       )
-      session.activeTurnId = null
     }
-    if (session.activeEpochId) {
-      closeEpoch(
-        session.activeEpochId,
-        {
-          status: 'failed',
-          endFillRatio: null,
-          closeReason: 'watchdog'
-        },
-        this.db
-      )
-      session.activeEpochId = null
-    }
-    if (session.activeTaskRunId) {
-      updateTaskRunStatus(
-        session.activeTaskRunId,
-        'aborted',
-        { errorMessage: 'Aborted by user' },
-        this.db
-      )
-      session.activeTaskRunId = null
-    }
-    if (session.activeUserRoundId) {
-      updateUserRoundStatus(
-        session.activeUserRoundId,
-        'aborted',
-        { errorMessage: 'Aborted by user' },
-        this.db
-      )
-      session.activeUserRoundId = null
-    }
+    session.activeTurnId = null
+    session.activeEpochId = null
+    session.activeTaskRunId = null
+    session.activeUserRoundId = null
 
     session.abortController.abort()
     session.piSession?.abort()
@@ -2847,20 +2740,6 @@ function isCompleteLongTaskResponse(text: string): boolean {
   ].some((pattern) => pattern.test(normalized))
 }
 
-function shouldResumeActiveTaskRunFromPromptText(text: string): boolean {
-  const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase()
-  if (!normalized) return false
-
-  return [
-    /^继续\b/,
-    /^请继续\b/,
-    /继续(?:当前|这个|上个|上一|跑|执行|推进|完成|处理|剩下|余下|后续)/,
-    /(?:跑完|完成|处理).{0,12}(?:剩下|余下|剩余|后续)/,
-    /(?:接着|续跑|继续跑)/,
-    /\b(?:resume|continue)\b/
-  ].some((pattern) => pattern.test(normalized))
-}
-
 function tailForContinuation(text: string, maxChars = 1600): string {
   const trimmed = text.trim()
   if (trimmed.length <= maxChars) return trimmed
@@ -3463,14 +3342,6 @@ function extractSubtaskDetails(result: unknown): SubtaskResultDetails | null {
 function extractProposedPlan(text: string): string | null {
   const match = text.match(/<proposed_plan>\s*([\s\S]*?)\s*<\/proposed_plan>/i)
   return match ? (match[1]?.trim() ?? null) : null
-}
-
-function inferUserRoundOrigin(text: string, requestedTaskRunId: string | null): UserRoundOrigin {
-  if (/\bno-progress-recovery\b/i.test(text)) return 'recovery-continuation'
-  if (requestedTaskRunId || /<xuanpu-task-run-continuation\b/i.test(text)) {
-    return 'agent-continuation'
-  }
-  return 'user-originated'
 }
 
 /**
