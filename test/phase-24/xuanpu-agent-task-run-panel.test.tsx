@@ -9,6 +9,9 @@ import { useSessionRuntimeStore } from '../../src/renderer/src/stores/useSession
 const xuanpuAgentOps = {
   listTaskRuns: vi.fn(),
   listEpochs: vi.fn(),
+  listUserRounds: vi.fn(),
+  listContextSegments: vi.fn(),
+  listProviderRequests: vi.fn(),
   pauseTaskRun: vi.fn(),
   resumeTaskRun: vi.fn()
 }
@@ -54,11 +57,29 @@ describe('XuanpuAgentTaskRunPanel', () => {
         errorMessage: null
       }
     ])
-    xuanpuAgentOps.listEpochs.mockResolvedValue([
+    xuanpuAgentOps.listUserRounds.mockResolvedValue([
+      {
+        id: 'round-1',
+        taskRunId: 'task-run-1',
+        sessionId: 'session-1',
+        ordinal: 0,
+        origin: 'user-originated',
+        status: 'running',
+        userMessageId: 'msg-user-1',
+        promptText: 'finish the runtime',
+        providerRequestCount: 1,
+        contextSegmentCount: 2,
+        startedAt: '2026-06-05T00:00:00.000Z',
+        completedAt: null,
+        errorMessage: null
+      }
+    ])
+    xuanpuAgentOps.listContextSegments.mockResolvedValue([
       {
         id: 'epoch-1',
         taskRunId: 'task-run-1',
         sessionId: 'session-1',
+        userRoundId: 'round-1',
         ordinal: 0,
         status: 'checkpointed',
         checkpointId: 'ck-1',
@@ -73,6 +94,7 @@ describe('XuanpuAgentTaskRunPanel', () => {
         id: 'epoch-2',
         taskRunId: 'task-run-1',
         sessionId: 'session-1',
+        userRoundId: 'round-1',
         ordinal: 1,
         status: 'running',
         checkpointId: null,
@@ -82,6 +104,24 @@ describe('XuanpuAgentTaskRunPanel', () => {
         closeReason: null,
         startedAt: '2026-06-05T00:10:00.000Z',
         closedAt: null
+      }
+    ])
+    xuanpuAgentOps.listProviderRequests.mockResolvedValue([
+      {
+        id: 'snapshot-1',
+        turnId: 'turn-1',
+        sessionId: 'session-1',
+        taskRunId: 'task-run-1',
+        userRoundId: 'round-1',
+        contextSegmentId: 'epoch-1',
+        contextSegmentOrdinal: 0,
+        providerCallSeq: 0,
+        providerRequestHash: 'hash-1234567890abcdef',
+        prefixHash: null,
+        managedApproxTokens: 1200,
+        providerEstimatedInputTokens: 1500,
+        maxContextTokens: 150000,
+        createdAt: '2026-06-05T00:00:00.000Z'
       }
     ])
     xuanpuAgentOps.pauseTaskRun.mockResolvedValue({ success: true })
@@ -110,6 +150,10 @@ describe('XuanpuAgentTaskRunPanel', () => {
     expect(screen.getByText('/long')).toBeInTheDocument()
     expect(screen.getByText('calls')).toBeInTheDocument()
     expect(screen.getByText('15')).toBeInTheDocument()
+    expect(screen.getByText('rounds')).toBeInTheDocument()
+    expect(screen.getByText('segments')).toBeInTheDocument()
+    expect(screen.getByText('requests')).toBeInTheDocument()
+    expect(screen.getByText('1:user')).toBeInTheDocument()
     expect(screen.getByText('tokens')).toBeInTheDocument()
     expect(screen.getByText('1.5k')).toBeInTheDocument()
 
@@ -145,6 +189,9 @@ describe('XuanpuAgentTaskRunPanel', () => {
         errorMessage: 'no progress'
       }
     ])
+    xuanpuAgentOps.listUserRounds.mockResolvedValue([])
+    xuanpuAgentOps.listContextSegments.mockResolvedValue([])
+    xuanpuAgentOps.listProviderRequests.mockResolvedValue([])
 
     render(
       <TooltipProvider>

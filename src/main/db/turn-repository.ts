@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { getDatabase } from './database'
 import type { DatabaseService } from './database'
+import type {
+  AgentProviderRequestReplay,
+  AgentProviderRequestSummary
+} from '@shared/types/agent-task-run'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -14,6 +18,7 @@ export interface AgentTurnCreate {
   projectId: string
   runtimeId: string
   taskRunId?: string | null
+  userRoundId?: string | null
   epochId?: string | null
   userMessageId?: string | null
   modelProviderId?: string | null
@@ -34,6 +39,11 @@ export interface AgentTurnContextSnapshotCreate {
   turnId: string
   sessionId: string
   xfpPacketId?: string | null
+  taskRunId?: string | null
+  userRoundId?: string | null
+  contextSegmentId?: string | null
+  contextSegmentOrdinal?: number | null
+  providerCallSeq?: number | null
   providerRequestHash: string
   prefixHash?: string | null
   managedContextJson: string
@@ -80,16 +90,15 @@ export interface AgentTurnUsageEventRecord extends AgentTurnUsageEventCreate {
 // Internal helper — resolve DB from optional injected service or global singleton
 // ─────────────────────────────────────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function resolveDb(db?: DatabaseService | Record<string, any> | null) {
+function resolveDb(
+  db?: DatabaseService | { getDb?: unknown } | null
+): ReturnType<DatabaseService['getDb']> {
   // Prefer injected DB; fall back to global singleton.
   // db may be a mock without getDb() in tests — in that case use global.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const injected = db && typeof (db as any).getDb === 'function'
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ? (db as any).getDb()
-    : null
-  return injected ?? getDatabase().getDb()
+  if (db && typeof db.getDb === 'function') {
+    return db.getDb() as ReturnType<DatabaseService['getDb']>
+  }
+  return getDatabase().getDb()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -114,11 +123,11 @@ export function createAgentTurn(
     .prepare(
       `INSERT INTO agent_turns (
         id, session_id, worktree_id, project_id, runtime_id,
-        task_run_id, epoch_id,
+        task_run_id, user_round_id, epoch_id,
         user_message_id, assistant_message_id, status,
         model_provider_id, model_id, model_variant,
         started_at, completed_at, error_message
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       record.id,
@@ -127,6 +136,7 @@ export function createAgentTurn(
       record.projectId,
       record.runtimeId,
       record.taskRunId ?? null,
+      record.userRoundId ?? null,
       record.epochId ?? null,
       record.userMessageId ?? null,
       record.assistantMessageId,
@@ -171,15 +181,12 @@ export function updateAgentTurnStatus(
     )
 }
 
-export function getAgentTurn(
-  turnId: string,
-  db?: DatabaseService | null
-): AgentTurnRecord | null {
+export function getAgentTurn(turnId: string, db?: DatabaseService | null): AgentTurnRecord | null {
   const row = resolveDb(db)
     .prepare(
       `SELECT id, session_id AS sessionId, worktree_id AS worktreeId,
               project_id AS projectId, runtime_id AS runtimeId,
-              task_run_id AS taskRunId, epoch_id AS epochId,
+              task_run_id AS taskRunId, user_round_id AS userRoundId, epoch_id AS epochId,
               user_message_id AS userMessageId,
               assistant_message_id AS assistantMessageId,
               status,
@@ -207,7 +214,7 @@ export function listAgentTurns(
     .prepare(
       `SELECT id, session_id AS sessionId, worktree_id AS worktreeId,
               project_id AS projectId, runtime_id AS runtimeId,
-              task_run_id AS taskRunId, epoch_id AS epochId,
+              task_run_id AS taskRunId, user_round_id AS userRoundId, epoch_id AS epochId,
               user_message_id AS userMessageId,
               assistant_message_id AS assistantMessageId,
               status,
@@ -243,6 +250,8 @@ export function createAgentTurnContextSnapshot(
     .prepare(
       `INSERT INTO agent_turn_context_snapshots (
         id, turn_id, session_id, xfp_packet_id,
+        task_run_id, user_round_id, context_segment_id,
+        context_segment_ordinal, provider_call_seq,
         provider_request_hash, prefix_hash,
         managed_context_json, provider_messages_json,
         provider_tools_json, provider_config_json,
@@ -250,13 +259,18 @@ export function createAgentTurnContextSnapshot(
         managed_approx_tokens, provider_estimated_input_tokens,
         max_context_tokens,
         created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       record.id,
       record.turnId,
       record.sessionId,
       record.xfpPacketId ?? null,
+      record.taskRunId ?? null,
+      record.userRoundId ?? null,
+      record.contextSegmentId ?? null,
+      record.contextSegmentOrdinal ?? null,
+      record.providerCallSeq ?? 0,
       record.providerRequestHash,
       record.prefixHash ?? null,
       record.managedContextJson,
@@ -281,6 +295,11 @@ export function getAgentTurnContextSnapshot(
     .prepare(
       `SELECT id, turn_id AS turnId, session_id AS sessionId,
               xfp_packet_id AS xfpPacketId,
+              task_run_id AS taskRunId,
+              user_round_id AS userRoundId,
+              context_segment_id AS contextSegmentId,
+              context_segment_ordinal AS contextSegmentOrdinal,
+              provider_call_seq AS providerCallSeq,
               provider_request_hash AS providerRequestHash,
               prefix_hash AS prefixHash,
               managed_context_json AS managedContextJson,
@@ -298,6 +317,112 @@ export function getAgentTurnContextSnapshot(
     .get(turnId) as AgentTurnContextSnapshotRecord | undefined
 
   return row ?? null
+}
+
+export function listProviderRequestSummariesForTaskRun(
+  taskRunId: string,
+  options: { limit?: number } = {},
+  db?: DatabaseService | null
+): AgentProviderRequestSummary[] {
+  const limit = Math.max(1, Math.min(options.limit ?? 50, 200))
+  const rows = resolveDb(db)
+    .prepare(
+      `SELECT snapshots.id,
+              snapshots.turn_id AS turnId,
+              snapshots.session_id AS sessionId,
+              COALESCE(snapshots.task_run_id, turns.task_run_id) AS taskRunId,
+              COALESCE(snapshots.user_round_id, turns.user_round_id) AS userRoundId,
+              COALESCE(snapshots.context_segment_id, turns.epoch_id) AS contextSegmentId,
+              snapshots.context_segment_ordinal AS contextSegmentOrdinal,
+              COALESCE(snapshots.provider_call_seq, 0) AS providerCallSeq,
+              snapshots.provider_request_hash AS providerRequestHash,
+              snapshots.prefix_hash AS prefixHash,
+              snapshots.managed_approx_tokens AS managedApproxTokens,
+              snapshots.provider_estimated_input_tokens AS providerEstimatedInputTokens,
+              snapshots.max_context_tokens AS maxContextTokens,
+              snapshots.created_at AS createdAt
+         FROM agent_turn_context_snapshots snapshots
+         LEFT JOIN agent_turns turns ON turns.id = snapshots.turn_id
+        WHERE COALESCE(snapshots.task_run_id, turns.task_run_id) = ?
+        ORDER BY snapshots.created_at ASC
+        LIMIT ?`
+    )
+    .all(taskRunId, limit) as Record<string, unknown>[]
+
+  return rows.map((row) => ({
+    id: row.id as string,
+    turnId: row.turnId as string,
+    sessionId: row.sessionId as string,
+    taskRunId: (row.taskRunId as string | null) ?? null,
+    userRoundId: (row.userRoundId as string | null) ?? null,
+    contextSegmentId: (row.contextSegmentId as string | null) ?? null,
+    contextSegmentOrdinal: (row.contextSegmentOrdinal as number | null) ?? null,
+    providerCallSeq: (row.providerCallSeq as number | null) ?? 0,
+    providerRequestHash: row.providerRequestHash as string,
+    prefixHash: (row.prefixHash as string | null) ?? null,
+    managedApproxTokens: (row.managedApproxTokens as number) ?? 0,
+    providerEstimatedInputTokens: (row.providerEstimatedInputTokens as number) ?? 0,
+    maxContextTokens: (row.maxContextTokens as number) ?? 0,
+    createdAt: row.createdAt as string
+  }))
+}
+
+export function getProviderRequestReplay(
+  snapshotId: string,
+  db?: DatabaseService | null
+): AgentProviderRequestReplay | null {
+  const row = resolveDb(db)
+    .prepare(
+      `SELECT snapshots.id,
+              snapshots.turn_id AS turnId,
+              snapshots.session_id AS sessionId,
+              snapshots.xfp_packet_id AS xfpPacketId,
+              COALESCE(snapshots.task_run_id, turns.task_run_id) AS taskRunId,
+              COALESCE(snapshots.user_round_id, turns.user_round_id) AS userRoundId,
+              COALESCE(snapshots.context_segment_id, turns.epoch_id) AS contextSegmentId,
+              snapshots.context_segment_ordinal AS contextSegmentOrdinal,
+              COALESCE(snapshots.provider_call_seq, 0) AS providerCallSeq,
+              snapshots.provider_request_hash AS providerRequestHash,
+              snapshots.prefix_hash AS prefixHash,
+              snapshots.managed_context_json AS managedContextJson,
+              snapshots.provider_messages_json AS providerMessagesJson,
+              snapshots.provider_tools_json AS providerToolsJson,
+              snapshots.provider_config_json AS providerConfigJson,
+              snapshots.decisions_json AS decisionsJson,
+              snapshots.managed_approx_tokens AS managedApproxTokens,
+              snapshots.provider_estimated_input_tokens AS providerEstimatedInputTokens,
+              snapshots.max_context_tokens AS maxContextTokens,
+              snapshots.created_at AS createdAt
+         FROM agent_turn_context_snapshots snapshots
+         LEFT JOIN agent_turns turns ON turns.id = snapshots.turn_id
+        WHERE snapshots.id = ?`
+    )
+    .get(snapshotId) as Record<string, unknown> | undefined
+
+  if (!row) return null
+
+  return {
+    id: row.id as string,
+    turnId: row.turnId as string,
+    sessionId: row.sessionId as string,
+    xfpPacketId: (row.xfpPacketId as string | null) ?? null,
+    taskRunId: (row.taskRunId as string | null) ?? null,
+    userRoundId: (row.userRoundId as string | null) ?? null,
+    contextSegmentId: (row.contextSegmentId as string | null) ?? null,
+    contextSegmentOrdinal: (row.contextSegmentOrdinal as number | null) ?? null,
+    providerCallSeq: (row.providerCallSeq as number | null) ?? 0,
+    providerRequestHash: row.providerRequestHash as string,
+    prefixHash: (row.prefixHash as string | null) ?? null,
+    managedContextJson: row.managedContextJson as string,
+    providerMessagesJson: row.providerMessagesJson as string,
+    providerToolsJson: row.providerToolsJson as string,
+    providerConfigJson: row.providerConfigJson as string,
+    decisionsJson: row.decisionsJson as string,
+    managedApproxTokens: (row.managedApproxTokens as number) ?? 0,
+    providerEstimatedInputTokens: (row.providerEstimatedInputTokens as number) ?? 0,
+    maxContextTokens: (row.maxContextTokens as number) ?? 0,
+    createdAt: row.createdAt as string
+  }
 }
 
 /**

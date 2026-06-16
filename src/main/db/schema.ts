@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 36
+export const CURRENT_SCHEMA_VERSION = 37
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -1469,6 +1469,40 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_agent_task_states_session;
       DROP INDEX IF EXISTS idx_agent_task_states_task_run;
       DROP TABLE IF EXISTS agent_task_states;
+    `
+  },
+  {
+    version: 37,
+    name: 'add_agent_user_rounds_and_segment_relations',
+    up: `
+      -- User rounds: one user-authored prompt or continuation inside a task run.
+      CREATE TABLE IF NOT EXISTS agent_user_rounds (
+        id TEXT PRIMARY KEY,
+        task_run_id TEXT NOT NULL REFERENCES agent_task_runs(id) ON DELETE CASCADE,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        ordinal INTEGER NOT NULL,
+        origin TEXT NOT NULL CHECK (origin IN ('user-originated','agent-continuation','recovery-continuation')),
+        status TEXT NOT NULL CHECK (status IN ('running','completed','failed','aborted')),
+        user_message_id TEXT,
+        prompt_text TEXT,
+        provider_request_count INTEGER NOT NULL DEFAULT 0,
+        context_segment_count INTEGER NOT NULL DEFAULT 0,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        error_message TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_user_rounds_run_ordinal
+        ON agent_user_rounds(task_run_id, ordinal);
+      CREATE INDEX IF NOT EXISTS idx_agent_user_rounds_run
+        ON agent_user_rounds(task_run_id, started_at ASC);
+
+      -- SQLite ADD COLUMN is intentionally handled idempotently by
+      -- DatabaseService.ensureTaskRunRuntimeTables() for existing DBs.
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_agent_user_rounds_run;
+      DROP INDEX IF EXISTS idx_agent_user_rounds_run_ordinal;
+      DROP TABLE IF EXISTS agent_user_rounds;
     `
   }
 ]

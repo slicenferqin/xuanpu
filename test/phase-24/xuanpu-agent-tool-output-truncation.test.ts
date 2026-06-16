@@ -73,6 +73,48 @@ describe('xuanpu-agent tool output compression', () => {
     ])
   })
 
+  it('offloads 100K outputs to ToolObservation with raw hash and byte evidence', async () => {
+    const truncator = new ToolOutputTruncator({
+      charThreshold: 12_000,
+      headLines: 2,
+      tailLines: 2
+    })
+    const archived: ArchivePayload[] = []
+    truncator.setOnArchive((payload) => archived.push(payload))
+
+    const rawOutput = [
+      'start of huge output',
+      ...Array.from({ length: 1_000 }, (_, index) => `middle ${index} ${'x'.repeat(100)}`),
+      'end of huge output'
+    ].join('\n')
+    const result = await truncator.hook({
+      isError: false,
+      toolCall: { name: 'run_test' },
+      args: { command: 'pnpm vitest run test/phase-24/example.test.ts' },
+      result: {
+        content: [{ type: 'text', text: rawOutput }],
+        details: {
+          command: 'pnpm vitest run test/phase-24/example.test.ts',
+          cwd: '/repo',
+          exitCode: 0,
+          durationMs: 321
+        }
+      }
+    } as Parameters<typeof truncator.hook>[0])
+
+    const modelVisible = result?.content?.[0]?.type === 'text' ? result.content[0].text : ''
+    expect(modelVisible).toContain('<ToolObservation')
+    expect(modelVisible).toContain('start of huge output')
+    expect(modelVisible).toContain('end of huge output')
+    expect(modelVisible).not.toContain('middle 500')
+    expect(modelVisible).toContain(`Raw output sha256: ${computeToolOutputSha256(rawOutput)}.`)
+    expect(archived).toHaveLength(1)
+    expect(archived[0]?.rawOutput).toBe(rawOutput)
+    expect(archived[0]?.rawOutputSha256).toBe(computeToolOutputSha256(rawOutput))
+    expect(archived[0]?.rawOutputBytes).toBe(Buffer.byteLength(rawOutput, 'utf-8'))
+    expect(archived[0]?.compressedOutput).not.toBe(rawOutput)
+  })
+
   it('compresses run_test output as test output and preserves command exit metadata', async () => {
     const truncator = new ToolOutputTruncator({
       charThreshold: 20,

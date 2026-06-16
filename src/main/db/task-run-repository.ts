@@ -2,12 +2,16 @@ import { randomUUID } from 'node:crypto'
 import { getDatabase } from './database'
 import type { DatabaseService } from './database'
 import type {
+  AgentContextSegment,
   AgentEpoch,
   AgentTaskRun,
+  AgentUserRound,
   EpochCloseReason,
   EpochStatus,
   TaskRunAutonomy,
-  TaskRunStatus
+  TaskRunStatus,
+  UserRoundOrigin,
+  UserRoundStatus
 } from '@shared/types/agent-task-run'
 
 export interface AgentTaskRunCreate {
@@ -23,7 +27,16 @@ export interface AgentTaskRunCreate {
 export interface AgentEpochCreate {
   taskRunId: string
   sessionId: string
+  userRoundId?: string | null
   startFillRatio?: number | null
+}
+
+export interface AgentUserRoundCreate {
+  taskRunId: string
+  sessionId: string
+  origin: UserRoundOrigin
+  userMessageId?: string | null
+  promptText?: string | null
 }
 
 export interface AgentTaskRunUsageDelta {
@@ -62,6 +75,7 @@ function mapEpoch(row: Record<string, unknown>): AgentEpoch {
     id: row.id as string,
     taskRunId: row.taskRunId as string,
     sessionId: row.sessionId as string,
+    userRoundId: (row.userRoundId as string | null) ?? null,
     ordinal: row.ordinal as number,
     status: row.status as EpochStatus,
     checkpointId: (row.checkpointId as string | null) ?? null,
@@ -71,6 +85,24 @@ function mapEpoch(row: Record<string, unknown>): AgentEpoch {
     closeReason: (row.closeReason as EpochCloseReason | null) ?? null,
     startedAt: row.startedAt as string,
     closedAt: (row.closedAt as string | null) ?? null
+  }
+}
+
+function mapUserRound(row: Record<string, unknown>): AgentUserRound {
+  return {
+    id: row.id as string,
+    taskRunId: row.taskRunId as string,
+    sessionId: row.sessionId as string,
+    ordinal: row.ordinal as number,
+    origin: row.origin as UserRoundOrigin,
+    status: row.status as UserRoundStatus,
+    userMessageId: (row.userMessageId as string | null) ?? null,
+    promptText: (row.promptText as string | null) ?? null,
+    providerRequestCount: (row.providerRequestCount as number) ?? 0,
+    contextSegmentCount: (row.contextSegmentCount as number) ?? 0,
+    startedAt: row.startedAt as string,
+    completedAt: (row.completedAt as string | null) ?? null,
+    errorMessage: (row.errorMessage as string | null) ?? null
   }
 }
 
@@ -219,6 +251,149 @@ export function listTaskRunsForSession(
   return rows.map(mapTaskRun)
 }
 
+export function createUserRound(
+  data: AgentUserRoundCreate,
+  db?: DatabaseService | null
+): AgentUserRound {
+  const database = resolveDb(db)
+  const ordinalRow = database
+    .prepare(
+      `SELECT COALESCE(MAX(ordinal), -1) + 1 AS nextOrdinal
+         FROM agent_user_rounds
+        WHERE task_run_id = ?`
+    )
+    .get(data.taskRunId) as { nextOrdinal: number } | undefined
+
+  const record: AgentUserRound = {
+    id: randomUUID(),
+    taskRunId: data.taskRunId,
+    sessionId: data.sessionId,
+    ordinal: ordinalRow?.nextOrdinal ?? 0,
+    origin: data.origin,
+    status: 'running',
+    userMessageId: data.userMessageId ?? null,
+    promptText: data.promptText ?? null,
+    providerRequestCount: 0,
+    contextSegmentCount: 0,
+    startedAt: new Date().toISOString(),
+    completedAt: null,
+    errorMessage: null
+  }
+
+  database
+    .prepare(
+      `INSERT INTO agent_user_rounds (
+        id, task_run_id, session_id, ordinal, origin, status,
+        user_message_id, prompt_text,
+        provider_request_count, context_segment_count,
+        started_at, completed_at, error_message
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      record.id,
+      record.taskRunId,
+      record.sessionId,
+      record.ordinal,
+      record.origin,
+      record.status,
+      record.userMessageId,
+      record.promptText,
+      record.providerRequestCount,
+      record.contextSegmentCount,
+      record.startedAt,
+      record.completedAt,
+      record.errorMessage
+    )
+
+  return record
+}
+
+export function getUserRound(
+  userRoundId: string,
+  db?: DatabaseService | null
+): AgentUserRound | null {
+  const row = resolveDb(db)
+    .prepare(
+      `SELECT id,
+              task_run_id AS taskRunId,
+              session_id AS sessionId,
+              ordinal,
+              origin,
+              status,
+              user_message_id AS userMessageId,
+              prompt_text AS promptText,
+              provider_request_count AS providerRequestCount,
+              context_segment_count AS contextSegmentCount,
+              started_at AS startedAt,
+              completed_at AS completedAt,
+              error_message AS errorMessage
+         FROM agent_user_rounds
+        WHERE id = ?`
+    )
+    .get(userRoundId) as Record<string, unknown> | undefined
+
+  return row ? mapUserRound(row) : null
+}
+
+export function listUserRoundsForTaskRun(
+  taskRunId: string,
+  db?: DatabaseService | null
+): AgentUserRound[] {
+  const rows = resolveDb(db)
+    .prepare(
+      `SELECT id,
+              task_run_id AS taskRunId,
+              session_id AS sessionId,
+              ordinal,
+              origin,
+              status,
+              user_message_id AS userMessageId,
+              prompt_text AS promptText,
+              provider_request_count AS providerRequestCount,
+              context_segment_count AS contextSegmentCount,
+              started_at AS startedAt,
+              completed_at AS completedAt,
+              error_message AS errorMessage
+         FROM agent_user_rounds
+        WHERE task_run_id = ?
+        ORDER BY ordinal ASC`
+    )
+    .all(taskRunId) as Record<string, unknown>[]
+
+  return rows.map(mapUserRound)
+}
+
+export function updateUserRoundStatus(
+  userRoundId: string,
+  status: UserRoundStatus,
+  options?: { errorMessage?: string | null },
+  db?: DatabaseService | null
+): void {
+  const completedAt = status === 'running' ? null : new Date().toISOString()
+  resolveDb(db)
+    .prepare(
+      `UPDATE agent_user_rounds
+          SET status = ?,
+              completed_at = ?,
+              error_message = ?
+        WHERE id = ?`
+    )
+    .run(status, completedAt, options?.errorMessage ?? null, userRoundId)
+}
+
+export function incrementUserRoundProviderRequestCount(
+  userRoundId: string,
+  db?: DatabaseService | null
+): void {
+  resolveDb(db)
+    .prepare(
+      `UPDATE agent_user_rounds
+          SET provider_request_count = provider_request_count + 1
+        WHERE id = ?`
+    )
+    .run(userRoundId)
+}
+
 export function appendEpoch(data: AgentEpochCreate, db?: DatabaseService | null): AgentEpoch {
   const database = resolveDb(db)
   const ordinalRow = database
@@ -233,6 +408,7 @@ export function appendEpoch(data: AgentEpochCreate, db?: DatabaseService | null)
     id: randomUUID(),
     taskRunId: data.taskRunId,
     sessionId: data.sessionId,
+    userRoundId: data.userRoundId ?? null,
     ordinal: ordinalRow?.nextOrdinal ?? 0,
     status: 'running',
     checkpointId: null,
@@ -247,15 +423,16 @@ export function appendEpoch(data: AgentEpochCreate, db?: DatabaseService | null)
   database
     .prepare(
       `INSERT INTO agent_epochs (
-        id, task_run_id, session_id, ordinal, status, checkpoint_id,
+        id, task_run_id, session_id, user_round_id, ordinal, status, checkpoint_id,
         provider_call_count, start_fill_ratio, end_fill_ratio, close_reason,
         started_at, closed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       record.id,
       record.taskRunId,
       record.sessionId,
+      record.userRoundId,
       record.ordinal,
       record.status,
       record.checkpointId,
@@ -270,9 +447,20 @@ export function appendEpoch(data: AgentEpochCreate, db?: DatabaseService | null)
   database
     .prepare(`UPDATE agent_task_runs SET epoch_count = epoch_count + 1 WHERE id = ?`)
     .run(data.taskRunId)
+  if (record.userRoundId) {
+    database
+      .prepare(
+        `UPDATE agent_user_rounds
+            SET context_segment_count = context_segment_count + 1
+          WHERE id = ?`
+      )
+      .run(record.userRoundId)
+  }
 
   return record
 }
+
+export const appendContextSegment = appendEpoch
 
 export function updateEpochStartFillRatio(
   epochId: string,
@@ -296,6 +484,8 @@ export function incrementEpochProviderCallCount(
     )
     .run(epochId)
 }
+
+export const incrementContextSegmentProviderCallCount = incrementEpochProviderCallCount
 
 export function closeEpoch(
   epochId: string,
@@ -382,16 +572,21 @@ export function bindTurnToTaskRun(
   turnId: string,
   taskRunId: string,
   epochId: string,
+  userRoundIdOrDb?: string | null | DatabaseService,
   db?: DatabaseService | null
 ): void {
-  resolveDb(db)
+  const userRoundId =
+    typeof userRoundIdOrDb === 'string' || userRoundIdOrDb === null ? userRoundIdOrDb : null
+  const database = userRoundIdOrDb && typeof userRoundIdOrDb === 'object' ? userRoundIdOrDb : db
+  resolveDb(database)
     .prepare(
       `UPDATE agent_turns
           SET task_run_id = ?,
+              user_round_id = ?,
               epoch_id = ?
         WHERE id = ?`
     )
-    .run(taskRunId, epochId, turnId)
+    .run(taskRunId, userRoundId, epochId, turnId)
 }
 
 export function getEpoch(epochId: string, db?: DatabaseService | null): AgentEpoch | null {
@@ -400,6 +595,7 @@ export function getEpoch(epochId: string, db?: DatabaseService | null): AgentEpo
       `SELECT id,
               task_run_id AS taskRunId,
               session_id AS sessionId,
+              user_round_id AS userRoundId,
               ordinal,
               status,
               checkpoint_id AS checkpointId,
@@ -423,6 +619,7 @@ export function listEpochsForTaskRun(taskRunId: string, db?: DatabaseService | n
       `SELECT id,
               task_run_id AS taskRunId,
               session_id AS sessionId,
+              user_round_id AS userRoundId,
               ordinal,
               status,
               checkpoint_id AS checkpointId,
@@ -439,4 +636,13 @@ export function listEpochsForTaskRun(taskRunId: string, db?: DatabaseService | n
     .all(taskRunId) as Record<string, unknown>[]
 
   return rows.map(mapEpoch)
+}
+
+export const getContextSegment = getEpoch
+
+export function listContextSegmentsForTaskRun(
+  taskRunId: string,
+  db?: DatabaseService | null
+): AgentContextSegment[] {
+  return listEpochsForTaskRun(taskRunId, db)
 }

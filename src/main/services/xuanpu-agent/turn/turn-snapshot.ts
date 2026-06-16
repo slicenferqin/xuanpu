@@ -8,7 +8,10 @@ import type { XuanpuAgentModelRef } from '../model-config'
 // Provider Session Policy
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type ProviderSessionPolicyMode = 'disabled' | 'explicit-prefix-cache' | 'provider-continuation'
+export type ProviderSessionPolicyMode =
+  | 'disabled'
+  | 'explicit-prefix-cache'
+  | 'provider-continuation'
 
 export interface ProviderSessionPolicy {
   mode: ProviderSessionPolicyMode
@@ -36,6 +39,11 @@ export interface XuanpuTurnBudget {
 export interface XuanpuProviderRequestSnapshot {
   turnId: string
   sessionId: string
+  taskRunId?: string | null
+  userRoundId?: string | null
+  contextSegmentId?: string | null
+  contextSegmentOrdinal?: number | null
+  providerCallSeq?: number | null
   providerRequestHash: string
   prefixHash?: string
   systemPrompt: string[]

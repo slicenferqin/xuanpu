@@ -40,14 +40,16 @@ import {
 } from '../db/turn-repository'
 import {
   accumulateUsage as accumulateTaskRunUsage,
-  appendEpoch,
+  appendContextSegment,
   closeEpoch,
   createTaskRun,
+  createUserRound,
   getActiveTaskRun,
   getTaskRun,
   incrementEpochProviderCallCount,
   renewLease,
   updateEpochStartFillRatio,
+  updateUserRoundStatus,
   updateTaskRunStatus
 } from '../db/task-run-repository'
 import { extractUsageTokens } from '../../shared/usage/message'
@@ -55,7 +57,8 @@ import type {
   AgentTaskRun,
   EpochCloseReason,
   EpochStatus,
-  TaskRunAutonomy
+  TaskRunAutonomy,
+  UserRoundOrigin
 } from '../../shared/types/agent-task-run'
 import {
   evaluateLeaseAtBoundary,
@@ -134,6 +137,7 @@ interface XuanpuAgentSessionState {
   /** The currently active turn id (Phase 1 — turn-scoped execution boundary). */
   activeTurnId: string | null
   activeTaskRunId: string | null
+  activeUserRoundId: string | null
   activeEpochId: string | null
 }
 
@@ -297,6 +301,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       piSession: null,
       activeTurnId: null,
       activeTaskRunId: null,
+      activeUserRoundId: null,
       activeEpochId: null
     })
 
@@ -319,6 +324,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       piSession: null,
       activeTurnId: null,
       activeTaskRunId: null,
+      activeUserRoundId: null,
       activeEpochId: null
     })
     return { success: true, sessionStatus: 'idle' }
@@ -455,10 +461,22 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       })
     }
 
-    const epoch = appendEpoch(
+    const userRound = createUserRound(
       {
         taskRunId: taskRun.id,
-        sessionId: session.hiveSessionId
+        sessionId: session.hiveSessionId,
+        origin: inferUserRoundOrigin(text, options?.taskRunId ?? null),
+        userMessageId,
+        promptText: text
+      },
+      db
+    )
+
+    const epoch = appendContextSegment(
+      {
+        taskRunId: taskRun.id,
+        sessionId: session.hiveSessionId,
+        userRoundId: userRound.id
       },
       db
     )
@@ -471,6 +489,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         projectId,
         runtimeId: 'xuanpu-agent',
         taskRunId: taskRun.id,
+        userRoundId: userRound.id,
         epochId: epoch.id,
         userMessageId,
         modelProviderId: modelRef.providerID,
@@ -481,6 +500,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     ).id
     session.activeTurnId = turnId
     session.activeTaskRunId = taskRun.id
+    session.activeUserRoundId = userRound.id
     session.activeEpochId = epoch.id
 
     session.status = 'running'
@@ -1081,7 +1101,13 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
           fillRatio: packedContext.decisions.fillRatio
         },
         packedContext.decisions.actualPrefixHash,
-        compileResult.packet.identity.packetId
+        compileResult.packet.identity.packetId,
+        {
+          taskRunId: taskRun.id,
+          userRoundId: userRound.id,
+          contextSegmentId: epoch.id,
+          contextSegmentOrdinal: epoch.ordinal
+        }
       )
 
       const assistantText = result.text.trim()
@@ -1413,8 +1439,10 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       ) {
         updateTaskRunStatus(taskRun.id, 'completed', undefined, this.db)
       }
+      updateUserRoundStatus(userRound.id, 'completed', undefined, this.db)
       session.activeTurnId = null
       session.activeTaskRunId = null
+      session.activeUserRoundId = null
       session.activeEpochId = null
       session.status = 'ready'
       session.abortController = null
@@ -1446,12 +1474,16 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       if (session.activeTaskRunId) {
         updateTaskRunStatus(session.activeTaskRunId, 'failed', { errorMessage }, this.db)
       }
+      if (session.activeUserRoundId) {
+        updateUserRoundStatus(session.activeUserRoundId, 'failed', { errorMessage }, this.db)
+      }
 
       field.persistMessage(session.hiveSessionId, 'assistant', errorMessage)
       session.status = 'error'
       session.abortController = null
       session.activeTurnId = null
       session.activeTaskRunId = null
+      session.activeUserRoundId = null
       session.activeEpochId = null
       this.emitError(session.hiveSessionId, errorMessage)
       this.emitStatus(session.hiveSessionId, 'idle')
@@ -1502,6 +1534,15 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         this.db
       )
       session.activeTaskRunId = null
+    }
+    if (session.activeUserRoundId) {
+      updateUserRoundStatus(
+        session.activeUserRoundId,
+        'aborted',
+        { errorMessage: 'Aborted by user' },
+        this.db
+      )
+      session.activeUserRoundId = null
     }
 
     session.abortController.abort()
@@ -3422,6 +3463,14 @@ function extractSubtaskDetails(result: unknown): SubtaskResultDetails | null {
 function extractProposedPlan(text: string): string | null {
   const match = text.match(/<proposed_plan>\s*([\s\S]*?)\s*<\/proposed_plan>/i)
   return match ? (match[1]?.trim() ?? null) : null
+}
+
+function inferUserRoundOrigin(text: string, requestedTaskRunId: string | null): UserRoundOrigin {
+  if (/\bno-progress-recovery\b/i.test(text)) return 'recovery-continuation'
+  if (requestedTaskRunId || /<xuanpu-task-run-continuation\b/i.test(text)) {
+    return 'agent-continuation'
+  }
+  return 'user-originated'
 }
 
 /**

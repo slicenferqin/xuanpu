@@ -258,6 +258,26 @@ export class DatabaseService {
         ON agent_task_runs(session_id, started_at DESC);
       CREATE INDEX IF NOT EXISTS idx_agent_task_runs_status
         ON agent_task_runs(status);
+
+      CREATE TABLE IF NOT EXISTS agent_user_rounds (
+        id TEXT PRIMARY KEY,
+        task_run_id TEXT NOT NULL REFERENCES agent_task_runs(id) ON DELETE CASCADE,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        ordinal INTEGER NOT NULL,
+        origin TEXT NOT NULL CHECK (origin IN ('user-originated','agent-continuation','recovery-continuation')),
+        status TEXT NOT NULL CHECK (status IN ('running','completed','failed','aborted')),
+        user_message_id TEXT,
+        prompt_text TEXT,
+        provider_request_count INTEGER NOT NULL DEFAULT 0,
+        context_segment_count INTEGER NOT NULL DEFAULT 0,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        error_message TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_user_rounds_run_ordinal
+        ON agent_user_rounds(task_run_id, ordinal);
+      CREATE INDEX IF NOT EXISTS idx_agent_user_rounds_run
+        ON agent_user_rounds(task_run_id, started_at ASC);
     `)
 
     this.ensureFieldSessionCheckpointsTaskRunShape()
@@ -267,6 +287,7 @@ export class DatabaseService {
         id TEXT PRIMARY KEY,
         task_run_id TEXT NOT NULL REFERENCES agent_task_runs(id) ON DELETE CASCADE,
         session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        user_round_id TEXT REFERENCES agent_user_rounds(id) ON DELETE SET NULL,
         ordinal INTEGER NOT NULL,
         status TEXT NOT NULL CHECK (status IN ('running','checkpointed','compacted','closed','failed')),
         checkpoint_id TEXT REFERENCES field_session_checkpoints(id) ON DELETE SET NULL,
@@ -283,9 +304,25 @@ export class DatabaseService {
         ON agent_epochs(task_run_id, started_at ASC);
     `)
 
+    this.safeAddColumn('agent_epochs', 'user_round_id', 'TEXT')
+
     if (this.tableExists('agent_turns')) {
       this.safeAddColumn('agent_turns', 'task_run_id', 'TEXT')
+      this.safeAddColumn('agent_turns', 'user_round_id', 'TEXT')
       this.safeAddColumn('agent_turns', 'epoch_id', 'TEXT')
+    }
+    if (this.tableExists('agent_turn_context_snapshots')) {
+      this.safeAddColumn('agent_turn_context_snapshots', 'task_run_id', 'TEXT')
+      this.safeAddColumn('agent_turn_context_snapshots', 'user_round_id', 'TEXT')
+      this.safeAddColumn('agent_turn_context_snapshots', 'context_segment_id', 'TEXT')
+      this.safeAddColumn('agent_turn_context_snapshots', 'context_segment_ordinal', 'INTEGER')
+      this.safeAddColumn('agent_turn_context_snapshots', 'provider_call_seq', 'INTEGER')
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_agent_turn_context_task_run
+          ON agent_turn_context_snapshots(task_run_id, created_at ASC);
+        CREATE INDEX IF NOT EXISTS idx_agent_turn_context_user_round
+          ON agent_turn_context_snapshots(user_round_id, created_at ASC);
+      `)
     }
     if (this.tableExists('agent_turn_usage_events')) {
       this.safeAddColumn('agent_turn_usage_events', 'epoch_id', 'TEXT')

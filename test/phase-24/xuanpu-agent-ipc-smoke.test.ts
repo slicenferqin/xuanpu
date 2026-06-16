@@ -44,8 +44,75 @@ const fieldEventMocks = vi.hoisted(() => ({
 const checkpointMocks = vi.hoisted(() => ({
   verifyCheckpoint: vi.fn(async () => null)
 }))
+const taskRunRepoMock = vi.hoisted(() => ({
+  createTaskRun: vi.fn(() => ({
+    id: 'task-run-smoke-1',
+    sessionId: 'hive-session-1',
+    worktreeId: 'worktree-1',
+    projectId: 'project-1',
+    originMessageId: 'origin-1',
+    status: 'running',
+    autonomy: 'short',
+    objective: 'smoke objective',
+    leaseExpiresAt: null,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalCost: 0,
+    epochCount: 0,
+    startedAt: '2026-06-16T00:00:00.000Z',
+    completedAt: null,
+    errorMessage: null
+  })),
+  createUserRound: vi.fn(() => ({
+    id: 'round-smoke-1',
+    taskRunId: 'task-run-smoke-1',
+    sessionId: 'hive-session-1',
+    ordinal: 0,
+    origin: 'user-originated',
+    status: 'running',
+    userMessageId: 'msg-user-1',
+    promptText: 'smoke objective',
+    providerRequestCount: 0,
+    contextSegmentCount: 0,
+    startedAt: '2026-06-16T00:00:00.000Z',
+    completedAt: null,
+    errorMessage: null
+  })),
+  appendContextSegment: vi.fn(() => ({
+    id: 'segment-smoke-1',
+    taskRunId: 'task-run-smoke-1',
+    sessionId: 'hive-session-1',
+    userRoundId: 'round-smoke-1',
+    ordinal: 0,
+    status: 'running',
+    checkpointId: null,
+    providerCallCount: 0,
+    startFillRatio: null,
+    endFillRatio: null,
+    closeReason: null,
+    startedAt: '2026-06-16T00:00:00.000Z',
+    closedAt: null
+  })),
+  getTaskRun: vi.fn(() => null),
+  getActiveTaskRun: vi.fn(() => null),
+  updateEpochStartFillRatio: vi.fn(),
+  incrementEpochProviderCallCount: vi.fn(),
+  incrementUserRoundProviderRequestCount: vi.fn(),
+  closeEpoch: vi.fn(),
+  updateUserRoundStatus: vi.fn(),
+  updateTaskRunStatus: vi.fn(),
+  accumulateUsage: vi.fn(),
+  renewLease: vi.fn()
+}))
+const turnRepoMock = vi.hoisted(() => ({
+  createAgentTurn: vi.fn(() => ({ id: 'turn-smoke-1' })),
+  updateAgentTurnStatus: vi.fn(),
+  createAgentTurnContextSnapshot: vi.fn(),
+  createAgentTurnUsageEvent: vi.fn()
+}))
 const fakeRuntime = vi.hoisted(() => {
   const prompts: unknown[] = []
+  const replaceMessagesCalls: unknown[][] = []
   const setToolsCalls: unknown[][] = []
 
   class FakeAgent {
@@ -69,6 +136,29 @@ const fakeRuntime = vi.hoisted(() => {
       this.listeners.add(listener)
       return () => this.listeners.delete(listener)
     }
+
+    replaceMessages(
+      messages: Array<{ role: 'user' | 'assistant'; content: FakeTextPart[] }>
+    ): void {
+      replaceMessagesCalls.push(messages)
+      this.state.messages = messages.map((message) => ({
+        role: 'assistant',
+        content: message.content,
+        provider: 'xuanpu-agent',
+        model: 'xuanpu-agent-mock',
+        usage: {}
+      }))
+    }
+
+    setOnBeforeYield(): void {}
+
+    setFollowUpMode(): void {}
+
+    hasQueuedMessages(): boolean {
+      return false
+    }
+
+    followUp(): void {}
 
     async prompt(input: unknown): Promise<void> {
       prompts.push(input)
@@ -102,10 +192,12 @@ const fakeRuntime = vi.hoisted(() => {
 
   return {
     prompts,
+    replaceMessagesCalls,
     setToolsCalls,
     FakeAgent,
     reset: () => {
       prompts.length = 0
+      replaceMessagesCalls.length = 0
       setToolsCalls.length = 0
     }
   }
@@ -193,6 +285,9 @@ vi.mock('../../src/main/services/xuanpu-agent/pi-agent-core-loader', () => ({
     )
   }))
 }))
+
+vi.mock('../../src/main/db/task-run-repository', () => taskRunRepoMock)
+vi.mock('../../src/main/db/turn-repository', () => turnRepoMock)
 
 import { registerAgentHandlers } from '../../src/main/ipc/agent-handlers'
 import { AgentRuntimeManager } from '../../src/main/services/agent-runtime-manager'
@@ -394,12 +489,14 @@ describe('xuanpu-agent IPC smoke', () => {
     )
 
     const piPrompt = fakeRuntime.prompts[0]
-    expect(Array.isArray(piPrompt)).toBe(true)
-    const piMessages = piPrompt as Array<{ content: FakeTextPart[] }>
-    expect(piMessages.at(-1)?.content[0]?.text).toBe('hello from hq')
-    expect(piMessages.map((message) => message.content[0]?.text).join('\n')).not.toContain(
-      '[User Message]'
-    )
+    expect(Array.isArray(piPrompt)).toBe(false)
+    const piMessage = piPrompt as { content: FakeTextPart[] }
+    expect(piMessage.content[0]?.text).toBe('hello from hq')
+    const contextText = fakeRuntime.replaceMessagesCalls
+      .flatMap((messages) => messages as Array<{ content: FakeTextPart[] }>)
+      .map((message) => message.content[0]?.text)
+      .join('\n')
+    expect([contextText, piMessage.content[0]?.text].join('\n')).not.toContain('[User Message]')
     expect(
       fakeRuntime.setToolsCalls.map((tools) => tools.map((tool) => (tool as { name: string }).name))
     ).toEqual([
@@ -464,8 +561,8 @@ describe('xuanpu-agent IPC smoke', () => {
       modelID: 'gpt-4.1'
     })
 
-    const piPrompt = fakeRuntime.prompts[0] as Array<{ content: FakeTextPart[] }>
-    const packetText = piPrompt[0].content[0].text
+    const piPrompt = fakeRuntime.replaceMessagesCalls[0] as Array<{ content: FakeTextPart[] }>
+    const packetText = piPrompt.map((message) => message.content[0]?.text ?? '').join('\n')
     expect(packetText).toContain('"multiWorktree"')
     expect(packetText).toContain('"worktreeId": "worktree-peer"')
     expect(packetText).toContain('"reviewContext"')
@@ -572,8 +669,8 @@ describe('xuanpu-agent IPC smoke', () => {
       modelID: 'gpt-4.1'
     })
 
-    const piPrompt = fakeRuntime.prompts[0] as Array<{ content: FakeTextPart[] }>
-    const packetText = piPrompt[0].content[0].text
+    const piPrompt = fakeRuntime.replaceMessagesCalls[0] as Array<{ content: FakeTextPart[] }>
+    const packetText = piPrompt.map((message) => message.content[0]?.text ?? '').join('\n')
     expect(packetText).toContain('Resumed Checkpoint')
     expect(packetText).toContain('"source": "checkpoint"')
     expect(packetText).toContain('Finish checkpoint-aware prompt compile.')

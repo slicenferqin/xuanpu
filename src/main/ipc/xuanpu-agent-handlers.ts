@@ -10,11 +10,17 @@ import type { XuanpuAgentImplementer } from '../services/xuanpu-agent-implemente
 import { getDatabase } from '../db'
 import {
   getTaskRun,
+  listContextSegmentsForTaskRun,
   listEpochsForTaskRun,
   listTaskRunsForSession,
+  listUserRoundsForTaskRun,
   renewLease,
   updateTaskRunStatus
 } from '../db/task-run-repository'
+import {
+  getProviderRequestReplay,
+  listProviderRequestSummariesForTaskRun
+} from '../db/turn-repository'
 import { DEFAULT_LEASE_WINDOW_MS } from '../services/xuanpu-agent/task-run-policy'
 
 const log = createLogger({ component: 'XuanpuAgentIpc' })
@@ -65,6 +71,54 @@ export function registerXuanpuAgentHandlers(): void {
         error: error instanceof Error ? error.message : String(error)
       })
       return []
+    }
+  })
+
+  ipcMain.handle('xuanpu-agent:listUserRounds', async (_event, taskRunId: string) => {
+    try {
+      return listUserRoundsForTaskRun(taskRunId)
+    } catch (error) {
+      log.warn('xuanpu-agent:listUserRounds failed', {
+        taskRunId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return []
+    }
+  })
+
+  ipcMain.handle('xuanpu-agent:listContextSegments', async (_event, taskRunId: string) => {
+    try {
+      return listContextSegmentsForTaskRun(taskRunId)
+    } catch (error) {
+      log.warn('xuanpu-agent:listContextSegments failed', {
+        taskRunId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return []
+    }
+  })
+
+  ipcMain.handle('xuanpu-agent:listProviderRequests', async (_event, taskRunId: string) => {
+    try {
+      return listProviderRequestSummariesForTaskRun(taskRunId)
+    } catch (error) {
+      log.warn('xuanpu-agent:listProviderRequests failed', {
+        taskRunId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return []
+    }
+  })
+
+  ipcMain.handle('xuanpu-agent:getProviderRequestReplay', async (_event, snapshotId: string) => {
+    try {
+      return getProviderRequestReplay(snapshotId)
+    } catch (error) {
+      log.warn('xuanpu-agent:getProviderRequestReplay failed', {
+        snapshotId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return null
     }
   })
 

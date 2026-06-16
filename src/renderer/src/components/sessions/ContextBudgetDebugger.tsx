@@ -6,6 +6,11 @@ import type {
   FieldContextPackageSectionDebug,
   FieldEpisodeBlockDebugRecord
 } from '@shared/types/field-context-debug'
+import type {
+  AgentProviderRequestReplay,
+  AgentProviderRequestSummary,
+  AgentTaskRun
+} from '@shared/types/agent-task-run'
 
 interface ContextBudgetDebuggerProps {
   sessionId: string | null | undefined
@@ -21,10 +26,14 @@ export function ContextBudgetDebugger({
   className
 }: ContextBudgetDebuggerProps): React.JSX.Element | null {
   const [open, setOpen] = useState(false)
-  const [tab, setTab] = useState<'packages' | 'episodes'>('packages')
+  const [tab, setTab] = useState<'packages' | 'episodes' | 'requests'>('packages')
   const [loading, setLoading] = useState(false)
+  const [replayLoading, setReplayLoading] = useState(false)
   const [packages, setPackages] = useState<FieldContextPackageDebugRecord[]>([])
   const [episodes, setEpisodes] = useState<FieldEpisodeBlockDebugRecord[]>([])
+  const [providerRequests, setProviderRequests] = useState<AgentProviderRequestSummary[]>([])
+  const [selectedReplayId, setSelectedReplayId] = useState<string | null>(null)
+  const [selectedReplay, setSelectedReplay] = useState<AgentProviderRequestReplay | null>(null)
 
   const sessionIds = useMemo(
     () =>
@@ -39,16 +48,31 @@ export function ContextBudgetDebugger({
     if (!worktreeId || sessionIds.length === 0) return
     setLoading(true)
     try {
-      const [records, blocks] = await Promise.all([
+      const [records, blocks, requests] = await Promise.all([
         loadContextPackages(worktreeId, sessionIds),
-        loadEpisodeBlocks(worktreeId, sessionIds)
+        loadEpisodeBlocks(worktreeId, sessionIds),
+        loadProviderRequests(sessionId)
       ])
       setPackages(records)
       setEpisodes(blocks)
+      setProviderRequests(requests)
     } finally {
       setLoading(false)
     }
-  }, [sessionIds, worktreeId])
+  }, [sessionId, sessionIds, worktreeId])
+
+  const loadReplay = useCallback(async (snapshotId: string) => {
+    if (!hasXuanpuAgentOps()) return
+    setSelectedReplayId(snapshotId)
+    setSelectedReplay(null)
+    setReplayLoading(true)
+    try {
+      const replay = await window.xuanpuAgentOps.getProviderRequestReplay(snapshotId)
+      setSelectedReplay(replay)
+    } finally {
+      setReplayLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
     if (open) void refresh()
@@ -122,11 +146,28 @@ export function ContextBudgetDebugger({
               icon={<Archive size={11} />}
               label="Episodes"
             />
+            <TabButton
+              active={tab === 'requests'}
+              onClick={() => setTab('requests')}
+              icon={<Gauge size={11} />}
+              label="Requests"
+            />
           </div>
 
           {tab === 'packages' && <PackageTab loading={loading} packages={packages} />}
 
           {tab === 'episodes' && <EpisodeTab loading={loading} episodes={episodes} />}
+
+          {tab === 'requests' && (
+            <ProviderRequestTab
+              loading={loading}
+              replayLoading={replayLoading}
+              requests={providerRequests}
+              selectedReplayId={selectedReplayId}
+              selectedReplay={selectedReplay}
+              onSelect={loadReplay}
+            />
+          )}
         </div>
       )}
     </div>
@@ -253,6 +294,26 @@ async function loadEpisodeBlocks(
   })
 }
 
+async function loadProviderRequests(
+  sessionId: string | null | undefined
+): Promise<AgentProviderRequestSummary[]> {
+  if (!sessionId || !hasXuanpuAgentOps()) return []
+
+  const runs = await window.xuanpuAgentOps.listTaskRuns(sessionId)
+  const active = findActiveTaskRun(runs)
+  if (!active) return []
+
+  return window.xuanpuAgentOps.listProviderRequests(active.id)
+}
+
+function hasXuanpuAgentOps(): boolean {
+  return typeof window !== 'undefined' && Boolean(window.xuanpuAgentOps)
+}
+
+function findActiveTaskRun(runs: AgentTaskRun[]): AgentTaskRun | null {
+  return runs.find((run) => run.status === 'running' || run.status === 'paused') ?? runs[0] ?? null
+}
+
 function ContextPackageSummary({
   pkg
 }: {
@@ -335,6 +396,151 @@ function ContextSectionRow({
         </div>
       )}
     </div>
+  )
+}
+
+function ProviderRequestTab({
+  loading,
+  replayLoading,
+  requests,
+  selectedReplayId,
+  selectedReplay,
+  onSelect
+}: {
+  loading: boolean
+  replayLoading: boolean
+  requests: AgentProviderRequestSummary[]
+  selectedReplayId: string | null
+  selectedReplay: AgentProviderRequestReplay | null
+  onSelect: (snapshotId: string) => void
+}): React.JSX.Element {
+  const orderedRequests = [...requests].reverse()
+
+  return (
+    <>
+      {loading && requests.length === 0 && (
+        <div className="text-muted-foreground/60">Loading...</div>
+      )}
+      {!loading && requests.length === 0 && (
+        <div className="text-muted-foreground/60">No provider request snapshot recorded.</div>
+      )}
+      {requests.length > 0 && (
+        <div className="space-y-3">
+          <div className="space-y-1">
+            {orderedRequests.map((request) => (
+              <ProviderRequestRow
+                key={request.id}
+                request={request}
+                selected={request.id === selectedReplayId}
+                onSelect={onSelect}
+              />
+            ))}
+          </div>
+
+          {selectedReplayId && replayLoading && (
+            <div className="text-muted-foreground/60">Loading provider request replay...</div>
+          )}
+
+          {selectedReplay && <ProviderRequestReplayDetails replay={selectedReplay} />}
+
+          {selectedReplayId && !replayLoading && !selectedReplay && (
+            <div className="text-muted-foreground/60">Provider request snapshot not found.</div>
+          )}
+        </div>
+      )}
+    </>
+  )
+}
+
+function ProviderRequestRow({
+  request,
+  selected,
+  onSelect
+}: {
+  request: AgentProviderRequestSummary
+  selected: boolean
+  onSelect: (snapshotId: string) => void
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(request.id)}
+      className={cn(
+        'w-full rounded border px-2 py-1 text-left transition-colors',
+        selected
+          ? 'border-sky-500/40 bg-sky-500/10'
+          : 'border-border/50 bg-background/50 hover:bg-muted/30'
+      )}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span>
+          <strong>#{request.providerCallSeq + 1}</strong>{' '}
+          <span className="font-mono text-[10px]">{shortId(request.providerRequestHash)}</span>
+        </span>
+        <span className="text-[10px] text-muted-foreground/70">
+          {formatTime(request.createdAt)}
+        </span>
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground/70">
+        <span>segment: {formatOrdinal(request.contextSegmentOrdinal)}</span>
+        <span>managed: ~{request.managedApproxTokens} tokens</span>
+        <span>provider: ~{request.providerEstimatedInputTokens} tokens</span>
+        <span>max: {formatTokens(request.maxContextTokens)}</span>
+      </div>
+    </button>
+  )
+}
+
+function ProviderRequestReplayDetails({
+  replay
+}: {
+  replay: AgentProviderRequestReplay
+}): React.JSX.Element {
+  return (
+    <div
+      className="space-y-2 rounded border border-border/50 bg-background/50 p-2 text-[11px] leading-relaxed"
+      data-testid="provider-request-replay"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2 text-muted-foreground/70">
+        <span>
+          <strong className="text-foreground">Provider Request Replay</strong>{' '}
+          <span className="font-mono text-[10px]">{shortId(replay.providerRequestHash)}</span>
+        </span>
+        <span>{formatTime(replay.createdAt)}</span>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-4">
+        <Metric label="Managed" value={`~${replay.managedApproxTokens}`} />
+        <Metric label="Provider" value={`~${replay.providerEstimatedInputTokens}`} />
+        <Metric label="Max" value={formatTokens(replay.maxContextTokens)} />
+        <Metric label="Segment" value={formatOrdinal(replay.contextSegmentOrdinal)} />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground/60">
+        <span>snapshot: {shortId(replay.id)}</span>
+        <span>turn: {shortId(replay.turnId)}</span>
+        <span>round: {replay.userRoundId ? shortId(replay.userRoundId) : '-'}</span>
+        <span>prefix: {replay.prefixHash ? shortId(replay.prefixHash) : '-'}</span>
+        <span>xfp: {replay.xfpPacketId ? shortId(replay.xfpPacketId) : '-'}</span>
+      </div>
+
+      <JsonBlock title="provider messages" value={replay.providerMessagesJson} />
+      <JsonBlock title="provider tools" value={replay.providerToolsJson} />
+      <JsonBlock title="provider config" value={replay.providerConfigJson} />
+      <JsonBlock title="decisions" value={replay.decisionsJson} />
+      <JsonBlock title="managed context" value={replay.managedContextJson} />
+    </div>
+  )
+}
+
+function JsonBlock({ title, value }: { title: string; value: string }): React.JSX.Element {
+  return (
+    <details open={title === 'provider messages'}>
+      <summary className="cursor-pointer text-[10px] text-muted-foreground/70">{title}</summary>
+      <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/30 p-2 text-[10px]">
+        {prettyJson(value)}
+      </pre>
+    </details>
   )
 }
 
@@ -427,8 +633,19 @@ function shortId(id: string): string {
   return id.length <= 8 ? id : id.slice(0, 8)
 }
 
-function formatTime(value: number): string {
+function formatTime(value: number | string): string {
   return new Date(value).toLocaleTimeString()
+}
+
+function formatTokens(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}m`
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}k`
+  return String(tokens)
+}
+
+function formatOrdinal(value: number | null): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '-'
+  return String(value + 1)
 }
 
 function stringifyJson(value: unknown): string {
@@ -436,5 +653,13 @@ function stringifyJson(value: unknown): string {
     return JSON.stringify(value, null, 2)
   } catch {
     return String(value)
+  }
+}
+
+function prettyJson(value: string): string {
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2)
+  } catch {
+    return value
   }
 }

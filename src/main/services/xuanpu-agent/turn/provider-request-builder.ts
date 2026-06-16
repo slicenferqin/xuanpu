@@ -18,6 +18,11 @@ import type {
 export interface BuildProviderRequestInput {
   turnId: string
   sessionId: string
+  taskRunId?: string | null
+  userRoundId?: string | null
+  contextSegmentId?: string | null
+  contextSegmentOrdinal?: number | null
+  providerCallSeq?: number | null
   modelRef: XuanpuAgentModelRef
   systemPrompt: string[]
   contextMessages: XuanpuPiPromptMessage[]
@@ -107,6 +112,11 @@ export function buildProviderRequest(
   return {
     turnId: input.turnId,
     sessionId: input.sessionId,
+    taskRunId: input.taskRunId ?? null,
+    userRoundId: input.userRoundId ?? null,
+    contextSegmentId: input.contextSegmentId ?? null,
+    contextSegmentOrdinal: input.contextSegmentOrdinal ?? null,
+    providerCallSeq: input.providerCallSeq ?? 0,
     providerRequestHash,
     prefixHash: input.prefixHash,
     systemPrompt: input.systemPrompt,

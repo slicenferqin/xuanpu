@@ -146,6 +146,13 @@ export interface XuanpuAgentPromptResult {
   turnId?: string
 }
 
+export interface XuanpuProviderRequestScope {
+  taskRunId?: string | null
+  userRoundId?: string | null
+  contextSegmentId?: string | null
+  contextSegmentOrdinal?: number | null
+}
+
 export class XuanpuPiAgentSession {
   private agent: PiAgentLike | null = null
   private unsubscribe: (() => void) | null = null
@@ -247,7 +254,8 @@ export class XuanpuPiAgentSession {
     turnId?: string,
     snapshotBudget?: XuanpuTurnBudget,
     snapshotPrefixHash?: string,
-    xfpPacketId?: string
+    xfpPacketId?: string,
+    snapshotScope?: XuanpuProviderRequestScope
   ): Promise<XuanpuAgentPromptResult> {
     if (this.prompting) {
       throw new Error(
@@ -296,6 +304,11 @@ export class XuanpuPiAgentSession {
       const snapshot = buildProviderRequest({
         turnId,
         sessionId: this.hiveSessionId,
+        taskRunId: snapshotScope?.taskRunId ?? null,
+        userRoundId: snapshotScope?.userRoundId ?? null,
+        contextSegmentId: snapshotScope?.contextSegmentId ?? null,
+        contextSegmentOrdinal: snapshotScope?.contextSegmentOrdinal ?? null,
+        providerCallSeq: 0,
         modelRef: resolved.modelRef,
         systemPrompt: getXuanpuAgentSystemPromptLines(),
         contextMessages,
@@ -357,7 +370,7 @@ export class XuanpuPiAgentSession {
               cacheReadTokens: tokenCounts?.cacheRead ?? 0,
               cacheWriteTokens: tokenCounts?.cacheWrite ?? 0
             },
-            { turnId, epochId: undefined }
+            { turnId, epochId: snapshotScope?.contextSegmentId ?? undefined }
           )
           providerCallSeq++
         }

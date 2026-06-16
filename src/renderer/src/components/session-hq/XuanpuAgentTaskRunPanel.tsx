@@ -4,7 +4,12 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { useSessionRuntimeStore, type SessionLifecycle } from '@/stores/useSessionRuntimeStore'
-import type { AgentEpoch, AgentTaskRun } from '@shared/types/agent-task-run'
+import type {
+  AgentContextSegment,
+  AgentProviderRequestSummary,
+  AgentTaskRun,
+  AgentUserRound
+} from '@shared/types/agent-task-run'
 
 interface XuanpuAgentTaskRunPanelProps {
   sessionId: string
@@ -20,7 +25,9 @@ export function XuanpuAgentTaskRunPanel({
   onResumeQueued
 }: XuanpuAgentTaskRunPanelProps): React.JSX.Element | null {
   const [taskRuns, setTaskRuns] = useState<AgentTaskRun[]>([])
-  const [epochs, setEpochs] = useState<AgentEpoch[]>([])
+  const [userRounds, setUserRounds] = useState<AgentUserRound[]>([])
+  const [contextSegments, setContextSegments] = useState<AgentContextSegment[]>([])
+  const [providerRequests, setProviderRequests] = useState<AgentProviderRequestSummary[]>([])
   const [loading, setLoading] = useState(false)
   const [actionBusy, setActionBusy] = useState(false)
 
@@ -41,9 +48,18 @@ export function XuanpuAgentTaskRunPanel({
       const active =
         runs.find((run) => run.status === 'running' || run.status === 'paused') ?? runs[0]
       if (active) {
-        setEpochs(await window.xuanpuAgentOps.listEpochs(active.id))
+        const [rounds, segments, requests] = await Promise.all([
+          window.xuanpuAgentOps.listUserRounds(active.id),
+          window.xuanpuAgentOps.listContextSegments(active.id),
+          window.xuanpuAgentOps.listProviderRequests(active.id)
+        ])
+        setUserRounds(rounds)
+        setContextSegments(segments)
+        setProviderRequests(requests)
       } else {
-        setEpochs([])
+        setUserRounds([])
+        setContextSegments([])
+        setProviderRequests([])
       }
     } finally {
       setLoading(false)
@@ -56,9 +72,14 @@ export function XuanpuAgentTaskRunPanel({
 
   if (!latestRun) return null
 
-  const providerCallCount = epochs.reduce((total, epoch) => total + epoch.providerCallCount, 0)
+  const providerCallCount = contextSegments.reduce(
+    (total, segment) => total + segment.providerCallCount,
+    0
+  )
   const tokenTotal = latestRun.totalInputTokens + latestRun.totalOutputTokens
-  const lastEpoch = epochs[epochs.length - 1] ?? null
+  const lastRound = userRounds[userRounds.length - 1] ?? null
+  const lastSegment = contextSegments[contextSegments.length - 1] ?? null
+  const lastProviderRequest = providerRequests[providerRequests.length - 1] ?? null
   const canPause = latestRun.status === 'running' && lifecycle === 'idle'
   const canResume = latestRun.status === 'paused' && lifecycle === 'idle'
 
@@ -93,16 +114,36 @@ export function XuanpuAgentTaskRunPanel({
       className="mx-4 mb-2 flex min-h-12 items-center gap-3 rounded-lg border border-border/60 bg-background/92 px-3 py-2 text-xs shadow-lg backdrop-blur"
       data-testid="xuanpu-agent-task-run-panel"
     >
-      <div className="flex min-w-0 flex-1 items-center gap-3">
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
         <StatusPill status={latestRun.status} autonomy={latestRun.autonomy} />
-        <Metric label="epochs" value={String(latestRun.epochCount || epochs.length)} />
+        <Metric label="rounds" value={String(userRounds.length || 1)} />
+        <Metric label="segments" value={String(latestRun.epochCount || contextSegments.length)} />
+        <Metric
+          label="requests"
+          value={String(
+            providerRequests.length ||
+              userRounds.reduce((total, round) => total + round.providerRequestCount, 0)
+          )}
+        />
         <Metric label="calls" value={String(providerCallCount)} />
+        {lastRound && (
+          <Metric
+            label="round"
+            value={`${lastRound.ordinal + 1}:${formatOrigin(lastRound.origin)}`}
+          />
+        )}
+        {lastSegment && (
+          <Metric label="segment" value={`${lastSegment.ordinal + 1}:${lastSegment.status}`} />
+        )}
+        {lastProviderRequest && (
+          <Metric label="request" value={shortHash(lastProviderRequest.providerRequestHash)} />
+        )}
         <Metric label="tokens" value={formatTokens(tokenTotal)} />
         <Metric label="cost" value={formatCost(latestRun.totalCost)} />
-        {lastEpoch && (
+        {lastSegment && (
           <Metric
             label="fill"
-            value={formatFillRatio(lastEpoch.endFillRatio ?? lastEpoch.startFillRatio)}
+            value={formatFillRatio(lastSegment.endFillRatio ?? lastSegment.startFillRatio)}
           />
         )}
         {latestRun.errorMessage && (
@@ -218,4 +259,21 @@ function formatCost(cost: number): string {
 function formatFillRatio(fillRatio: number | null): string {
   if (typeof fillRatio !== 'number' || !Number.isFinite(fillRatio)) return '-'
   return `${Math.round(fillRatio * 100)}%`
+}
+
+function formatOrigin(origin: AgentUserRound['origin']): string {
+  switch (origin) {
+    case 'agent-continuation':
+      return 'continue'
+    case 'recovery-continuation':
+      return 'recover'
+    case 'user-originated':
+      return 'user'
+    default:
+      return 'user'
+  }
+}
+
+function shortHash(hash: string): string {
+  return hash.length > 8 ? hash.slice(0, 8) : hash
 }

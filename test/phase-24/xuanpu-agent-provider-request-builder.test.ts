@@ -90,10 +90,22 @@ describe('ProviderRequestBuilder', () => {
   })
 
   it('buildProviderRequest returns a complete snapshot', () => {
-    const snapshot = buildProviderRequest(BASE_INPUT)
+    const snapshot = buildProviderRequest({
+      ...BASE_INPUT,
+      taskRunId: 'task-run-1',
+      userRoundId: 'round-1',
+      contextSegmentId: 'segment-1',
+      contextSegmentOrdinal: 2,
+      providerCallSeq: 0
+    })
 
     expect(snapshot.turnId).toBe('turn-1')
     expect(snapshot.sessionId).toBe('session-1')
+    expect(snapshot.taskRunId).toBe('task-run-1')
+    expect(snapshot.userRoundId).toBe('round-1')
+    expect(snapshot.contextSegmentId).toBe('segment-1')
+    expect(snapshot.contextSegmentOrdinal).toBe(2)
+    expect(snapshot.providerCallSeq).toBe(0)
     expect(snapshot.providerRequestHash).toMatch(/^[0-9a-f]{64}$/)
     expect(snapshot.systemPrompt).toEqual(['You are a helpful assistant.'])
     expect(snapshot.contextMessages).toHaveLength(1)
@@ -101,6 +113,27 @@ describe('ProviderRequestBuilder', () => {
     expect(snapshot.toolsJson).toContain('read_file')
     expect(snapshot.providerSessionPolicy.mode).toBe('disabled')
     expect(snapshot.budget.profile).toBe('balanced')
+  })
+
+  it('does not include task-run relation metadata in the providerRequestHash', () => {
+    const hash1 = computeProviderRequestHash({
+      ...BASE_INPUT,
+      taskRunId: 'task-run-1',
+      userRoundId: 'round-1',
+      contextSegmentId: 'segment-1',
+      contextSegmentOrdinal: 1,
+      providerCallSeq: 0
+    })
+    const hash2 = computeProviderRequestHash({
+      ...BASE_INPUT,
+      taskRunId: 'task-run-2',
+      userRoundId: 'round-2',
+      contextSegmentId: 'segment-2',
+      contextSegmentOrdinal: 9,
+      providerCallSeq: 7
+    })
+
+    expect(hash1).toBe(hash2)
   })
 
   it('hash differs when modelRef changes', () => {

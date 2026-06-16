@@ -6,6 +6,7 @@
  */
 import { createHash } from 'node:crypto'
 import { createAgentTurnContextSnapshot } from '../../../db/turn-repository'
+import { incrementUserRoundProviderRequestCount } from '../../../db/task-run-repository'
 import type { XuanpuPiPromptMessage } from '../context-transform'
 import type { XuanpuProviderRequestSnapshot } from './turn-snapshot'
 
@@ -38,10 +39,20 @@ export function recordProviderRequestSnapshot(
     turnId: snapshot.turnId,
     sessionId: snapshot.sessionId,
     xfpPacketId: xfpPacketId ?? null,
+    taskRunId: snapshot.taskRunId ?? null,
+    userRoundId: snapshot.userRoundId ?? null,
+    contextSegmentId: snapshot.contextSegmentId ?? null,
+    contextSegmentOrdinal: snapshot.contextSegmentOrdinal ?? null,
+    providerCallSeq: snapshot.providerCallSeq ?? 0,
     providerRequestHash: snapshot.providerRequestHash,
     prefixHash: snapshot.prefixHash ?? null,
     managedContextJson: JSON.stringify({
       budget: snapshot.budget,
+      taskRunId: snapshot.taskRunId ?? null,
+      userRoundId: snapshot.userRoundId ?? null,
+      contextSegmentId: snapshot.contextSegmentId ?? null,
+      contextSegmentOrdinal: snapshot.contextSegmentOrdinal ?? null,
+      providerCallSeq: snapshot.providerCallSeq ?? 0,
       messageCount: snapshot.contextMessages.length + 1
     }),
     providerMessagesJson: JSON.stringify({
@@ -64,10 +75,18 @@ export function recordProviderRequestSnapshot(
     decisionsJson: JSON.stringify({
       providerRequestHash: snapshot.providerRequestHash,
       prefixHash: snapshot.prefixHash,
+      taskRunId: snapshot.taskRunId ?? null,
+      userRoundId: snapshot.userRoundId ?? null,
+      contextSegmentId: snapshot.contextSegmentId ?? null,
+      contextSegmentOrdinal: snapshot.contextSegmentOrdinal ?? null,
+      providerCallSeq: snapshot.providerCallSeq ?? 0,
       includedMessageCount: snapshot.contextMessages.length
     }),
     managedApproxTokens: snapshot.budget.managedApproxTokens,
     providerEstimatedInputTokens: snapshot.budget.providerEstimatedInputTokens,
     maxContextTokens: snapshot.budget.maxContextTokens
   })
+  if (snapshot.userRoundId) {
+    incrementUserRoundProviderRequestCount(snapshot.userRoundId)
+  }
 }

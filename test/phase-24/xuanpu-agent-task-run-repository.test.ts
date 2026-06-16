@@ -13,21 +13,32 @@ vi.mock('@shared/app-identity', () => ({
 import { DatabaseService } from '../../src/main/db/database'
 import {
   accumulateUsage,
+  appendContextSegment,
   appendEpoch,
   bindTurnToTaskRun,
   closeEpoch,
   createTaskRun,
+  createUserRound,
   getActiveTaskRun,
   getEpoch,
   getTaskRun,
+  getUserRound,
   incrementEpochProviderCallCount,
+  listContextSegmentsForTaskRun,
   listEpochsForTaskRun,
   listTaskRunsForSession,
+  listUserRoundsForTaskRun,
   renewLease,
   updateEpochStartFillRatio,
   updateTaskRunStatus
 } from '../../src/main/db/task-run-repository'
-import { createAgentTurn, getAgentTurn } from '../../src/main/db/turn-repository'
+import {
+  createAgentTurn,
+  createAgentTurnContextSnapshot,
+  getAgentTurn,
+  getProviderRequestReplay,
+  listProviderRequestSummariesForTaskRun
+} from '../../src/main/db/turn-repository'
 
 let tmpDir: string
 let db: DatabaseService
@@ -160,6 +171,148 @@ describe('xuanpu-agent task-run repository', () => {
       id: turn.id,
       taskRunId: taskRun.id,
       epochId: epoch.id
+    })
+  })
+
+  it('models user rounds and context segments while preserving epoch storage compatibility', () => {
+    const taskRun = createTaskRun({ sessionId, worktreeId, projectId }, db)
+    const round = createUserRound(
+      {
+        taskRunId: taskRun.id,
+        sessionId,
+        origin: 'user-originated',
+        userMessageId: 'msg-user-1',
+        promptText: 'complete the objective'
+      },
+      db
+    )
+    const segment = appendContextSegment(
+      {
+        taskRunId: taskRun.id,
+        sessionId,
+        userRoundId: round.id,
+        startFillRatio: 0.12
+      },
+      db
+    )
+
+    incrementEpochProviderCallCount(segment.id, db)
+    incrementEpochProviderCallCount(segment.id, db)
+
+    expect(getUserRound(round.id, db)).toMatchObject({
+      id: round.id,
+      taskRunId: taskRun.id,
+      sessionId,
+      ordinal: 0,
+      origin: 'user-originated',
+      status: 'running',
+      contextSegmentCount: 1,
+      providerRequestCount: 0
+    })
+    expect(listUserRoundsForTaskRun(taskRun.id, db).map((item) => item.id)).toEqual([round.id])
+    expect(listContextSegmentsForTaskRun(taskRun.id, db)).toMatchObject([
+      {
+        id: segment.id,
+        taskRunId: taskRun.id,
+        userRoundId: round.id,
+        ordinal: 0,
+        providerCallCount: 2,
+        startFillRatio: 0.12
+      }
+    ])
+    expect(listEpochsForTaskRun(taskRun.id, db).map((item) => item.id)).toEqual([segment.id])
+    expect(getTaskRun(taskRun.id, db)?.epochCount).toBe(1)
+  })
+
+  it('replays provider request snapshots by snapshot id', () => {
+    const taskRun = createTaskRun({ sessionId, worktreeId, projectId }, db)
+    const round = createUserRound(
+      {
+        taskRunId: taskRun.id,
+        sessionId,
+        origin: 'user-originated',
+        userMessageId: 'msg-user-1',
+        promptText: 'inspect provider input'
+      },
+      db
+    )
+    const segment = appendContextSegment(
+      {
+        taskRunId: taskRun.id,
+        sessionId,
+        userRoundId: round.id,
+        startFillRatio: 0.2
+      },
+      db
+    )
+    const turn = createAgentTurn(
+      {
+        sessionId,
+        worktreeId,
+        projectId,
+        runtimeId: 'xuanpu-agent',
+        taskRunId: taskRun.id,
+        userRoundId: round.id,
+        epochId: segment.id,
+        userMessageId: 'msg-user-1'
+      },
+      db
+    )
+    const snapshot = createAgentTurnContextSnapshot(
+      {
+        turnId: turn.id,
+        sessionId,
+        xfpPacketId: 'packet-1',
+        taskRunId: taskRun.id,
+        userRoundId: round.id,
+        contextSegmentId: segment.id,
+        contextSegmentOrdinal: segment.ordinal,
+        providerCallSeq: 0,
+        providerRequestHash: 'hash-123',
+        prefixHash: 'prefix-123',
+        managedContextJson: JSON.stringify({ zones: ['current'] }),
+        providerMessagesJson: JSON.stringify({ promptMessage: { role: 'user' } }),
+        providerToolsJson: JSON.stringify([{ name: 'read_file' }]),
+        providerConfigJson: JSON.stringify({ providerID: 'openai', modelID: 'gpt-test' }),
+        decisionsJson: JSON.stringify({ providerExecution: 'enabled' }),
+        managedApproxTokens: 100,
+        providerEstimatedInputTokens: 120,
+        maxContextTokens: 150000
+      },
+      db
+    )
+
+    expect(listProviderRequestSummariesForTaskRun(taskRun.id, { limit: 5 }, db)).toMatchObject([
+      {
+        id: snapshot.id,
+        turnId: turn.id,
+        taskRunId: taskRun.id,
+        userRoundId: round.id,
+        contextSegmentId: segment.id,
+        contextSegmentOrdinal: 0,
+        providerRequestHash: 'hash-123'
+      }
+    ])
+    expect(getProviderRequestReplay(snapshot.id, db)).toMatchObject({
+      id: snapshot.id,
+      turnId: turn.id,
+      sessionId,
+      xfpPacketId: 'packet-1',
+      taskRunId: taskRun.id,
+      userRoundId: round.id,
+      contextSegmentId: segment.id,
+      contextSegmentOrdinal: 0,
+      providerCallSeq: 0,
+      providerRequestHash: 'hash-123',
+      prefixHash: 'prefix-123',
+      managedContextJson: JSON.stringify({ zones: ['current'] }),
+      providerMessagesJson: JSON.stringify({ promptMessage: { role: 'user' } }),
+      providerToolsJson: JSON.stringify([{ name: 'read_file' }]),
+      providerConfigJson: JSON.stringify({ providerID: 'openai', modelID: 'gpt-test' }),
+      decisionsJson: JSON.stringify({ providerExecution: 'enabled' }),
+      managedApproxTokens: 100,
+      providerEstimatedInputTokens: 120,
+      maxContextTokens: 150000
     })
   })
 

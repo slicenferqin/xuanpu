@@ -70,10 +70,40 @@ const taskRunRepoMock = vi.hoisted(() => ({
   })),
   getTaskRun: vi.fn(() => null),
   getActiveTaskRun: vi.fn(() => null),
-  appendEpoch: vi.fn(() => ({ id: 'epoch-test-1' })),
+  createUserRound: vi.fn(() => ({
+    id: 'round-test-1',
+    taskRunId: 'task-run-test-1',
+    sessionId: 'session-1',
+    ordinal: 0,
+    origin: 'user-originated',
+    status: 'running',
+    userMessageId: 'msg-user-1',
+    promptText: 'test objective',
+    providerRequestCount: 0,
+    contextSegmentCount: 0,
+    startedAt: '2026-06-09T00:00:00.000Z',
+    completedAt: null,
+    errorMessage: null
+  })),
+  appendContextSegment: vi.fn(() => ({
+    id: 'epoch-test-1',
+    taskRunId: 'task-run-test-1',
+    sessionId: 'session-1',
+    userRoundId: 'round-test-1',
+    ordinal: 0,
+    status: 'running',
+    checkpointId: null,
+    providerCallCount: 0,
+    startFillRatio: null,
+    endFillRatio: null,
+    closeReason: null,
+    startedAt: '2026-06-09T00:00:00.000Z',
+    closedAt: null
+  })),
   updateEpochStartFillRatio: vi.fn(),
   incrementEpochProviderCallCount: vi.fn(),
   closeEpoch: vi.fn(),
+  updateUserRoundStatus: vi.fn(),
   updateTaskRunStatus: vi.fn(),
   accumulateUsage: vi.fn(),
   renewLease: vi.fn()
@@ -305,7 +335,36 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
       completedAt: null,
       errorMessage: null
     })
-    taskRunRepoMock.appendEpoch.mockReturnValue({ id: 'epoch-test-1' })
+    taskRunRepoMock.createUserRound.mockReturnValue({
+      id: 'round-test-1',
+      taskRunId: 'task-run-test-1',
+      sessionId: 'session-1',
+      ordinal: 0,
+      origin: 'user-originated',
+      status: 'running',
+      userMessageId: 'msg-user-1',
+      promptText: 'test objective',
+      providerRequestCount: 0,
+      contextSegmentCount: 0,
+      startedAt: '2026-06-09T00:00:00.000Z',
+      completedAt: null,
+      errorMessage: null
+    })
+    taskRunRepoMock.appendContextSegment.mockReturnValue({
+      id: 'epoch-test-1',
+      taskRunId: 'task-run-test-1',
+      sessionId: 'session-1',
+      userRoundId: 'round-test-1',
+      ordinal: 0,
+      status: 'running',
+      checkpointId: null,
+      providerCallCount: 0,
+      startFillRatio: null,
+      endFillRatio: null,
+      closeReason: null,
+      startedAt: '2026-06-09T00:00:00.000Z',
+      closedAt: null
+    })
     checkpointRuntimeMocks.generateCheckpoint.mockResolvedValue(null)
     checkpointRuntimeMocks.insertCheckpoint.mockReturnValue(true)
     packContextMock.mockReturnValue({
@@ -428,6 +487,12 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
       )
       .join('\n')
     expect(allText).toContain('<xuanpu-context-anchor>')
+    expect(mockPiSession.prompt.mock.calls[0]?.[8]).toMatchObject({
+      taskRunId: 'task-run-test-1',
+      userRoundId: 'round-test-1',
+      contextSegmentId: 'epoch-test-1',
+      contextSegmentOrdinal: 0
+    })
   })
 
   it('passes current-turn images to the provider prompt while keeping history text-only', async () => {
@@ -1015,10 +1080,19 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
 
     expect(taskRunRepoMock.getActiveTaskRun).toHaveBeenCalledWith('session-1', expect.anything())
     expect(taskRunRepoMock.createTaskRun).not.toHaveBeenCalled()
-    expect(taskRunRepoMock.appendEpoch).toHaveBeenCalledWith(
+    expect(taskRunRepoMock.createUserRound).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskRunId: 'task-run-paused-1',
+        sessionId: 'session-1',
+        origin: 'user-originated'
+      }),
+      expect.anything()
+    )
+    expect(taskRunRepoMock.appendContextSegment).toHaveBeenCalledWith(
       {
         taskRunId: 'task-run-paused-1',
-        sessionId: 'session-1'
+        sessionId: 'session-1',
+        userRoundId: 'round-test-1'
       },
       expect.anything()
     )

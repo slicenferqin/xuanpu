@@ -57,10 +57,27 @@ type XuanpuAgentTaskRun = {
   errorMessage: string | null
 }
 
+type XuanpuAgentUserRound = {
+  id: string
+  taskRunId: string
+  sessionId: string
+  ordinal: number
+  origin: 'user-originated' | 'agent-continuation' | 'recovery-continuation'
+  status: 'running' | 'completed' | 'failed' | 'aborted'
+  userMessageId: string | null
+  promptText: string | null
+  providerRequestCount: number
+  contextSegmentCount: number
+  startedAt: string
+  completedAt: string | null
+  errorMessage: string | null
+}
+
 type XuanpuAgentEpoch = {
   id: string
   taskRunId: string
   sessionId: string
+  userRoundId: string | null
   ordinal: number
   status: 'running' | 'checkpointed' | 'compacted' | 'closed' | 'failed'
   checkpointId: string | null
@@ -70,6 +87,34 @@ type XuanpuAgentEpoch = {
   closeReason: 'checkpoint' | 'compact' | 'watchdog' | 'turn_end' | null
   startedAt: string
   closedAt: string | null
+}
+
+type XuanpuAgentContextSegment = XuanpuAgentEpoch
+
+type XuanpuAgentProviderRequestSummary = {
+  id: string
+  turnId: string
+  sessionId: string
+  taskRunId: string | null
+  userRoundId: string | null
+  contextSegmentId: string | null
+  contextSegmentOrdinal: number | null
+  providerCallSeq: number
+  providerRequestHash: string
+  prefixHash: string | null
+  managedApproxTokens: number
+  providerEstimatedInputTokens: number
+  maxContextTokens: number
+  createdAt: string
+}
+
+type XuanpuAgentProviderRequestReplay = XuanpuAgentProviderRequestSummary & {
+  xfpPacketId: string | null
+  managedContextJson: string
+  providerMessagesJson: string
+  providerToolsJson: string
+  providerConfigJson: string
+  decisionsJson: string
 }
 
 interface Project {
@@ -1596,6 +1641,12 @@ declare global {
     xuanpuAgentOps: {
       listTaskRuns: (sessionId: string) => Promise<XuanpuAgentTaskRun[]>
       listEpochs: (taskRunId: string) => Promise<XuanpuAgentEpoch[]>
+      listUserRounds: (taskRunId: string) => Promise<XuanpuAgentUserRound[]>
+      listContextSegments: (taskRunId: string) => Promise<XuanpuAgentContextSegment[]>
+      listProviderRequests: (taskRunId: string) => Promise<XuanpuAgentProviderRequestSummary[]>
+      getProviderRequestReplay: (
+        snapshotId: string
+      ) => Promise<XuanpuAgentProviderRequestReplay | null>
       pauseTaskRun: (taskRunId: string) => Promise<{
         success: boolean
         taskRun?: XuanpuAgentTaskRun | null

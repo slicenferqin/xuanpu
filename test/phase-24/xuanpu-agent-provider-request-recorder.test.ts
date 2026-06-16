@@ -4,7 +4,12 @@ const turnRepoMock = vi.hoisted(() => ({
   createAgentTurnContextSnapshot: vi.fn()
 }))
 
+const taskRunRepoMock = vi.hoisted(() => ({
+  incrementUserRoundProviderRequestCount: vi.fn()
+}))
+
 vi.mock('../../src/main/db/turn-repository', () => turnRepoMock)
+vi.mock('../../src/main/db/task-run-repository', () => taskRunRepoMock)
 
 import { recordProviderRequestSnapshot } from '../../src/main/services/xuanpu-agent/turn/provider-request-recorder'
 import type { XuanpuProviderRequestSnapshot } from '../../src/main/services/xuanpu-agent/turn/turn-snapshot'
@@ -12,6 +17,7 @@ import type { XuanpuProviderRequestSnapshot } from '../../src/main/services/xuan
 describe('ProviderRequestRecorder', () => {
   it('stores image prompt parts as lightweight metadata only', () => {
     turnRepoMock.createAgentTurnContextSnapshot.mockClear()
+    taskRunRepoMock.incrementUserRoundProviderRequestCount.mockClear()
 
     const snapshot: XuanpuProviderRequestSnapshot = {
       turnId: 'turn-1',
@@ -63,5 +69,71 @@ describe('ProviderRequestRecorder', () => {
       contentOmitted: true
     })
     expect(providerMessages.promptMessage.content[1].dataSha256).toMatch(/^[0-9a-f]{64}$/)
+    expect(taskRunRepoMock.incrementUserRoundProviderRequestCount).not.toHaveBeenCalled()
+  })
+
+  it('stores task-run, user-round, and context-segment relation metadata', () => {
+    turnRepoMock.createAgentTurnContextSnapshot.mockClear()
+    taskRunRepoMock.incrementUserRoundProviderRequestCount.mockClear()
+
+    const snapshot: XuanpuProviderRequestSnapshot = {
+      turnId: 'turn-1',
+      sessionId: 'session-1',
+      taskRunId: 'task-run-1',
+      userRoundId: 'round-1',
+      contextSegmentId: 'segment-1',
+      contextSegmentOrdinal: 2,
+      providerCallSeq: 0,
+      providerRequestHash: 'hash-1',
+      systemPrompt: ['system'],
+      contextMessages: [],
+      promptMessage: {
+        role: 'user',
+        content: [{ type: 'text', text: 'current request' }],
+        timestamp: 2
+      },
+      toolsJson: '[]',
+      modelRef: { providerID: 'openai', modelID: 'gpt-test' },
+      providerSessionPolicy: {
+        mode: 'disabled',
+        reason: 'xuanpu owns turn-scoped context'
+      },
+      budget: {
+        profile: 'balanced',
+        managedApproxTokens: 10,
+        providerEstimatedInputTokens: 12,
+        maxContextTokens: 150000,
+        fillRatio: 0.01
+      }
+    }
+
+    recordProviderRequestSnapshot(snapshot, 'packet-1')
+
+    const stored = turnRepoMock.createAgentTurnContextSnapshot.mock.calls[0][0]
+    expect(stored).toMatchObject({
+      turnId: 'turn-1',
+      sessionId: 'session-1',
+      xfpPacketId: 'packet-1',
+      taskRunId: 'task-run-1',
+      userRoundId: 'round-1',
+      contextSegmentId: 'segment-1',
+      contextSegmentOrdinal: 2,
+      providerCallSeq: 0
+    })
+    expect(JSON.parse(stored.managedContextJson)).toMatchObject({
+      taskRunId: 'task-run-1',
+      userRoundId: 'round-1',
+      contextSegmentId: 'segment-1',
+      contextSegmentOrdinal: 2,
+      providerCallSeq: 0
+    })
+    expect(JSON.parse(stored.decisionsJson)).toMatchObject({
+      taskRunId: 'task-run-1',
+      userRoundId: 'round-1',
+      contextSegmentId: 'segment-1',
+      contextSegmentOrdinal: 2,
+      providerCallSeq: 0
+    })
+    expect(taskRunRepoMock.incrementUserRoundProviderRequestCount).toHaveBeenCalledWith('round-1')
   })
 })
