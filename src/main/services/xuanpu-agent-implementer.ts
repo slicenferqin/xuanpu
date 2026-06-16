@@ -114,6 +114,11 @@ import { generateCheckpoint } from '../field/checkpoint-generator'
 import { insertCheckpoint, type CheckpointRecord } from '../field/checkpoint-repository'
 import { verifyCheckpoint, type ResumedCheckpointBlock } from '../field/checkpoint-verifier'
 import { calculateUsageCost, resolvePricingModelKey } from '@shared/usage/pricing'
+import {
+  buildImageObservationRefFromBase64,
+  formatImageObservationRef,
+  MediaOffloadStore
+} from './xuanpu-agent/media-offloader'
 
 const log = createLogger({ component: 'XuanpuAgentImplementer' })
 const DEFAULT_CONTEXT_WINDOW_TOKENS = 150_000
@@ -141,7 +146,9 @@ interface ParsedPromptInput {
   promptContent: XuanpuPiPromptPart[]
 }
 
-function parseXuanpuAgentPromptInput(message: string | IncomingPromptPart[]): ParsedPromptInput {
+async function parseXuanpuAgentPromptInput(
+  message: string | IncomingPromptPart[]
+): Promise<ParsedPromptInput> {
   if (typeof message === 'string') {
     return {
       contextText: message,
@@ -152,6 +159,7 @@ function parseXuanpuAgentPromptInput(message: string | IncomingPromptPart[]): Pa
   const textParts: string[] = []
   const promptContent: XuanpuPiPromptPart[] = []
   const attachmentLines: string[] = []
+  const mediaOffloadStore = new MediaOffloadStore()
 
   for (const part of message) {
     if (part.type === 'text') {
@@ -163,8 +171,36 @@ function parseXuanpuAgentPromptInput(message: string | IncomingPromptPart[]): Pa
     const mime = part.mime?.trim() || 'unknown'
     const parsedImage = parseDataUriImage(part.url, mime)
     if (parsedImage) {
+      const imageRef = buildImageObservationRefFromBase64({
+        data: parsedImage.data,
+        mimeType: parsedImage.mimeType,
+        filename
+      })
+      try {
+        await mediaOffloadStore.writeImage({
+          data: parsedImage.data,
+          mimeType: parsedImage.mimeType,
+          filename
+        })
+      } catch (error) {
+        log.warn('Failed to offload xuanpu-agent prompt image', {
+          filename,
+          mimeType: parsedImage.mimeType,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      }
+
       attachmentLines.push(
-        `<file kind="data" name="${escapeAttachmentAttribute(filename)}" mime="${escapeAttachmentAttribute(parsedImage.mimeType)}">image included in current provider turn only</file>`
+        [
+          `<file kind="image" name="${escapeAttachmentAttribute(filename)}"`,
+          `mime="${escapeAttachmentAttribute(parsedImage.mimeType)}"`,
+          `bytes="${imageRef.bytes}"`,
+          `sha256="${imageRef.sha256}"`,
+          `ref="${escapeAttachmentAttribute(imageRef.mediaRef)}">`,
+          'image included in current provider turn only; future provider requests use:',
+          formatImageObservationRef(imageRef),
+          '</file>'
+        ].join(' ')
       )
       promptContent.push({
         type: 'image',
@@ -334,7 +370,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
     options?: PromptOptions
   ): Promise<void> {
     const session = this.requireSession(agentSessionId, worktreePath)
-    const parsedPrompt = parseXuanpuAgentPromptInput(message)
+    const parsedPrompt = await parseXuanpuAgentPromptInput(message)
     const text = parsedPrompt.contextText.trim()
     if (!text) return
     const sessionMode = options?.mode ?? 'build'
@@ -868,8 +904,12 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         if (taskRunAutonomy !== 'short' && isCompleteLongTaskResponse(latestAssistantText)) return
 
         if (taskRunAutonomy !== 'short' && noProgressCalls >= NO_PROGRESS_LIMIT) {
-          if (promptIsNoProgressRecovery) {
+          const hasConcreteProgress = progressSignal > 0
+          if (promptIsNoProgressRecovery && !hasConcreteProgress) {
             await pauseTaskRun('no progress after recovery')
+          } else if (promptIsNoProgressRecovery) {
+            await closeEpochOnce('checkpoint', 'checkpointed')
+            queueContinuation()
           } else {
             await queueNoProgressRecovery()
           }
@@ -1084,7 +1124,9 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
           filesChanged: Array.from(observedPaths),
           errors: completedToolCalls
             .filter((toolCall) => toolCall.isError)
-            .map((toolCall) => extractToolResultText(toolCall.result) || `${toolCall.toolName} failed`)
+            .map(
+              (toolCall) => extractToolResultText(toolCall.result) || `${toolCall.toolName} failed`
+            )
         })
       } catch (error) {
         log.warn('Failed to update xuanpu-agent task state', {

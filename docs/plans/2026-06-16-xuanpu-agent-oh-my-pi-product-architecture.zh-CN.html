@@ -1,0 +1,1676 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>xuanpu-agent 基于 oh-my-pi 打造的产品化架构方案</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #1b2430;
+        --muted: #607086;
+        --subtle: #8794a6;
+        --line: #d9e0ea;
+        --soft-line: #edf1f6;
+        --page: #f7f9fc;
+        --surface: #ffffff;
+        --surface-alt: #f0f5fa;
+        --surface-hot: #fff8e6;
+        --accent: #116c5b;
+        --accent-2: #315e9f;
+        --warn: #8b5e12;
+        --danger: #a23a3a;
+        --ok: #236b48;
+        --code: #f3f6fa;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background: var(--page);
+        color: var(--ink);
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB",
+          "Microsoft YaHei", sans-serif;
+        line-height: 1.72;
+      }
+
+      a {
+        color: var(--accent-2);
+        text-decoration: none;
+      }
+
+      a:hover {
+        text-decoration: underline;
+      }
+
+      .shell {
+        max-width: 1220px;
+        margin: 0 auto;
+        padding: 40px 28px 74px;
+      }
+
+      header {
+        padding: 26px 0 32px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .eyebrow {
+        margin: 0 0 10px;
+        color: var(--accent);
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        max-width: 940px;
+        margin: 0;
+        font-size: 34px;
+        line-height: 1.22;
+        letter-spacing: 0;
+      }
+
+      .summary {
+        max-width: 960px;
+        margin: 18px 0 0;
+        color: var(--muted);
+        font-size: 17px;
+      }
+
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 22px;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 30px;
+        padding: 4px 10px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--surface);
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      main {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 280px;
+        gap: 34px;
+        margin-top: 34px;
+      }
+
+      nav {
+        position: sticky;
+        top: 18px;
+        align-self: start;
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      nav h2 {
+        margin: 0 0 10px;
+        font-size: 14px;
+      }
+
+      nav ol {
+        margin: 0;
+        padding-left: 18px;
+        color: var(--muted);
+        font-size: 13.5px;
+      }
+
+      nav li {
+        margin: 7px 0;
+      }
+
+      section {
+        margin: 0 0 26px;
+        padding: 24px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      section > h2 {
+        margin: 0 0 14px;
+        font-size: 22px;
+        line-height: 1.35;
+      }
+
+      h3 {
+        margin: 24px 0 10px;
+        font-size: 17px;
+      }
+
+      h4 {
+        margin: 18px 0 8px;
+        font-size: 14.5px;
+        color: #2a3a4d;
+      }
+
+      p {
+        margin: 10px 0;
+      }
+
+      ul,
+      ol {
+        margin: 10px 0 0;
+        padding-left: 22px;
+      }
+
+      li {
+        margin: 7px 0;
+      }
+
+      .lead {
+        color: var(--muted);
+        font-size: 16px;
+      }
+
+      .callout {
+        margin: 16px 0;
+        padding: 14px 16px;
+        border-left: 4px solid var(--accent);
+        background: #eef7f4;
+        color: #213b35;
+      }
+
+      .callout.fact {
+        border-left-color: var(--accent-2);
+        background: #eef4fc;
+        color: #1f3b5e;
+      }
+
+      .callout.warning {
+        border-left-color: var(--warn);
+        background: #fff6df;
+        color: #4a3711;
+      }
+
+      .callout.danger {
+        border-left-color: var(--danger);
+        background: #fff1f0;
+        color: #5a2525;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .grid.three {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .panel {
+        padding: 16px;
+        border: 1px solid var(--soft-line);
+        border-radius: 8px;
+        background: var(--surface-alt);
+      }
+
+      .panel.hot {
+        background: var(--surface-hot);
+      }
+
+      .panel h3,
+      .panel h4 {
+        margin-top: 0;
+      }
+
+      table {
+        width: 100%;
+        margin-top: 14px;
+        border-collapse: collapse;
+        font-size: 13.5px;
+      }
+
+      th,
+      td {
+        padding: 9px 11px;
+        border: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        background: var(--surface-alt);
+        color: #263447;
+        font-weight: 700;
+      }
+
+      code {
+        padding: 1px 5px;
+        border-radius: 4px;
+        background: var(--code);
+        color: #1e3659;
+        font-family: "SF Mono", "JetBrains Mono", Consolas, monospace;
+        font-size: 0.9em;
+      }
+
+      pre {
+        overflow: auto;
+        margin: 14px 0 0;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #18202b;
+        color: #edf3fb;
+        line-height: 1.55;
+        font-size: 13px;
+      }
+
+      pre code {
+        padding: 0;
+        background: transparent;
+        color: inherit;
+      }
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        padding: 1px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .tag.keep {
+        background: #d8f1e4;
+        color: var(--ok);
+      }
+
+      .tag.new {
+        background: #f6e8c8;
+        color: #6f4e12;
+      }
+
+      .tag.change {
+        background: #dbe7f8;
+        color: #28456f;
+      }
+
+      .tag.reject {
+        background: #f6d2cf;
+        color: #7a2b2b;
+      }
+
+      .small {
+        color: var(--subtle);
+        font-size: 12.5px;
+      }
+
+      footer {
+        margin-top: 34px;
+        padding-top: 20px;
+        border-top: 1px solid var(--line);
+        color: var(--subtle);
+        font-size: 13px;
+      }
+
+      @media (max-width: 940px) {
+        .shell {
+          padding: 26px 18px 48px;
+        }
+
+        main {
+          display: block;
+        }
+
+        nav {
+          position: static;
+          margin-bottom: 22px;
+        }
+
+        .grid,
+        .grid.three {
+          grid-template-columns: 1fr;
+        }
+
+        h1 {
+          font-size: 28px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header>
+        <p class="eyebrow">Xuanpu Agent · Productized Runtime Architecture</p>
+        <h1>xuanpu-agent 基于 oh-my-pi 打造的产品化架构方案</h1>
+        <p class="summary">
+          本文重新调研 oh-my-pi 上游、当前分支代码和既有 xuanpu-agent 设计文档后，给出新的产品化路线：
+          xuanpu-agent 应该基于 oh-my-pi 的 agent/runtime/tool/session 能力继续打造，而不是把 oh-my-pi
+          当作一个浅层 adapter。推荐路径是“可控 fork-core + Xuanpu 上下文内核 + 独立发行面”，避免从零造 agent，
+          也避免把整个上游产品无边界硬拷进桌面端。
+        </p>
+        <div class="meta">
+          <span class="pill">日期：2026-06-16</span>
+          <span class="pill">分支：feat/xuanpu-agent-oh-my-pi</span>
+          <span class="pill">状态：方案文档 / 可实施设计</span>
+          <span class="pill">基线：@oh-my-pi 15.2.4，本地 @xuanpu/pi-agent-core shim</span>
+          <span class="pill">上游最新：v16.0.1 / 2026-06-15</span>
+        </div>
+      </header>
+
+      <main>
+        <article>
+          <section id="decision">
+            <h2>0. 结论先行</h2>
+            <p class="lead">
+              新路线不是“给 oh-my-pi 写一个 Xuanpu adapter”，而是把 xuanpu-agent 定义为一个
+              <strong>oh-my-pi-derived product runtime</strong>：复用并持续跟进 oh-my-pi 的 agent loop、
+              provider、tool harness、compaction/session 经验和 CLI/SDK 基础，同时由 Xuanpu 拥有最终的
+              TaskRun、UserRound、ContextSegment、现场协议、上下文预算、工具/媒体卸载、记忆、审计和桌面集成。
+            </p>
+
+            <div class="callout">
+              <strong>推荐决策：</strong>采用“产品化 fork-core”路线。当前
+              <code>@xuanpu/pi-agent-core</code> 只是薄 re-export + <code>runTurn()</code> 修补，下一阶段应升级为
+              可控的源代码 fork/patch layer：保留上游同步边界，沉淀 Xuanpu 专属 API，不再把 oh-my-pi
+              当成可随时替换的 adapter。
+            </div>
+
+            <table>
+              <thead>
+                <tr>
+                  <th>问题</th>
+                  <th>推荐答案</th>
+                  <th>原因</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>oh-my-pi 是 adapter 还是基座？</td>
+                  <td><span class="tag keep">基座</span> 基于它打造 xuanpu-agent runtime</td>
+                  <td>它已有 agent loop、provider、工具生命周期、compaction、overflow、session、subagent 和 CLI/SDK 能力，足以省去从零打造 agent 的主体工作。</td>
+                </tr>
+                <tr>
+                  <td>是否整仓硬 fork？</td>
+                  <td><span class="tag reject">不建议</span> 不做无边界 hard fork</td>
+                  <td>上游迭代很快，2026-06-15 刚发布 v16.0.1。整仓硬 fork 会把 TUI、extensions、natives、settings、ACP 等全部升级风险拖进 Xuanpu。</td>
+                </tr>
+                <tr>
+                  <td>是否保持薄 shim？</td>
+                  <td><span class="tag reject">不够</span> shim 只能解决 turn echo 等局部 bug</td>
+                  <td>Xuanpu 要做长期任务、UserRound、上下文稳态、审计和独立发行，需要拥有 runtime contract 和 session/context kernel。</td>
+                </tr>
+                <tr>
+                  <td>是否现在升级 v16.x？</td>
+                  <td><span class="tag change">拆开</span> 先稳 15.2.4，另开 v16.x spike</td>
+                  <td>v16.0.1 有 coding-agent 层 breaking changes，也有 provider payload/tool-args 修复。升级有价值，但不应混入架构重排的第一步。</td>
+                </tr>
+                <tr>
+                  <td>xuanpu-agent 是否独立于 Xuanpu Desktop？</td>
+                  <td><span class="tag keep">是</span> 独立 CLI/SDK + 桌面嵌入双形态</td>
+                  <td>产品定位保留：Xuanpu Desktop 提供更好的现场，但 agent core 必须能在外部项目目录独立运行。</td>
+                </tr>
+                <tr>
+                  <td>上下文是否每次请求都重建？</td>
+                  <td><span class="tag reject">否</span> Segment 内连续累积，边界才重建</td>
+                  <td>每次 provider request 都重建会破坏连续性和 prefix/cache 稳定性；默认应在 ContextSegment 内 append，接近预算或恢复边界时才 compact/rebuild。</td>
+                </tr>
+                <tr>
+                  <td>大工具输出和图片如何处理？</td>
+                  <td><span class="tag keep">卸载</span> raw 内容归档，只给模型摘要和引用</td>
+                  <td>100K 命令输出或 5MB 截图不能持续占用 live history。工具输出、截图和图片应进入 archive/media store，模型上下文只保留 observation ref、摘要、OCR 和关键事实。</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <section id="research">
+            <h2>1. 调研范围与证据</h2>
+            <p>
+              本轮重新核验了四类资料：当前 Xuanpu 分支代码、已有 xuanpu-agent 设计文档、本地安装的
+              <code>@oh-my-pi</code> 包源码，以及 GitHub 上游仓库/文档/发布信息。没有可调用的 Exa MCP
+              工具，因此使用 <code>gh</code>、GitHub 内容 API 和 Web 搜索补足上游事实。
+            </p>
+
+            <h3>1.1 上游 oh-my-pi 当前状态</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>维度</th>
+                  <th>核验结果</th>
+                  <th>证据</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>仓库</td>
+                  <td><code>can1357/oh-my-pi</code>，描述为 terminal coding agent，强调 hash-anchored edits、optimized tool harness、LSP、Python、browser、subagents 等。</td>
+                  <td><a href="https://github.com/can1357/oh-my-pi">GitHub repo</a></td>
+                </tr>
+                <tr>
+                  <td>热度</td>
+                  <td>查询时约 12.6k stars、1.0k forks，默认分支 <code>main</code>，当天仍有 push。</td>
+                  <td><code>gh repo view can1357/oh-my-pi</code></td>
+                </tr>
+                <tr>
+                  <td>最新发布</td>
+                  <td><code>v16.0.1</code>，发布时间 2026-06-15T19:47:19Z。</td>
+                  <td><a href="https://github.com/can1357/oh-my-pi/releases/tag/v16.0.1">Release v16.0.1</a></td>
+                </tr>
+                <tr>
+                  <td>README 产品面</td>
+                  <td>README 明确把它描述为“IDE wired in”的 coding agent，并列出 providers、tools、LSP、DAP、native Rust core、interactive/one-shot/RPC/ACP/SDK 等入口。</td>
+                  <td><a href="https://github.com/can1357/oh-my-pi#readme">README</a></td>
+                </tr>
+                <tr>
+                  <td>compaction 文档</td>
+                  <td>上游已有 session-entry 级 compaction、branch summary、overflow recovery、threshold maintenance、idle maintenance、snapcompact、pre-compaction pruning、OpenAI remote compaction preserve data。</td>
+                  <td><a href="https://github.com/can1357/oh-my-pi/blob/main/docs/compaction.md">docs/compaction.md</a></td>
+                </tr>
+              </tbody>
+            </table>
+
+            <h3>1.2 本地 Xuanpu 代码事实</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>文件</th>
+                  <th>事实</th>
+                  <th>含义</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>packages/xuanpu-pi-agent-core/package.json</code></td>
+                  <td>当前本地包名 <code>@xuanpu/pi-agent-core</code>，版本 <code>15.2.4</code>，依赖 <code>@oh-my-pi/pi-agent-core</code> 与 <code>@oh-my-pi/pi-ai</code> 的 <code>15.2.4</code>。</td>
+                  <td>已有 fork 名义，但实现仍偏薄 shim。</td>
+                </tr>
+                <tr>
+                  <td><code>packages/xuanpu-pi-agent-core/src/index.ts</code></td>
+                  <td>完整 re-export 上游 <code>@oh-my-pi/pi-agent-core</code>，再覆盖导出 <code>runTurn</code>、<code>agentLoop</code>、<code>agentLoopContinue</code>。</td>
+                  <td>当前 Xuanpu 只在 agent-loop API 上有局部扩展。</td>
+                </tr>
+                <tr>
+                  <td><code>packages/xuanpu-pi-agent-core/src/agent-loop.ts</code></td>
+                  <td><code>runTurn()</code> 用 fresh upstream <code>Agent</code>，通过 <code>replaceMessages()</code> 预载 context，只把当前 prompt 传给 <code>agent.prompt()</code>。</td>
+                  <td>已解决 context messages 被 prompt echo 的 INV-TURN-3 类问题，说明 fork-core 的价值已经被验证。</td>
+                </tr>
+                <tr>
+                  <td><code>src/main/services/xuanpu-agent/runtime.ts</code></td>
+                  <td>每 turn 创建 fresh <code>Agent</code>，显式禁用 <code>providerSessionState</code>，挂载 tool repair、truncation、budget manager、tool context、provider request snapshot。</td>
+                  <td>Xuanpu 已经在 runtime 外层拥有强约束，不适合退回“单纯 adapter”。</td>
+                </tr>
+                <tr>
+                  <td><code>src/main/services/xuanpu-agent/context/context-packer.ts</code></td>
+                  <td>已有 zone-based context packer：Anchor、FrozenEpisodes、TaskState、RetrievedEpisodes、WorkingSet、CurrentField、CurrentRequest，并计算 stable prefix hash。</td>
+                  <td>Xuanpu 的上下文内核已经成型，应成为 oh-my-pi-derived runtime 的上层语义。</td>
+                </tr>
+                <tr>
+                  <td><code>src/main/services/xuanpu-agent-implementer.ts</code></td>
+                  <td>已有 TaskRun、Epoch、turn、provider-call usage、lease、checkpoint、no-progress recovery、soft shrink、pending continuation 等机制。</td>
+                  <td>桌面端已经把“长期任务治理”做在 oh-my-pi 外侧，下一步应抽成独立 agent core，而不是继续堆在 implementer。</td>
+                </tr>
+                <tr>
+                  <td><code>src/shared/types/agent-task-run.ts</code></td>
+                  <td>已有 <code>AgentTaskRun</code>、<code>AgentEpoch</code>、autonomy/status/close reason 类型。</td>
+                  <td>DB 与 UI 已接受长期任务抽象，但命名和边界需要产品化。</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <h3>1.3 上游源码可复用点</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>上游模块</th>
+                  <th>已核验能力</th>
+                  <th>对 Xuanpu 的价值</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>pi-agent-core/src/agent.ts</code></td>
+                  <td><code>AgentOptions</code> 支持 <code>transformContext</code>、<code>convertToLlm</code>、<code>streamFn</code>、<code>providerSessionState</code>、payload/response/SSE hooks、tool hooks、telemetry、toolChoice、tool-arg transform、steer/followUp queue。</td>
+                  <td>提供成熟 agent runtime 接缝，Xuanpu 不需要重造 provider streaming、tool-call loop 和事件分发。</td>
+                </tr>
+                <tr>
+                  <td><code>pi-agent-core/src/agent-loop.ts</code></td>
+                  <td>LLM boundary 前先 <code>transformContext</code>，再 <code>convertToLlm</code>；工具执行前后有 hook；tool result 会被 coerce 成结构化结果；支持 steering/follow-up。</td>
+                  <td>可把 Xuanpu context kernel 放在边界前，把 tool governance 放在 hook 中，保持内层 loop 的成熟性。</td>
+                </tr>
+                <tr>
+                  <td><code>pi-agent-core/src/compaction/compaction.ts</code></td>
+                  <td>有纯 compaction 逻辑、threshold、reserve、keep recent、handoff、summary、file-op details、<code>firstKeptEntryId</code>、<code>preserveData</code>。</td>
+                  <td>可借鉴或移植为 Xuanpu Segment/Checkpoint 的底层 compaction engine。</td>
+                </tr>
+                <tr>
+                  <td><code>pi-agent-core/src/compaction/openai.ts</code></td>
+                  <td>支持 OpenAI/OpenAI Codex <code>/responses/compact</code>，并保存 encrypted reasoning/history replacement 数据。</td>
+                  <td>对 GPT/Codex 系 provider 的长任务连续性很关键，不能靠普通摘要替代。</td>
+                </tr>
+                <tr>
+                  <td><code>pi-ai/src/utils/overflow.ts</code></td>
+                  <td>覆盖 Anthropic、OpenAI、Google、OpenRouter、Kimi、GitHub Copilot、llama.cpp、HTTP 413、静默 overflow 等错误模式。</td>
+                  <td>可直接提升 liteLLM/本地中转/多 provider 下的溢出诊断与自动恢复能力。</td>
+                </tr>
+                <tr>
+                  <td><code>docs/compaction.md</code></td>
+                  <td>把 compaction 和 branch summaries 设计为 session entries，并区分 manual、overflow、incomplete、threshold、idle 等触发路径。</td>
+                  <td>这是 xuanpu-agent 长任务上下文稳态最该吸收的成熟语义，而不是只调用一个 Agent 类。</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <section id="position">
+            <h2>2. 产品定位：沿用前序结论，但边界要升级</h2>
+            <p>
+              前序关于 xuanpu-agent 的产品定位基本成立：它是 Xuanpu 的原生 Agent 运行时，是
+              “现场感知 + 上下文稳态 + 成本地形治理”的产品化载体。需要调整的是与 oh-my-pi 的关系。
+              之前 spike 文档写过“no fork of oh-my-pi”，那适合第一阶段验证依赖是否能跑进 Electron。
+              现在已经进入产品化设计阶段，这条约束应被替换。
+            </p>
+
+            <div class="callout warning">
+              <strong>纠偏：</strong>“no fork of oh-my-pi”不再是长期目标。新的目标是
+              “有边界地 fork / vendor / patch oh-my-pi core 能力”，把上游成熟 agent workbench
+              变成 Xuanpu Agent 的底座，而不是继续把底层能力藏在 adapter 后面。
+            </div>
+
+            <h3>2.1 xuanpu-agent 应该独立发行</h3>
+            <p>
+              xuanpu-agent 不能只作为 Xuanpu Desktop 里的一个 runtime option 存在。更合理的产品边界是：
+              一个可独立安装、可在项目目录运行、也可被 Xuanpu Desktop 嵌入的 agent runtime。
+            </p>
+
+            <table>
+              <thead>
+                <tr>
+                  <th>形态</th>
+                  <th>用户价值</th>
+                  <th>依赖 Xuanpu Desktop 的程度</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>xuanpu-agent</code> CLI</td>
+                  <td>在任意 repo 中使用 Xuanpu 的上下文稳态、TaskRun、记忆和 oh-my-pi-derived tools/providers。</td>
+                  <td>低。使用本地 Git/FS/AGENTS/配置/SQLite fallback。</td>
+                </tr>
+                <tr>
+                  <td>Xuanpu Desktop embedded runtime</td>
+                  <td>获得 worktree manager、Session HQ、XFP Field Packet、UI permissions、multi-worktree、terminal/test/focus 等更高质量现场。</td>
+                  <td>高。Desktop 是增强环境 provider。</td>
+                </tr>
+                <tr>
+                  <td>SDK/RPC/ACP bridge</td>
+                  <td>允许其他编辑器或自动化系统驱动 xuanpu-agent，复用同一 agent core。</td>
+                  <td>中。可借鉴 oh-my-pi 的 RPC/ACP 入口，但协议应保持 Xuanpu 自己的 TaskRun 和 ContextFrame 语义。</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <h3>2.2 Xuanpu Desktop 提供现场，不垄断 agent</h3>
+            <pre><code>Xuanpu Desktop
+  provides richer field:
+    worktree graph, selected files, UI focus, terminal snapshots,
+    Session HQ timeline, approvals, persisted XFP packets,
+    memory proposals, task-run dashboard
+
+xuanpu-agent core
+  owns durable agent semantics:
+    TaskRun, UserRound, ProviderRequest, ContextFrame,
+    compaction, retrieval, checkpoints, cost budgets,
+    tool observation archive, provider recovery
+
+oh-my-pi-derived runtime
+  supplies proven mechanics:
+    Agent loop, stream providers, tool execution lifecycle,
+    steering/follow-up, provider payload hooks,
+    compaction primitives, overflow detection, native tooling ideas</code></pre>
+
+            <p>
+              这样划分后，Desktop 不是 xuanpu-agent 的“宿主壳”，而是最佳现场 provider。agent core
+              离开 Desktop 仍然可用，只是现场质量降级；进入 Desktop 则获得更高密度、更可审计的上下文。
+            </p>
+          </section>
+
+          <section id="why-omp">
+            <h2>3. 为什么 oh-my-pi 是合适基座</h2>
+            <p class="lead">
+              如果从零打造 agent，Xuanpu 至少要重做 provider streaming、tool-call loop、tool schema 修复、
+              session state、compaction、CLI/SDK/RPC、subagents、native tools、error recovery、provider quirks。
+              oh-my-pi 已经覆盖其中大量工程难点。
+            </p>
+
+            <div class="grid">
+              <div class="panel">
+                <h3>3.1 Agent loop 不是玩具实现</h3>
+                <p>
+                  <code>pi-agent-core</code> 的 <code>Agent</code> 已经提供 streaming、tool calls、
+                  steering/follow-up queue、busy guard、tool lifecycle hooks、telemetry hooks、payload hooks。
+                  Xuanpu 只需要在边界上改造上下文和事件契约，而不是重写一个模型循环。
+                </p>
+              </div>
+              <div class="panel">
+                <h3>3.2 Provider quirks 已被持续打磨</h3>
+                <p>
+                  <code>pi-ai</code> 不只是 OpenAI/Anthropic client。上游 release note 里大量修复都集中在
+                  Responses payload hooks、streamed object tool arguments、nullable enum MCP schema、Cursor
+                  tool errors 等 provider/harness 边角问题。这些不是 prompt 能解决的。
+                </p>
+              </div>
+              <div class="panel">
+                <h3>3.3 Compaction 有真实 session 语义</h3>
+                <p>
+                  上游 compaction 不是简单“总结一下旧对话”，而是 session entry、branch summary、
+                  overflow retry、threshold maintenance、OpenAI remote compact preserve data 的组合。
+                  这与 Xuanpu 的 TaskRun/Checkpoint/ContextFrame 可以合流。
+                </p>
+              </div>
+              <div class="panel">
+                <h3>3.4 Tool harness 值得继承</h3>
+                <p>
+                  上游强调 read/search/edit/hashline/LSP/DAP/browser/subagents/native tools 等能力。即使 Xuanpu
+                  不全量引入 TUI，工具执行生命周期、结果 coercion、native 工具方向和 subagent 协作模式也值得吸收。
+                </p>
+              </div>
+              <div class="panel">
+                <h3>3.5 多入口产品形态已被验证</h3>
+                <p>
+                  README 中的 interactive、one-shot、RPC、ACP、SDK 入口说明 oh-my-pi 已经不是单一 CLI。
+                  xuanpu-agent 要做独立发行，可以借它的产品结构经验，而不是自己摸一遍。
+                </p>
+              </div>
+              <div class="panel">
+                <h3>3.6 上游活跃，适合持续同步</h3>
+                <p>
+                  2026-06-16 查询时上游当天仍有 push，最新 release 是 2026-06-15 的 v16.0.1。
+                  这说明上游不是死库；我们需要可同步边界，而不是一次性复制。
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <section id="not-outsourced">
+            <h2>4. 哪些东西不能外包给 oh-my-pi</h2>
+            <p>
+              以 oh-my-pi 为基座不等于放弃 Xuanpu 的产品内核。oh-my-pi 解决的是“成熟 agent harness
+              怎么跑起来”，Xuanpu 要解决的是“开发现场如何成为可治理的上下文操作系统”。以下能力必须由
+              Xuanpu 拥有最终语义。
+            </p>
+
+            <table>
+              <thead>
+                <tr>
+                  <th>能力</th>
+                  <th>为什么不能直接交给 oh-my-pi</th>
+                  <th>Xuanpu 应拥有的出口</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>XFP / Field Packet</td>
+                  <td>oh-my-pi 知道项目文件和工具，但不知道 Xuanpu Desktop 的 worktree、focus、terminal、tests、Session HQ、multi-worktree 现场。</td>
+                  <td><code>XfpPacketCompiler</code>、<code>FieldProvider</code>、<code>ContextFrameCompiler</code></td>
+                </tr>
+                <tr>
+                  <td>TaskRun / UserRound</td>
+                  <td>oh-my-pi 的 session 更像 agent 会话流，Xuanpu 需要用户目标、lease、cost ceiling、pause/resume、checkpoint、overnight autonomy。</td>
+                  <td><code>TaskRunScheduler</code>、<code>UserRoundRunner</code>、<code>LeasePolicy</code></td>
+                </tr>
+                <tr>
+                  <td>Context Budget / 稳态策略</td>
+                  <td>上游 compaction 解决长 session 可用性，Xuanpu 还要解决每个 provider request 的分区、prefix hash、included/omitted 审计。</td>
+                  <td><code>ContextPacker</code>、<code>BudgetLedger</code>、<code>ProviderRequestSnapshot</code></td>
+                </tr>
+                <tr>
+                  <td>Memory / Episode / raw refs</td>
+                  <td>Xuanpu 的记忆要求 scope、raw refs、proposal、可编辑可删除，且要和 Field Events、command traces 互相引用。</td>
+                  <td><code>EpisodeStore</code>、<code>MemoryPageStore</code>、<code>RawRefResolver</code></td>
+                </tr>
+                <tr>
+                  <td>Session HQ / UI 治理</td>
+                  <td>oh-my-pi TUI 不是 Xuanpu UI。Xuanpu 要把修复、预算、compaction、task progress 显示在桌面产品的信息架构中。</td>
+                  <td><code>CanonicalAgentEvent</code>、Session HQ timeline、Context Budget Debugger</td>
+                </tr>
+                <tr>
+                  <td>权限与工作区边界</td>
+                  <td>Xuanpu 有 trusted worktree、dangerous path、Desktop permission prompt、跨 worktree 的写入风险。</td>
+                  <td><code>ToolPolicy</code>、<code>PermissionService</code>、<code>WorktreeBoundaryGuard</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <section id="options">
+            <h2>5. 架构选项比较</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>选项</th>
+                  <th>做法</th>
+                  <th>优点</th>
+                  <th>硬伤</th>
+                  <th>结论</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>A. Shallow adapter</td>
+                  <td>继续依赖 <code>@oh-my-pi/pi-agent-core</code>，只写 Xuanpu wrapper。</td>
+                  <td>短期最快，上游升级简单。</td>
+                  <td>无法拥有 session/compaction/user-round 语义；Xuanpu 专属 invariants 只能在外层补丁中绕路；每次上游行为变化都可能破坏语义。</td>
+                  <td><span class="tag reject">否决</span></td>
+                </tr>
+                <tr>
+                  <td>B. 整仓 hard fork</td>
+                  <td>把 oh-my-pi monorepo 全部 fork 成 Xuanpu 版本。</td>
+                  <td>控制力最大，可以任意改。</td>
+                  <td>上游活跃，硬 fork 会带来巨大同步成本；TUI/extensions/natives/marketplace/ACP 等不属于当前核心路径。</td>
+                  <td><span class="tag reject">不推荐</span></td>
+                </tr>
+                <tr>
+                  <td>C. 从零重写 agent</td>
+                  <td>只参考概念，Xuanpu 自己实现 provider/tool/loop/session。</td>
+                  <td>架构最纯。</td>
+                  <td>浪费开源基座；provider/tool streaming/compaction 细节会吞掉大量时间；用户明确不希望从零造。</td>
+                  <td><span class="tag reject">否决</span></td>
+                </tr>
+                <tr>
+                  <td>D. 产品化 fork-core</td>
+                  <td>选定 <code>pi-agent-core</code>、<code>pi-ai</code>、compaction/session 相关模块作为受控源代码边界，Xuanpu 增加自己的 runtime contract。</td>
+                  <td>保留上游成熟度和同步能力，同时能拥有 Xuanpu 语义。</td>
+                  <td>需要建立 upstream sync discipline、diff audit、版本矩阵和接口收敛。</td>
+                  <td><span class="tag keep">推荐</span></td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div class="callout">
+              <strong>具体化：</strong>D 不是“复制几个文件然后改到不可维护”。它应该是一个可审计的 fork-core：
+              每次升级记录 upstream tag/commit、保留 patch queue、用 contract tests 锁住 Xuanpu 行为，
+              对外暴露 <code>@xuanpu/agent-core</code> 而不是任由业务代码到处 import 上游内部路径。
+            </div>
+          </section>
+
+          <section id="target-architecture">
+            <h2>6. 目标架构</h2>
+            <p class="lead">
+              目标架构分四层：产品入口、Xuanpu Agent Core、oh-my-pi-derived Runtime Core、环境/存储 provider。
+              这四层分别解决“谁在用”、“任务与上下文语义是什么”、“agent loop 怎么跑”、“现场和持久化从哪里来”。
+            </p>
+
+            <pre><code>┌──────────────────────────────────────────────────────────────────────┐
+│ Product Surfaces                                                     │
+│   xuanpu-agent CLI · Xuanpu Desktop runtime · SDK/RPC/ACP bridge      │
+└───────────────────────────────────┬──────────────────────────────────┘
+                                    │
+┌───────────────────────────────────▼──────────────────────────────────┐
+│ @xuanpu/agent-core                                                    │
+│   TaskRunScheduler                                                    │
+│   UserRoundRunner                                                     │
+│   ContextKernel / ContextFrameCompiler                                │
+│   ContextSegmentManager / SegmentCompactor                            │
+│   ToolCallGovernor / ToolOutputOffloader / MediaOffloader             │
+│   Episode + Memory + Retrieval                                        │
+│   ProviderRequestSnapshot + BudgetLedger                              │
+│   Permission + ToolPolicy + Audit events                              │
+└───────────────────────────────────┬──────────────────────────────────┘
+                                    │
+┌───────────────────────────────────▼──────────────────────────────────┐
+│ oh-my-pi-derived Runtime Core                                         │
+│   Agent / agentLoop / steering / followUp                             │
+│   pi-ai providers / streamSimple / model catalog subset               │
+│   tool lifecycle hooks / telemetry hooks                              │
+│   compaction primitives / overflow detection                          │
+│   selected session-entry semantics                                    │
+└───────────────────────────────────┬──────────────────────────────────┘
+                                    │
+┌───────────────────────────────────▼──────────────────────────────────┐
+│ Environment and Storage Providers                                     │
+│   DesktopFieldProvider · CliFieldProvider                             │
+│   SQLite stores · worktree/git/fs adapters                            │
+│   command trace archive · checkpoint store · memory page store         │
+└──────────────────────────────────────────────────────────────────────┘</code></pre>
+
+            <h3>6.1 核心运行对象</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>对象</th>
+                  <th>定义</th>
+                  <th>当前映射</th>
+                  <th>建议调整</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>TaskRun</code></td>
+                  <td>用户希望 agent 完成的一个 durable objective，可暂停、恢复、跨多轮、跨 checkpoint。它不是 agent 的 task list，而是 Xuanpu 的任务运行账本。</td>
+                  <td><code>AgentTaskRun</code> 已存在。</td>
+                  <td>保留，抽出 Desktop-independent scheduler。</td>
+                </tr>
+                <tr>
+                  <td><code>Plan</code> / <code>TodoList</code></td>
+                  <td>agent 为当前目标生成的执行计划和步骤清单，可动态更新、展示、审批或标记进度。</td>
+                  <td>Claude Code/Codex/pi 均已有类似能力；Xuanpu 已有 <code>plan.ready</code> 事件。</td>
+                  <td>复用并标准化为 TaskRun 内的可见计划产物，不把它当作 TaskRun 本身。</td>
+                </tr>
+                <tr>
+                  <td><code>UserRound</code></td>
+                  <td>一次用户意图或 agent-authored continuation 的语义单位。一个 UserRound 内可以包含多个 ContextSegment，每个 Segment 内有多个 provider requests。</td>
+                  <td>当前 <code>turn</code> 与 <code>prompt()</code> 混在一起。</td>
+                  <td>新增显式 <code>UserRound</code>，把用户输入、pending continuation、recovery continuation 统一建模。</td>
+                </tr>
+                <tr>
+                  <td><code>ProviderRequest</code></td>
+                  <td>一次真实发给 provider 的请求，包含 system、context messages、prompt、tools、model、budget、provider session policy。</td>
+                  <td><code>XuanpuProviderRequestSnapshot</code> 已存在。</td>
+                  <td>提升为 agent-core contract，作为 replay/audit 的单一事实。</td>
+                </tr>
+                <tr>
+                  <td><code>ContextFrame</code></td>
+                  <td>在 UserRound 起点或 Segment 边界生成的稳定上下文编译结果，包含 zones、prefix hash、included/omitted、raw refs。</td>
+                  <td><code>packContext()</code> output + XFP packet + context package 分散存在。</td>
+                  <td>合并为 <code>ContextFrame</code>，再转 provider messages。</td>
+                </tr>
+                <tr>
+                  <td><code>ContextSegment</code> / <code>Epoch</code></td>
+                  <td>一段不做全量 rebuild、连续累积 messages/tool results 的 provider-call 区间；结束时才 checkpoint/compact/rebuild。</td>
+                  <td><code>AgentEpoch</code> 已存在，且暴露在 task-run 技术设计中。</td>
+                  <td>DB 可保留 <code>epoch</code>，产品和文档中逐步改称 <code>ContextSegment</code>，避免让用户理解 epoch。</td>
+                </tr>
+                <tr>
+                  <td><code>ToolObservation</code></td>
+                  <td>一次工具调用后的可审计观察：摘要、exit code、耗时、raw output ref、压缩规则、digest。</td>
+                  <td>已有 command trace、Token Saver、context compressor 雏形。</td>
+                  <td>作为 Segment 内累积的默认内容，raw output 只按需读取。</td>
+                </tr>
+                <tr>
+                  <td><code>ImageObservation</code></td>
+                  <td>图片/截图被 vision 识别后的低成本替代物：path/ref、hash、尺寸、OCR、caption、关键 UI 事实。</td>
+                  <td>ProviderRequest 记录已对 image 做 hash/content omitted，但缺少一等 media store。</td>
+                  <td>新增 MediaOffloader；raw image 默认只允许进入一次 provider request。</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <h3>6.2 一次 UserRound 的数据流</h3>
+            <pre><code>User input or continuation
+  │
+  ├─ TaskRunScheduler
+  │    resolves task objective, autonomy, lease, cost ceiling, pending recovery
+  │
+  ├─ FieldProvider
+  │    Desktop: XFP field, focus, terminal, tests, multi-worktree, UI state
+  │    CLI: git/fs/AGENTS/session notes fallback
+  │
+  ├─ ContextKernel
+  │    compile initial ContextFrame at UserRound start or Segment boundary:
+  │      stable anchor
+  │      frozen episodes
+  │      task state
+  │      retrieved memory / episodes / workflows
+  │      working set
+  │      current field
+  │      current request
+  │
+  ├─ ProviderRequestBuilder
+  │    split contextMessages from promptMessage
+  │    compute providerRequestHash and actualPrefixHash
+  │    attach tools and providerSessionPolicy
+  │
+  ├─ ContextSegment
+  │    reuse current ContextFrame
+  │    append assistant/tool/user messages inside the segment
+  │    do not run full ContextFrameCompiler per provider request
+  │
+  ├─ oh-my-pi-derived AgentLoop
+  │    transformContext at provider boundary
+  │    convertToLlm
+  │    stream provider response
+  │    route proposed tool calls through ToolCallGovernor
+  │    execute tools with before/after hooks
+  │    offload/compress raw tool output before it enters history
+  │    evict raw image blocks after first vision request
+  │    emit usage/tool/assistant events
+  │
+  ├─ Runtime governance
+  │    record provider usage, tool traces, budget snapshots
+  │    detect overflow/incomplete/no-progress
+  │    compact/checkpoint at segment boundary
+  │
+  └─ Session/Event stores
+	      persist assistant message, task state, memory proposals, UI events</code></pre>
+
+            <div class="callout warning">
+              <strong>关键修正：</strong>不要在一个 UserRound 内为每次 provider request 做全量上下文重建。
+              正常路径是 Segment 内连续累积；只有 UserRound 起点、Segment close、overflow recovery、
+              checkpoint resume、显式 refresh 或阶段切换时，才重新编译 ContextFrame。ProviderRequestSnapshot
+              仍然每次记录，但它是审计快照，不代表重新 pack。
+            </div>
+
+            <h3>6.3 Context kernel 与 oh-my-pi compaction 的合流</h3>
+            <p>
+              当前 Xuanpu 的 <code>ContextPacker</code> 和上游 <code>compaction</code> 分别站在两个层级：
+            </p>
+            <table>
+              <thead>
+                <tr>
+                  <th>层级</th>
+                  <th>当前实现</th>
+                  <th>职责</th>
+                  <th>合流方式</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Provider request context</td>
+                  <td>Xuanpu <code>packContext()</code></td>
+                  <td>为本次请求选择哪些 context zones，控制预算、prefix、审计。</td>
+                  <td>继续由 Xuanpu 拥有，改名/升级为 <code>ContextFrameCompiler</code>。</td>
+                </tr>
+                <tr>
+                  <td>Session history maintenance</td>
+                  <td>oh-my-pi <code>CompactionEntry</code> / <code>BranchSummaryEntry</code></td>
+                  <td>把旧 session history 重写为 summary，处理 overflow/threshold/idle/handoff。</td>
+                  <td>移植为 Xuanpu <code>SegmentCompactor</code>，输出 episode/checkpoint/context-summary entries。</td>
+                </tr>
+                <tr>
+                  <td>Durable memory</td>
+                  <td>Xuanpu memory page / episode block</td>
+                  <td>带 scope、raw refs、retrievalReason、可编辑治理。</td>
+                  <td>compaction 结果不能直接当长期记忆，必须经过 raw refs 和 proposal policy。</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <section id="package-plan">
+            <h2>7. 包结构建议</h2>
+            <p>
+              当前 <code>packages/xuanpu-pi-agent-core</code> 可以作为过渡壳，但长期包边界应该更清晰：
+              上游 fork-core 和 Xuanpu 产品 core 分离，Desktop runtime adapter 只负责嵌入。
+            </p>
+
+            <table>
+              <thead>
+                <tr>
+                  <th>包</th>
+                  <th>职责</th>
+                  <th>来源</th>
+                  <th>备注</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>@xuanpu/oh-my-pi-runtime</code></td>
+                  <td>受控 fork/patch 的 oh-my-pi runtime 子集：Agent、agentLoop、provider bridge、tool hooks、compaction primitives、overflow。</td>
+                  <td>由 <code>@xuanpu/pi-agent-core</code> 演进而来。</td>
+                  <td>记录 upstream tag/commit，禁止业务代码直接 import 上游内部路径。</td>
+                </tr>
+                <tr>
+                  <td><code>@xuanpu/agent-core</code></td>
+                  <td>TaskRun、UserRound、ContextFrame、BudgetLedger、Episode/Memory、ProviderRequestSnapshot、ToolPolicy、events。</td>
+                  <td>Xuanpu 自研。</td>
+                  <td>Desktop 和 CLI 共用的核心。</td>
+                </tr>
+                <tr>
+                  <td><code>@xuanpu/agent-cli</code></td>
+                  <td>独立命令行入口、配置、auth discovery、project-local SQLite、TTY output。</td>
+                  <td>借鉴 oh-my-pi CLI/SDK/RPC 结构。</td>
+                  <td>不复制 Xuanpu Desktop UI，但事件和存储 contract 与 Desktop 兼容。</td>
+                </tr>
+                <tr>
+                  <td><code>@xuanpu/agent-desktop-adapter</code></td>
+                  <td>把 agent-core 接到 Electron main、IPC、Session HQ、worktree store、permission UI。</td>
+                  <td>从 <code>xuanpu-agent-implementer.ts</code> 拆出。</td>
+                  <td>避免 implementer 继续膨胀为全部业务逻辑。</td>
+                </tr>
+                <tr>
+                  <td><code>@xuanpu/agent-test-harness</code></td>
+                  <td>mock provider、mock streamFn、provider request replay、context frame snapshots、contract tests。</td>
+                  <td>新增。</td>
+                  <td>保证 upstream sync 时 Xuanpu 不变量不会被破坏。</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div class="callout fact">
+              <strong>兼容迁移：</strong>第一阶段不需要立刻移动所有文件。可以先把
+              <code>@xuanpu/pi-agent-core</code> 从薄 shim 扩展为“受控 fork runtime”，再把
+              <code>xuanpu-agent-implementer.ts</code> 中的 TaskRun/ContextFrame/ToolPolicy 逐步抽到
+              <code>packages/xuanpu-agent-core</code>。
+            </div>
+          </section>
+
+          <section id="fork-policy">
+            <h2>8. fork-core 同步策略</h2>
+            <p>
+              产品化 fork 的关键不是“fork”这个动作，而是同步纪律。没有同步纪律，三个月后就是不可升级的
+              私有分叉；有同步纪律，它就是一个可维护的 runtime base。
+            </p>
+
+            <h3>8.1 建议目录与元数据</h3>
+            <pre><code>packages/xuanpu-oh-my-pi-runtime/
+  upstream.json
+  src/
+    agent/
+    agent-loop/
+    compaction/
+    providers/
+    overflow/
+  patches/
+    0001-turn-scoped-runTurn.patch
+    0002-xuanpu-provider-request-snapshot.patch
+  tests/
+    contract/
+      run-turn-no-context-echo.test.ts
+      provider-request-hash.test.ts
+      compaction-threshold.test.ts
+      overflow-detection.test.ts</code></pre>
+
+            <pre><code>{
+  "upstreamRepo": "https://github.com/can1357/oh-my-pi",
+  "upstreamTag": "v15.2.4",
+  "upstreamCommit": "...",
+  "lastSyncAt": "2026-06-16",
+  "policy": "selected-package-source-fork",
+  "ownedContracts": [
+    "turn-scoped-context-does-not-echo",
+    "provider-session-disabled-by-default",
+    "provider-request-snapshot-is-replayable",
+    "transformContext-is-budget-audited"
+  ]
+}</code></pre>
+
+            <h3>8.2 同步规则</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>规则</th>
+                  <th>说明</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>上游版本与 Xuanpu contract 分开</td>
+                  <td><code>upstreamTag</code> 升级不能自动改变 <code>@xuanpu/agent-core</code> API。先跑 contract tests，再决定是否暴露新能力。</td>
+                </tr>
+                <tr>
+                  <td>patch 必须命名</td>
+                  <td>每个偏离上游的行为都要有 patch 文件或等价变更说明，避免“代码里看不出为什么不同”。</td>
+                </tr>
+                <tr>
+                  <td>禁止无审计跨层 import</td>
+                  <td>Desktop 业务代码不能直接 import <code>@oh-my-pi/*/src/...</code> 或 fork 内部路径，只能走 Xuanpu runtime facade。</td>
+                </tr>
+                <tr>
+                  <td>升级先 diff public behavior</td>
+                  <td>上游 v16.x 这类升级先跑 provider payload、tool args、compaction、agent loop contract，再评估 coding-agent breaking changes 是否影响我们。</td>
+                </tr>
+                <tr>
+                  <td>上游 fixes 优先吸收</td>
+                  <td>provider/tool/overflow/telemetry fixes 是复用 oh-my-pi 的主要收益，不应因私有改动过深而失去同步能力。</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <section id="context-plan">
+            <h2>9. 上下文与长任务设计</h2>
+            <p>
+              用户提到的“上下文窗口怪异”和 liteLLM 本地中转问题不作为本方案主线，但它提醒我们：
+              xuanpu-agent 不应该把 1M context 当常态依赖。产品级 agent 要默认在更保守的上下文预算中稳定运行。
+            </p>
+
+            <h3>9.1 三层预算</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>层级</th>
+                  <th>目标</th>
+                  <th>建议默认</th>
+                  <th>处理策略</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Managed Context</td>
+                  <td>Xuanpu 编译出来的 ContextFrame token 估算。</td>
+                  <td>Focused 80K、Balanced 150K、Extended 200K。</td>
+                  <td>ContextFrameCompiler 控制 zones；超过阈值时减少 working set/retrieval。</td>
+                </tr>
+                <tr>
+                  <td>Provider Estimated Input</td>
+                  <td>managed context + system/tools/provider overhead。</td>
+                  <td>常态低于 150K 到 200K；经 gateway 时避免贴近 250K。</td>
+                  <td>ProviderRequestBuilder 估算并记录；高风险 provider 自动降 profile。</td>
+                </tr>
+                <tr>
+                  <td>Provider Actual Usage</td>
+                  <td>provider 返回的真实 input/cache/output。</td>
+                  <td>作为校准，不作为唯一真相。</td>
+                  <td>写 usage ledger；发现 usage input &gt; window 或 overflow pattern 时触发 compaction/retry。</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div class="callout fact">
+              <strong>精确说明：</strong>OpenAI 官方文档显示 GPT-5.5 的 context window 是
+              <code>1,050,000</code> tokens；<code>272K</code> 是 long-context 的计费/档位分界，不是模型硬上限。
+              因此“在 272K 左右触发压缩”如果发生在 OpenAI 正路由上，通常更像是应用层、代理层、预算策略或
+              自动压缩器的阈值，而不是模型本身只到 272K。
+            </div>
+
+            <h3>9.2 ContextFrame zones</h3>
+            <pre><code>ContextFrame
+  stable prefix
+    1. Anchor
+       Xuanpu rules, worktree identity, stable task invariants
+    2. Frozen Episodes
+       compacted history with raw refs, immutable inside segment
+
+  volatile middle
+    3. Task State
+       current objective, recent steps, blockers, decisions
+    4. Retrieved Memory / Episodes / Workflows
+       gated by current user request, every item has retrievalReason
+    5. Working Set
+       recent high-fidelity turns, deduped against episodes
+
+  volatile suffix
+    6. Current Field
+       live XFP packet, git/focus/terminal/tests/multi-worktree
+    7. Current Request
+       the only prompt-echoed user message
+
+  implicit
+    8. Buffer
+       reserved for tool results, model output, provider overhead</code></pre>
+
+            <h3>9.3 Segment/Epoch 策略</h3>
+            <p>
+              现有实现已经把 pre-flight freeze 从每 turn 挪走，并倾向在 epoch/soft-shrink 边界更新 frozen episodes。
+              这个方向应该保留。新的策略是：
+            </p>
+            <ol>
+              <li>一个 UserRound 开始时先构建一次初始 <code>ContextFrame</code>，启动 <code>ContextSegment</code>。</li>
+              <li>同一 Segment 内允许 oh-my-pi agentLoop 累加 messages 和 tool results，保留连续性和 provider cache 友好性。</li>
+              <li>同一 Segment 内不运行全量 <code>ContextFrameCompiler</code>；ProviderRequest 只追加当前段内新增内容。</li>
+              <li>到 Segment 边界才做 checkpoint/compact/freeze/rebuild，避免每个 provider request 都重建 prefix。</li>
+              <li>Segment 边界由 projected next request tokens、provider call count、fill ratio、lease、no-progress、cost ceiling、risky write 共同决定。</li>
+              <li>Segment summary 进入 FrozenEpisodes 或 Checkpoint，不直接伪装成用户消息。</li>
+              <li>下一 Segment 从新的 ContextFrame 开始，prefixHash 变化必须可解释。</li>
+            </ol>
+
+            <pre><code>UserRound
+  ├─ ContextSegment #1
+  │    ProviderRequest 1
+  │    ProviderRequest 2
+  │    ProviderRequest 3
+  │    ... append within segment, no full rebuild
+  │
+  ├─ boundary: projected tokens near limit / overflow / checkpoint / recovery
+  │    compact old segment
+  │    write checkpoint + raw refs
+  │    compile next ContextFrame once
+  │
+  └─ ContextSegment #2
+       ProviderRequest 4
+       ProviderRequest 5</code></pre>
+
+            <h3>9.4 工具调用过滤、输出卸载与图片卸载</h3>
+            <p>
+              Segment 内连续累积的前提是：不能让高噪声工具调用、100K 级命令输出或 5MB 截图直接进入 live history。
+              因此需要把 Token Saver 从局部 Bash 包装升级为 xuanpu-agent 的一等 harness 能力。
+              当前仓库已有 <code>src/main/services/token-saver/</code> 雏形，策略注释明确说明借鉴 RTK
+              的规则库思想，并已实现 ANSI 清理、进度去重、NDJSON 摘要、失败聚焦、统计提取等高 ROI 规则。
+            </p>
+
+            <table>
+              <thead>
+                <tr>
+                  <th>能力</th>
+                  <th>职责</th>
+                  <th>进入模型的内容</th>
+                  <th>原始内容去向</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>ToolCallGovernor</code></td>
+                  <td>在工具执行前 allow/rewrite/deny/route/ask。过滤危险、重复、无意义或会产生巨大输出的调用。</td>
+                  <td>被允许或改写后的工具调用；拒绝时返回原因和建议替代命令。</td>
+                  <td>记录 governor decision 到 audit/event ledger。</td>
+                </tr>
+                <tr>
+                  <td><code>OutputCompressionPipeline</code></td>
+                  <td>对工具输出做规则化瘦身：strip ANSI、collapse progress、failure focus、stats extraction、NDJSON summary。</td>
+                  <td>摘要、head/tail、失败片段、统计行、rule hits。</td>
+                  <td>压缩前输出交给 offloader 或 command trace。</td>
+                </tr>
+                <tr>
+                  <td><code>ToolOutputOffloader</code></td>
+                  <td>超过阈值的 stdout/stderr/MCP result 不进上下文；写入 archive，返回 <code>ToolObservation</code>。</td>
+                  <td>exit code、耗时、bytes、摘要、archive path/logical ref、sha256、可按需读取提示。</td>
+                  <td><code>~/.xuanpu/archive</code> 或 command trace store；后续通过 budgeted reader 局部读取。</td>
+                </tr>
+                <tr>
+                  <td><code>MediaOffloader</code></td>
+                  <td>图片、截图、浏览器快照、视觉测试截图先归档；raw image block 默认只允许进入一次 vision request。</td>
+                  <td><code>ImageObservation</code>：path/ref、hash、bytes、mime、dimensions、caption/OCR、关键 UI 事实。</td>
+                  <td>media archive；需要精查时通过 <code>xuanpu_view_image(ref, crop)</code> 或 OCR/region reader。</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div class="callout fact">
+              <strong>图片规则：</strong>图片是一次性热数据。截图识别完成后，后续 provider request
+              不应继续携带 base64/image block；只保留 <code>ImageObservationRef</code>。如果 provider native
+              history 可能保留 raw media，则必须 reset provider session 或开启新 Segment，避免图片在隐藏历史里持续占用窗口。
+            </div>
+
+            <pre><code>Tool result with large output
+  raw: 100K stdout/stderr
+  archive: ~/.xuanpu/archive/{session}/{seq}.txt
+  model sees:
+    ToolObservation {
+      exitCode, durationMs, beforeBytes, afterBytes,
+      summary, failureFocus, ruleHits,
+      rawRef: "tool_output://task-run/.../tool/..."
+    }
+
+Image attachment / screenshot
+  raw: 5MB PNG
+  media archive: ~/.xuanpu/media/{session}/{sha}.png
+  first vision request: may include downscaled image block
+  next requests see:
+    ImageObservation {
+      path, sha256, bytes, mime, dimensions,
+      caption, ocr, relevantFacts,
+      ref: "media://session/.../sha"
+    }</code></pre>
+
+            <h3>9.5 provider session policy</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>模式</th>
+                  <th>使用时机</th>
+                  <th>风险</th>
+                  <th>当前建议</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>disabled</code></td>
+                  <td>默认。Xuanpu 完全拥有 messages/context。</td>
+                  <td>失去某些 provider 的隐式续写/cache 机会。</td>
+                  <td><span class="tag keep">继续默认</span> 当前 INV-TURN-1 正确。</td>
+                </tr>
+                <tr>
+                  <td><code>explicit-prefix-cache</code></td>
+                  <td>provider 支持显式 cache_control 或可审计 prefix cache 时。</td>
+                  <td>跨 provider 差异大，容易把 cache 变成错误依赖。</td>
+                  <td><span class="tag change">后续引入</span> 必须写入 ProviderRequestSnapshot。</td>
+                </tr>
+                <tr>
+                  <td><code>provider-continuation</code></td>
+                  <td>OpenAI/Codex Responses native history、remote compact preserve data 等特殊路径。</td>
+                  <td>provider 拥有隐藏状态，可能破坏 Xuanpu replay；含 raw image 的请求尤其容易让媒体长期滞留在 provider history。</td>
+                  <td><span class="tag change">受控例外</span> 只能在支持 preserve/replay 的 provider 中启用；raw media 请求后必须 reset 或开启新 Segment。</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <section id="implementation">
+            <h2>10. 实施路线</h2>
+            <p class="lead">
+              实施上不要一次性重排整个工程。先把“oh-my-pi-derived runtime 是基座”这个事实固化为包边界和 contract tests，
+              再从 Desktop implementer 里逐步抽出 agent-core。
+            </p>
+
+            <h3>Phase 0：基线冻结与事实记录</h3>
+            <ul>
+              <li>在 <code>@xuanpu/pi-agent-core</code> 增加 upstream metadata，明确当前基线为 oh-my-pi <code>15.2.4</code>。</li>
+              <li>把 <code>runTurn()</code> 的行为写成 contract test：context messages 不 prompt-echo、fresh Agent per turn、providerSessionState 默认 disabled。</li>
+              <li>把 v16.0.1 release note 中与我们相关的 fixes 建立 upgrade checklist：payload replacement、streamed object tool args、strict schema nullable enum、AgentSession streaming busy guard。</li>
+              <li>不在此阶段升级 v16.x，避免把架构边界变化和上游升级风险混在一起。</li>
+            </ul>
+
+            <h3>Phase 1：从 shim 变成受控 fork-core</h3>
+            <ul>
+              <li>新建或重命名为 <code>packages/xuanpu-oh-my-pi-runtime</code>，保留 <code>@xuanpu/pi-agent-core</code> 作为兼容 alias。</li>
+              <li>把需要拥有行为的模块纳入受控源码边界：<code>Agent</code> facade、<code>agentLoop</code> wrapper、compaction pure functions、overflow detection、selected provider bridge types。</li>
+              <li>业务代码只通过 <code>loadPiAgentCoreModule()</code> 或新的 runtime facade 访问，不再直接依赖上游包的行为细节。</li>
+              <li>保留上游 re-export，但每个 Xuanpu-owned contract 都要有测试。</li>
+            </ul>
+
+            <h3>Phase 2：抽出 <code>@xuanpu/agent-core</code></h3>
+            <ul>
+              <li>从 <code>xuanpu-agent-implementer.ts</code> 中抽出 TaskRunScheduler、UserRoundRunner、LeasePolicy、ProviderRequestRecorder。</li>
+              <li>定义 <code>UserRound</code> 类型，区分 user-originated、agent-continuation、recovery-continuation。</li>
+              <li>把现有 <code>AgentEpoch</code> 的产品语义收敛到 internal <code>ContextSegment</code>，DB 可暂时沿用 epoch 命名。</li>
+              <li>让 Desktop adapter 只负责 FieldProvider、IPC、UI event emission，不再承载 long-task orchestration。</li>
+            </ul>
+
+            <h3>Phase 3：ContextFrame 合流</h3>
+            <ul>
+              <li>把 <code>packContext()</code> 输出升级为 <code>ContextFrame</code>，包含 zone decision、prefixHash、raw refs、retrieval ledger。</li>
+              <li>把 oh-my-pi compaction 的 <code>firstKeptEntryId</code>、<code>preserveData</code>、file operation details 映射到 Xuanpu episode/checkpoint 模型。</li>
+              <li>实现 <code>SegmentCompactor</code>：支持 context-full、handoff、provider-native compact、rule-based fallback。</li>
+              <li>统一 overflow/incomplete/threshold/idle 四类维护路径，并写入 Session HQ timeline。</li>
+              <li>明确 <code>ContextSegment</code> 内不做全量 rebuild；ProviderRequestSnapshot 每次记录，但 ContextFrame 只在 UserRound 起点或 Segment 边界生成。</li>
+              <li>把 <code>src/main/services/token-saver/</code> 提升为通用 <code>ToolOutputOffloader</code>，接入 Bash、read/search、test/build、MCP result 和 subagent output。</li>
+              <li>新增 <code>MediaOffloader</code> 与 <code>ImageObservation</code>：图片/截图只在首次 vision request 中进入 raw media，之后以 path/ref + OCR/caption/facts 参与上下文。</li>
+            </ul>
+
+            <h3>Phase 4：独立 CLI 与降级 FieldProvider</h3>
+            <ul>
+              <li>实现 <code>@xuanpu/agent-cli</code>：读取项目目录、AGENTS/Codex/Claude/Copilot 规则、Git 状态、本地 SQLite。</li>
+              <li>CLI 复用 <code>@xuanpu/agent-core</code> 和 <code>@xuanpu/oh-my-pi-runtime</code>，不复制 Desktop implementer。</li>
+              <li>CLI 事件输出采用同一 <code>CanonicalAgentEvent</code>，方便未来导入 Session HQ。</li>
+              <li>先支持 one-shot/interactive，RPC/ACP 后置。</li>
+            </ul>
+
+            <h3>Phase 5：v16.x 升级评估</h3>
+            <ul>
+              <li>单独开 <code>oh-my-pi-v16-upgrade</code> spike，对比 <code>15.2.4</code> 与 <code>16.0.1</code> 的 public behavior。</li>
+              <li>重点跑 provider/tool contract：Responses payload hook、tool args merge、schema normalization、compaction docs 中的 new strategies、AgentSession busy behavior。</li>
+              <li>coding-agent 层 breaking changes 只在引入 CLI/extensions 时处理，不阻塞 core runtime。</li>
+              <li>升级成功后更新 upstream metadata 和 patch queue。</li>
+            </ul>
+
+            <h3>Phase 6：产品硬化</h3>
+            <ul>
+              <li>Session HQ 展示 TaskRun/UserRound/Segment/ProviderRequest 四层状态。</li>
+              <li>Context Budget Debugger 支持回放某个 ProviderRequestSnapshot 实际看到了什么。</li>
+              <li>Memory proposal 与 raw refs 审计打通。</li>
+              <li>提供一键导出 task-run report，便于失败复盘和模型/预算调优。</li>
+            </ul>
+          </section>
+
+          <section id="file-targets">
+            <h2>11. 代码落点清单</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>落点</th>
+                  <th>当前状态</th>
+                  <th>建议动作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>packages/xuanpu-pi-agent-core/</code></td>
+                  <td>薄 re-export + <code>runTurn()</code>。</td>
+                  <td>短期加 upstream metadata 与 contract tests；中期演进为 <code>@xuanpu/oh-my-pi-runtime</code>。</td>
+                </tr>
+                <tr>
+                  <td><code>src/main/services/xuanpu-agent/runtime.ts</code></td>
+                  <td>封装 fresh Agent per turn、tool hooks、budget manager、provider request snapshot。</td>
+                  <td>保留为 Desktop adapter 的 runtime bridge，把可复用逻辑抽到 agent-core。</td>
+                </tr>
+                <tr>
+                  <td><code>src/main/services/xuanpu-agent-implementer.ts</code></td>
+                  <td>过重：connect/prompt/context/task-run/usage/checkpoint/UI event 全在一个文件。</td>
+                  <td>拆出 TaskRunScheduler、ContextFrameBuilder、UserRoundRunner、EventBridge。</td>
+                </tr>
+                <tr>
+                  <td><code>src/main/services/xuanpu-agent/context/context-packer.ts</code></td>
+                  <td>已有 zones 与 prefix hash。</td>
+                  <td>升级为 <code>ContextFrameCompiler</code>，并让 decisions 成为持久化 schema。</td>
+                </tr>
+                <tr>
+                  <td><code>src/main/services/xuanpu-agent/context/budget-manager.ts</code></td>
+                  <td>现在是 80% emergency fallback，40% soft shrink 在 implementer。</td>
+                  <td>并入 ContextKernel 的 budget ledger，transformContext 只做最后保险。</td>
+                </tr>
+                <tr>
+                  <td><code>src/main/services/token-saver/</code></td>
+                  <td>已有 RTK-style 输出压缩策略、Bash wrapper 和 <code>ContextOffloadStore</code>。</td>
+                  <td>提升为 agent-core 的 <code>ToolOutputOffloader</code>，覆盖 Bash/read/search/test/build/MCP/subagent 输出。</td>
+                </tr>
+                <tr>
+                  <td><code>src/main/services/xuanpu-agent/tool-policy.ts</code></td>
+                  <td>已有工具策略说明和写工具约束。</td>
+                  <td>扩展为 <code>ToolCallGovernor</code>：allow/rewrite/deny/route/ask，并把决策写入 audit。</td>
+                </tr>
+                <tr>
+                  <td><code>src/main/services/xuanpu-agent/media/</code> <span class="small">新增</span></td>
+                  <td>当前图片只在 ProviderRequest 记录中 hash/omit，缺少一等 media archive。</td>
+                  <td>新增 <code>MediaOffloader</code>、<code>ImageObservation</code>、局部重读/裁剪/OCR reader。</td>
+                </tr>
+                <tr>
+                  <td><code>src/main/services/xuanpu-agent/task-run-policy.ts</code></td>
+                  <td>有 epoch close、lease、no-progress/cost ceiling。</td>
+                  <td>升级为独立 scheduler policy，支持 provider/gateway budget profile。</td>
+                </tr>
+                <tr>
+                  <td><code>src/shared/types/agent-task-run.ts</code></td>
+                  <td>已有 TaskRun/Epoch 类型。</td>
+                  <td>新增 UserRound 与 ProviderRequest relation，逐步把 Epoch 降为 internal segment。</td>
+                </tr>
+                <tr>
+                  <td><code>src/main/services/xuanpu-agent/memory/</code></td>
+                  <td>已有 deterministic memory retrieval 和 proposal extractor。</td>
+                  <td>与 compaction/episode raw refs 合流，所有检索进入 ContextFrame ledger。</td>
+                </tr>
+                <tr>
+                  <td><code>test/phase-24/</code></td>
+                  <td>已有大量 xuanpu-agent 单测。</td>
+                  <td>新增 upstream contract tests 与 replay tests，覆盖 fork-core 同步风险。</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <section id="testing">
+            <h2>12. 测试与验收标准</h2>
+            <h3>12.1 Contract tests</h3>
+            <ul>
+              <li><code>runTurn</code>：context messages 不产生 message_start/message_end prompt echo。</li>
+              <li>fresh Agent：同一 hive session 的两个 turn 不能共享 providerSessionState。</li>
+              <li>ProviderRequestSnapshot：相同输入 hash 稳定，timestamp 等 volatile 字段不影响 hash。</li>
+              <li>ContextFrame：stable prefix 只随 anchor/frozen episodes 改变，CurrentField 不污染 prefix。</li>
+              <li>Overflow detection：覆盖 OpenAI/Anthropic/Google/OpenRouter/Kimi/HTTP 413/usage silent overflow。</li>
+              <li>Compaction threshold：复刻上游 <code>contextWindow - max(15%, reserve)</code> 行为，并验证 Xuanpu override。</li>
+              <li>Segment rebuild：同一 ContextSegment 内多次 ProviderRequest 不重新运行全量 ContextFrameCompiler。</li>
+              <li>Tool output offload：100K stdout/stderr 必须返回 <code>ToolObservation</code>，raw output hash 与 archive 内容一致。</li>
+              <li>Media eviction：图片首轮 vision 后，下一次 ProviderRequest 不再包含 raw image block，只包含 <code>ImageObservationRef</code>。</li>
+            </ul>
+
+            <h3>12.2 Integration tests</h3>
+            <ul>
+              <li>mock <code>streamFn</code>，模拟多次 provider calls + tool results + followUp，验证 UserRound 内累加和 Segment 边界 compact。</li>
+              <li>模拟高噪声工具调用：<code>cat huge.log</code>、<code>find .</code>、全量测试命令应被 ToolCallGovernor 改写、拒绝或加约束。</li>
+              <li>模拟 5MB 截图：首次请求允许 vision，后续请求仅保留 path/hash/OCR/caption/facts，并确认 provider session 不保留 raw media。</li>
+              <li>模拟 no-progress recovery：有 concrete tool progress 时继续，无 progress 时暂停，覆盖当前已修过的 watchdog 语义。</li>
+              <li>模拟 gateway context limit：在 220K/250K 附近触发降 profile、compact 或 pause，而不是直接把请求打到 provider。</li>
+              <li>模拟 OpenAI remote compact preserve data，确认 replay/audit 不丢 provider-native history。</li>
+            </ul>
+
+            <h3>12.3 Product acceptance</h3>
+            <ul>
+              <li>Desktop 中每个 TaskRun 可查看：UserRound、ProviderRequest、ContextFrame、usage、checkpoint、compact event。</li>
+              <li>CLI 中同一 agent core 可以完成 read/search/edit/test 的基本 coding loop。</li>
+              <li>oh-my-pi upstream 小版本升级后，contract tests 能指出行为差异，而不是靠人工试用发现。</li>
+              <li>长任务不依赖 1M window：Balanced 默认 150K 可持续运行，Extended 作为显式选择。</li>
+              <li>Session HQ 可展开被卸载的工具输出和图片原件，但模型默认只看到摘要和 ref。</li>
+            </ul>
+          </section>
+
+          <section id="risks">
+            <h2>13. 风险登记</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>风险</th>
+                  <th>严重度</th>
+                  <th>表现</th>
+                  <th>缓解</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>上游快速漂移</td>
+                  <td>高</td>
+                  <td>v16.x 已有 breaking changes，后续 provider/tool fixes 仍会持续进入上游。</td>
+                  <td>upstream metadata + patch queue + contract tests + 单独 upgrade spike。</td>
+                </tr>
+                <tr>
+                  <td>fork 过深导致不可同步</td>
+                  <td>高</td>
+                  <td>为了 Xuanpu 语义修改太多上游核心文件，后续无法吸收 fixes。</td>
+                  <td>只 fork selected runtime subset；Xuanpu 语义尽量放 facade/context kernel；每个 patch 有名字和测试。</td>
+                </tr>
+                <tr>
+                  <td>compaction 语义冲突</td>
+                  <td>中高</td>
+                  <td>oh-my-pi compaction summary、Xuanpu episode、memory page、checkpoint 互相重叠。</td>
+                  <td>明确层级：compaction 是 session maintenance，memory 是 proposal + raw refs，checkpoint 是 task recovery。</td>
+                </tr>
+                <tr>
+                  <td>provider/gateway 长上下文不稳定</td>
+                  <td>中高</td>
+                  <td>本地中转、liteLLM、OpenAI-compatible provider 在 250K 左右失败或误报。</td>
+                  <td>默认 150K Balanced，220K 左右预维护，250K 前硬降级/compact，不依赖 1M。</td>
+                </tr>
+                <tr>
+                  <td>工具输出 / 图片长期污染上下文</td>
+                  <td>高</td>
+                  <td>100K 命令输出或 5MB 截图如果持续留在 history 中，会迅速挤爆窗口并破坏连续性。</td>
+                  <td>ToolCallGovernor + ToolOutputOffloader + MediaOffloader；raw 输出和 raw media 默认只短暂进入一次 provider request。</td>
+                </tr>
+                <tr>
+                  <td>prefix cache 与动态现场冲突</td>
+                  <td>中</td>
+                  <td>每 turn 更新 field/frozen episodes 导致 prefix hash 频繁变化。</td>
+                  <td>严格区分 stable prefix 与 volatile suffix；frozen episodes 只在 Segment 边界进入 prefix。</td>
+                </tr>
+                <tr>
+                  <td>Desktop coupling 过强</td>
+                  <td>中</td>
+                  <td>agent core 离开 Electron main 无法运行。</td>
+                  <td>FieldProvider abstraction；CLI provider 使用 git/fs/local SQLite fallback。</td>
+                </tr>
+                <tr>
+                  <td>用户可见概念过多</td>
+                  <td>中</td>
+                  <td>TaskRun、Epoch、Turn、ProviderCall、ContextFrame 同时暴露会让产品难懂。</td>
+                  <td>产品层只暴露 TaskRun、UserRound、Context Usage；Epoch 改为内部 Segment。</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <section id="decisions">
+            <h2>14. 需要沉淀为架构决策的事项</h2>
+            <ol>
+              <li>
+                <strong>ADR-1：xuanpu-agent 是 oh-my-pi-derived runtime。</strong>
+                不再使用“no fork of oh-my-pi”作为长期约束。
+              </li>
+              <li>
+                <strong>ADR-2：当前基线继续 pinned at 15.2.4。</strong>
+                v16.x 升级单独 spike，不能和架构抽层混合。
+              </li>
+              <li>
+                <strong>ADR-3：Xuanpu owns final ContextFrame。</strong>
+                oh-my-pi 可以提供 compaction/session mechanics，但最终 provider request messages 由 Xuanpu 记录和审计。
+              </li>
+              <li>
+                <strong>ADR-4：Provider session 默认 disabled。</strong>
+                provider-native continuation 只作为可 replay 的受控例外。
+              </li>
+              <li>
+                <strong>ADR-5：UserRound 成为产品语义，Epoch/Segment 成为内部工程语义。</strong>
+                当前 DB 可以兼容，但 UI 和文档应逐步调整。
+              </li>
+              <li>
+                <strong>ADR-6：上下文预算默认保守。</strong>
+                Balanced 150K 是常态目标，Extended 200K 是显式选择，1M 是 fallback 不是产品依赖。
+              </li>
+              <li>
+                <strong>ADR-7：ContextSegment 内默认累积，不做 provider-request-level rebuild。</strong>
+                ContextFrame 只在 UserRound 起点、Segment 边界、overflow/recovery、checkpoint resume 或显式 refresh 时重建。
+              </li>
+              <li>
+                <strong>ADR-8：所有高噪声工具调用必须经过 ToolCallGovernor。</strong>
+                工具执行前支持 allow/rewrite/deny/route/ask，避免无约束 Bash/read/search/test 把上下文打爆。
+              </li>
+              <li>
+                <strong>ADR-9：raw tool output 与 raw media 默认 offload。</strong>
+                模型上下文只接收 ToolObservation/ImageObservation；原始输出、截图和图片以 raw refs 归档并可按需局部读取。
+              </li>
+            </ol>
+          </section>
+
+          <section id="sources">
+            <h2>15. 参考资料</h2>
+            <ul>
+              <li><a href="https://github.com/can1357/oh-my-pi">can1357/oh-my-pi GitHub repository</a></li>
+              <li><a href="https://github.com/can1357/oh-my-pi#readme">oh-my-pi README</a></li>
+              <li><a href="https://github.com/can1357/oh-my-pi/releases/tag/v16.0.1">oh-my-pi v16.0.1 release notes</a></li>
+              <li><a href="https://github.com/can1357/oh-my-pi/blob/main/docs/compaction.md">oh-my-pi docs/compaction.md</a></li>
+              <li><code>packages/xuanpu-pi-agent-core/src/agent-loop.ts</code></li>
+              <li><code>src/main/services/xuanpu-agent/runtime.ts</code></li>
+              <li><code>src/main/services/xuanpu-agent-implementer.ts</code></li>
+              <li><code>src/main/services/xuanpu-agent/context/context-packer.ts</code></li>
+              <li><code>src/main/services/token-saver/strategies.ts</code></li>
+              <li><code>src/main/services/token-saver/offload-store.ts</code></li>
+              <li><code>src/main/services/xuanpu-agent/turn/provider-request-recorder.ts</code></li>
+              <li><code>docs/plans/2026-05-23-xuanpu-agent-oh-my-pi-runtime.md</code></li>
+              <li><code>docs/plans/2026-05-04-token-saver-pipeline.md</code></li>
+              <li><code>docs/architecture/xuanpu-agent-architecture.md</code></li>
+              <li><code>docs/architecture/xuanpu-agent-invariants.md</code></li>
+              <li><code>docs/plans/2026-06-04-xuanpu-agent-task-run-runtime-technical-design.zh-CN.html</code></li>
+            </ul>
+          </section>
+        </article>
+
+        <nav aria-label="目录">
+          <h2>目录</h2>
+          <ol>
+            <li><a href="#decision">结论先行</a></li>
+            <li><a href="#research">调研证据</a></li>
+            <li><a href="#position">产品定位</a></li>
+            <li><a href="#why-omp">为什么 oh-my-pi</a></li>
+            <li><a href="#not-outsourced">不能外包的能力</a></li>
+            <li><a href="#options">架构选项</a></li>
+            <li><a href="#target-architecture">目标架构</a></li>
+            <li><a href="#package-plan">包结构</a></li>
+            <li><a href="#fork-policy">同步策略</a></li>
+            <li><a href="#context-plan">上下文与长任务</a></li>
+            <li><a href="#implementation">实施路线</a></li>
+            <li><a href="#file-targets">代码落点</a></li>
+            <li><a href="#testing">测试验收</a></li>
+            <li><a href="#risks">风险登记</a></li>
+            <li><a href="#decisions">架构决策</a></li>
+            <li><a href="#sources">参考资料</a></li>
+          </ol>
+        </nav>
+      </main>
+
+      <footer>
+        本文档基于 2026-06-16 本地分支 <code>feat/xuanpu-agent-oh-my-pi</code>、本地
+        <code>@oh-my-pi</code> 15.2.4 包源码、GitHub 上游仓库与 release 信息生成。它不修改现有运行时代码，
+        作为后续拆包、fork-core、TaskRun/UserRound、ContextSegment 和工具/媒体卸载架构演进的实施依据。
+      </footer>
+    </div>
+  </body>
+</html>

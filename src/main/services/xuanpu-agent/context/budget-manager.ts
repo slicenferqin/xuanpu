@@ -15,6 +15,7 @@
  *   extended = 200K tokens (~800K chars)
  */
 import type { AgentLoopConfig, AgentMessage } from '@oh-my-pi/pi-agent-core'
+import { buildImageObservationRefFromBase64, formatImageObservationRef } from '../media-offloader'
 
 // ───────────────────────────────────────────────────────────────────────────
 // Types
@@ -44,6 +45,14 @@ export interface BudgetState {
   sectionStats: { included: number; omitted: number }
   /** Number of messages pruned by emergency shrink this turn (M7 fallback audit). */
   prunedMessageCount: number
+  /** Unique image blocks observed in provider context. */
+  imageBlocksSeen: number
+  /** Repeated image blocks rewritten to ImageObservationRef. */
+  imageBlocksOmitted: number
+  /** Raw image bytes observed in provider context. */
+  imageBytesSeen: number
+  /** Raw image bytes omitted after first vision request. */
+  imageBytesOmitted: number
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -63,6 +72,9 @@ function estimateTokensFromMessages(messages: AgentMessage[]): number {
     if (Array.isArray(m.content)) {
       for (const part of m.content as Array<Record<string, unknown>>) {
         if (typeof part.text === 'string') total += estimateTokens(part.text)
+        if (part.type === 'image' && typeof part.data === 'string') {
+          total += estimateTokens(part.data)
+        }
       }
     } else if (typeof m.content === 'string') {
       total += estimateTokens(m.content)
@@ -88,6 +100,7 @@ interface BudgetManagerOptions {
 
 export class ContextBudgetManager {
   private profile: BudgetProfile
+  private readonly seenImageHashes = new Set<string>()
   readonly state: BudgetState
 
   constructor(options: BudgetManagerOptions = {}) {
@@ -103,7 +116,11 @@ export class ContextBudgetManager {
       totalBeforeBytes: 0,
       totalAfterBytes: 0,
       sectionStats: { included: 0, omitted: 0 },
-      prunedMessageCount: 0
+      prunedMessageCount: 0,
+      imageBlocksSeen: 0,
+      imageBlocksOmitted: 0,
+      imageBytesSeen: 0,
+      imageBytesOmitted: 0
     }
   }
 
@@ -145,13 +162,15 @@ export class ContextBudgetManager {
     return async (messages, _signal) => {
       this.state.emergencyShrunk = false
       this.state.prunedMessageCount = 0
-      const tokens = estimateTokensFromMessages(messages)
+      const mediaResult = this.rewriteRepeatedImages(messages)
+      const contextMessages = mediaResult.messages
+      const tokens = estimateTokensFromMessages(contextMessages)
       this.state.estimatedTokens = tokens
       this.state.fillRatio = tokens / this.state.maxTokens
 
       // Emergency shrink: 80%+ → drop oldest tool results
       if (this.state.fillRatio >= 0.8) {
-        const pruned = this.emergencyShrink(messages)
+        const pruned = this.emergencyShrink(contextMessages)
         this.state.emergencyShrunk = true
         this.state.shrinkCount++
         this.state.lastShrinkAt = Date.now()
@@ -164,7 +183,64 @@ export class ContextBudgetManager {
       // This transformContext hook only handles the 80% emergency fallback.
       // See xuanpu-agent-implementer.ts prompt path for the primary soft shrink logic.
 
-      return messages
+      return contextMessages
+    }
+  }
+
+  private rewriteRepeatedImages(messages: AgentMessage[]): {
+    messages: AgentMessage[]
+    rewrittenCount: number
+    omittedBytes: number
+  } {
+    let changed = false
+    let rewrittenCount = 0
+    let omittedBytes = 0
+
+    const rewritten = messages.map((message) => {
+      if (!message || typeof message !== 'object') return message
+      const record = message as unknown as Record<string, unknown>
+      if (!Array.isArray(record.content)) return message
+
+      let messageChanged = false
+      const content = record.content.map((part) => {
+        if (!isImagePart(part)) return part
+
+        const imageRef = buildImageObservationRefFromBase64({
+          data: part.data,
+          mimeType: part.mimeType,
+          filename: typeof part.filename === 'string' ? part.filename : null
+        })
+
+        if (!this.seenImageHashes.has(imageRef.sha256)) {
+          this.seenImageHashes.add(imageRef.sha256)
+          this.state.imageBlocksSeen++
+          this.state.imageBytesSeen += imageRef.bytes
+          return part
+        }
+
+        messageChanged = true
+        rewrittenCount++
+        omittedBytes += imageRef.bytes
+        this.state.imageBlocksOmitted++
+        this.state.imageBytesOmitted += imageRef.bytes
+        return {
+          type: 'text',
+          text: formatImageObservationRef(imageRef)
+        }
+      })
+
+      if (!messageChanged) return message
+      changed = true
+      return {
+        ...message,
+        content
+      } as AgentMessage
+    })
+
+    return {
+      messages: changed ? rewritten : messages,
+      rewrittenCount,
+      omittedBytes
     }
   }
 
@@ -178,7 +254,10 @@ export class ContextBudgetManager {
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i]
       if (msg?.role === 'toolResult' && toolResultsDropped < 50) {
-        console.warn('[ContextBudgetManager] emergencyShrink: pruning tool result', { index: i, role: msg.role })
+        console.warn('[ContextBudgetManager] emergencyShrink: pruning tool result', {
+          index: i,
+          role: msg.role
+        })
         result.unshift({
           ...msg,
           role: 'toolResult',
@@ -224,4 +303,19 @@ export class ContextBudgetManager {
 
     return result
   }
+}
+
+function isImagePart(part: unknown): part is {
+  type: 'image'
+  data: string
+  mimeType: string
+  filename?: string
+} {
+  if (!part || typeof part !== 'object') return false
+  const record = part as Record<string, unknown>
+  return (
+    record.type === 'image' &&
+    typeof record.data === 'string' &&
+    typeof record.mimeType === 'string'
+  )
 }

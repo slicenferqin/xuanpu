@@ -193,6 +193,36 @@ vi.mock('../../src/main/services/xuanpu-agent/model-config', () => ({
   }))
 }))
 
+vi.mock('../../src/main/services/xuanpu-agent/media-offloader', () => ({
+  buildImageObservationRefFromBase64: vi.fn(() => ({
+    path: '/tmp/xuanpu-agent-media/mock-image.png',
+    mediaRef: 'image-sha256:mock-image',
+    sha256: 'mock-image',
+    bytes: 2,
+    mimeType: 'image/png',
+    filename: 'screen.png'
+  })),
+  formatImageObservationRef: vi.fn(() =>
+    [
+      '<ImageObservationRef raw="omitted-after-first-vision-request">',
+      'sha256: mock-image',
+      'path: /tmp/xuanpu-agent-media/mock-image.png',
+      '</ImageObservationRef>'
+    ].join('\n')
+  ),
+  MediaOffloadStore: vi.fn(() => ({
+    writeImage: vi.fn(async () => ({
+      path: '/tmp/xuanpu-agent-media/mock-image.png',
+      mediaRef: 'image-sha256:mock-image',
+      sha256: 'mock-image',
+      bytes: 2,
+      mimeType: 'image/png',
+      extension: 'png',
+      filename: 'screen.png'
+    }))
+  }))
+}))
+
 vi.mock('simple-git', () => ({
   default: vi.fn(() => ({
     status: vi.fn(async () => ({ current: 'main', isClean: () => true })),
@@ -1368,6 +1398,96 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
         (call) => call[0] === 'task-run-test-1' && call[1] === 'completed'
       )
     ).toBe(false)
+  })
+
+  it('continues a recovery continuation when it made concrete tool progress', async () => {
+    const createSessionPendingMessage = vi.fn()
+    mockPiSession.prompt.mockImplementationOnce(
+      async (messages: unknown[], _modelRef: unknown, handlers?: Record<string, unknown>) => {
+        capturedPromptMessages = messages as unknown[]
+        const onToolEnd = handlers?.onToolEnd as
+          | ((event: Record<string, unknown>, meta: Record<string, unknown>) => void)
+          | undefined
+        onToolEnd?.(
+          {
+            toolCallId: 'call-read-manifest',
+            toolName: 'read_file',
+            args: { path: 'docs/architecture/xuanpu-agent-task-run/manifest.json' },
+            result: { content: [{ type: 'text', text: 'manifest content' }] },
+            isError: false,
+            startedAt: 1704067202000,
+            endedAt: 1704067203000
+          },
+          { turnId: 'turn-test-1', eventSequence: 1 }
+        )
+
+        const beforeYield = mockPiSession.setOnBeforeYield.mock.calls.at(-1)?.[0] as
+          | (() => Promise<void>)
+          | undefined
+        for (let index = 0; index < 5; index++) {
+          await beforeYield?.()
+        }
+
+        return {
+          messageId: 'resp-1',
+          text: '已读取 manifest，但仍需继续补全文档。',
+          modelRef: { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
+          usage: { input: 10, output: 5 },
+          rawMessage: null,
+          harnessMetrics: null,
+          turnId: 'turn-test-1'
+        }
+      }
+    )
+
+    const { XuanpuAgentImplementer } =
+      await import('../../src/main/services/xuanpu-agent-implementer')
+    const implementer = new XuanpuAgentImplementer()
+    implementer.setDatabaseService({
+      getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
+      getSetting: vi.fn(() => null),
+      getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' })),
+      upsertUsageEntry: vi.fn(),
+      createSessionPendingMessage
+    } as unknown as DatabaseService)
+
+    const { sessionId } = await implementer.connect('/repo', 'session-1')
+    await implementer.prompt(
+      '/repo',
+      sessionId,
+      [
+        '继续当前 xuanpu-agent task run。',
+        '<xuanpu-task-run-continuation scope="next-epoch" reason="no-progress-recovery">',
+        'Objective: long staged audit',
+        '</xuanpu-task-run-continuation>'
+      ].join('\n'),
+      undefined,
+      {
+        taskRunAutonomy: 'long'
+      }
+    )
+
+    expect(taskRunRepoMock.closeEpoch).toHaveBeenCalledWith(
+      'epoch-test-1',
+      expect.objectContaining({
+        status: 'checkpointed',
+        closeReason: 'checkpoint'
+      }),
+      expect.anything()
+    )
+    expect(taskRunRepoMock.updateTaskRunStatus).not.toHaveBeenCalledWith(
+      'task-run-test-1',
+      'paused',
+      expect.anything(),
+      expect.anything()
+    )
+    expect(createSessionPendingMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        session_id: 'session-1',
+        runtime_id: 'xuanpu-agent',
+        prompt_options_json: expect.stringContaining('task-run-test-1')
+      })
+    )
   })
 
   it('pauses only after a no-progress recovery continuation also makes no progress', async () => {
