@@ -1,4 +1,5 @@
 import { loadPiAgentCoreModule } from './pi-agent-core-loader'
+import type { AgentLoopConfig } from '@oh-my-pi/pi-agent-core'
 import {
   assertXuanpuAgentProviderCredential,
   resolveConfiguredApiKey,
@@ -15,6 +16,7 @@ import {
 } from './tool-policy'
 import { READ_ONLY_TOOLS, XFP_FIELD_TOOLS } from './tools'
 import { StormDetector } from './harness/tool-call-repair/storm'
+import { ToolCallGovernor } from './harness/tool-call-repair/governor'
 import { ToolOutputTruncator, type ArchivePayload } from './harness/tool-call-repair/truncation'
 import { normalizeToolCallArgumentsHook } from './harness/tool-call-repair/arguments'
 import { buildXuanpuAgentHarnessMetrics, type XuanpuAgentHarnessMetrics } from './harness/metrics'
@@ -156,6 +158,9 @@ export class XuanpuPiAgentSession {
   /** M1.5: 工具调用去重检测。挂载为 beforeToolCall 钩子。 */
   readonly stormDetector = new StormDetector({ windowSize: 5, threshold: 3 })
 
+  /** ToolCallGovernor: pre-execution allow/rewrite/deny for noisy tool calls. */
+  readonly toolGovernor = new ToolCallGovernor()
+
   /** M1.5: 命令输出截断（head/tail MVP）。挂载为 afterToolCall 钩子。 */
   readonly toolTruncator = new ToolOutputTruncator({
     charThreshold: 12_000,
@@ -174,6 +179,7 @@ export class XuanpuPiAgentSession {
   /** Set the current worktree path for tool context resolution. */
   setWorktreePath(worktreePath: string): void {
     this._worktreePath = worktreePath
+    this.toolGovernor.setWorktreePath(worktreePath)
   }
 
   /** M2: Configure compression (profiler + compressor + archive). */
@@ -533,7 +539,7 @@ export class XuanpuPiAgentSession {
       providerSessionState: undefined, // INV-TURN-1: disabled
       ...(getApiKey ? { getApiKey } : {}),
       transformToolCallArguments: normalizeToolCallArgumentsHook,
-      beforeToolCall: this.stormDetector.hook,
+      beforeToolCall: this.beforeToolCallHook,
       afterToolCall: this.toolTruncator.hook,
       transformContext: this.budgetManager.transformContext,
       getToolContext: () => ({
@@ -553,6 +559,15 @@ export class XuanpuPiAgentSession {
     this.agent.setFollowUpMode?.(this.followUpMode)
     this.agent.setOnBeforeYield?.(this.onBeforeYield)
     return this.agent
+  }
+
+  private readonly beforeToolCallHook: NonNullable<AgentLoopConfig['beforeToolCall']> = async (
+    ctx,
+    signal
+  ) => {
+    const governorResult = await this.toolGovernor.hook(ctx, signal)
+    if (governorResult?.block) return governorResult
+    return this.stormDetector.hook(ctx, signal)
   }
 }
 

@@ -1134,6 +1134,7 @@ export const MIGRATIONS: Migration[] = [
         aborted INTEGER NOT NULL DEFAULT 0,
         raw_output_ref TEXT NOT NULL,
         raw_output_bytes INTEGER NOT NULL DEFAULT 0,
+        raw_output_sha256 TEXT,
         compressed_output TEXT,
         compression_ratio REAL,
         category TEXT,

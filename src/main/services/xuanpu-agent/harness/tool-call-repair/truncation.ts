@@ -14,6 +14,7 @@ import type {
   CommandCompressor,
   CompressionMetadata
 } from '../../context/compressor'
+import { computeToolOutputSha256, formatToolObservation } from './observation'
 
 type AfterToolCallFn = NonNullable<AgentLoopConfig['afterToolCall']>
 
@@ -32,7 +33,10 @@ export interface ArchivePayload {
   timedOut: boolean
   aborted: boolean
   rawOutput: string
+  rawOutputSha256: string
+  rawOutputBytes: number
   compressedOutput: string
+  compressedOutputBytes: number
   compressionRatio: number
   category: string
   ruleHits: string[]
@@ -134,7 +138,10 @@ export class ToolOutputTruncator {
           timedOut,
           aborted,
           rawOutput: text,
+          rawOutputSha256: computeToolOutputSha256(text),
+          rawOutputBytes: Buffer.byteLength(text, 'utf-8'),
           compressedOutput: text,
+          compressedOutputBytes: Buffer.byteLength(text, 'utf-8'),
           compressionRatio: 0,
           category: this.profiler?.identify(command, cwd) ?? 'unknown',
           ruleHits: ['trace:raw-small']
@@ -170,19 +177,37 @@ export class ToolOutputTruncator {
                 timedOut,
                 aborted,
                 rawOutput: text,
+                rawOutputSha256: computeToolOutputSha256(text),
+                rawOutputBytes: Buffer.byteLength(text, 'utf-8'),
                 compressedOutput: result.text,
+                compressedOutputBytes: Buffer.byteLength(result.text, 'utf-8'),
                 compressionRatio: result.compressionRatio,
                 category,
                 ruleHits: [...result.ruleHits]
               })
 
-              const note = [
-                `[Tool output compressed: ${result.beforeBytes} → ${result.afterBytes} bytes ` +
-                  `(${(result.compressionRatio * 100).toFixed(0)}% reduction, rules: ${result.ruleHits.join(', ')})]`,
-                `Raw output archived at command-trace:${traceId}.`
-              ].join(' ')
               return {
-                content: [{ type: 'text', text: `${result.text}\n\n---\n${note}` }]
+                content: [
+                  {
+                    type: 'text',
+                    text: formatToolObservation({
+                      traceId,
+                      toolName,
+                      command,
+                      cwd,
+                      exitCode: metadata.exitCode,
+                      durationMs: metadata.durationMs,
+                      timedOut,
+                      aborted,
+                      rawOutput: text,
+                      summaryText: result.text,
+                      beforeBytes: result.beforeBytes,
+                      afterBytes: result.afterBytes,
+                      compressionRatio: result.compressionRatio,
+                      ruleHits: result.ruleHits
+                    })
+                  }
+                ]
               }
             }
           }
@@ -204,18 +229,37 @@ export class ToolOutputTruncator {
         timedOut,
         aborted,
         rawOutput: text,
+        rawOutputSha256: computeToolOutputSha256(text),
+        rawOutputBytes: Buffer.byteLength(text, 'utf-8'),
         compressedOutput: compressed,
+        compressedOutputBytes: Buffer.byteLength(compressed, 'utf-8'),
         compressionRatio,
         category: this.profiler?.identify(command, cwd) ?? 'unknown',
         ruleHits: ['fallback:head-tail']
       })
-      const note = [
-        `[Tool output compressed: ${text.length} → ${compressed.length} chars (head ${this.headLines} + tail ${this.tailLines} lines)]`,
-        `Raw output archived at command-trace:${traceId}.`
-      ].join(' ')
 
       return {
-        content: [{ type: 'text', text: `${compressed}\n\n---\n${note}` }]
+        content: [
+          {
+            type: 'text',
+            text: formatToolObservation({
+              traceId,
+              toolName,
+              command,
+              cwd,
+              exitCode,
+              durationMs,
+              timedOut,
+              aborted,
+              rawOutput: text,
+              summaryText: compressed,
+              beforeBytes: Buffer.byteLength(text, 'utf-8'),
+              afterBytes: Buffer.byteLength(compressed, 'utf-8'),
+              compressionRatio,
+              ruleHits: ['fallback:head-tail']
+            })
+          }
+        ]
       }
     }
   }

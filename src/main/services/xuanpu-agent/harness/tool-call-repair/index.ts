@@ -1,4 +1,5 @@
 export { StormDetector } from './storm'
+export { ToolCallGovernor, type ToolCallGovernorDecision } from './governor'
 export { ToolOutputTruncator } from './truncation'
 export {
   normalizeToolCallArguments,

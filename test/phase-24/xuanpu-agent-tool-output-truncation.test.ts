@@ -10,6 +10,7 @@ import type { ArchivePayload } from '../../src/main/services/xuanpu-agent/harnes
 import { rgSearchTool } from '../../src/main/services/xuanpu-agent/tools/search-tools'
 import { createCommandProfiler } from '../../src/main/services/xuanpu-agent/context/profiler'
 import { createCommandCompressor } from '../../src/main/services/xuanpu-agent/context/compressor-impl'
+import { computeToolOutputSha256 } from '../../src/main/services/xuanpu-agent/harness/tool-call-repair/observation'
 
 describe('xuanpu-agent tool output compression', () => {
   it('compresses and archives long error outputs before they reach the model', async () => {
@@ -33,9 +34,16 @@ describe('xuanpu-agent tool output compression', () => {
     expect(text).toContain('first failure line')
     expect(text).toContain('last failure line')
     expect(text).not.toContain('middle raw details')
+    expect(text).toContain('<ToolObservation')
     expect(text).toContain('Raw output archived at command-trace:')
+    expect(text).toContain(`Raw output sha256: ${computeToolOutputSha256(rawOutput)}.`)
     expect(archived).toHaveLength(1)
     expect(archived[0]?.rawOutput).toBe(rawOutput)
+    expect(archived[0]?.rawOutputSha256).toBe(computeToolOutputSha256(rawOutput))
+    expect(archived[0]?.rawOutputBytes).toBe(Buffer.byteLength(rawOutput, 'utf-8'))
+    expect(archived[0]?.compressedOutputBytes).toBe(
+      Buffer.byteLength(archived[0]?.compressedOutput ?? '', 'utf-8')
+    )
     expect(archived[0]?.compressedOutput).not.toBe(rawOutput)
     expect(archived[0]?.exitCode).toBe(1)
   })
@@ -58,6 +66,7 @@ describe('xuanpu-agent tool output compression', () => {
         toolName: 'git_status',
         command: 'git status',
         rawOutput: 'Working tree clean.',
+        rawOutputSha256: computeToolOutputSha256('Working tree clean.'),
         compressedOutput: 'Working tree clean.',
         compressionRatio: 0
       }
@@ -99,15 +108,19 @@ describe('xuanpu-agent tool output compression', () => {
     } as Parameters<typeof truncator.hook>[0])
 
     const text = result?.content?.[0]?.type === 'text' ? result.content[0].text : ''
+    expect(text).toContain('<ToolObservation')
     expect(text).toContain('Failures')
     expect(text).toContain('Raw output archived at command-trace:')
+    expect(text).toContain(`Raw output sha256: ${computeToolOutputSha256(rawOutput)}.`)
     expect(archived).toMatchObject([
       {
         toolName: 'run_test',
         command: 'pnpm vitest run test/phase-24/failing.test.ts',
         category: 'test',
         exitCode: 1,
-        durationMs: 1234
+        durationMs: 1234,
+        rawOutputSha256: computeToolOutputSha256(rawOutput),
+        rawOutputBytes: Buffer.byteLength(rawOutput, 'utf-8')
       }
     ])
   })

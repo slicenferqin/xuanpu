@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 import { app } from 'electron'
 import { dirname, join } from 'path'
 import { existsSync, mkdirSync, writeFileSync } from 'fs'
-import { randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import { MIGRATIONS } from './schema'
 import { getActiveAppDatabasePath } from '@shared/app-identity'
 import type {
@@ -57,6 +57,7 @@ export interface CommandTraceSummary {
   aborted: boolean
   rawOutputRef: string | null
   rawOutputBytes: number | null
+  rawOutputSha256: string | null
   compressedOutput: string | null
   compressionRatio: number | null
   category: string | null
@@ -213,6 +214,7 @@ export class DatabaseService {
         aborted INTEGER NOT NULL DEFAULT 0,
         raw_output_ref TEXT NOT NULL,
         raw_output_bytes INTEGER NOT NULL DEFAULT 0,
+        raw_output_sha256 TEXT,
         compressed_output TEXT,
         compression_ratio REAL,
         category TEXT,
@@ -227,6 +229,7 @@ export class DatabaseService {
 
     this.safeAddColumn('command_traces', 'raw_output_ref', 'TEXT')
     this.safeAddColumn('command_traces', 'raw_output_bytes', 'INTEGER')
+    this.safeAddColumn('command_traces', 'raw_output_sha256', 'TEXT')
   }
 
   private ensureTaskRunRuntimeTables(): void {
@@ -1013,6 +1016,7 @@ export class DatabaseService {
     timedOut?: boolean
     aborted?: boolean
     rawOutput: string
+    rawOutputSha256?: string
     compressedOutput?: string
     compressionRatio?: number
     category?: string
@@ -1024,6 +1028,8 @@ export class DatabaseService {
       worktreeId: entry.worktreeId
     })
     const rawOutputBytes = Buffer.byteLength(entry.rawOutput, 'utf-8')
+    const rawOutputSha256 =
+      entry.rawOutputSha256 ?? createHash('sha256').update(entry.rawOutput, 'utf8').digest('hex')
     const columns = this.getTableColumns('command_traces')
     const values: Array<[string, unknown]> = [
       ['id', entry.traceId],
@@ -1044,6 +1050,7 @@ export class DatabaseService {
 
     if (columns.has('raw_output_ref')) values.push(['raw_output_ref', rawOutputRef])
     if (columns.has('raw_output_bytes')) values.push(['raw_output_bytes', rawOutputBytes])
+    if (columns.has('raw_output_sha256')) values.push(['raw_output_sha256', rawOutputSha256])
     if (columns.has('raw_output')) values.push(['raw_output', ''])
 
     const columnNames = values.map(([column]) => column).join(', ')
@@ -1083,7 +1090,7 @@ export class DatabaseService {
       .prepare(
         `SELECT
            id, session_id, worktree_id, command, cwd, exit_code, duration_ms,
-           timed_out, aborted, raw_output_ref, raw_output_bytes, compressed_output,
+           timed_out, aborted, raw_output_ref, raw_output_bytes, raw_output_sha256, compressed_output,
            compression_ratio, category, rule_hits, created_at
          FROM command_traces
          WHERE ${whereSql}
@@ -1105,6 +1112,7 @@ export class DatabaseService {
         aborted: ((row.aborted as number | null) ?? 0) === 1,
         rawOutputRef: (row.raw_output_ref as string | null) ?? null,
         rawOutputBytes: (row.raw_output_bytes as number | null) ?? null,
+        rawOutputSha256: (row.raw_output_sha256 as string | null) ?? null,
         compressedOutput: (row.compressed_output as string | null) ?? null,
         compressionRatio: (row.compression_ratio as number | null) ?? null,
         category: (row.category as string | null) ?? null,

@@ -655,6 +655,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
                 timedOut: payload.timedOut,
                 aborted: payload.aborted,
                 rawOutput: payload.rawOutput,
+                rawOutputSha256: payload.rawOutputSha256,
                 compressedOutput: payload.compressedOutput,
                 compressionRatio: payload.compressionRatio,
                 category: payload.category,
@@ -2165,6 +2166,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
               meta: {
                 rawOutputRef: trace.rawOutputRef,
                 rawOutputBytes: trace.rawOutputBytes,
+                rawOutputSha256: trace.rawOutputSha256,
                 category: trace.category,
                 ruleHits: trace.ruleHits
               }

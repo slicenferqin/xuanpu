@@ -258,6 +258,15 @@ function recordedToolNames(): string[][] {
   )
 }
 
+function createBeforeToolCallContext(toolName: string, args: Record<string, unknown>) {
+  return {
+    assistantMessage: { role: 'assistant', content: [] },
+    toolCall: { type: 'toolCall', id: 'tool-1', name: toolName, arguments: args },
+    args,
+    context: { systemPrompt: [], messages: [] }
+  }
+}
+
 describe('XuanpuPiAgentSession', () => {
   const previousMockResponse = process.env.XUANPU_AGENT_MOCK_RESPONSE
   const previousFakeEventMode = process.env.XUANPU_AGENT_FAKE_EVENT_MODE
@@ -364,6 +373,35 @@ describe('XuanpuPiAgentSession', () => {
       maxResults: 12
     })
     expect(transform?.({ command: 'pnpm test' }, 'run_test')).toEqual({ command: 'pnpm test' })
+  })
+
+  it('wires ToolCallGovernor before tool execution', async () => {
+    process.env.XUANPU_AGENT_MOCK_RESPONSE = 'governor ok'
+
+    const { XuanpuPiAgentSession } = await import('../../src/main/services/xuanpu-agent/runtime')
+    const session = new XuanpuPiAgentSession('test-session')
+
+    await session.prompt('hello', { providerID: 'anthropic', modelID: 'claude-haiku-4-5' })
+
+    const beforeToolCall = fakeRuntime.agentOptions.at(-1)?.beforeToolCall as
+      | ((ctx: Record<string, unknown>, signal?: AbortSignal) => unknown | Promise<unknown>)
+      | undefined
+    expect(beforeToolCall).toBeTypeOf('function')
+
+    const listFilesArgs: Record<string, unknown> = { path: '.', depth: 5 }
+    const rewriteResult = await beforeToolCall?.(
+      createBeforeToolCallContext('list_files', listFilesArgs),
+      undefined
+    )
+    const denyResult = (await beforeToolCall?.(
+      createBeforeToolCallContext('run_test', { command: 'pnpm test' }),
+      undefined
+    )) as { block?: boolean; reason?: string } | undefined
+
+    expect(rewriteResult).toBeUndefined()
+    expect(listFilesArgs.depth).toBe(3)
+    expect(denyResult).toMatchObject({ block: true })
+    expect(denyResult?.reason).toContain('run-test-broad-command')
   })
 
   it('queues follow-up messages through the wrapped pi Agent', async () => {
