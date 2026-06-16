@@ -48,6 +48,7 @@ export function recordProviderRequestSnapshot(
     prefixHash: snapshot.prefixHash ?? null,
     managedContextJson: JSON.stringify({
       budget: snapshot.budget,
+      gateway: snapshot.budget.gateway ?? null,
       taskRunId: snapshot.taskRunId ?? null,
       userRoundId: snapshot.userRoundId ?? null,
       contextSegmentId: snapshot.contextSegmentId ?? null,
@@ -80,7 +81,8 @@ export function recordProviderRequestSnapshot(
       contextSegmentId: snapshot.contextSegmentId ?? null,
       contextSegmentOrdinal: snapshot.contextSegmentOrdinal ?? null,
       providerCallSeq: snapshot.providerCallSeq ?? 0,
-      includedMessageCount: snapshot.contextMessages.length
+      includedMessageCount: snapshot.contextMessages.length,
+      gateway: snapshot.budget.gateway ?? null
     }),
     managedApproxTokens: snapshot.budget.managedApproxTokens,
     providerEstimatedInputTokens: snapshot.budget.providerEstimatedInputTokens,

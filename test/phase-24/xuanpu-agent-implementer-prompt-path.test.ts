@@ -106,7 +106,8 @@ const taskRunRepoMock = vi.hoisted(() => ({
   updateUserRoundStatus: vi.fn(),
   updateTaskRunStatus: vi.fn(),
   accumulateUsage: vi.fn(),
-  renewLease: vi.fn()
+  renewLease: vi.fn(),
+  incrementUserRoundProviderRequestCount: vi.fn()
 }))
 
 vi.mock('../../src/main/db/task-run-repository', () => taskRunRepoMock)
@@ -267,6 +268,7 @@ let capturedPromptMessages: unknown[] = []
 const mockPiSession = {
   setWorktreePath: vi.fn(),
   setBudgetProfile: vi.fn(),
+  setMaxContextTokens: vi.fn(),
   recordBudgetSections: vi.fn(),
   configureCompression: vi.fn(),
   setOnBeforeYield: vi.fn(),
@@ -493,6 +495,95 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
       contextSegmentId: 'epoch-test-1',
       contextSegmentOrdinal: 0
     })
+  })
+
+  it('caps packer and snapshot budgets at the gateway policy when provider context is 1M', async () => {
+    const { XuanpuAgentImplementer } =
+      await import('../../src/main/services/xuanpu-agent-implementer')
+    const implementer = new XuanpuAgentImplementer()
+    ;(implementer as unknown as { agentConfig: unknown }).agentConfig = {
+      enabled: true,
+      mainModel: { providerID: 'openai', modelID: 'gpt-5.5' },
+      context: { contextWindow: 1_000_000 }
+    }
+    implementer.setDatabaseService({
+      getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
+      getSetting: vi.fn(() => null),
+      getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' })),
+      upsertUsageEntry: vi.fn()
+    } as unknown as DatabaseService)
+
+    const { sessionId } = await implementer.connect('/repo', 'session-1')
+    await implementer.prompt('/repo', sessionId, 'stay under gateway policy')
+
+    const packInput = packContextMock.mock.calls[0][0]
+    expect(packInput.totalBudgetTokens).toBe(150_000)
+    expect(mockPiSession.setMaxContextTokens).toHaveBeenCalledWith(250_000)
+
+    const snapshotBudget = mockPiSession.prompt.mock.calls[0]?.[5] as Record<string, unknown>
+    expect(snapshotBudget).toMatchObject({
+      profile: 'focused',
+      managedApproxTokens: 100,
+      maxContextTokens: 250_000
+    })
+    expect(snapshotBudget.gateway).toMatchObject({
+      action: 'continue',
+      hardTokenLimit: 250_000,
+      providerContextWindowTokens: 1_000_000
+    })
+  })
+
+  it('pauses before calling the provider when the gateway hard limit is reached', async () => {
+    const oversizedPack = {
+      providerContextMessages: [
+        { role: 'user', content: [{ type: 'text', text: '<oversized />' }], timestamp: 1 }
+      ],
+      providerPromptMessage: {
+        role: 'user',
+        content: [{ type: 'text', text: 'current request' }],
+        timestamp: 2
+      },
+      includedRetrievedEpisodes: [],
+      decisions: {
+        zones: {},
+        totalTokens: 260_000,
+        fillRatio: 1.3,
+        prefixHash: 'too-large',
+        actualPrefixHash: 'too-large',
+        prefixChangeReason: 'none'
+      }
+    }
+    packContextMock.mockReset()
+    packContextMock.mockReturnValue(oversizedPack)
+
+    const { XuanpuAgentImplementer } =
+      await import('../../src/main/services/xuanpu-agent-implementer')
+    const implementer = new XuanpuAgentImplementer()
+    implementer.setDatabaseService({
+      getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
+      getSetting: vi.fn(() => null),
+      getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' })),
+      upsertUsageEntry: vi.fn()
+    } as unknown as DatabaseService)
+
+    const { sessionId } = await implementer.connect('/repo', 'session-1')
+    await implementer.prompt('/repo', sessionId, 'this request is too large')
+
+    expect(mockPiSession.prompt).not.toHaveBeenCalled()
+    expect(turnRepoMock.createAgentTurnContextSnapshot).toHaveBeenCalled()
+    const snapshot = turnRepoMock.createAgentTurnContextSnapshot.mock.calls[0][0]
+    expect(JSON.parse(snapshot.decisionsJson).gateway).toMatchObject({
+      action: 'pause',
+      hardTokenLimit: 250_000
+    })
+    expect(taskRunRepoMock.updateTaskRunStatus).toHaveBeenCalledWith(
+      'task-run-test-1',
+      'paused',
+      expect.objectContaining({
+        errorMessage: expect.stringContaining('gateway paused before provider call')
+      }),
+      expect.anything()
+    )
   })
 
   it('passes current-turn images to the provider prompt while keeping history text-only', async () => {

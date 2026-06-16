@@ -3,6 +3,7 @@
  */
 import type { XuanpuPiPromptMessage } from '../context-transform'
 import type { XuanpuAgentModelRef } from '../model-config'
+import type { GatewayBudgetDecision } from '../task-run-policy'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Provider Session Policy
@@ -30,6 +31,7 @@ export interface XuanpuTurnBudget {
   providerEstimatedInputTokens: number
   maxContextTokens: number
   fillRatio: number
+  gateway?: GatewayBudgetDecision
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

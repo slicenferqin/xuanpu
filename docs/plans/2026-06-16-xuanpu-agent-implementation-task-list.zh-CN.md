@@ -63,14 +63,30 @@
 - [x] Session HQ TaskRun panel 增加 report export action，导出后打开生成文件。
 - [x] 测试覆盖结构化报告、Markdown/JSON 文件导出、missing task-run 错误、IPC 通道和 panel action。
 
+### Track G：Gateway context budget guard
+
+- [x] 新增 `evaluateGatewayBudget()`，在 provider 调用前基于 150K / 220K / 250K 做 budget bucket、maintenance 和 hard pause 决策。
+- [x] `XuanpuTurnBudget` / provider snapshot 记录 gateway 决策，report 与 DB replay 能复原当时的预算判断。
+- [x] `xuanpu-agent-implementer.ts` 在 provider 前用 gateway cap 钳制 `packContext()`，不依赖 1M context window。
+- [x] 当估算越过 hard limit 时，provider 调用前直接 pause，并写入 snapshot / task-run / turn audit。
+- [x] 测试覆盖 220K maintenance、250K hard pause、1M provider window cap、snapshot/report gateway 透传。
+
 ## 当前实现顺序
 
 1. 已完成 Track B 的 `ToolCallGovernor`，覆盖高噪声工具调用，避免无效执行。
 2. 已完成 Track C 的 `ToolObservation`，让输出卸载对模型和审计都可见。
 3. 已完成 Track A/D 的 `ContextSegment`/`UserRound` 语义与测试，证明当前 epoch 存储可作为 internal segment。
-4. 已完成 Context Budget Debugger 回放与 runtime 生命周期拆包，当前阶段不再保留功能性未完成项。
+4. 已完成 Context Budget Debugger 回放与 runtime 生命周期拆包，当前阶段仍保留后续大项。
 5. 已完成 oh-my-pi-derived runtime 主包边界、upstream metadata 与 contract test。
 6. 已完成 TaskRun report export，Session HQ 可一键导出任务复盘文件。
+7. 已完成 Gateway context budget guard，provider 调用前不再依赖 1M 上下文。
+
+## 仍待落实的大项
+
+- `ContextFrameCompiler` / `SegmentCompactor`
+- 独立 `@xuanpu/agent-cli`
+- OpenAI remote compact preserve data 的 replay / audit
+- v16.x upgrade spike
 
 ## 验收命令
 
@@ -81,6 +97,7 @@ pnpm vitest run \
   test/phase-24/xuanpu-oh-my-pi-runtime-contract.test.ts \
   test/phase-24/xuanpu-agent-media-offload.test.ts \
   test/phase-24/xuanpu-agent-tool-output-truncation.test.ts \
+  test/phase-24/xuanpu-agent-task-run-policy.test.ts \
   test/phase-24/xuanpu-agent-provider-request-builder.test.ts \
   test/phase-24/xuanpu-agent-provider-request-recorder.test.ts \
   test/phase-24/xuanpu-agent-implementer-prompt-path.test.ts \
@@ -93,6 +110,10 @@ pnpm vitest run \
 
 ```bash
 pnpm exec eslint \
+  src/main/services/xuanpu-agent/task-run-policy.ts \
+  src/main/services/xuanpu-agent/turn/turn-snapshot.ts \
+  src/main/services/xuanpu-agent/turn/provider-request-recorder.ts \
+  src/main/services/xuanpu-agent-implementer.ts \
   src/main/services/xuanpu-agent/runtime.ts \
   src/main/services/xuanpu-agent/context/budget-manager.ts \
   src/main/services/xuanpu-agent/harness/tool-call-repair \
@@ -114,4 +135,5 @@ pnpm exec eslint \
 - `TaskRunScheduler` / `UserRoundRunner` 模块级测试覆盖新建/恢复 TaskRun、UserRound 起点、ContextSegment/Turn scope、失败/中止落库路径。
 - `@xuanpu/oh-my-pi-runtime` contract test 覆盖 turn-scoped `runTurn()` 的核心不变量。
 - `TaskRunReport` 测试覆盖结构化报告、Markdown/JSON 文件导出、ProviderRequest replay refs、related command trace raw refs、missing task-run 错误路径。
+- Gateway budget guard 测试覆盖 220K maintenance compact、250K hard pause、1M provider context window cap、snapshot/report gateway audit。
 - `test/phase-24/xuanpu-agent-runtime-status.test.ts` 当前在 Node/Vitest 环境下因上游 `@oh-my-pi/pi-ai` 的 `bun:sqlite` 解析失败，未纳入本轮通过集；该失败早于本轮 runtime 逻辑执行。

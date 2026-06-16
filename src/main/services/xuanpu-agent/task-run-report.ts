@@ -130,11 +130,11 @@ export function renderTaskRunReportMarkdown(report: AgentTaskRunReport): string 
     '',
     '## ProviderRequests',
     '',
-    '| # | snapshot | turn | round | segment | input/max | hash | prefix | config |',
-    '| - | - | - | - | - | - | - | - | - |',
+    '| # | snapshot | turn | round | segment | input/max | gateway | hash | prefix | config |',
+    '| - | - | - | - | - | - | - | - | - | - |',
     ...report.providerRequests.map(
       (request, index) =>
-        `| ${index + 1} | \`${request.id}\` | \`${request.turnId}\` | ${request.userRoundId ? `\`${request.userRoundId}\`` : '-'} | ${request.contextSegmentId ? `\`${request.contextSegmentId}\`` : '-'} | ${request.providerEstimatedInputTokens}/${request.maxContextTokens} | \`${shortHash(request.providerRequestHash)}\` | ${request.prefixHash ? `\`${shortHash(request.prefixHash)}\`` : '-'} | ${escapeCell(formatProviderConfig(request.providerConfig))} |`
+        `| ${index + 1} | \`${request.id}\` | \`${request.turnId}\` | ${request.userRoundId ? `\`${request.userRoundId}\`` : '-'} | ${request.contextSegmentId ? `\`${request.contextSegmentId}\`` : '-'} | ${request.providerEstimatedInputTokens}/${request.maxContextTokens} | ${escapeCell(formatGatewayDecision(request.decisions))} | \`${shortHash(request.providerRequestHash)}\` | ${request.prefixHash ? `\`${shortHash(request.prefixHash)}\`` : '-'} | ${escapeCell(formatProviderConfig(request.providerConfig))} |`
     ),
     '',
     '## Replay Payload Refs',
@@ -253,6 +253,27 @@ function renderCommandTraceRefs(traces: AgentTaskRunReportCommandTrace[]): strin
     (trace) =>
       `- \`${trace.id}\`: command=${escapeInline(shorten(trace.command, 80))}, raw=${trace.rawOutputRef ? `\`${trace.rawOutputRef}\`` : '-'}, bytes=${trace.rawOutputBytes ?? 0}, sha256=${trace.rawOutputSha256 ? `\`${shortHash(trace.rawOutputSha256)}\`` : '-'}`
   )
+}
+
+function formatGatewayDecision(decisions: unknown): string {
+  if (!decisions || typeof decisions !== 'object') return '-'
+  const gateway = (decisions as { gateway?: unknown }).gateway
+  if (!gateway || typeof gateway !== 'object') return '-'
+  const record = gateway as Record<string, unknown>
+  const action = typeof record.action === 'string' ? record.action : 'unknown'
+  const effectiveProfile =
+    typeof record.effectiveProfile === 'string' ? record.effectiveProfile : 'unknown'
+  const input =
+    typeof record.providerEstimatedInputTokens === 'number'
+      ? record.providerEstimatedInputTokens
+      : null
+  const hard = typeof record.hardTokenLimit === 'number' ? record.hardTokenLimit : null
+  const ratio =
+    typeof record.fillRatio === 'number' && Number.isFinite(record.fillRatio)
+      ? `${Math.round(record.fillRatio * 100)}%`
+      : '-'
+  const limit = input !== null && hard !== null ? ` ${input}/${hard}` : ''
+  return `${action} ${effectiveProfile} ${ratio}${limit}`.trim()
 }
 
 function safeJsonParse(value: string): unknown {

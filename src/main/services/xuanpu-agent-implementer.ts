@@ -29,6 +29,7 @@ import {
   getXuanpuAgentAllowedTools,
   getXuanpuAgentSystemPromptLines
 } from './xuanpu-agent/tool-policy'
+import { READ_ONLY_TOOLS, XFP_FIELD_TOOLS } from './xuanpu-agent/tools'
 import type { XuanpuAgentHarnessMetrics } from './xuanpu-agent/harness/metrics'
 import { XfpPacketCompiler, type CompilerDecision } from './xuanpu-agent/harness/compiler'
 import { packContext } from './xuanpu-agent/context/context-packer'
@@ -49,10 +50,17 @@ import type {
   TaskRunAutonomy
 } from '../../shared/types/agent-task-run'
 import {
+  evaluateGatewayBudget,
   evaluateLeaseAtBoundary,
+  GATEWAY_HARD_TOKEN_LIMIT,
   NO_PROGRESS_LIMIT,
-  shouldCloseEpoch
+  getGatewayProfileTokenLimit,
+  shouldCloseEpoch,
+  type GatewayBudgetDecision
 } from './xuanpu-agent/task-run-policy'
+import { buildProviderRequest } from './xuanpu-agent/turn/provider-request-builder'
+import { recordProviderRequestSnapshot } from './xuanpu-agent/turn/provider-request-recorder'
+import type { XuanpuTurnBudget } from './xuanpu-agent/turn/turn-snapshot'
 import { TaskRunScheduler } from './xuanpu-agent/task-run-scheduler'
 import { UserRoundRunner } from './xuanpu-agent/user-round-runner'
 import type {
@@ -582,9 +590,14 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       )
       const providerOverheadTokens = estimateProviderOverheadTokens(sessionMode ?? 'build')
       const contextWindow = resolvePerCallContextWindow(agentConfig)
-      const effectiveContextBudget = Math.max(1, contextWindow - providerOverheadTokens)
+      const providerAvailableContextBudget = Math.max(1, contextWindow - providerOverheadTokens)
+      const gatewayProfileLimit = getGatewayProfileTokenLimit(compileResult.packet.budget.profile)
+      const effectiveContextBudget = Math.max(
+        1,
+        Math.min(providerAvailableContextBudget, gatewayProfileLimit)
+      )
       ;(piSession as { setMaxContextTokens?: (maxTokens: number) => void }).setMaxContextTokens?.(
-        contextWindow
+        Math.min(contextWindow, GATEWAY_HARD_TOKEN_LIMIT)
       )
 
       // M2: configure compression (profiler + compressor + archive to command_traces)
@@ -654,17 +667,25 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         .join('\n\n')
 
       const taskStateSummary = taskStateManager?.buildContextSummary() ?? null
+      let activeWorkingSet = priorMessages
+      let activeFrozenEpisodes = episodeRecords
+      const packForBudget = (
+        totalBudgetTokens: number,
+        budgetOverrides?: Parameters<typeof packContext>[0]['budgetOverrides']
+      ) =>
+        packContext({
+          anchor: stableAnchor,
+          fieldContextMarkdown: liveFieldContext,
+          frozenEpisodes: activeFrozenEpisodes,
+          retrievedEpisodes: retrievedEpisodeEntries,
+          workingSet: activeWorkingSet,
+          currentRequest: text,
+          taskStateSummary,
+          totalBudgetTokens,
+          budgetOverrides
+        })
 
-      let packedContext = packContext({
-        anchor: stableAnchor,
-        fieldContextMarkdown: liveFieldContext,
-        frozenEpisodes: episodeRecords,
-        retrievedEpisodes: retrievedEpisodeEntries,
-        workingSet: priorMessages,
-        currentRequest: text,
-        taskStateSummary,
-        totalBudgetTokens: effectiveContextBudget
-      })
+      let packedContext = packForBudget(effectiveContextBudget)
 
       // M7.4: Soft shrink — if fillRatio >= 0.4, freeze old turns and repack with reduced budgets.
       const initialFillRatio = packedContext.decisions.fillRatio
@@ -681,20 +702,57 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
           sessionId: session.hiveSessionId,
           limit: 200
         })
-        packedContext = packContext({
-          anchor: stableAnchor,
-          fieldContextMarkdown: liveFieldContext,
-          frozenEpisodes: freshEpisodes,
-          retrievedEpisodes: retrievedEpisodeEntries,
-          workingSet: freshPriors,
-          currentRequest: text,
-          taskStateSummary,
-          totalBudgetTokens: effectiveContextBudget,
-          budgetOverrides: {
-            workingSet: 15_000,
-            frozenEpisodes: 6_000
-          }
+        activeWorkingSet = freshPriors
+        activeFrozenEpisodes = freshEpisodes
+        packedContext = packForBudget(effectiveContextBudget, {
+          workingSet: 15_000,
+          frozenEpisodes: 6_000
         })
+      }
+
+      let gatewayDecision = evaluateGatewayBudget({
+        requestedProfile: compileResult.packet.budget.profile,
+        providerEstimatedInputTokens: packedContext.decisions.totalTokens + providerOverheadTokens,
+        providerContextWindowTokens: contextWindow
+      })
+
+      if (gatewayDecision.action === 'compact' && worktree) {
+        softShrinkTriggered = true
+        await this.freezeOldConversationTurns(session).catch(() => {})
+        activeWorkingSet = field
+          .getPriorTurns(session.hiveSessionId)
+          .filter((turn) => turn.messageId !== userMessageId)
+        activeFrozenEpisodes = listFieldEpisodeBlocks({
+          worktreeId: worktree.id,
+          sessionId: session.hiveSessionId,
+          limit: 200
+        })
+        const gatewayCompactBudget = Math.max(
+          1,
+          Math.min(
+            effectiveContextBudget,
+            gatewayDecision.maintenanceTokenLimit - providerOverheadTokens
+          )
+        )
+        packedContext = packForBudget(gatewayCompactBudget, {
+          currentField: 3_000,
+          workingSet: 8_000,
+          frozenEpisodes: 4_000
+        })
+        const postCompactDecision = evaluateGatewayBudget({
+          requestedProfile: compileResult.packet.budget.profile,
+          providerEstimatedInputTokens:
+            packedContext.decisions.totalTokens + providerOverheadTokens,
+          providerContextWindowTokens: contextWindow
+        })
+        gatewayDecision = {
+          ...postCompactDecision,
+          action: postCompactDecision.action === 'pause' ? 'pause' : 'compact',
+          reason:
+            postCompactDecision.action === 'pause'
+              ? postCompactDecision.reason
+              : `${gatewayDecision.reason}; compacted to ${postCompactDecision.providerEstimatedInputTokens}`
+        }
       }
 
       // Record fill ratio to budget manager
@@ -702,6 +760,16 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         packedContext.decisions.fillRatio,
         packedContext.decisions.totalTokens
       )
+      piSession.setBudgetProfile(gatewayDecision.effectiveProfile)
+
+      const snapshotBudget: XuanpuTurnBudget = {
+        profile: gatewayDecision.effectiveProfile,
+        managedApproxTokens: packedContext.decisions.totalTokens,
+        providerEstimatedInputTokens: gatewayDecision.providerEstimatedInputTokens,
+        maxContextTokens: gatewayDecision.hardTokenLimit,
+        fillRatio: gatewayDecision.fillRatio,
+        gateway: gatewayDecision
+      }
 
       const promptMessage = {
         ...packedContext.providerPromptMessage,
@@ -711,6 +779,19 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             : packedContext.providerPromptMessage.content
       }
       const harnessMessages = [...packedContext.providerContextMessages, promptMessage]
+      const snapshotTools =
+        sessionMode === 'plan'
+          ? [...READ_ONLY_TOOLS, ...XFP_FIELD_TOOLS]
+          : getXuanpuAgentAllowedTools()
+      const buildSnapshotToolDefinitions = () =>
+        snapshotTools.map((t: unknown) => {
+          const tool = t as { name: string; description?: string; parameters?: unknown }
+          return {
+            name: tool.name,
+            description: tool.description ?? '',
+            parameters: (tool.parameters ?? {}) as Record<string, unknown>
+          }
+        })
 
       const observedPaths = new Set<string>()
       const completedToolCalls: XuanpuAgentToolEndEvent[] = []
@@ -840,6 +921,83 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             error: error instanceof Error ? error.message : String(error)
           })
         }
+      }
+      if (gatewayDecision.action === 'pause') {
+        const snapshot = buildProviderRequest({
+          turnId,
+          sessionId: session.hiveSessionId,
+          taskRunId: taskRun.id,
+          userRoundId: userRound.id,
+          contextSegmentId: epoch.id,
+          contextSegmentOrdinal: epoch.ordinal,
+          providerCallSeq: 0,
+          modelRef,
+          systemPrompt: getXuanpuAgentSystemPromptLines(),
+          contextMessages: packedContext.providerContextMessages,
+          promptMessage,
+          tools: buildSnapshotToolDefinitions(),
+          providerSessionPolicy: {
+            mode: 'disabled',
+            reason: 'xuanpu owns turn-scoped context'
+          },
+          budget: snapshotBudget,
+          prefixHash: packedContext.decisions.actualPrefixHash
+        })
+        recordProviderRequestSnapshot(snapshot, compileResult.packet.identity.packetId)
+        if (!epochClosed) {
+          closeEpoch(
+            epoch.id,
+            {
+              status: 'failed',
+              checkpointId: null,
+              endFillRatio: currentEpochFillRatio(),
+              closeReason: 'watchdog'
+            },
+            this.db
+          )
+          epochClosed = true
+        }
+        const reason = `xuanpu-agent gateway paused before provider call: ${gatewayDecision.reason}`
+        updateTaskRunStatus(taskRun.id, 'paused', { errorMessage: reason }, this.db)
+        new UserRoundRunner(db).failActiveScope(
+          {
+            turnId: session.activeTurnId,
+            contextSegmentId: null,
+            taskRunId: null,
+            userRoundId: session.activeUserRoundId
+          },
+          reason
+        )
+        const gatewayMessageId = `xuanpu-agent-gateway-paused-${randomUUID()}`
+        field.persistMessage(session.hiveSessionId, 'assistant', reason, {
+          messageId: gatewayMessageId,
+          modelProviderId: modelRef.providerID,
+          modelId: modelRef.modelID,
+          rawMessage: {
+            gateway: gatewayDecision,
+            providerRequestHash: snapshot.providerRequestHash
+          }
+        })
+        updateAgentTurnStatus(
+          turnId,
+          'failed',
+          { assistantMessageId: gatewayMessageId, errorMessage: reason },
+          this.db
+        )
+        this.emitMessageUpdated(session.hiveSessionId, reason, {
+          messageId: gatewayMessageId,
+          modelRef,
+          contextPackageId: compileResult.packet.identity.packetId,
+          turnId
+        })
+        session.status = 'ready'
+        session.abortController = null
+        session.activeTurnId = null
+        session.activeTaskRunId = null
+        session.activeUserRoundId = null
+        session.activeEpochId = null
+        this.emitStatus(session.hiveSessionId, 'idle')
+        return
       }
       piSession.setFollowUpMode('one-at-a-time')
       piSession.setOnBeforeYield(async () => {
@@ -1017,19 +1175,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         },
         sessionMode,
         turnId,
-        {
-          profile:
-            packedContext.decisions.fillRatio > 0.5
-              ? 'focused'
-              : packedContext.decisions.fillRatio > 0.15
-                ? 'balanced'
-                : 'extended',
-          managedApproxTokens: packedContext.decisions.totalTokens,
-          providerEstimatedInputTokens:
-            packedContext.decisions.totalTokens + providerOverheadTokens,
-          maxContextTokens: contextWindow,
-          fillRatio: packedContext.decisions.fillRatio
-        },
+        snapshotBudget,
         packedContext.decisions.actualPrefixHash,
         compileResult.packet.identity.packetId,
         {
@@ -1127,7 +1273,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             source: 'context-packer'
           },
           providerRequest: {
-            estimatedInputTokens: managedTokens + providerOverheadTokens,
+            estimatedInputTokens: snapshotBudget.providerEstimatedInputTokens,
+            maxContextTokens: snapshotBudget.maxContextTokens,
             providerRequestHash: result.snapshotHash ?? packedContext.decisions.actualPrefixHash,
             prefixHash: packedContext.decisions.actualPrefixHash ?? null,
             messageCount: packedContext.providerContextMessages.length + 1,
@@ -1307,6 +1454,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             harnessMetrics: result.harnessMetrics,
             packerOutput: packedContext,
             softShrinkMeta: { triggered: softShrinkTriggered, initialFillRatio },
+            gatewayBudget: gatewayDecision,
             sessionMode,
             turnId: result.turnId,
             snapshotHash: result.snapshotHash
@@ -1549,6 +1697,8 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       }
       /** M7.4: Soft shrink metadata. */
       softShrinkMeta?: { triggered: boolean; initialFillRatio: number }
+      /** Gateway budget decision recorded for audit alignment. */
+      gatewayBudget?: GatewayBudgetDecision
       /** Session mode from PromptOptions ('build' | 'plan'). */
       sessionMode?: 'build' | 'plan'
       /** INV-TURN-5: Turn-scoped id for cross-referencing snapshots. */
@@ -1694,6 +1844,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
               finalFillRatio: options.packerOutput?.decisions?.fillRatio ?? null
             }
           : null,
+        gatewayBudget: options.gatewayBudget ?? null,
         workingSetAudit: options.packerOutput?.decisions?.zones?.workingSet
           ? {
               includedMessageIds:

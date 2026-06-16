@@ -136,4 +136,64 @@ describe('ProviderRequestRecorder', () => {
     })
     expect(taskRunRepoMock.incrementUserRoundProviderRequestCount).toHaveBeenCalledWith('round-1')
   })
+
+  it('stores gateway budget decisions in managed context and decision audit payloads', () => {
+    turnRepoMock.createAgentTurnContextSnapshot.mockClear()
+    taskRunRepoMock.incrementUserRoundProviderRequestCount.mockClear()
+
+    const snapshot: XuanpuProviderRequestSnapshot = {
+      turnId: 'turn-1',
+      sessionId: 'session-1',
+      taskRunId: 'task-run-1',
+      userRoundId: 'round-1',
+      contextSegmentId: 'segment-1',
+      contextSegmentOrdinal: 2,
+      providerCallSeq: 0,
+      providerRequestHash: 'hash-1',
+      systemPrompt: ['system'],
+      contextMessages: [],
+      promptMessage: {
+        role: 'user',
+        content: [{ type: 'text', text: 'current request' }],
+        timestamp: 2
+      },
+      toolsJson: '[]',
+      modelRef: { providerID: 'openai', modelID: 'gpt-test' },
+      providerSessionPolicy: {
+        mode: 'disabled',
+        reason: 'xuanpu owns turn-scoped context'
+      },
+      budget: {
+        profile: 'extended',
+        managedApproxTokens: 215000,
+        providerEstimatedInputTokens: 221000,
+        maxContextTokens: 250000,
+        fillRatio: 1.105,
+        gateway: {
+          action: 'compact',
+          reason: 'maintenance',
+          requestedProfile: 'balanced',
+          effectiveProfile: 'extended',
+          profileMaxTokens: 200000,
+          maintenanceTokenLimit: 220000,
+          hardTokenLimit: 250000,
+          providerEstimatedInputTokens: 221000,
+          providerContextWindowTokens: 1000000,
+          fillRatio: 1.105
+        }
+      }
+    }
+
+    recordProviderRequestSnapshot(snapshot)
+
+    const stored = turnRepoMock.createAgentTurnContextSnapshot.mock.calls[0][0]
+    expect(JSON.parse(stored.managedContextJson).gateway).toMatchObject({
+      action: 'compact',
+      hardTokenLimit: 250000
+    })
+    expect(JSON.parse(stored.decisionsJson).gateway).toMatchObject({
+      action: 'compact',
+      providerContextWindowTokens: 1000000
+    })
+  })
 })

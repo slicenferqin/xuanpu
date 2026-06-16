@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import {
   DEFAULT_LEASE_WINDOW_MS,
+  GATEWAY_HARD_TOKEN_LIMIT,
+  GATEWAY_MAINTENANCE_TOKEN_LIMIT,
+  evaluateGatewayBudget,
   evaluateLeaseAtBoundary,
   shouldCloseEpoch
 } from '../../src/main/services/xuanpu-agent/task-run-policy'
@@ -132,6 +135,48 @@ describe('xuanpu-agent task-run policy', () => {
       ).toEqual({
         action: 'renew',
         nextExpiresAt: new Date(secondBoundaryMs + DEFAULT_LEASE_WINDOW_MS).toISOString()
+      })
+    })
+  })
+
+  describe('evaluateGatewayBudget', () => {
+    it('continues under the gateway maintenance limit without using the provider 1M window', () => {
+      const decision = evaluateGatewayBudget({
+        requestedProfile: 'balanced',
+        providerEstimatedInputTokens: 180_000,
+        providerContextWindowTokens: 1_000_000
+      })
+
+      expect(decision.action).toBe('continue')
+      expect(decision.providerContextWindowTokens).toBe(1_000_000)
+      expect(decision.hardTokenLimit).toBe(GATEWAY_HARD_TOKEN_LIMIT)
+      expect(decision.effectiveProfile).toBe('extended')
+    })
+
+    it('asks the runtime to compact when the estimate reaches the 220K maintenance band', () => {
+      expect(
+        evaluateGatewayBudget({
+          requestedProfile: 'extended',
+          providerEstimatedInputTokens: GATEWAY_MAINTENANCE_TOKEN_LIMIT,
+          providerContextWindowTokens: 1_000_000
+        })
+      ).toMatchObject({
+        action: 'compact',
+        maintenanceTokenLimit: GATEWAY_MAINTENANCE_TOKEN_LIMIT,
+        hardTokenLimit: GATEWAY_HARD_TOKEN_LIMIT
+      })
+    })
+
+    it('pauses before sending a request at the 250K hard gateway limit', () => {
+      expect(
+        evaluateGatewayBudget({
+          requestedProfile: 'extended',
+          providerEstimatedInputTokens: GATEWAY_HARD_TOKEN_LIMIT,
+          providerContextWindowTokens: 1_000_000
+        })
+      ).toMatchObject({
+        action: 'pause',
+        hardTokenLimit: GATEWAY_HARD_TOKEN_LIMIT
       })
     })
   })

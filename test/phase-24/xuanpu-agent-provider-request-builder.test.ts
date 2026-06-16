@@ -115,6 +115,34 @@ describe('ProviderRequestBuilder', () => {
     expect(snapshot.budget.profile).toBe('balanced')
   })
 
+  it('keeps gateway budget decisions on the provider snapshot without hashing them', () => {
+    const snapshot = buildProviderRequest({
+      ...BASE_INPUT,
+      budget: {
+        ...BASE_INPUT.budget,
+        gateway: {
+          action: 'compact',
+          reason: 'maintenance',
+          requestedProfile: 'balanced',
+          effectiveProfile: 'extended',
+          profileMaxTokens: 200000,
+          maintenanceTokenLimit: 220000,
+          hardTokenLimit: 250000,
+          providerEstimatedInputTokens: 221000,
+          providerContextWindowTokens: 1000000,
+          fillRatio: 1.105
+        }
+      }
+    })
+
+    expect(snapshot.budget.gateway).toMatchObject({
+      action: 'compact',
+      providerEstimatedInputTokens: 221000,
+      providerContextWindowTokens: 1000000
+    })
+    expect(snapshot.providerRequestHash).toBe(computeProviderRequestHash(BASE_INPUT))
+  })
+
   it('does not include task-run relation metadata in the providerRequestHash', () => {
     const hash1 = computeProviderRequestHash({
       ...BASE_INPUT,

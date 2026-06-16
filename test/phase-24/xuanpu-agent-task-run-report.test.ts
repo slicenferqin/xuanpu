@@ -138,7 +138,19 @@ describe('xuanpu-agent task-run report export', () => {
         decisionsJson: JSON.stringify({
           providerRequestHash: 'hash-abcdef',
           prefixHash: 'prefix-123456',
-          providerCallSeq: 0
+          providerCallSeq: 0,
+          gateway: {
+            action: 'compact',
+            reason: 'maintenance',
+            requestedProfile: 'balanced',
+            effectiveProfile: 'extended',
+            profileMaxTokens: 200000,
+            maintenanceTokenLimit: 220000,
+            hardTokenLimit: 250000,
+            providerEstimatedInputTokens: 221000,
+            providerContextWindowTokens: 1000000,
+            fillRatio: 1.105
+          }
         }),
         managedApproxTokens: 1200,
         providerEstimatedInputTokens: 1500,
@@ -186,7 +198,11 @@ describe('xuanpu-agent task-run report export', () => {
       },
       decisions: {
         providerRequestHash: 'hash-abcdef',
-        providerCallSeq: 0
+        providerCallSeq: 0,
+        gateway: {
+          action: 'compact',
+          providerEstimatedInputTokens: 221000
+        }
       },
       replayPayloadBytes: {
         providerMessagesJson: expect.any(Number),
@@ -203,6 +219,7 @@ describe('xuanpu-agent task-run report export', () => {
     expect(markdown).toContain('# Xuanpu Agent Task Run Report')
     expect(markdown).toContain('Ship task-run report export')
     expect(markdown).toContain('## ProviderRequests')
+    expect(markdown).toContain('compact extended 111% 221000/250000')
     expect(markdown).toContain('packet-1')
     expect(markdown).toContain('## Related Command Trace Raw Refs')
     expect(markdown).toContain('trace-1')
