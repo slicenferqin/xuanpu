@@ -1,22 +1,46 @@
 {
   "name": "@xuanpu/agent-cli",
   "version": "0.1.0",
-  "private": true,
   "description": "Xuanpu agent command-line entrypoint with project-local field context",
   "type": "module",
-  "main": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./cli": "./src/cli.ts",
-    "./events": "./src/events.ts",
-    "./field-provider": "./src/field-provider.ts",
-    "./runner": "./src/runner.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js"
+    },
+    "./events": {
+      "types": "./dist/events.d.ts",
+      "import": "./dist/events.js"
+    },
+    "./field-provider": {
+      "types": "./dist/field-provider.d.ts",
+      "import": "./dist/field-provider.js"
+    },
+    "./runner": {
+      "types": "./dist/runner.d.ts",
+      "import": "./dist/runner.js"
+    },
+    "./tools": {
+      "types": "./dist/tools.d.ts",
+      "import": "./dist/tools.js"
+    }
   },
   "bin": {
     "xuanpu-agent": "./dist/cli.js"
   },
+  "files": [
+    "dist",
+    "package.json"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "pack:local": "pnpm run build && pnpm pack",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

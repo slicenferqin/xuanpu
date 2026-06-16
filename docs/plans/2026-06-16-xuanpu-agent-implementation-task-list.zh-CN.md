@@ -90,7 +90,9 @@
 - [x] 支持 one-shot `run` 与 `interactive` 编排，interactive 复用同一 CLI session。
 - [x] Runner 做成 injectable `XuanpuAgentCliRunner`，默认 dry-run runner 可在无 provider/auth 时验证 CLI 现场和事件链路。
 - [x] 新增 `createOhMyPiRuntimeRunner()`，通过 runtime dynamic import 接入 `@xuanpu/oh-my-pi-runtime`，不复制 Desktop implementer。
-- [ ] 完整 real-provider CLI coding loop、可发布二进制 bundle、RPC/ACP 后置。
+- [x] real-provider runner 接入 CLI coding tools：`read_file`、`rg_search`、`run_test`，以及 `--allow-writes` 下的 `write_file`。
+- [x] CLI 包入口切到 `dist`，`bin.xuanpu-agent` 指向编译产物，`pnpm pack` 可生成包含 dist/bin 的 tarball。
+- [ ] RPC/ACP bridge 后置。
 
 ### Track J：OpenAI remote compact preserve-data replay / audit
 
@@ -112,10 +114,11 @@
 8. 已完成 ContextFrameCompiler / SegmentCompactor 的首批落地，具备 frame 级审计和 segment compaction audit 基础。
 9. 已完成独立 `@xuanpu/agent-cli` 首批骨架，具备降级 FieldProvider、one-shot/interactive 编排和可测试事件输出。
 10. 已完成 OpenAI remote compact preserve-data replay / audit，具备 archive、frame ledger、request snapshot 和 report 导出链路。
+11. 已完成 `@xuanpu/agent-cli` 的基础 real-provider coding tool loop 与 dist/bin/pack 边界。
 
 ## 仍待落实的大项
 
-- 独立 `@xuanpu/agent-cli` 后续硬化：real-provider read/search/edit/test coding loop、bundle/bin 发布、RPC/ACP。
+- 独立 `@xuanpu/agent-cli` 后续硬化：RPC/ACP bridge；如需对外 npm 发布，还需要同步确定 `@xuanpu/oh-my-pi-runtime` 的发布策略。
 - OpenAI remote compact 的 live 调用 / 回放执行链路：当前只完成 preserve-data archive 与审计链路，尚未接上主动 `/responses/compact` 运行时调用。
 - v16.x upgrade spike
 
@@ -181,7 +184,9 @@ pnpm exec eslint \
 - `pnpm vitest run test/phase-24/xuanpu-agent-provider-native-compaction.test.ts test/phase-24/xuanpu-agent-segment-compactor.test.ts test/phase-24/xuanpu-agent-context-frame-compiler.test.ts test/phase-24/xuanpu-agent-provider-request-builder.test.ts test/phase-24/xuanpu-agent-provider-request-recorder.test.ts test/phase-24/xuanpu-agent-task-run-report.test.ts`：6 个测试文件、28 个测试通过。
 - `git diff --check`：通过。
 - `pnpm vitest run test/phase-24/xuanpu-agent-context-frame-compiler.test.ts test/phase-24/xuanpu-agent-segment-compactor.test.ts test/phase-24/xuanpu-agent-context-packer.test.ts test/phase-24/xuanpu-agent-context-steady-state.test.ts test/phase-24/xuanpu-agent-implementer-prompt-path.test.ts test/phase-24/xuanpu-agent-episode-freezer.test.ts test/phase-24/xuanpu-agent-episode-summarizer.test.ts`：7 个测试文件、63 个测试通过。
-- `@xuanpu/agent-cli` 测试覆盖 project-local rules/Git/SQLite 采集、one-shot/interactive 编排、CanonicalAgentEvent-compatible NDJSON 输出。
-- `pnpm vitest run test/phase-24/xuanpu-agent-cli.test.ts`：1 个测试文件、5 个测试通过。
+- `@xuanpu/agent-cli` 测试覆盖 project-local rules/Git/SQLite 采集、one-shot/interactive 编排、CanonicalAgentEvent-compatible NDJSON 输出、CLI coding tools、runtime runner tool/context 注入和 package dist/bin exports。
+- `pnpm vitest run test/phase-24/xuanpu-agent-cli.test.ts`：1 个测试文件、8 个测试通过。
 - `pnpm --filter @xuanpu/agent-cli typecheck`：通过。
+- `pnpm --filter @xuanpu/agent-cli build`：通过。
+- `pnpm --filter @xuanpu/agent-cli pack --pack-destination /tmp/xuanpu-agent-cli-pack`：通过，tarball 包含 dist JS/d.ts 与 package metadata。
 - `test/phase-24/xuanpu-agent-runtime-status.test.ts` 当前在 Node/Vitest 环境下因上游 `@oh-my-pi/pi-ai` 的 `bun:sqlite` 解析失败，未纳入本轮通过集；该失败早于本轮 runtime 逻辑执行。

@@ -1,5 +1,6 @@
 import type { XuanpuAgentCliFieldContext } from './field-provider.js'
 import type { XuanpuAgentCliRawEvent } from './events.js'
+import { createCliCodingTools, type XuanpuAgentCliToolOptions } from './tools.js'
 
 export interface XuanpuAgentCliRunInput {
   prompt: string
@@ -19,10 +20,14 @@ export interface OhMyPiRuntimeRunnerOptions {
     id: string
   }
   systemPrompt?: string[]
+  tools?: 'coding' | 'none'
+  allowWrites?: boolean
+  testTimeoutMs?: number
   getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined
+  importRuntime?: () => Promise<OhMyPiRuntimeModule>
 }
 
-interface OhMyPiRuntimeModule {
+export interface OhMyPiRuntimeModule {
   runTurn(options: {
     contextMessages: unknown[]
     promptMessage: unknown
@@ -30,6 +35,10 @@ interface OhMyPiRuntimeModule {
     tools: unknown[]
     model: { provider: string; id: string }
     getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined
+    agentOptions?: {
+      sessionId?: string
+      getToolContext?: () => Record<string, unknown>
+    }
   }): AsyncIterable<Record<string, unknown>>
 }
 
@@ -67,7 +76,9 @@ export function createOhMyPiRuntimeRunner(
 ): XuanpuAgentCliRunner {
   return {
     async *run(input) {
-      const runtime = await importOhMyPiRuntime()
+      const runtime = options.importRuntime
+        ? await options.importRuntime()
+        : await importOhMyPiRuntime()
       const timestamp = Date.now()
       const contextMessages = [
         {
@@ -81,22 +92,54 @@ export function createOhMyPiRuntimeRunner(
         content: [{ type: 'text', text: input.prompt }],
         timestamp
       }
+      const tools =
+        options.tools === 'none'
+          ? []
+          : createCliCodingTools({
+              projectRoot: input.fieldContext.projectRoot,
+              allowWrites: options.allowWrites,
+              testTimeoutMs: options.testTimeoutMs
+            } satisfies XuanpuAgentCliToolOptions)
 
       for await (const event of runtime.runTurn({
         contextMessages,
         promptMessage,
-        systemPrompt: options.systemPrompt ?? ['You are xuanpu-agent running from the CLI.'],
-        tools: [],
+        systemPrompt: options.systemPrompt ?? buildDefaultSystemPrompt(options),
+        tools,
         model: {
           provider: options.model.provider,
           id: options.model.id
         },
-        getApiKey: options.getApiKey
+        getApiKey: options.getApiKey,
+        agentOptions: {
+          sessionId: input.sessionId,
+          getToolContext: () => ({
+            worktreePath: input.fieldContext.projectRoot,
+            projectRoot: input.fieldContext.projectRoot,
+            sessionId: input.sessionId,
+            turnId: input.turnId,
+            trustedWrites: options.allowWrites === true
+          })
+        }
       })) {
         yield mapOhMyPiEvent(event as Record<string, unknown>, input.turnId)
       }
     }
   }
+}
+
+function buildDefaultSystemPrompt(options: OhMyPiRuntimeRunnerOptions): string[] {
+  const lines = [
+    'You are xuanpu-agent running from the CLI.',
+    'Work inside the detected project root. Use project-local rules and Git status from the field context.',
+    'Use read_file and rg_search before making code claims. Use run_test for focused verification.'
+  ]
+  if (options.tools !== 'none' && options.allowWrites) {
+    lines.push('You may use write_file to edit bounded UTF-8 project files.')
+  } else if (options.tools !== 'none') {
+    lines.push('Writes are disabled unless the CLI is started with --allow-writes.')
+  }
+  return lines
 }
 
 async function importOhMyPiRuntime(): Promise<OhMyPiRuntimeModule> {

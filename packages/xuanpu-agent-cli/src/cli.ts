@@ -22,6 +22,8 @@ export interface XuanpuAgentCliParsedArgs {
   sessionId?: string
   dryRun: boolean
   json: boolean
+  allowWrites?: boolean
+  noTools?: boolean
   model?: {
     provider: string
     id: string
@@ -67,6 +69,14 @@ export function parseArgv(argv: string[]): XuanpuAgentCliParsedArgs {
     }
     if (arg === '--dry-run') {
       parsed.dryRun = true
+      continue
+    }
+    if (arg === '--allow-writes') {
+      parsed.allowWrites = true
+      continue
+    }
+    if (arg === '--no-tools') {
+      parsed.noTools = true
       continue
     }
     if (arg === '--text') {
@@ -207,7 +217,9 @@ export async function main(
 function resolveDefaultRunner(options: XuanpuAgentCliParsedArgs): XuanpuAgentCliRunner {
   if (options.model && !options.dryRun) {
     return createOhMyPiRuntimeRunner({
-      model: options.model
+      model: options.model,
+      tools: options.noTools ? 'none' : 'coding',
+      allowWrites: options.allowWrites
     })
   }
   return createDryRunRunner()
@@ -252,13 +264,15 @@ function formatTextEvent(event: XuanpuAgentCliEvent): string {
 }
 
 function helpText(): string {
-  return [
+  const lines = [
     'Usage:',
-    '  xuanpu-agent run [--cwd PATH] [--model provider/model] [--dry-run] "prompt"',
-    '  xuanpu-agent interactive [--cwd PATH] [--model provider/model]',
+    '  xuanpu-agent run [--cwd PATH] [--model provider/model] [--allow-writes] [--dry-run] "prompt"',
+    '  xuanpu-agent interactive [--cwd PATH] [--model provider/model] [--allow-writes]',
     '',
-    'Events are emitted as CanonicalAgentEvent-compatible NDJSON by default.'
-  ].join('\n')
+    'Events are emitted as CanonicalAgentEvent-compatible NDJSON by default.',
+    'Real-provider mode exposes read_file, rg_search, run_test, and write_file only with --allow-writes.'
+  ]
+  return `${lines.join('\n')}\n`
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

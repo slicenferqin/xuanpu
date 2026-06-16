@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtemp, mkdir, realpath, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -7,10 +7,13 @@ import { describe, expect, it } from 'vitest'
 
 import {
   collectCliFieldContext,
+  createOhMyPiRuntimeRunner,
   main,
   parseArgv,
   runInteractive,
   runOneShot,
+  createCliCodingTools,
+  type OhMyPiRuntimeModule,
   type XuanpuAgentCliRunner
 } from '../../packages/xuanpu-agent-cli/src/index'
 
@@ -73,6 +76,14 @@ describe('@xuanpu/agent-cli', () => {
       dryRun: false,
       json: true,
       model: { provider: 'openai', id: 'gpt-5.5' }
+    })
+    expect(
+      parseArgv(['run', '--model', 'openai/gpt-5.5', '--allow-writes', '--no-tools', 'fix'])
+    ).toMatchObject({
+      allowWrites: true,
+      noTools: true,
+      model: { provider: 'openai', id: 'gpt-5.5' },
+      prompt: 'fix'
     })
     expect(parseArgv(['interactive', '--dry-run', '--text']).command).toBe('interactive')
   })
@@ -148,6 +159,108 @@ describe('@xuanpu/agent-cli', () => {
     expect(JSON.parse(lines[0])).toMatchObject({
       type: 'session.materialized',
       runtimeId: 'xuanpu-agent'
+    })
+  })
+
+  it('provides bounded CLI coding tools for real-provider runs', async () => {
+    const root = await createProjectFixture()
+    await writeFile(join(root, 'src.ts'), 'export const answer = 41\n')
+    const tools = createCliCodingTools({ projectRoot: root, allowWrites: true })
+    const toolByName = new Map(tools.map((tool) => [tool.name, tool]))
+
+    expect([...toolByName.keys()]).toEqual(['read_file', 'rg_search', 'write_file', 'run_test'])
+
+    const readResult = await toolByName
+      .get('read_file')!
+      .execute('read-1', { path: 'src.ts' }, undefined, undefined, undefined)
+    expect(readResult.content[0]).toMatchObject({
+      type: 'text',
+      text: expect.stringContaining('answer = 41')
+    })
+
+    const writeResult = await toolByName
+      .get('write_file')!
+      .execute(
+        'write-1',
+        { path: 'generated/result.txt', content: 'ok\n' },
+        undefined,
+        undefined,
+        undefined
+      )
+    expect(writeResult.isError).toBeUndefined()
+    expect(await readFile(join(root, 'generated', 'result.txt'), 'utf8')).toBe('ok\n')
+
+    const blockedWrite = await toolByName
+      .get('write_file')!
+      .execute('write-2', { path: '.env', content: 'SECRET=1\n' }, undefined, undefined, undefined)
+    expect(blockedWrite.isError).toBe(true)
+    expect(String(blockedWrite.content[0].text)).toContain('Blocked secrets path')
+
+    const testResult = await toolByName
+      .get('run_test')!
+      .execute('test-1', { args: ['--version'] }, undefined, undefined, undefined)
+    expect(testResult.isError).toBeUndefined()
+    expect(String(testResult.content[0].text)).toMatch(/\d+\.\d+\.\d+/)
+  })
+
+  it('passes CLI coding tools and tool context into the oh-my-pi runtime runner', async () => {
+    const root = await createProjectFixture()
+    const fieldContext = await collectCliFieldContext({ cwd: root })
+    let captured: Parameters<OhMyPiRuntimeModule['runTurn']>[0] | null = null
+    const runner = createOhMyPiRuntimeRunner({
+      model: { provider: 'openai', id: 'gpt-test' },
+      allowWrites: true,
+      importRuntime: async () => ({
+        async *runTurn(options) {
+          captured = options
+          yield { type: 'message', message: { role: 'assistant', content: 'ok' } }
+          yield { type: 'agent_end' }
+        }
+      })
+    })
+
+    const events = []
+    for await (const event of runner.run({
+      prompt: 'edit and test',
+      mode: 'one-shot',
+      sessionId: 'cli-runtime-session',
+      turnId: 'turn-runtime-1',
+      fieldContext
+    })) {
+      events.push(event)
+    }
+
+    expect(captured?.tools.map((tool) => (tool as { name: string }).name)).toEqual([
+      'read_file',
+      'rg_search',
+      'write_file',
+      'run_test'
+    ])
+    expect(captured?.agentOptions?.getToolContext?.()).toMatchObject({
+      worktreePath: root,
+      projectRoot: root,
+      sessionId: 'cli-runtime-session',
+      turnId: 'turn-runtime-1',
+      trustedWrites: true
+    })
+    expect(events.map((event) => event.type)).toEqual(['message.updated', 'session.idle'])
+  })
+
+  it('keeps package exports and bin pointed at build artifacts', async () => {
+    const pkg = JSON.parse(
+      await readFile(join(process.cwd(), 'packages/xuanpu-agent-cli/package.json'), 'utf8')
+    )
+
+    expect(pkg.main).toBe('./dist/index.js')
+    expect(pkg.types).toBe('./dist/index.d.ts')
+    expect(pkg.bin).toEqual({ 'xuanpu-agent': './dist/cli.js' })
+    expect(pkg.exports['.']).toMatchObject({
+      import: './dist/index.js',
+      types: './dist/index.d.ts'
+    })
+    expect(pkg.exports['./tools']).toMatchObject({
+      import: './dist/tools.js',
+      types: './dist/tools.d.ts'
     })
   })
 })
