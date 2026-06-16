@@ -19,6 +19,7 @@ import { createLogger } from './logger'
 import { resolveXuanpuAgentModelRef, type XuanpuAgentModelRef } from './xuanpu-agent/model-config'
 import { loadXuanpuAgentConfig, type XuanpuAgentConfig } from './xuanpu-agent/config-loader'
 import type { XuanpuPiPromptPart } from './xuanpu-agent/context-transform'
+import { TaskStateManager } from './xuanpu-agent/task-state-manager'
 import {
   XuanpuPiAgentSession,
   type XuanpuAgentToolEndEvent,
@@ -401,6 +402,23 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         db
       )
     }
+
+    let taskStateManager: TaskStateManager | null = null
+    try {
+      taskStateManager = new TaskStateManager({
+        taskRunId: taskRun.id,
+        sessionId: session.hiveSessionId,
+        db: this.db
+      })
+      taskStateManager.initialize(taskRun.objective ?? text)
+    } catch (error) {
+      taskStateManager = null
+      log.warn('Failed to initialize xuanpu-agent task state', {
+        taskRunId: taskRun.id,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
+
     const epoch = appendEpoch(
       {
         taskRunId: taskRun.id,
@@ -647,6 +665,9 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       ]
         .filter(Boolean)
         .join('\n\n')
+
+      const taskStateSummary = taskStateManager?.buildContextSummary() ?? null
+
       let packedContext = packContext({
         anchor: stableAnchor,
         fieldContextMarkdown: liveFieldContext,
@@ -654,10 +675,11 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         retrievedEpisodes: retrievedEpisodeEntries,
         workingSet: priorMessages,
         currentRequest: text,
+        taskStateSummary,
         totalBudgetTokens: effectiveContextBudget
       })
 
-      // M7.4: Soft shrink — if fillRatio >= 0.4, freeze old turns and repack with reduced budgets
+      // M7.4: Soft shrink — if fillRatio >= 0.4, freeze old turns and repack with reduced budgets.
       const initialFillRatio = packedContext.decisions.fillRatio
       updateEpochStartFillRatio(epoch.id, initialFillRatio, this.db)
       let softShrinkTriggered = false
@@ -679,6 +701,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
           retrievedEpisodes: retrievedEpisodeEntries,
           workingSet: freshPriors,
           currentRequest: text,
+          taskStateSummary,
           totalBudgetTokens: effectiveContextBudget,
           budgetOverrides: {
             workingSet: 15_000,
@@ -703,6 +726,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       const harnessMessages = [...packedContext.providerContextMessages, promptMessage]
 
       const observedPaths = new Set<string>()
+      const completedToolCalls: XuanpuAgentToolEndEvent[] = []
       let toolResultCount = 0
       let latestAssistantText = ''
       const providerCallEvents: Array<{ sourceEventId: string; cost: number }> = []
@@ -897,6 +921,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             this.emitToolStart(session.hiveSessionId, event, meta.turnId, meta.eventSequence)
           },
           onToolEnd: (event, meta) => {
+            completedToolCalls.push(event)
             if (!event.isError) {
               toolResultCount++
               collectObservedToolPaths(
@@ -1045,6 +1070,29 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
           this.db
         )
       }
+
+      try {
+        taskStateManager?.updateFromTurn({
+          userMessage: text,
+          assistantMessage: content,
+          toolCalls: completedToolCalls.map((toolCall) => ({
+            name: toolCall.toolName,
+            args: toolCall.args,
+            result: extractToolResultText(toolCall.result),
+            isError: toolCall.isError
+          })),
+          filesChanged: Array.from(observedPaths),
+          errors: completedToolCalls
+            .filter((toolCall) => toolCall.isError)
+            .map((toolCall) => extractToolResultText(toolCall.result) || `${toolCall.toolName} failed`)
+        })
+      } catch (error) {
+        log.warn('Failed to update xuanpu-agent task state', {
+          taskRunId: taskRun.id,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      }
+
       this.emitMessageUpdated(session.hiveSessionId, content, {
         messageId: result.messageId,
         modelRef: result.modelRef,

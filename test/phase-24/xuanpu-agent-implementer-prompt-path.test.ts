@@ -50,7 +50,24 @@ const turnRepoMock = vi.hoisted(() => ({
 vi.mock('../../src/main/db/turn-repository', () => turnRepoMock)
 
 const taskRunRepoMock = vi.hoisted(() => ({
-  createTaskRun: vi.fn(() => ({ id: 'task-run-test-1' })),
+  createTaskRun: vi.fn(() => ({
+    id: 'task-run-test-1',
+    sessionId: 'session-1',
+    worktreeId: 'w-1',
+    projectId: 'p-1',
+    originMessageId: 'origin-1',
+    status: 'running',
+    autonomy: 'short',
+    objective: 'test objective',
+    leaseExpiresAt: null,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalCost: 0,
+    epochCount: 0,
+    startedAt: '2026-06-09T00:00:00.000Z',
+    completedAt: null,
+    errorMessage: null
+  })),
   getTaskRun: vi.fn(() => null),
   getActiveTaskRun: vi.fn(() => null),
   appendEpoch: vi.fn(() => ({ id: 'epoch-test-1' })),
@@ -63,6 +80,18 @@ const taskRunRepoMock = vi.hoisted(() => ({
 }))
 
 vi.mock('../../src/main/db/task-run-repository', () => taskRunRepoMock)
+
+const taskStateManagerMock = vi.hoisted(() => ({
+  initialize: vi.fn(),
+  buildContextSummary: vi.fn(() => '## Task Objective\ntest objective'),
+  updateFromTurn: vi.fn()
+}))
+
+const taskStateManagerCtorMock = vi.hoisted(() => vi.fn(() => taskStateManagerMock))
+
+vi.mock('../../src/main/services/xuanpu-agent/task-state-manager', () => ({
+  TaskStateManager: taskStateManagerCtorMock
+}))
 
 const checkpointRuntimeMocks = vi.hoisted(() => ({
   generateCheckpoint: vi.fn(async () => null),
@@ -219,11 +248,33 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     capturedEmittedEvents.length = 0
     capturedUsageEntries.length = 0
     capturedActivities.length = 0
+    taskStateManagerMock.initialize.mockClear()
+    taskStateManagerMock.buildContextSummary.mockClear()
+    taskStateManagerMock.buildContextSummary.mockReturnValue('## Task Objective\ntest objective')
+    taskStateManagerMock.updateFromTurn.mockClear()
+    taskStateManagerCtorMock.mockClear()
     mockPiSession.hasQueuedMessages.mockReturnValue(false)
     mockPiSession.followUp.mockReturnValue(true)
     taskRunRepoMock.getTaskRun.mockReturnValue(null)
     taskRunRepoMock.getActiveTaskRun.mockReturnValue(null)
-    taskRunRepoMock.createTaskRun.mockReturnValue({ id: 'task-run-test-1' })
+    taskRunRepoMock.createTaskRun.mockReturnValue({
+      id: 'task-run-test-1',
+      sessionId: 'session-1',
+      worktreeId: 'w-1',
+      projectId: 'p-1',
+      originMessageId: 'origin-1',
+      status: 'running',
+      autonomy: 'short',
+      objective: 'test objective',
+      leaseExpiresAt: null,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalCost: 0,
+      epochCount: 0,
+      startedAt: '2026-06-09T00:00:00.000Z',
+      completedAt: null,
+      errorMessage: null
+    })
     taskRunRepoMock.appendEpoch.mockReturnValue({ id: 'epoch-test-1' })
     checkpointRuntimeMocks.generateCheckpoint.mockResolvedValue(null)
     checkpointRuntimeMocks.insertCheckpoint.mockReturnValue(true)
@@ -328,8 +379,11 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     expect(packInput.frozenEpisodes.length).toBe(1)
     expect(packInput.frozenEpisodes[0].id).toBe('ep-1')
 
-    // Verify current request
+    // Verify current request and task state summary
     expect(packInput.currentRequest).toBe('fix the bug')
+    expect(taskStateManagerMock.initialize).toHaveBeenCalledWith('test objective')
+    expect(taskStateManagerMock.buildContextSummary).toHaveBeenCalled()
+    expect(packInput.taskStateSummary).toContain('test objective')
 
     // Verify field context markdown is passed
     expect(packInput.fieldContextMarkdown).toContain('src/main.ts')
@@ -397,7 +451,7 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     ])
   })
 
-  it('does not pre-flight freeze before packing stable prefix', async () => {
+  it('does not pre-flight freeze before packing stable prefix when below soft shrink threshold', async () => {
     const { XuanpuAgentImplementer } =
       await import('../../src/main/services/xuanpu-agent-implementer')
     const implementer = new XuanpuAgentImplementer()
@@ -423,6 +477,84 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     expect(packInput.workingSet.length).toBe(10)
     expect(mockFieldProvider.freezeEpisodes).not.toHaveBeenCalled()
     expect(mockFieldProvider.getPriorTurns).toHaveBeenCalledTimes(1)
+  })
+
+  it('soft-shrinks by freezing and repacking when packer fill ratio crosses threshold', async () => {
+    packContextMock
+      .mockReturnValueOnce({
+        providerContextMessages: [
+          { role: 'user', content: [{ type: 'text', text: '<anchor />' }], timestamp: 1 }
+        ],
+        providerPromptMessage: {
+          role: 'user',
+          content: [{ type: 'text', text: 'current request' }],
+          timestamp: 2
+        },
+        includedRetrievedEpisodes: [],
+        decisions: {
+          zones: {},
+          totalTokens: 80_000,
+          fillRatio: 0.45,
+          prefixHash: 'abc123',
+          actualPrefixHash: 'abc123',
+          prefixChangeReason: 'none'
+        }
+      })
+      .mockReturnValueOnce({
+        providerContextMessages: [
+          { role: 'user', content: [{ type: 'text', text: '<repacked />' }], timestamp: 1 }
+        ],
+        providerPromptMessage: {
+          role: 'user',
+          content: [{ type: 'text', text: 'current request' }],
+          timestamp: 2
+        },
+        includedRetrievedEpisodes: [],
+        decisions: {
+          zones: {},
+          totalTokens: 40_000,
+          fillRatio: 0.2,
+          prefixHash: 'def456',
+          actualPrefixHash: 'def456',
+          prefixChangeReason: 'episodes'
+        }
+      })
+
+    mockFieldProvider.getPriorTurns
+      .mockReturnValueOnce([
+        { messageId: 'msg-before', role: 'user' as const, content: 'before', createdAt: 1000 }
+      ])
+      .mockReturnValueOnce([
+        { messageId: 'msg-after', role: 'user' as const, content: 'after', createdAt: 2000 }
+      ])
+
+    const { XuanpuAgentImplementer } =
+      await import('../../src/main/services/xuanpu-agent-implementer')
+    const implementer = new XuanpuAgentImplementer()
+    implementer.setDatabaseService({
+      getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
+      getSetting: vi.fn(() => null),
+      getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' })),
+      upsertUsageEntry: vi.fn()
+    } as unknown as DatabaseService)
+
+    const { sessionId } = await implementer.connect('/repo', 'session-1')
+    await implementer.prompt('/repo', sessionId, 'continue')
+
+    expect(taskRunRepoMock.updateEpochStartFillRatio).toHaveBeenCalledWith(
+      'epoch-test-1',
+      0.45,
+      expect.anything()
+    )
+    expect(mockFieldProvider.freezeEpisodes).toHaveBeenCalledWith('w-1', 'session-1')
+    expect(packContextMock).toHaveBeenCalledTimes(2)
+    expect(packContextMock.mock.calls[1][0]).toMatchObject({
+      workingSet: [expect.objectContaining({ messageId: 'msg-after' })],
+      budgetOverrides: {
+        workingSet: 15_000,
+        frozenEpisodes: 6_000
+      }
+    })
   })
 
   it('stable anchor is unchanged across turns despite different packetId and capturedAt', async () => {
@@ -671,6 +803,20 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
       output: 'On branch main',
       status: 'completed'
     })
+    expect(taskStateManagerMock.updateFromTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userMessage: 'show tools',
+        assistantMessage: 'mock response',
+        toolCalls: [
+          expect.objectContaining({
+            name: 'git_status',
+            result: 'On branch main',
+            isError: false
+          })
+        ],
+        errors: []
+      })
+    )
   })
 
   it('queues an in-epoch follow-up for long task runs before yielding', async () => {

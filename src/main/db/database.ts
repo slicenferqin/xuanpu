@@ -290,6 +290,24 @@ export class DatabaseService {
       this.safeAddColumn('agent_turn_usage_events', 'reasoning_effort', 'TEXT')
       this.safeAddColumn('agent_turn_usage_events', 'actual_prefix_hash', 'TEXT')
     }
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS agent_task_states (
+        id TEXT PRIMARY KEY,
+        task_run_id TEXT NOT NULL REFERENCES agent_task_runs(id) ON DELETE CASCADE,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        objective TEXT NOT NULL,
+        steps TEXT NOT NULL DEFAULT '[]',
+        current_blocker TEXT,
+        decisions TEXT NOT NULL DEFAULT '[]',
+        relevant_context TEXT NOT NULL DEFAULT '[]',
+        updated_at TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_task_states_task_run
+        ON agent_task_states(task_run_id);
+      CREATE INDEX IF NOT EXISTS idx_agent_task_states_session
+        ON agent_task_states(session_id, updated_at DESC);
+    `)
   }
 
   private ensureFieldSessionCheckpointsTaskRunShape(): void {

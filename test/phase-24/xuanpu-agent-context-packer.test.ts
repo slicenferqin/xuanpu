@@ -127,6 +127,21 @@ describe('packContext', () => {
     expect(result.providerContextMessages.length + 1).toBeGreaterThan(0)
   })
 
+  it('truncates task state when the summary is too large for the zone budget', () => {
+    const result = packContext({
+      ...BASE_INPUT,
+      taskStateSummary: `## Task Objective\n${'Very long progress note. '.repeat(120)}`,
+      currentRequest: 'Continue',
+      budgetOverrides: { taskState: 120 }
+    })
+
+    const taskStateBlock = result.providerContextMessages.find((message) =>
+      message.content[0].text.includes('xuanpu-task-state')
+    )
+    expect(taskStateBlock).toBeDefined()
+    expect(taskStateBlock?.content[0].text).toContain('task state truncated by context budget')
+  })
+
   it('sorts episodes by most recent first', () => {
     const old = makeEpisode({
       id: 'ep-old',
@@ -240,6 +255,30 @@ describe('packContext', () => {
     // Same anchor + same frozen episodes → same prefixHash
     expect(result1.decisions.prefixHash).toBe(result2.decisions.prefixHash)
     expect(result1.decisions.prefixHash).toMatch(/^[0-9a-f]+$/)
+  })
+
+  it('includes task state as volatile context without changing prefixHash', () => {
+    const input = {
+      ...BASE_INPUT,
+      frozenEpisodes: [makeEpisode()],
+      taskStateSummary: '## Task Objective\nImplement stable long task context',
+      currentRequest: 'Continue'
+    }
+
+    const result1 = packContext(input)
+    const result2 = packContext({
+      ...input,
+      taskStateSummary: '## Task Objective\nDifferent latest progress and blocker'
+    })
+
+    expect(result1.decisions.zones.taskState.included).toBe(true)
+    expect(result1.decisions.zones.taskState.tokens).toBeGreaterThan(0)
+    expect(result1.decisions.prefixHash).toBe(result2.decisions.prefixHash)
+
+    const taskStateText = result1.providerContextMessages
+      .map((message) => message.content[0].text)
+      .find((text) => text.includes('xuanpu-task-state'))
+    expect(taskStateText).toContain('Implement stable long task context')
   })
 
   it('returns different prefixHash when frozen episodes change', () => {

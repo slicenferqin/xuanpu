@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 35
+export const CURRENT_SCHEMA_VERSION = 36
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -1441,6 +1441,33 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_agent_task_runs_session;
       DROP TABLE IF EXISTS agent_task_runs;
       -- SQLite cannot DROP COLUMN reliably; nullable association columns are left in place.
+    `
+  },
+  {
+    version: 36,
+    name: 'add_agent_task_states',
+    up: `
+      -- Task states: independent storage for task progress, decisions, and context.
+      CREATE TABLE IF NOT EXISTS agent_task_states (
+        id TEXT PRIMARY KEY,
+        task_run_id TEXT NOT NULL REFERENCES agent_task_runs(id) ON DELETE CASCADE,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        objective TEXT NOT NULL,
+        steps TEXT NOT NULL DEFAULT '[]',
+        current_blocker TEXT,
+        decisions TEXT NOT NULL DEFAULT '[]',
+        relevant_context TEXT NOT NULL DEFAULT '[]',
+        updated_at TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_task_states_task_run
+        ON agent_task_states(task_run_id);
+      CREATE INDEX IF NOT EXISTS idx_agent_task_states_session
+        ON agent_task_states(session_id, updated_at DESC);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_agent_task_states_session;
+      DROP INDEX IF EXISTS idx_agent_task_states_task_run;
+      DROP TABLE IF EXISTS agent_task_states;
     `
   }
 ]

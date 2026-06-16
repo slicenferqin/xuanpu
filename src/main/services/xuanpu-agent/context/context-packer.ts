@@ -6,12 +6,13 @@
  *
  * Zone layout:
  *   1. Anchor        — cache-friendly rules (~1K tokens, fixed)
- *   2. FrozenEpisodes — model-summarized history (~2-6K tokens)
- *   3. RetrievedEpisodes — gated historical retrieval (volatile)
- *   4. WorkingSet    — recent N turns, deduped against episodes (~5-15K tokens)
- *   5. CurrentField  — live XFP / field packet (~2-5K tokens, volatile)
- *   6. CurrentRequest — user's message (never compressed)
- *   7. Buffer        — implicit (remaining budget)
+ *   2. FrozenEpisodes — model-summarized history (~2-6K tokens, stable prefix)
+ *   3. TaskState     — current long-task progress summary (volatile, bounded)
+ *   4. RetrievedEpisodes — gated historical retrieval (volatile)
+ *   5. WorkingSet    — recent N turns, deduped against episodes (~5-15K tokens)
+ *   6. CurrentField  — live XFP / field packet (~2-5K tokens, volatile)
+ *   7. CurrentRequest — user's message (never compressed)
+ *   8. Buffer        — implicit (remaining budget)
  */
 import type { XuanpuPiPromptMessage } from '../context-transform'
 import type { FieldTurn } from '../field/provider'
@@ -36,6 +37,8 @@ export interface ContextPackerInput {
   retrievedEpisodes?: RetrievedEpisodeEntry[]
   workingSet: FieldTurn[]
   currentRequest: string
+  /** Task state summary for context stability. */
+  taskStateSummary?: string | null
   /** Override per-zone budgets (tokens). */
   budgetOverrides?: Partial<ContextZoneBudgets>
   /** Total budget profile tokens. Default: 150_000 (balanced). */
@@ -61,6 +64,7 @@ export interface ContextPackerOutput {
 export interface ContextPackerDecisions {
   zones: {
     anchor: { tokens: number }
+    taskState: { tokens: number; included: boolean }
     currentField: { tokens: number; included: boolean }
     frozenEpisodes: { tokens: number; count: number; dropped: number }
     retrievedEpisodes: { tokens: number; count: number; dropped: number; reasons: string[]; includedIds: string[] }
@@ -78,6 +82,7 @@ export interface ContextPackerDecisions {
 
 interface ContextZoneBudgets {
   anchor: number
+  taskState: number
   currentField: number
   frozenEpisodes: number
   workingSet: number
@@ -90,9 +95,10 @@ interface ContextZoneBudgets {
 
 const DEFAULT_ZONE_BUDGETS: ContextZoneBudgets = {
   anchor: 2_000,
+  taskState: 8_000,
   currentField: 8_000,
   frozenEpisodes: 10_000,
-  workingSet: 25_000,
+  workingSet: 15_000,
   currentRequest: 50_000
 }
 
@@ -148,7 +154,7 @@ export function packContext(input: ContextPackerInput): ContextPackerOutput {
   stablePrefixMessages.push(anchorMessage)
   usedTokens += anchorTokens
 
-  // ── Zone 2: FrozenEpisodes ──
+  // ── Zone 2: FrozenEpisodes (stable prefix) ──
   const { included: includedEpisodes, dropped: droppedEpisodes, tokens: episodeTokens } =
     packEpisodes(input.frozenEpisodes, budgets.frozenEpisodes, totalBudget - usedTokens, now)
   let frozenEpisodeText = ''
@@ -172,7 +178,20 @@ export function packContext(input: ContextPackerInput): ContextPackerOutput {
       ? 'episodes'
       : 'none'
 
-  // ── Zone 3: RetrievedEpisodes ──
+  // ── Zone 3: TaskState (volatile; do not pollute stable prefix) ──
+  let taskStateTokens = 0
+  let taskStateIncluded = false
+  if (input.taskStateSummary?.trim()) {
+    const taskStateText = buildTaskStateText(input.taskStateSummary.trim(), budgets.taskState)
+    taskStateTokens = estimateTokens(taskStateText)
+    if (usedTokens + taskStateTokens <= totalBudget) {
+      messages.push(createUserMessage(taskStateText, now))
+      usedTokens += taskStateTokens
+      taskStateIncluded = true
+    }
+  }
+
+  // ── Zone 4: RetrievedEpisodes ──
   const retrievedEntries = input.retrievedEpisodes ?? []
   const {
     included: includedRetrieved,
@@ -249,6 +268,7 @@ export function packContext(input: ContextPackerInput): ContextPackerOutput {
     decisions: {
       zones: {
         anchor: { tokens: anchorTokens },
+        taskState: { tokens: taskStateTokens, included: taskStateIncluded },
         currentField: { tokens: fieldTokens, included: fieldIncluded },
         frozenEpisodes: {
           tokens: episodeTokens,
@@ -313,6 +333,19 @@ function packEpisodes(
   }
 
   return { included, dropped: episodes.length - included.length, tokens }
+}
+
+function buildTaskStateText(summary: string, budget: number): string {
+  const prefix = '<xuanpu-task-state>'
+  const suffix = '</xuanpu-task-state>'
+  const marker = '\n...[task state truncated by context budget]'
+  const fullText = [prefix, summary, suffix].join('\n')
+  if (estimateTokens(fullText) <= budget) return fullText
+
+  const wrapperBytes = Buffer.byteLength(`${prefix}\n${marker}\n${suffix}`, 'utf-8')
+  const maxBytes = Math.max(400, budget * 4 - wrapperBytes)
+  const truncated = Buffer.from(summary, 'utf-8').subarray(0, maxBytes).toString('utf-8')
+  return [prefix, `${truncated}${marker}`, suffix].join('\n')
 }
 
 function packRetrievedEpisodes(
