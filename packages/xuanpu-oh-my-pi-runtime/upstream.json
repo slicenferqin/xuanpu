@@ -1,0 +1,28 @@
+{
+  "runtimePackage": "@xuanpu/oh-my-pi-runtime",
+  "compatAliasPackage": "@xuanpu/pi-agent-core",
+  "upstreamRepo": "https://github.com/can1357/oh-my-pi",
+  "upstreamTag": "v15.2.4",
+  "upstreamCommit": null,
+  "upstreamPackages": {
+    "@oh-my-pi/pi-agent-core": "15.2.4",
+    "@oh-my-pi/pi-ai": "15.2.4"
+  },
+  "xuanpuContracts": [
+    "turn-scoped-runTurn-context-messages-do-not-prompt-echo",
+    "fresh-agent-per-runTurn-call",
+    "provider-session-state-disabled-by-default"
+  ],
+  "patchQueue": [
+    {
+      "id": "0001-turn-scoped-runTurn",
+      "path": "patches/0001-turn-scoped-runTurn.patch",
+      "summary": "Add a runTurn facade that loads context through replaceMessages and prompts only with the current user message.",
+      "contracts": [
+        "turn-scoped-runTurn-context-messages-do-not-prompt-echo",
+        "fresh-agent-per-runTurn-call",
+        "provider-session-state-disabled-by-default"
+      ]
+    }
+  ]
+}

@@ -41,7 +41,8 @@ export default defineWorkspace([
     },
     resolve: {
       alias: {
-        '@shared': resolve(__dirname, 'src/shared')
+        '@shared': resolve(__dirname, 'src/shared'),
+        '@xuanpu/oh-my-pi-runtime': resolve(__dirname, 'packages/xuanpu-oh-my-pi-runtime/src')
       }
     }
   }

@@ -48,12 +48,20 @@
 - [x] Context Budget Debugger 支持按 ProviderRequestSnapshot 回放完整 provider-visible 输入。
 - [x] 把 `xuanpu-agent-implementer.ts` 进一步拆成 `TaskRunScheduler`、`UserRoundRunner`、`ProviderRequestRecorder` 等独立模块。
 
+### Track E：oh-my-pi-derived runtime 包边界
+
+- [x] 新增 `@xuanpu/oh-my-pi-runtime` 主包，保留 `@xuanpu/pi-agent-core` 作为兼容 alias。
+- [x] 增加 `upstream.json` 与命名 patch queue，明确 oh-my-pi `15.2.4` 基线和 Xuanpu-owned contract。
+- [x] `loadPiAgentCoreModule()` 默认加载新的 runtime facade，避免 Desktop 业务直接依赖上游行为细节。
+- [x] `runTurn()` contract test 覆盖 context 不 prompt-echo、fresh Agent per turn、providerSessionState 默认 disabled。
+
 ## 当前实现顺序
 
 1. 已完成 Track B 的 `ToolCallGovernor`，覆盖高噪声工具调用，避免无效执行。
 2. 已完成 Track C 的 `ToolObservation`，让输出卸载对模型和审计都可见。
 3. 已完成 Track A/D 的 `ContextSegment`/`UserRound` 语义与测试，证明当前 epoch 存储可作为 internal segment。
 4. 已完成 Context Budget Debugger 回放与 runtime 生命周期拆包，当前阶段不再保留功能性未完成项。
+5. 已完成 oh-my-pi-derived runtime 主包边界、upstream metadata 与 contract test。
 
 ## 验收命令
 
@@ -61,6 +69,7 @@
 
 ```bash
 pnpm vitest run \
+  test/phase-24/xuanpu-oh-my-pi-runtime-contract.test.ts \
   test/phase-24/xuanpu-agent-media-offload.test.ts \
   test/phase-24/xuanpu-agent-tool-output-truncation.test.ts \
   test/phase-24/xuanpu-agent-provider-request-builder.test.ts \
@@ -80,12 +89,16 @@ pnpm exec eslint \
   src/main/services/xuanpu-agent/media-offloader.ts \
   src/main/db/task-run-repository.ts \
   src/main/db/turn-repository.ts \
-  src/renderer/src/components/session-hq/XuanpuAgentTaskRunPanel.tsx
+  src/renderer/src/components/session-hq/XuanpuAgentTaskRunPanel.tsx \
+  packages/xuanpu-oh-my-pi-runtime/src/index.ts \
+  packages/xuanpu-oh-my-pi-runtime/src/agent-loop.ts
 ```
 
 ## 当前验证记录
 
 - `pnpm exec tsc -p tsconfig.json --noEmit`：通过。
-- xuanpu-agent 可运行验收集：23 个测试文件、136 个测试通过。
+- runtime 包边界相关 ESLint：通过，无 warning。
+- xuanpu-agent 可运行验收集：24 个测试文件、138 个测试通过。
 - `TaskRunScheduler` / `UserRoundRunner` 模块级测试覆盖新建/恢复 TaskRun、UserRound 起点、ContextSegment/Turn scope、失败/中止落库路径。
+- `@xuanpu/oh-my-pi-runtime` contract test 覆盖 turn-scoped `runTurn()` 的核心不变量。
 - `test/phase-24/xuanpu-agent-runtime-status.test.ts` 当前在 Node/Vitest 环境下因上游 `@oh-my-pi/pi-ai` 的 `bun:sqlite` 解析失败，未纳入本轮通过集；该失败早于本轮 runtime 逻辑执行。

@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@oh-my-pi/pi-agent-core": "15.2.4",
-    "@oh-my-pi/pi-ai": "15.2.4"
+    "@oh-my-pi/pi-ai": "15.2.4",
+    "@xuanpu/oh-my-pi-runtime": "workspace:*"
   }
 }

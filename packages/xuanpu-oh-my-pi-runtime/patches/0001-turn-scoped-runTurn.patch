@@ -1,0 +1,18 @@
+Patch: 0001-turn-scoped-runTurn
+Upstream: can1357/oh-my-pi v15.2.4
+Owner: xuanpu-agent runtime
+
+Summary:
+  Xuanpu adds a runTurn facade around the upstream Agent so a single provider
+  request is auditable and replayable. Historical/context messages are loaded
+  into the fresh Agent with replaceMessages(). Only the current prompt message
+  is sent to agent.prompt().
+
+Contract:
+  - context messages do not produce prompt echo events
+  - every runTurn call creates a fresh Agent
+  - providerSessionState is disabled unless a future replay-capable policy
+    explicitly opts in
+
+Implementation:
+  See packages/xuanpu-oh-my-pi-runtime/src/agent-loop.ts.

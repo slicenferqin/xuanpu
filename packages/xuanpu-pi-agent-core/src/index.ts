@@ -1,10 +1,8 @@
 /**
- * Xuanpu fork of @oh-my-pi/pi-agent-core.
+ * Compatibility alias for the Xuanpu controlled oh-my-pi runtime package.
  *
- * Re-exports the full Agent API unchanged, and adds:
- *   - runTurn() — turn-scoped prompt without context-message echo.
+ * New code should prefer @xuanpu/oh-my-pi-runtime. This alias remains so older
+ * imports keep working while package boundaries are migrated.
  */
-export * from '@oh-my-pi/pi-agent-core'
-
-// Override agent-loop exports with turn-scoped variants.
-export { runTurn, agentLoop, agentLoopContinue } from './agent-loop'
+export * from '@xuanpu/oh-my-pi-runtime'
+export { runTurn, agentLoop, agentLoopContinue } from '@xuanpu/oh-my-pi-runtime'

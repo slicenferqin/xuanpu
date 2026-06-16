@@ -13,7 +13,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src/renderer/src'),
-      '@shared': resolve(__dirname, 'src/shared')
+      '@shared': resolve(__dirname, 'src/shared'),
+      '@xuanpu/oh-my-pi-runtime': resolve(__dirname, 'packages/xuanpu-oh-my-pi-runtime/src')
     }
   }
 })

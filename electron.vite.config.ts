@@ -44,6 +44,7 @@ export default defineConfig({
           '@oh-my-pi/pi-agent-core',
           '@oh-my-pi/pi-ai',
           '@oh-my-pi/pi-utils',
+          '@xuanpu/oh-my-pi-runtime',
           '@xuanpu/pi-agent-core'
         ]
       }),
@@ -53,6 +54,7 @@ export default defineConfig({
       alias: {
         '@main': resolve('src/main'),
         '@shared': resolve('src/shared'),
+        '@xuanpu/oh-my-pi-runtime': resolve('packages/xuanpu-oh-my-pi-runtime/src'),
         '@oh-my-pi/pi-natives': resolve('src/main/services/xuanpu-agent/pi-natives-compat.ts'),
         'bun:sqlite': resolve('src/main/services/xuanpu-agent/bun-sqlite-compat.ts'),
         bun: resolve('src/main/services/xuanpu-agent/bun-compat.ts')

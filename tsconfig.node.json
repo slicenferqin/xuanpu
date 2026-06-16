@@ -14,7 +14,9 @@
     "paths": {
       "@main/*": ["src/main/*"],
       "@preload/*": ["src/preload/*"],
-      "@shared/*": ["src/shared/*"]
+      "@shared/*": ["src/shared/*"],
+      "@xuanpu/oh-my-pi-runtime": ["packages/xuanpu-oh-my-pi-runtime/src/index.ts"],
+      "@xuanpu/oh-my-pi-runtime/*": ["packages/xuanpu-oh-my-pi-runtime/src/*"]
     }
   }
 }

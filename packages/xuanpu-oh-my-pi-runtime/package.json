@@ -1,0 +1,18 @@
+{
+  "name": "@xuanpu/oh-my-pi-runtime",
+  "version": "15.2.4",
+  "private": true,
+  "description": "Xuanpu controlled oh-my-pi-derived runtime subset with turn-scoped contracts",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./agent-loop": "./src/agent-loop.ts",
+    "./upstream": "./upstream.json",
+    "./*": "./src/*"
+  },
+  "dependencies": {
+    "@oh-my-pi/pi-agent-core": "15.2.4",
+    "@oh-my-pi/pi-ai": "15.2.4"
+  }
+}

@@ -1,15 +1,14 @@
 {
   "files": [],
-  "references": [
-    { "path": "./tsconfig.node.json" },
-    { "path": "./tsconfig.web.json" }
-  ],
+  "references": [{ "path": "./tsconfig.node.json" }, { "path": "./tsconfig.web.json" }],
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/renderer/src/*"],
       "@main/*": ["src/main/*"],
-      "@preload/*": ["src/preload/*"]
+      "@preload/*": ["src/preload/*"],
+      "@xuanpu/oh-my-pi-runtime": ["packages/xuanpu-oh-my-pi-runtime/src/index.ts"],
+      "@xuanpu/oh-my-pi-runtime/*": ["packages/xuanpu-oh-my-pi-runtime/src/*"]
     }
   }
 }
