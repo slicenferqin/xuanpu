@@ -46,7 +46,6 @@ export class StormDetector {
    * 返回一个 `beforeToolCall` 钩子函数，可直接赋值给 `agent.beforeToolCall`。
    */
   get hook(): BeforeToolCallFn {
-    // eslint-disable-next-line @typescript-eslint/require-await
     return async (ctx) => {
       const toolName = ctx.toolCall.name ?? ''
       const argsHash = this.hashArgs(ctx.args)
