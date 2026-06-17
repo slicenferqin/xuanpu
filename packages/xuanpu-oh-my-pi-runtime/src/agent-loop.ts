@@ -15,10 +15,12 @@ import type {
   AgentLoopConfig,
   AgentMessage,
   AgentTool,
+  AgentToolContext,
   StreamFn
-} from '@oh-my-pi/pi-agent-core'
-import { Agent } from '@oh-my-pi/pi-agent-core'
-import type { Model } from '@oh-my-pi/pi-ai'
+} from '@oh-my-pi/pi-agent-core/types'
+import type { ToolCallContext } from '@oh-my-pi/pi-agent-core/types'
+import { Agent } from '@oh-my-pi/pi-agent-core/agent'
+import type { Model } from '@oh-my-pi/pi-ai/types'
 
 // Re-export everything from the original agent-loop for backwards compat.
 export {
@@ -27,7 +29,7 @@ export {
   agentLoopDetailed,
   agentLoopContinueDetailed,
   INTENT_FIELD
-} from '@oh-my-pi/pi-agent-core'
+} from '@oh-my-pi/pi-agent-core/agent-loop'
 
 export interface RunTurnOptions {
   /** Context messages (anchor, field, episodes, working set). NOT prompt-echoed. */
@@ -51,9 +53,7 @@ export interface RunTurnOptions {
     transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>
     beforeToolCall?: AgentLoopConfig['beforeToolCall']
     afterToolCall?: AgentLoopConfig['afterToolCall']
-    getToolContext?: (
-      toolCall?: import('@oh-my-pi/pi-agent-core').ToolCallContext
-    ) => import('@oh-my-pi/pi-agent-core').AgentToolContext | undefined
+    getToolContext?: (toolCall?: ToolCallContext) => AgentToolContext | undefined
   }
 }
 

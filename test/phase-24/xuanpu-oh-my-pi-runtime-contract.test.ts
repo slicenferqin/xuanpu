@@ -1,3 +1,6 @@
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 type AgentEvent = { type: string; [key: string]: unknown }
@@ -57,6 +60,19 @@ const fakeRuntime = vi.hoisted(() => {
 
 vi.mock('@oh-my-pi/pi-agent-core', () => ({
   Agent: fakeRuntime.FakeAgent,
+  agentLoop: vi.fn(),
+  agentLoopContinue: vi.fn(),
+  agentLoopDetailed: vi.fn(),
+  agentLoopContinueDetailed: vi.fn(),
+  INTENT_FIELD: 'intent'
+}))
+
+vi.mock('@oh-my-pi/pi-agent-core/agent', () => ({
+  Agent: fakeRuntime.FakeAgent,
+  AgentBusyError: class AgentBusyError extends Error {}
+}))
+
+vi.mock('@oh-my-pi/pi-agent-core/agent-loop', () => ({
   agentLoop: vi.fn(),
   agentLoopContinue: vi.fn(),
   agentLoopDetailed: vi.fn(),
@@ -130,5 +146,61 @@ describe('@xuanpu/oh-my-pi-runtime runTurn contract', () => {
     expect(fakeRuntime.constructors.every((options) => !('providerSessionState' in options))).toBe(
       true
     )
+  })
+
+  it('keeps the controlled runtime package publishable from dist artifacts', async () => {
+    const pkg = JSON.parse(
+      await readFile(join(process.cwd(), 'packages/xuanpu-oh-my-pi-runtime/package.json'), 'utf8')
+    )
+
+    expect(pkg.private).toBeUndefined()
+    expect(pkg.main).toBe('./dist/index.js')
+    expect(pkg.types).toBe('./dist/index.d.ts')
+    expect(pkg.exports['.']).toMatchObject({
+      import: './dist/index.js',
+      types: './dist/index.d.ts'
+    })
+    expect(pkg.exports['./agent-loop']).toMatchObject({
+      import: './dist/agent-loop.js',
+      types: './dist/agent-loop.d.ts'
+    })
+    expect(pkg.exports['./upstream']).toBe('./upstream.json')
+    expect(pkg.files).toEqual(['dist', 'patches', 'upstream.json', 'package.json'])
+    expect(pkg.scripts).toMatchObject({
+      build: 'tsc -p tsconfig.json',
+      typecheck: 'tsc -p tsconfig.json --noEmit',
+      'pack:local': 'pnpm run build && pnpm pack'
+    })
+    expect(pkg.publishConfig).toEqual({ access: 'public' })
+    expect(pkg.dependencies).toMatchObject({
+      '@oh-my-pi/pi-agent-core': '15.2.4',
+      '@oh-my-pi/pi-ai': '15.2.4'
+    })
+  })
+
+  it('keeps the compatibility alias package publishable and pointed at runtime dist', async () => {
+    const pkg = JSON.parse(
+      await readFile(join(process.cwd(), 'packages/xuanpu-pi-agent-core/package.json'), 'utf8')
+    )
+
+    expect(pkg.private).toBeUndefined()
+    expect(pkg.main).toBe('./dist/index.js')
+    expect(pkg.types).toBe('./dist/index.d.ts')
+    expect(pkg.exports['.']).toMatchObject({
+      import: './dist/index.js',
+      types: './dist/index.d.ts'
+    })
+    expect(pkg.exports['./agent-loop']).toMatchObject({
+      import: './dist/agent-loop.js',
+      types: './dist/agent-loop.d.ts'
+    })
+    expect(pkg.files).toEqual(['dist', 'package.json'])
+    expect(pkg.scripts).toMatchObject({
+      build: 'tsc -p tsconfig.json',
+      typecheck: 'tsc -p tsconfig.json --noEmit',
+      'pack:local': 'pnpm run build && pnpm pack'
+    })
+    expect(pkg.publishConfig).toEqual({ access: 'public' })
+    expect(pkg.dependencies['@xuanpu/oh-my-pi-runtime']).toBe('workspace:*')
   })
 })

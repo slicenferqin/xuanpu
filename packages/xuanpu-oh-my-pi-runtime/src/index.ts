@@ -7,4 +7,4 @@
 export * from '@oh-my-pi/pi-agent-core'
 
 // Override agent-loop exports with turn-scoped variants.
-export { runTurn, agentLoop, agentLoopContinue } from './agent-loop'
+export { runTurn, agentLoop, agentLoopContinue } from './agent-loop.js'

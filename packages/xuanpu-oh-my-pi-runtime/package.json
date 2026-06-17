@@ -1,15 +1,36 @@
 {
   "name": "@xuanpu/oh-my-pi-runtime",
   "version": "15.2.4",
-  "private": true,
   "description": "Xuanpu controlled oh-my-pi-derived runtime subset with turn-scoped contracts",
+  "license": "MIT",
   "type": "module",
-  "main": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./agent-loop": "./src/agent-loop.ts",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./agent-loop": {
+      "types": "./dist/agent-loop.d.ts",
+      "import": "./dist/agent-loop.js"
+    },
     "./upstream": "./upstream.json",
-    "./*": "./src/*"
+    "./upstream.json": "./upstream.json"
+  },
+  "files": [
+    "dist",
+    "patches",
+    "upstream.json",
+    "package.json"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "pack:local": "pnpm run build && pnpm pack",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "@oh-my-pi/pi-agent-core": "15.2.4",
