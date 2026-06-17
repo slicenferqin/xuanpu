@@ -200,4 +200,28 @@ describe('xuanpu-agent task-state repository', () => {
     expect(manager.buildContextSummary()).toContain('## Task Objective')
     expect(manager.buildContextSummary()).toContain('run_test failed')
   })
+
+  it('does not persist misleading execution-budget claims as decisions', () => {
+    const db = createFakeTaskStateDb()
+    const manager = new TaskStateManager({ taskRunId: 'task-run-1', sessionId: 'session-1', db })
+    manager.initialize('Review recent commits')
+
+    const updated = manager.updateFromTurn({
+      userMessage: '继续',
+      assistantMessage:
+        '本轮没有可用工具预算，无法继续读取文件、改代码或跑测试；因此没有新增诊断结论，也没有应用任何变更。',
+      toolCalls: [
+        {
+          name: 'git_status',
+          args: {},
+          result: 'Branch: feat/xuanpu-agent-oh-my-pi'
+        }
+      ],
+      filesChanged: [],
+      errors: []
+    }) as AgentTaskState
+
+    expect(updated.decisions).toHaveLength(0)
+    expect(manager.buildContextSummary()).not.toContain('没有可用工具预算')
+  })
 })

@@ -69,6 +69,7 @@ const taskRunRepoMock = vi.hoisted(() => ({
   })),
   getTaskRun: vi.fn(() => null),
   getActiveTaskRun: vi.fn(() => null),
+  listTaskRunsForSession: vi.fn(() => []),
   createUserRound: vi.fn(() => ({
     id: 'round-test-1',
     taskRunId: 'task-run-test-1',
@@ -350,6 +351,7 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     mockPiSession.followUp.mockReturnValue(true)
     taskRunRepoMock.getTaskRun.mockReturnValue(null)
     taskRunRepoMock.getActiveTaskRun.mockReturnValue(null)
+    taskRunRepoMock.listTaskRunsForSession.mockReturnValue([])
     taskRunRepoMock.createTaskRun.mockReturnValue({
       id: 'task-run-test-1',
       sessionId: 'session-1',
@@ -1562,6 +1564,82 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     ).toBe(false)
   })
 
+  it('defers continuation to the final incomplete response after successful tool progress', async () => {
+    const createSessionPendingMessage = vi.fn()
+    mockPiSession.prompt.mockImplementationOnce(
+      async (messages: unknown[], _modelRef: unknown, handlers?: Record<string, unknown>) => {
+        capturedPromptMessages = messages as unknown[]
+        const onToolEnd = handlers?.onToolEnd as
+          | ((event: Record<string, unknown>, meta: Record<string, unknown>) => void)
+          | undefined
+
+        onToolEnd?.(
+          {
+            toolCallId: 'call-read-manifest',
+            toolName: 'read_file',
+            args: { path: 'docs/architecture/xuanpu-agent-task-run/manifest.json' },
+            result: { content: [{ type: 'text', text: 'manifest content' }] },
+            isError: false,
+            startedAt: 1704067202000,
+            endedAt: 1704067203000
+          },
+          { turnId: 'turn-test-1', eventSequence: 1 }
+        )
+
+        const beforeYield = mockPiSession.setOnBeforeYield.mock.calls.at(-1)?.[0] as
+          | (() => Promise<void>)
+          | undefined
+        for (let index = 0; index < 5; index++) {
+          await beforeYield?.()
+        }
+
+        return {
+          messageId: 'resp-1',
+          text: '任务尚未完成；已读取 manifest，下一步继续补齐。',
+          modelRef: { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
+          usage: { input: 10, output: 5 },
+          rawMessage: null,
+          harnessMetrics: null,
+          turnId: 'turn-test-1'
+        }
+      }
+    )
+
+    const { XuanpuAgentImplementer } =
+      await import('../../src/main/services/xuanpu-agent-implementer')
+    const implementer = new XuanpuAgentImplementer()
+    implementer.setDatabaseService({
+      getWorktreeByPath: vi.fn(() => ({ id: 'w-1', projectId: 'p-1' })),
+      getSetting: vi.fn(() => null),
+      getSession: vi.fn(() => ({ id: 's-1', project_id: 'p-1', worktree_id: 'w-1' })),
+      upsertUsageEntry: vi.fn(),
+      createSessionPendingMessage
+    } as unknown as DatabaseService)
+
+    const { sessionId } = await implementer.connect('/repo', 'session-1')
+    await implementer.prompt('/repo', sessionId, 'long staged audit')
+
+    expect(taskRunRepoMock.closeEpoch).toHaveBeenCalledWith(
+      'epoch-test-1',
+      expect.objectContaining({
+        status: 'closed',
+        closeReason: 'turn_end'
+      }),
+      expect.anything()
+    )
+    expect(createSessionPendingMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        session_id: 'session-1',
+        runtime_id: 'xuanpu-agent',
+        content: expect.stringContaining('incomplete-response'),
+        prompt_options_json: expect.stringContaining('"taskRunId":"task-run-test-1"')
+      })
+    )
+    expect(createSessionPendingMessage.mock.calls[0][0].content).not.toContain(
+      'no-progress-recovery'
+    )
+  })
+
   it('continues a recovery continuation when it made concrete tool progress', async () => {
     const createSessionPendingMessage = vi.fn()
     mockPiSession.prompt.mockImplementationOnce(
@@ -1629,8 +1707,8 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     expect(taskRunRepoMock.closeEpoch).toHaveBeenCalledWith(
       'epoch-test-1',
       expect.objectContaining({
-        status: 'checkpointed',
-        closeReason: 'checkpoint'
+        status: 'closed',
+        closeReason: 'turn_end'
       }),
       expect.anything()
     )
@@ -1644,6 +1722,7 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
       expect.objectContaining({
         session_id: 'session-1',
         runtime_id: 'xuanpu-agent',
+        content: expect.stringContaining('incomplete-response'),
         prompt_options_json: expect.stringContaining('task-run-test-1')
       })
     )

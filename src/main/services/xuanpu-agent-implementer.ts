@@ -1031,11 +1031,13 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
 
         if (noProgressCalls >= NO_PROGRESS_LIMIT) {
           const hasConcreteProgress = progressSignal > 0
-          if (promptIsNoProgressRecovery && !hasConcreteProgress) {
+          if (hasConcreteProgress) {
+            noProgressCalls = 0
+            return
+          }
+
+          if (promptIsNoProgressRecovery) {
             await pauseTaskRun('no progress after recovery')
-          } else if (promptIsNoProgressRecovery) {
-            await closeEpochOnce('checkpoint', 'checkpointed')
-            queueContinuation()
           } else {
             await queueNoProgressRecovery()
           }
@@ -2886,6 +2888,7 @@ function isIncompleteTaskResponse(text: string): boolean {
     /只完成到/,
     /只(?:读|读取|完成)到/,
     /还(?:没|没有).*完成/,
+    /(?:尚需|仍需|还需|还需要|仍然需要|还要|仍要).{0,16}(?:继续|补全|完成|处理|推进|修复|检查|审计)/,
     /need to continue/,
     /not (?:yet )?(?:complete|completed|finished)/,
     /response budget.*(?:reached|exhausted|insufficient|limit)/

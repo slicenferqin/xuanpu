@@ -127,6 +127,7 @@ export class TaskStateManager {
     for (const sentence of sentences) {
       const lowerSentence = sentence.toLowerCase()
       if (!DECISION_KEYWORDS.some((keyword) => lowerSentence.includes(keyword))) continue
+      if (isMisleadingExecutionBudgetClaim(sentence)) continue
 
       decisions.push({
         id: `${this.taskRunId}-decision-${randomUUID()}`,
@@ -214,4 +215,22 @@ export class TaskStateManager {
 
     return parts.join('\n\n')
   }
+}
+
+function isMisleadingExecutionBudgetClaim(sentence: string): boolean {
+  const normalized = sentence.replace(/\s+/g, ' ').trim().toLowerCase()
+  if (!normalized) return false
+
+  return [
+    /没有可用工具预算/,
+    /没有可用执行预算/,
+    /没有新的工具(?:执行)?结果/,
+    /没有新增(?:修改|变更|诊断|测试)/,
+    /无法继续(?:读取文件|修改代码|读写|执行工具)/,
+    /无法执行工具/,
+    /no available tool budget/,
+    /no tool budget/,
+    /without tool-backed/,
+    /no new tool/
+  ].some((pattern) => pattern.test(normalized))
 }

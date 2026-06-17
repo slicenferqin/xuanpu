@@ -3,6 +3,7 @@ import {
   createTaskRun,
   getActiveTaskRun,
   getTaskRun,
+  listTaskRunsForSession,
   updateTaskRunStatus
 } from '../../db/task-run-repository'
 import type { AgentTaskRun } from '../../../shared/types/agent-task-run'
@@ -32,12 +33,14 @@ export class TaskRunScheduler {
     const reusableTaskRun =
       requestedTaskRun &&
       requestedTaskRun.sessionId === input.sessionId &&
-      (requestedTaskRun.status === 'running' || requestedTaskRun.status === 'paused')
+      (requestedTaskRun.status === 'running' ||
+        requestedTaskRun.status === 'paused' ||
+        requestedTaskRun.status === 'completed')
         ? requestedTaskRun
         : null
 
     if (reusableTaskRun) {
-      const resumed = this.resumeIfPaused(reusableTaskRun, input.leaseWindowMs)
+      const resumed = this.resumeTaskRun(reusableTaskRun, input.leaseWindowMs)
       return { taskRun: resumed, reusedExisting: true }
     }
 
@@ -65,15 +68,23 @@ export class TaskRunScheduler {
 
     if (!shouldResumeActiveTaskRunFromPromptText(input.promptText)) return null
     const implicitTaskRun = getActiveTaskRun(input.sessionId, this.db)
-    return implicitTaskRun?.status === 'paused' ? implicitTaskRun : null
+    if (implicitTaskRun?.status === 'running' || implicitTaskRun?.status === 'paused') {
+      return implicitTaskRun
+    }
+
+    return (
+      listTaskRunsForSession(input.sessionId, { limit: 10 }, this.db).find(
+        (taskRun) => taskRun.status === 'completed' && !isBareContinuationPrompt(taskRun.objective)
+      ) ?? null
+    )
   }
 
-  private resumeIfPaused(taskRun: AgentTaskRun, leaseWindowMs?: number): AgentTaskRun {
-    if (taskRun.status !== 'paused') return taskRun
+  private resumeTaskRun(taskRun: AgentTaskRun, leaseWindowMs?: number): AgentTaskRun {
+    if (taskRun.status === 'running') return taskRun
 
-    const leaseExpiresAt = taskRun.leaseExpiresAt ?? this.nextLeaseExpiresAt(leaseWindowMs)
+    const leaseExpiresAt = this.nextLeaseExpiresAt(leaseWindowMs)
     updateTaskRunStatus(taskRun.id, 'running', { leaseExpiresAt }, this.db)
-    return { ...taskRun, status: 'running', leaseExpiresAt }
+    return { ...taskRun, status: 'running', leaseExpiresAt, completedAt: null, errorMessage: null }
   }
 
   private nextLeaseExpiresAt(leaseWindowMs?: number): string | null {
@@ -82,11 +93,31 @@ export class TaskRunScheduler {
   }
 }
 
+function isBareContinuationPrompt(text: string | null | undefined): boolean {
+  const normalized = (text ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
+  if (!normalized) return false
+
+  return [
+    /^继续$/,
+    /^请继续$/,
+    /^继续吧$/,
+    /^继续吧[，,\s]*长任务执行$/,
+    /^继续一下$/,
+    /^继续[，,\s]*(?:长任务执行|执行长任务)$/,
+    /^继续当前(?:任务|task run)?$/,
+    /^继续(?:处理|完成|推进)(?:剩下|余下|剩余|后续)(?:的)?(?:任务|工作)?$/,
+    /^continue$/,
+    /^resume$/
+  ].some((pattern) => pattern.test(normalized))
+}
+
 export function shouldResumeActiveTaskRunFromPromptText(text: string): boolean {
   const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase()
   if (!normalized) return false
 
   return [
+    /^继续$/,
+    /^继续吧$/,
     /^继续\b/,
     /^请继续\b/,
     /继续(?:当前|这个|上个|上一|跑|执行|推进|完成|处理|剩下|余下|后续)/,

@@ -5,6 +5,7 @@ const taskRunRepoMock = vi.hoisted(() => ({
   createTaskRun: vi.fn(),
   getActiveTaskRun: vi.fn(),
   getTaskRun: vi.fn(),
+  listTaskRunsForSession: vi.fn(),
   updateTaskRunStatus: vi.fn()
 }))
 
@@ -44,6 +45,7 @@ describe('TaskRunScheduler', () => {
     taskRunRepoMock.createTaskRun.mockReturnValue(makeTaskRun())
     taskRunRepoMock.getActiveTaskRun.mockReturnValue(null)
     taskRunRepoMock.getTaskRun.mockReturnValue(null)
+    taskRunRepoMock.listTaskRunsForSession.mockReturnValue([])
   })
 
   it('creates a new task run with a lease', () => {
@@ -123,7 +125,9 @@ describe('TaskRunScheduler', () => {
   })
 
   it('resumes a paused active task run for continuation prompts without creating a new run', () => {
-    taskRunRepoMock.getActiveTaskRun.mockReturnValue(makeTaskRun({ id: 'paused-run', status: 'paused' }))
+    taskRunRepoMock.getActiveTaskRun.mockReturnValue(
+      makeTaskRun({ id: 'paused-run', status: 'paused' })
+    )
     const scheduler = new TaskRunScheduler(db)
 
     const result = scheduler.schedule({
@@ -143,6 +147,49 @@ describe('TaskRunScheduler', () => {
     expect(taskRunRepoMock.createTaskRun).not.toHaveBeenCalled()
     expect(taskRunRepoMock.updateTaskRunStatus).toHaveBeenCalledWith(
       'paused-run',
+      'running',
+      { leaseExpiresAt: expect.any(String) },
+      db
+    )
+  })
+
+  it('reopens the latest completed non-continuation task for bare continuation prompts', () => {
+    taskRunRepoMock.listTaskRunsForSession.mockReturnValue([
+      makeTaskRun({
+        id: 'continuation-run',
+        status: 'completed',
+        objective: '继续吧，长任务执行',
+        completedAt: '2026-06-16T01:00:00.000Z'
+      }),
+      makeTaskRun({
+        id: 'original-run',
+        status: 'completed',
+        objective: '看下最近的提交代码，cr一下，出一份诊断报告',
+        completedAt: '2026-06-16T00:30:00.000Z'
+      })
+    ])
+    const scheduler = new TaskRunScheduler(db)
+
+    const result = scheduler.schedule({
+      sessionId: 'session-1',
+      worktreeId: 'worktree-1',
+      projectId: 'project-1',
+      originMessageId: 'msg-continue',
+      promptText: '继续',
+      leaseWindowMs: 1000
+    })
+
+    expect(result).toMatchObject({
+      reusedExisting: true,
+      taskRun: expect.objectContaining({
+        id: 'original-run',
+        status: 'running',
+        objective: '看下最近的提交代码，cr一下，出一份诊断报告'
+      })
+    })
+    expect(taskRunRepoMock.createTaskRun).not.toHaveBeenCalled()
+    expect(taskRunRepoMock.updateTaskRunStatus).toHaveBeenCalledWith(
+      'original-run',
       'running',
       { leaseExpiresAt: expect.any(String) },
       db

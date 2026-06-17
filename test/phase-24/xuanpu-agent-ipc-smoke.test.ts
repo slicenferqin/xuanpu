@@ -94,6 +94,7 @@ const taskRunRepoMock = vi.hoisted(() => ({
   })),
   getTaskRun: vi.fn(() => null),
   getActiveTaskRun: vi.fn(() => null),
+  listTaskRunsForSession: vi.fn(() => []),
   updateEpochStartFillRatio: vi.fn(),
   incrementEpochProviderCallCount: vi.fn(),
   incrementUserRoundProviderRequestCount: vi.fn(),
@@ -404,6 +405,7 @@ describe('xuanpu-agent IPC smoke', () => {
     vi.clearAllMocks()
     repositoryMocks.listFieldEpisodeBlocks.mockReturnValue([])
     checkpointMocks.verifyCheckpoint.mockResolvedValue(null)
+    taskRunRepoMock.listTaskRunsForSession.mockReturnValue([])
     process.env.XUANPU_AGENT_MOCK_RESPONSE = 'ipc mock response'
   })
 
