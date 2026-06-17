@@ -16,6 +16,13 @@ import { createFieldContextPackage } from '../../../field/context-package-reposi
 import { selectRetrievedEpisodesForContext } from '../episode-retrieval'
 import { summarizeEpisode } from '../context/episode-summarizer'
 import { SegmentCompactor } from '../context/segment-compactor'
+import {
+  buildOpenAiRemoteCompactionNativeInput,
+  extractProviderNativeReplayRefs,
+  readOpenAiRemoteCompactionPreserveData,
+  requestOpenAiRemoteCompaction,
+  shouldUseOpenAiRemoteCompaction
+} from '../context/provider-native-compaction'
 import type { XuanpuAgentModelRef } from '../model-config'
 import { loadXuanpuAgentConfig } from '../config-loader'
 import { createLogger } from '../../logger'
@@ -246,10 +253,10 @@ export class IdeFieldProvider implements FieldProvider {
         sessionId,
         limit: 200
       })
-      const compaction = new SegmentCompactor().compact({
+      const compactorInput = {
         worktreeId,
         sessionId,
-        reason: 'context-full',
+        reason: 'context-full' as const,
         messages: messages.map((msg) => ({
           id: msg.opencode_message_id ?? msg.id,
           role: msg.role,
@@ -257,12 +264,28 @@ export class IdeFieldProvider implements FieldProvider {
           createdAt: msg.created_at
         })),
         existingEpisodes
-      })
+      }
+      let compaction = new SegmentCompactor().compact(compactorInput)
 
       if (compaction.status === 'skipped') return
 
       // Resolve compaction model from settings
       const resolution = await this.resolveCompactionResolution()
+      const providerNative = await this.tryOpenAiRemoteCompaction({
+        compaction,
+        existingEpisodes,
+        resolution
+      })
+      if (providerNative) {
+        const providerNativeCompaction = new SegmentCompactor().compact({
+          ...compactorInput,
+          reason: 'provider-native',
+          providerNative
+        })
+        if (providerNativeCompaction.status === 'compacted') {
+          compaction = providerNativeCompaction
+        }
+      }
 
       const episode = await summarizeEpisode({
         worktreeId,
@@ -287,13 +310,68 @@ export class IdeFieldProvider implements FieldProvider {
         worktreeId,
         messageCount: compaction.selectedMessageIds.length,
         firstKeptEntryId: compaction.firstKeptEntryId,
-        modelSource: resolution.source
+        modelSource: resolution.source,
+        providerNativeReplayable:
+          compaction.audit.providerNative.replayable &&
+          Boolean(compaction.audit.providerNative.preserveDataRef)
       })
     } catch (error) {
       log.warn('Failed to freeze episodes', {
         sessionId,
         error: error instanceof Error ? error.message : String(error)
       })
+    }
+  }
+
+  private async tryOpenAiRemoteCompaction(input: {
+    compaction: Extract<ReturnType<SegmentCompactor['compact']>, { status: 'compacted' }>
+    existingEpisodes: ReturnType<typeof listFieldEpisodeBlocks>
+    resolution: Awaited<ReturnType<IdeFieldProvider['resolveCompactionResolution']>>
+  }) {
+    const modelRef = input.resolution.modelRef
+    if (!modelRef || !shouldUseOpenAiRemoteCompaction(modelRef.providerID)) return null
+    const apiKey = input.resolution.resolvedApiKey
+    if (!apiKey) return null
+
+    const previous = findLatestOpenAiRemoteCompactionHistory(
+      input.existingEpisodes,
+      modelRef.providerID
+    )
+    const compactInput = buildOpenAiRemoteCompactionNativeInput(
+      input.compaction.turns.map((turn) => ({
+        role: turn.role,
+        content: turn.content,
+        messageId: turn.messageId
+      })),
+      previous?.replacementHistory
+    )
+    if (compactInput.length === 0) return null
+
+    try {
+      const remote = await requestOpenAiRemoteCompaction({
+        model: {
+          providerID: modelRef.providerID,
+          modelID: modelRef.modelID,
+          ...extractOpenAiRemoteCompactionModelOptions(input.resolution.model)
+        },
+        apiKey,
+        input: compactInput,
+        instructions:
+          'Compact this Xuanpu Agent segment. Preserve provider-native reasoning state when available.'
+      })
+      return {
+        provider: modelRef.providerID,
+        firstKeptEntryId: input.compaction.firstKeptEntryId,
+        historyReplacementId: previous?.ref ?? null,
+        preserveData: remote.preserveData
+      }
+    } catch (error) {
+      log.warn('OpenAI remote compaction failed; falling back to local episode summary', {
+        provider: modelRef.providerID,
+        model: modelRef.modelID,
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return null
     }
   }
 
@@ -366,6 +444,47 @@ export class IdeFieldProvider implements FieldProvider {
 // ───────────────────────────────────────────────────────────────────────────
 // Helpers
 // ───────────────────────────────────────────────────────────────────────────
+
+function extractOpenAiRemoteCompactionModelOptions(model: unknown): {
+  baseUrl?: string
+  contextWindow?: number
+  headers?: Record<string, string>
+} {
+  if (!model || typeof model !== 'object') return {}
+  const record = model as Record<string, unknown>
+  const options: { baseUrl?: string; contextWindow?: number; headers?: Record<string, string> } = {}
+  if (typeof record.baseUrl === 'string') options.baseUrl = record.baseUrl
+  if (typeof record.contextWindow === 'number') options.contextWindow = record.contextWindow
+  if (record.headers && typeof record.headers === 'object') {
+    const headers = Object.entries(record.headers as Record<string, unknown>).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string'
+    )
+    if (headers.length > 0) options.headers = Object.fromEntries(headers)
+  }
+  return options
+}
+
+function findLatestOpenAiRemoteCompactionHistory(
+  episodes: ReturnType<typeof listFieldEpisodeBlocks>,
+  providerID: string
+) {
+  for (const episode of [...episodes].sort((a, b) => b.createdAt - a.createdAt)) {
+    const ref = extractProviderNativeReplayRefs({
+      episodeId: episode.id,
+      source: 'frozen-episode',
+      metadata: episode.metadata
+    }).find((candidate) => candidate.replayable && candidate.provider === providerID)
+    if (!ref) continue
+    const preserveData = readOpenAiRemoteCompactionPreserveData(ref.path)
+    if (preserveData?.provider === providerID) {
+      return {
+        ref: ref.ref,
+        replacementHistory: preserveData.replacementHistory
+      }
+    }
+  }
+  return null
+}
 
 function isConversationMessage(
   msg: SessionMessage

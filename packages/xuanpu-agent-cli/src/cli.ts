@@ -14,9 +14,10 @@ import {
   createOhMyPiRuntimeRunner,
   type XuanpuAgentCliRunner
 } from './runner.js'
+import { runJsonRpcBridge, type XuanpuAgentJsonRpcRequest } from './rpc-bridge.js'
 
 export interface XuanpuAgentCliParsedArgs {
-  command: 'run' | 'interactive' | 'help'
+  command: 'run' | 'interactive' | 'rpc' | 'acp' | 'help'
   cwd?: string
   prompt?: string
   sessionId?: string
@@ -34,6 +35,7 @@ export interface XuanpuAgentCliMainDeps {
   runner?: XuanpuAgentCliRunner
   write?: (chunk: string) => void
   prompts?: AsyncIterable<string>
+  rpcRequests?: AsyncIterable<string | XuanpuAgentJsonRpcRequest>
 }
 
 export function parseArgv(argv: string[]): XuanpuAgentCliParsedArgs {
@@ -53,6 +55,14 @@ export function parseArgv(argv: string[]): XuanpuAgentCliParsedArgs {
     }
     if (arg === 'interactive' || arg === 'repl') {
       parsed.command = 'interactive'
+      continue
+    }
+    if (arg === 'rpc') {
+      parsed.command = 'rpc'
+      continue
+    }
+    if (arg === 'acp') {
+      parsed.command = 'acp'
       continue
     }
     if (arg === '--help' || arg === '-h') {
@@ -204,6 +214,31 @@ export async function main(
     return 0
   }
 
+  if (parsed.command === 'rpc' || parsed.command === 'acp') {
+    await runJsonRpcBridge({
+      protocol: parsed.command === 'acp' ? 'acp' : 'json-rpc',
+      requests: deps.rpcRequests ?? createStdinRpcRequests(),
+      write,
+      prompt: (input) =>
+        runOneShot(
+          {
+            ...parsed,
+            command: 'run',
+            cwd: input.cwd ?? parsed.cwd,
+            prompt: input.prompt,
+            sessionId: input.sessionId ?? parsed.sessionId,
+            dryRun: input.dryRun ?? parsed.dryRun,
+            json: true,
+            allowWrites: input.allowWrites ?? parsed.allowWrites,
+            noTools: input.noTools ?? parsed.noTools,
+            model: input.model ?? parsed.model
+          },
+          deps
+        )
+    })
+    return 0
+  }
+
   const events =
     parsed.command === 'interactive' ? runInteractive(parsed, deps) : runOneShot(parsed, deps)
 
@@ -252,6 +287,22 @@ async function* createReadlinePrompts(): AsyncIterable<string> {
   }
 }
 
+async function* createStdinRpcRequests(): AsyncIterable<string> {
+  defaultStdin.setEncoding('utf8')
+  let buffer = ''
+  for await (const chunk of defaultStdin) {
+    buffer += String(chunk)
+    let newlineIndex = buffer.indexOf('\n')
+    while (newlineIndex >= 0) {
+      const line = buffer.slice(0, newlineIndex)
+      buffer = buffer.slice(newlineIndex + 1)
+      if (line.trim()) yield line
+      newlineIndex = buffer.indexOf('\n')
+    }
+  }
+  if (buffer.trim()) yield buffer
+}
+
 function formatTextEvent(event: XuanpuAgentCliEvent): string {
   if (event.type === 'message.updated') {
     const content = event.data.content ?? event.data.message ?? ''
@@ -268,8 +319,11 @@ function helpText(): string {
     'Usage:',
     '  xuanpu-agent run [--cwd PATH] [--model provider/model] [--allow-writes] [--dry-run] "prompt"',
     '  xuanpu-agent interactive [--cwd PATH] [--model provider/model] [--allow-writes]',
+    '  xuanpu-agent rpc [--cwd PATH] [--model provider/model] [--allow-writes]',
+    '  xuanpu-agent acp [--cwd PATH] [--model provider/model] [--allow-writes]',
     '',
     'Events are emitted as CanonicalAgentEvent-compatible NDJSON by default.',
+    'RPC/ACP modes read newline-delimited JSON-RPC 2.0 requests from stdin.',
     'Real-provider mode exposes read_file, rg_search, run_test, and write_file only with --allow-writes.'
   ]
   return `${lines.join('\n')}\n`

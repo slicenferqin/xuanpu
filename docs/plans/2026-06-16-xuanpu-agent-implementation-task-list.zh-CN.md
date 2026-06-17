@@ -92,7 +92,7 @@
 - [x] 新增 `createOhMyPiRuntimeRunner()`，通过 runtime dynamic import 接入 `@xuanpu/oh-my-pi-runtime`，不复制 Desktop implementer。
 - [x] real-provider runner 接入 CLI coding tools：`read_file`、`rg_search`、`run_test`，以及 `--allow-writes` 下的 `write_file`。
 - [x] CLI 包入口切到 `dist`，`bin.xuanpu-agent` 指向编译产物，`pnpm pack` 可生成包含 dist/bin 的 tarball。
-- [ ] RPC/ACP bridge 后置。
+- [x] RPC/ACP bridge：新增 `rpc` / `acp` 子命令，支持 stdio newline-delimited JSON-RPC 2.0、session/new、session/prompt、shutdown 和 CanonicalAgentEvent-compatible stream notification。
 
 ### Track J：OpenAI remote compact preserve-data replay / audit
 
@@ -100,7 +100,13 @@
 - [x] `ContextFrameCompiler` 将 frozen / retrieved episode 里的 provider-native replay refs 汇总进 frame ledger。
 - [x] `XuanpuProviderRequestSnapshot` / recorder / task-run report 都暴露 `providerNativeReplay`，便于审计和导出。
 - [x] 测试覆盖 archive、summary、metadata 抽取、provider request hash、recorder 和 task-run report。
-- [ ] 如后续要把 provider-native compaction 变成主动执行路径，再接上上游 `/responses/compact` 的 live 调用与回放。
+- [x] OpenAI/OpenAI-Codex compaction model 且有 API key 时，`IdeFieldProvider.freezeEpisodes()` 主动调用 `/responses/compact`，读取上一轮 replacementHistory，失败时回退本地/model summarizer。
+- [x] `/responses/compact` 返回的 provider-native `preserveData` 只进入本地 archive，episode metadata 只保存 ref/sha/path/summary，避免 encrypted provider content 污染上下文。
+
+### Track K：v16.x upgrade spike
+
+- [x] 新增 `docs/plans/2026-06-17-oh-my-pi-v16-upgrade-spike.zh-CN.md`，记录当前基线 `15.2.4`、上游最新 `v16.0.3`、风险面、diff 范围、contract tests 和升级门槛。
+- [x] 明确本轮不直接整包升级 v16.x；后续必须在独立 spike 分支回收 provider/compaction 层可测补丁。
 
 ## 当前实现顺序
 
@@ -115,12 +121,14 @@
 9. 已完成独立 `@xuanpu/agent-cli` 首批骨架，具备降级 FieldProvider、one-shot/interactive 编排和可测试事件输出。
 10. 已完成 OpenAI remote compact preserve-data replay / audit，具备 archive、frame ledger、request snapshot 和 report 导出链路。
 11. 已完成 `@xuanpu/agent-cli` 的基础 real-provider coding tool loop 与 dist/bin/pack 边界。
+12. 已完成 `@xuanpu/agent-cli` 的最小 JSON-RPC/ACP stdio bridge，事件仍使用 Xuanpu canonical-compatible envelope。
+13. 已完成 OpenAI remote compact live path：按 compaction model/provider/key 条件主动请求 `/responses/compact`，并把 preserveData 归档为 replay ref。
+14. 已完成 v16.x upgrade spike 文档，实际升级后续单独分支推进。
 
 ## 仍待落实的大项
 
-- 独立 `@xuanpu/agent-cli` 后续硬化：RPC/ACP bridge；如需对外 npm 发布，还需要同步确定 `@xuanpu/oh-my-pi-runtime` 的发布策略。
-- OpenAI remote compact 的 live 调用 / 回放执行链路：当前只完成 preserve-data archive 与审计链路，尚未接上主动 `/responses/compact` 运行时调用。
-- v16.x upgrade spike
+- 如需对外 npm 发布，还需要同步确定 `@xuanpu/oh-my-pi-runtime` 的发布策略。
+- 实际 v16.x 升级不属于本轮落地范围；已完成 spike 文档，后续应在独立分支做 API diff、contract tests 和 patch queue 更新。
 
 ## 验收命令
 
@@ -189,4 +197,8 @@ pnpm exec eslint \
 - `pnpm --filter @xuanpu/agent-cli typecheck`：通过。
 - `pnpm --filter @xuanpu/agent-cli build`：通过。
 - `pnpm --filter @xuanpu/agent-cli pack --pack-destination /tmp/xuanpu-agent-cli-pack`：通过，tarball 包含 dist JS/d.ts 与 package metadata。
+- `pnpm vitest run test/phase-24/xuanpu-agent-provider-native-compaction.test.ts test/phase-24/xuanpu-agent-auto-freeze.test.ts test/phase-24/xuanpu-agent-cli.test.ts`：3 个测试文件、22 个测试通过。
+- `pnpm --filter @xuanpu/agent-cli typecheck`：通过。
+- `pnpm --filter @xuanpu/agent-cli build`：通过。
+- `pnpm exec tsc -p tsconfig.json --noEmit`：通过。
 - `test/phase-24/xuanpu-agent-runtime-status.test.ts` 当前在 Node/Vitest 环境下因上游 `@oh-my-pi/pi-ai` 的 `bun:sqlite` 解析失败，未纳入本轮通过集；该失败早于本轮 runtime 逻辑执行。

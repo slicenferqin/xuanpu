@@ -26,6 +26,10 @@
       "types": "./dist/runner.d.ts",
       "import": "./dist/runner.js"
     },
+    "./rpc-bridge": {
+      "types": "./dist/rpc-bridge.d.ts",
+      "import": "./dist/rpc-bridge.js"
+    },
     "./tools": {
       "types": "./dist/tools.d.ts",
       "import": "./dist/tools.js"

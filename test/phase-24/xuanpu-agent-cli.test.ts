@@ -11,9 +11,13 @@ import {
   main,
   parseArgv,
   runInteractive,
+  runJsonRpcBridge,
   runOneShot,
   createCliCodingTools,
+  XuanpuAgentCliEventFactory,
+  type XuanpuAgentJsonRpcRequest,
   type OhMyPiRuntimeModule,
+  type XuanpuAgentRpcBridgePromptInput,
   type XuanpuAgentCliRunner
 } from '../../packages/xuanpu-agent-cli/src/index'
 
@@ -86,6 +90,8 @@ describe('@xuanpu/agent-cli', () => {
       prompt: 'fix'
     })
     expect(parseArgv(['interactive', '--dry-run', '--text']).command).toBe('interactive')
+    expect(parseArgv(['rpc', '--cwd', '/repo']).command).toBe('rpc')
+    expect(parseArgv(['acp', '--cwd', '/repo']).command).toBe('acp')
   })
 
   it('runs one-shot prompts through an injected runner and emits canonical-compatible events', async () => {
@@ -159,6 +165,118 @@ describe('@xuanpu/agent-cli', () => {
     expect(JSON.parse(lines[0])).toMatchObject({
       type: 'session.materialized',
       runtimeId: 'xuanpu-agent'
+    })
+  })
+
+  it('runs JSON-RPC bridge requests through main()', async () => {
+    const root = await createProjectFixture()
+    const chunks: string[] = []
+    async function* rpcRequests(): AsyncIterable<XuanpuAgentJsonRpcRequest> {
+      yield { jsonrpc: '2.0', id: 1, method: 'initialize' }
+      yield {
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'session/new',
+        params: { sessionId: 'rpc-session-1', cwd: root }
+      }
+      yield {
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'session/prompt',
+        params: { sessionId: 'rpc-session-1', cwd: root, prompt: 'bridge prompt', dryRun: true }
+      }
+      yield { jsonrpc: '2.0', id: 4, method: 'shutdown' }
+    }
+
+    const exitCode = await main(['rpc', '--cwd', root], {
+      runner: makeRunner(),
+      rpcRequests: rpcRequests(),
+      write: (chunk) => chunks.push(chunk)
+    })
+
+    expect(exitCode).toBe(0)
+    const messages = chunks
+      .join('')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+    expect(messages.find((message) => message.id === 1)).toMatchObject({
+      result: {
+        protocol: 'json-rpc',
+        capabilities: { sessionPrompt: true, eventStream: 'canonical-agent-event' }
+      }
+    })
+    expect(messages.find((message) => message.id === 2)).toMatchObject({
+      result: { sessionId: 'rpc-session-1', cwd: root }
+    })
+    const notifications = messages.filter((message) => message.method === 'session/event')
+    expect(notifications.length).toBeGreaterThan(0)
+    expect(notifications.some((message) => message.params.event.type === 'message.updated')).toBe(
+      true
+    )
+    expect(messages.find((message) => message.id === 3)).toMatchObject({
+      result: {
+        sessionId: 'rpc-session-1',
+        lastEventType: 'session.idle'
+      }
+    })
+  })
+
+  it('emits ACP session event notifications from the bridge', async () => {
+    const chunks: string[] = []
+    async function* requests(): AsyncIterable<XuanpuAgentJsonRpcRequest> {
+      yield { jsonrpc: '2.0', id: 1, method: 'acp/initialize' }
+      yield { jsonrpc: '2.0', id: 2, method: 'acp/session/new', params: {} }
+      yield {
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'acp/session/prompt',
+        params: { sessionId: 'acp-session-1', prompt: 'hello acp' }
+      }
+      yield { jsonrpc: '2.0', id: 4, method: 'shutdown' }
+    }
+
+    await runJsonRpcBridge({
+      protocol: 'acp',
+      requests: requests(),
+      write: (chunk) => chunks.push(chunk),
+      makeSessionId: () => 'acp-session-1',
+      prompt: async function* (input: XuanpuAgentRpcBridgePromptInput) {
+        const factory = new XuanpuAgentCliEventFactory({ sessionId: input.sessionId! })
+        yield factory.next({
+          type: 'message.updated',
+          origin: 'model',
+          data: { role: 'assistant', content: `handled:${input.prompt}` }
+        })
+      }
+    })
+
+    const messages = chunks
+      .join('')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+    expect(messages.find((message) => message.id === 1)).toMatchObject({
+      result: {
+        protocol: 'acp',
+        serverInfo: { name: 'xuanpu-agent' }
+      }
+    })
+    expect(messages.find((message) => message.id === 2)).toMatchObject({
+      result: { sessionId: 'acp-session-1' }
+    })
+    expect(messages.find((message) => message.method === 'acp/session/event')).toMatchObject({
+      params: {
+        sessionId: 'acp-session-1',
+        event: {
+          type: 'message.updated',
+          runtimeId: 'xuanpu-agent',
+          sourceChannel: 'agent:stream'
+        }
+      }
+    })
+    expect(messages.find((message) => message.id === 3)).toMatchObject({
+      result: { sessionId: 'acp-session-1', eventCount: 1 }
     })
   })
 
@@ -261,6 +379,10 @@ describe('@xuanpu/agent-cli', () => {
     expect(pkg.exports['./tools']).toMatchObject({
       import: './dist/tools.js',
       types: './dist/tools.d.ts'
+    })
+    expect(pkg.exports['./rpc-bridge']).toMatchObject({
+      import: './dist/rpc-bridge.js',
+      types: './dist/rpc-bridge.d.ts'
     })
   })
 })
