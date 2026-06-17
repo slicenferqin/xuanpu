@@ -75,6 +75,54 @@ describe('TaskRunScheduler', () => {
     )
   })
 
+  it('infers long autonomy for explicit Chinese long-task continuation prompts', () => {
+    const scheduler = new TaskRunScheduler(db)
+
+    const result = scheduler.schedule({
+      sessionId: 'session-1',
+      worktreeId: 'worktree-1',
+      projectId: 'project-1',
+      originMessageId: 'msg-2',
+      promptText: '继续吧，长任务执行',
+      leaseWindowMs: 1000
+    })
+
+    expect(result).toMatchObject({ reusedExisting: false, autonomy: 'long' })
+    expect(taskRunRepoMock.createTaskRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        autonomy: 'long',
+        objective: '继续吧，长任务执行',
+        leaseExpiresAt: expect.any(String)
+      }),
+      db
+    )
+  })
+
+  it('infers long autonomy for multi-step code review and repair prompts', () => {
+    const scheduler = new TaskRunScheduler(db)
+    const prompt =
+      '看下最近的提交代码，cr一下，出一份诊断报告，如果问题不需要我确认的话，就可以随手修掉'
+
+    const result = scheduler.schedule({
+      sessionId: 'session-1',
+      worktreeId: 'worktree-1',
+      projectId: 'project-1',
+      originMessageId: 'msg-3',
+      promptText: prompt,
+      leaseWindowMs: 1000
+    })
+
+    expect(result).toMatchObject({ reusedExisting: false, autonomy: 'long' })
+    expect(taskRunRepoMock.createTaskRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        autonomy: 'long',
+        objective: prompt,
+        leaseExpiresAt: expect.any(String)
+      }),
+      db
+    )
+  })
+
   it('resumes a paused active task run for continuation prompts without creating a new run', () => {
     taskRunRepoMock.getActiveTaskRun.mockReturnValue(
       makeTaskRun({ id: 'paused-run', status: 'paused', autonomy: 'long' })

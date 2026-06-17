@@ -9,6 +9,8 @@ describe('xuanpu-agent task-run intent analysis', () => {
     expect(inferTaskRunAutonomyFromPromptText('请按 overnight autonomy 跑完整验收')).toBe(
       'overnight'
     )
+    expect(inferTaskRunAutonomyFromPromptText('继续吧，长任务执行')).toBe('long')
+    expect(inferTaskRunAutonomyFromPromptText('按隔夜任务跑完整验收')).toBe('overnight')
     expect(inferTaskRunAutonomyFromPromptText('#short 解释一下当前结构')).toBe('short')
   })
 
@@ -38,8 +40,21 @@ describe('xuanpu-agent task-run intent analysis', () => {
     )
   })
 
+  it('classifies multi-step code review and fix requests as long tasks', () => {
+    const analysis = analyzeTaskRunIntent(
+      '看下最近的提交代码，cr一下，出一份诊断报告，如果问题不需要我确认的话，就可以随手修掉'
+    )
+
+    expect(analysis.autonomy).toBe('long')
+    expect(analysis.confidence).toBe('strong')
+    expect(analysis.signals).toEqual(
+      expect.arrayContaining(['code-review', 'diagnostic-report', 'opportunistic-fix'])
+    )
+  })
+
   it('does not upgrade ordinary questions or single-file edits to long tasks', () => {
     expect(inferTaskRunAutonomyFromPromptText('解释一下当前架构')).toBeNull()
+    expect(inferTaskRunAutonomyFromPromptText('解释一下长任务执行是什么意思')).toBeNull()
     expect(
       inferTaskRunAutonomyFromPromptText('帮我更新 README.md，补一段 task-run 简介')
     ).toBeNull()
