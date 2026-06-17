@@ -114,6 +114,13 @@
 - [x] `@xuanpu/pi-agent-core` 兼容 alias 增加独立 `tsconfig.json`、dist exports 和 pack 边界，继续依赖 `@xuanpu/oh-my-pi-runtime`。
 - [x] 新增 `docs/plans/2026-06-17-xuanpu-agent-package-publishing.zh-CN.md`，记录 runtime -> alias -> CLI 的发布顺序、本地 pack 验证和仍需外部确认的 npm 权限/版本策略。
 
+### Track M：本地 tarball 安装 smoke
+
+- [x] 新增 `scripts/xuanpu-agent-package-install-smoke.mjs`，自动 build 三个包、pack 到临时目录、安装到空项目，并验证 `xuanpu-agent` bin。
+- [x] smoke 覆盖 `xuanpu-agent --help`、`xuanpu-agent run --dry-run`、CLI 子路径 export、runtime/alias package export map 和 `upstream.json`。
+- [x] 根脚本新增 `probe:xuanpu-agent-package-install`，作为 npm publish 前不依赖 npm 权限的本地安装门禁。
+- [x] contract test 锁住 smoke 脚本入口，避免发布边界后续退化成只检查 `package.json`。
+
 ## 当前实现顺序
 
 1. 已完成 Track B 的 `ToolCallGovernor`，覆盖高噪声工具调用，避免无效执行。
@@ -131,6 +138,7 @@
 13. 已完成 OpenAI remote compact live path：按 compaction model/provider/key 条件主动请求 `/responses/compact`，并把 preserveData 归档为 replay ref。
 14. 已完成 v16.x upgrade spike 文档，实际升级后续单独分支推进。
 15. 已完成 `@xuanpu/oh-my-pi-runtime` / `@xuanpu/pi-agent-core` / `@xuanpu/agent-cli` 的包发布边界定义和 dist build 验证。
+16. 已完成本地 tarball 安装 smoke，证明三个发布包装进空项目后 CLI bin、dry-run 事件链路和关键 exports 可用。
 
 ## 仍待落实的大项
 
@@ -211,4 +219,5 @@ pnpm exec eslint \
 - `pnpm vitest run test/phase-24/xuanpu-oh-my-pi-runtime-contract.test.ts`：1 个测试文件、4 个测试通过。
 - `pnpm --filter @xuanpu/oh-my-pi-runtime typecheck && pnpm --filter @xuanpu/oh-my-pi-runtime build && pnpm --filter @xuanpu/pi-agent-core typecheck && pnpm --filter @xuanpu/pi-agent-core build && pnpm --filter @xuanpu/agent-cli typecheck && pnpm --filter @xuanpu/agent-cli build`：通过。
 - `pnpm --filter @xuanpu/oh-my-pi-runtime pack --pack-destination /tmp/xuanpu-agent-package-pack && pnpm --filter @xuanpu/pi-agent-core pack --pack-destination /tmp/xuanpu-agent-package-pack && pnpm --filter @xuanpu/agent-cli pack --pack-destination /tmp/xuanpu-agent-package-pack`：通过，tarball 中 workspace 依赖已转换为具体版本。
+- `pnpm run probe:xuanpu-agent-package-install`：通过，临时空项目安装 runtime/alias/CLI tarball 后，`xuanpu-agent --help`、`xuanpu-agent run --dry-run`、CLI 子路径 exports、runtime/alias export map 和 `upstream.json` 均可验证。
 - `test/phase-24/xuanpu-agent-runtime-status.test.ts` 当前在 Node/Vitest 环境下因上游 `@oh-my-pi/pi-ai` 的 `bun:sqlite` 解析失败，未纳入本轮通过集；该失败早于本轮 runtime 逻辑执行。

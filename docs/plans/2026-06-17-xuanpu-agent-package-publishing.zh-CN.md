@@ -58,6 +58,26 @@ pnpm --filter @xuanpu/agent-cli pack --pack-destination /tmp/xuanpu-agent-packag
 - CLI tarball 包含 `dist/`、`bin.xuanpu-agent` 指向 `dist/cli.js`。
 - tarball 内不包含 workspace-only source dependency。
 
+## 本地安装 smoke
+
+发布前应优先运行可重复的本地安装门禁，而不是只检查 tarball 文件列表：
+
+```bash
+pnpm run probe:xuanpu-agent-package-install
+```
+
+该脚本会：
+
+1. 依次 build `@xuanpu/oh-my-pi-runtime`、`@xuanpu/pi-agent-core`、`@xuanpu/agent-cli`。
+2. 将三个包 pack 到临时目录。
+3. 创建一个临时空项目，并通过 pnpm 安装三个本地 tarball。
+4. 验证 `xuanpu-agent --help` 可运行。
+5. 验证 `xuanpu-agent run --dry-run "package install smoke"` 能输出 `session.materialized`、`message.updated`、`session.idle`。
+6. 验证 CLI 子路径 export、runtime/alias export map 和 `@xuanpu/oh-my-pi-runtime/upstream.json` 可解析。
+
+临时项目会用 pnpm overrides 把 `@xuanpu/*` 依赖固定到同一批本地 tarball，避免 runtime 尚未发布到 npm 时误打 registry。
+这个 smoke 不需要 npm `@xuanpu` scope 权限，也不调用真实 provider；它用于证明本轮产物在发布前具备实际安装价值。
+
 ## 发布策略
 
 版本策略：

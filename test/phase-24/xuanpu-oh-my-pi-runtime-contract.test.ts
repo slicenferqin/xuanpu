@@ -203,4 +203,20 @@ describe('@xuanpu/oh-my-pi-runtime runTurn contract', () => {
     expect(pkg.publishConfig).toEqual({ access: 'public' })
     expect(pkg.dependencies['@xuanpu/oh-my-pi-runtime']).toBe('workspace:*')
   })
+
+  it('keeps the local tarball install smoke wired as the package release gate', async () => {
+    const pkg = JSON.parse(await readFile(join(process.cwd(), 'package.json'), 'utf8'))
+    const smokeScript = await readFile(
+      join(process.cwd(), 'scripts/xuanpu-agent-package-install-smoke.mjs'),
+      'utf8'
+    )
+
+    expect(pkg.scripts['probe:xuanpu-agent-package-install']).toBe(
+      'node scripts/xuanpu-agent-package-install-smoke.mjs'
+    )
+    expect(smokeScript).toContain('pnpm')
+    expect(smokeScript).toContain('xuanpu-agent')
+    expect(smokeScript).toContain('@xuanpu/agent-cli/rpc-bridge')
+    expect(smokeScript).toContain('@xuanpu/oh-my-pi-runtime/upstream.json')
+  })
 })
