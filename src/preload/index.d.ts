@@ -45,7 +45,6 @@ type XuanpuAgentTaskRun = {
   projectId: string
   originMessageId: string | null
   status: 'running' | 'paused' | 'completed' | 'failed' | 'aborted'
-  autonomy: 'short' | 'long' | 'overnight'
   objective: string | null
   leaseExpiresAt: string | null
   totalInputTokens: number
@@ -818,7 +817,6 @@ declare global {
           mode?: 'build' | 'plan'
           goalMode?: boolean
           successCriteria?: string
-          taskRunAutonomy?: 'short' | 'long' | 'overnight'
           taskRunId?: string
         }
       ) => Promise<import('../shared/types/agent-ipc').AgentIpcResult>

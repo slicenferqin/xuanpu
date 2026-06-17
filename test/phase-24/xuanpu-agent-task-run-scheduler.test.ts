@@ -25,7 +25,6 @@ function makeTaskRun(overrides: Record<string, unknown> = {}) {
     projectId: 'project-1',
     originMessageId: 'msg-1',
     status: 'running',
-    autonomy: 'short',
     objective: 'objective',
     leaseExpiresAt: null,
     totalInputTokens: 0,
@@ -47,7 +46,7 @@ describe('TaskRunScheduler', () => {
     taskRunRepoMock.getTaskRun.mockReturnValue(null)
   })
 
-  it('creates a new task run with the requested autonomy and lease', () => {
+  it('creates a new task run with a lease', () => {
     const scheduler = new TaskRunScheduler(db)
 
     const result = scheduler.schedule({
@@ -56,26 +55,26 @@ describe('TaskRunScheduler', () => {
       projectId: 'project-1',
       originMessageId: 'msg-1',
       promptText: 'build the runtime',
-      requestedAutonomy: 'long',
       leaseWindowMs: 1000
     })
 
-    expect(result).toMatchObject({ reusedExisting: false, autonomy: 'long' })
+    expect(result).toMatchObject({ reusedExisting: false })
+    expect(result).not.toHaveProperty('autonomy')
     expect(taskRunRepoMock.createTaskRun).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: 'session-1',
         worktreeId: 'worktree-1',
         projectId: 'project-1',
         originMessageId: 'msg-1',
-        autonomy: 'long',
         objective: 'build the runtime',
         leaseExpiresAt: expect.any(String)
       }),
       db
     )
+    expect(taskRunRepoMock.createTaskRun.mock.calls[0][0]).not.toHaveProperty('autonomy')
   })
 
-  it('infers long autonomy for explicit Chinese long-task continuation prompts', () => {
+  it('does not infer task-run policy from Chinese long-task continuation prompts', () => {
     const scheduler = new TaskRunScheduler(db)
 
     const result = scheduler.schedule({
@@ -87,18 +86,18 @@ describe('TaskRunScheduler', () => {
       leaseWindowMs: 1000
     })
 
-    expect(result).toMatchObject({ reusedExisting: false, autonomy: 'long' })
+    expect(result).toMatchObject({ reusedExisting: false })
     expect(taskRunRepoMock.createTaskRun).toHaveBeenCalledWith(
       expect.objectContaining({
-        autonomy: 'long',
         objective: '继续吧，长任务执行',
         leaseExpiresAt: expect.any(String)
       }),
       db
     )
+    expect(taskRunRepoMock.createTaskRun.mock.calls[0][0]).not.toHaveProperty('autonomy')
   })
 
-  it('infers long autonomy for multi-step code review and repair prompts', () => {
+  it('does not infer task-run policy from multi-step code review and repair prompts', () => {
     const scheduler = new TaskRunScheduler(db)
     const prompt =
       '看下最近的提交代码，cr一下，出一份诊断报告，如果问题不需要我确认的话，就可以随手修掉'
@@ -112,21 +111,19 @@ describe('TaskRunScheduler', () => {
       leaseWindowMs: 1000
     })
 
-    expect(result).toMatchObject({ reusedExisting: false, autonomy: 'long' })
+    expect(result).toMatchObject({ reusedExisting: false })
     expect(taskRunRepoMock.createTaskRun).toHaveBeenCalledWith(
       expect.objectContaining({
-        autonomy: 'long',
         objective: prompt,
         leaseExpiresAt: expect.any(String)
       }),
       db
     )
+    expect(taskRunRepoMock.createTaskRun.mock.calls[0][0]).not.toHaveProperty('autonomy')
   })
 
   it('resumes a paused active task run for continuation prompts without creating a new run', () => {
-    taskRunRepoMock.getActiveTaskRun.mockReturnValue(
-      makeTaskRun({ id: 'paused-run', status: 'paused', autonomy: 'long' })
-    )
+    taskRunRepoMock.getActiveTaskRun.mockReturnValue(makeTaskRun({ id: 'paused-run', status: 'paused' }))
     const scheduler = new TaskRunScheduler(db)
 
     const result = scheduler.schedule({
@@ -135,13 +132,11 @@ describe('TaskRunScheduler', () => {
       projectId: 'project-1',
       originMessageId: 'msg-2',
       promptText: '继续当前任务',
-      requestedAutonomy: 'short',
       leaseWindowMs: 1000
     })
 
     expect(result).toMatchObject({
       reusedExisting: true,
-      autonomy: 'long',
       taskRun: expect.objectContaining({ id: 'paused-run', status: 'running' })
     })
     expect(taskRunRepoMock.getActiveTaskRun).toHaveBeenCalledWith('session-1', db)

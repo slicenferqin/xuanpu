@@ -1,5 +1,3 @@
-export type TaskRunAutonomy = 'short' | 'long' | 'overnight'
-
 export type TaskRunStatus = 'running' | 'paused' | 'completed' | 'failed' | 'aborted'
 
 export type UserRoundOrigin = 'user-originated' | 'agent-continuation' | 'recovery-continuation'
@@ -13,7 +11,6 @@ export interface AgentTaskRun {
   projectId: string
   originMessageId: string | null
   status: TaskRunStatus
-  autonomy: TaskRunAutonomy
   objective: string | null
   leaseExpiresAt: string | null
   totalInputTokens: number

@@ -149,7 +149,6 @@ type RendererPromptOptions = {
   mode?: 'build' | 'plan'
   goalMode?: boolean
   successCriteria?: string
-  taskRunAutonomy?: 'short' | 'long' | 'overnight'
   taskRunId?: string
 }
 
@@ -464,7 +463,6 @@ export function SessionShell({ sessionId }: SessionShellProps): React.JSX.Elemen
     sessionId,
     worktreePath,
     runtimeSessionId: droidSessionId,
-    agentSdk,
     mode,
     requestModel,
     buildPendingPromptOptions,

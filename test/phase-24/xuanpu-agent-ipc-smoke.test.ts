@@ -52,7 +52,6 @@ const taskRunRepoMock = vi.hoisted(() => ({
     projectId: 'project-1',
     originMessageId: 'origin-1',
     status: 'running',
-    autonomy: 'short',
     objective: 'smoke objective',
     leaseExpiresAt: null,
     totalInputTokens: 0,

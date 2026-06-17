@@ -5,8 +5,7 @@ import {
   getTaskRun,
   updateTaskRunStatus
 } from '../../db/task-run-repository'
-import type { AgentTaskRun, TaskRunAutonomy } from '../../../shared/types/agent-task-run'
-import { inferTaskRunAutonomyFromPromptText } from './task-run-intent'
+import type { AgentTaskRun } from '../../../shared/types/agent-task-run'
 
 const DEFAULT_LEASE_WINDOW_MS = 20 * 60 * 1000
 
@@ -17,13 +16,11 @@ export interface TaskRunScheduleInput {
   originMessageId: string
   promptText: string
   requestedTaskRunId?: string | null
-  requestedAutonomy?: TaskRunAutonomy
   leaseWindowMs?: number
 }
 
 export interface TaskRunScheduleResult {
   taskRun: AgentTaskRun
-  autonomy: TaskRunAutonomy
   reusedExisting: boolean
 }
 
@@ -38,13 +35,10 @@ export class TaskRunScheduler {
       (requestedTaskRun.status === 'running' || requestedTaskRun.status === 'paused')
         ? requestedTaskRun
         : null
-    const requestedAutonomy =
-      input.requestedAutonomy ?? inferTaskRunAutonomyFromPromptText(input.promptText) ?? 'short'
-    const autonomy = reusableTaskRun?.autonomy ?? requestedAutonomy
 
     if (reusableTaskRun) {
-      const resumed = this.resumeIfPaused(reusableTaskRun, autonomy, input.leaseWindowMs)
-      return { taskRun: resumed, autonomy, reusedExisting: true }
+      const resumed = this.resumeIfPaused(reusableTaskRun, input.leaseWindowMs)
+      return { taskRun: resumed, reusedExisting: true }
     }
 
     return {
@@ -54,13 +48,11 @@ export class TaskRunScheduler {
           worktreeId: input.worktreeId,
           projectId: input.projectId,
           originMessageId: input.originMessageId,
-          autonomy,
           objective: input.promptText,
-          leaseExpiresAt: this.nextLeaseExpiresAt(autonomy, input.leaseWindowMs)
+          leaseExpiresAt: this.nextLeaseExpiresAt(input.leaseWindowMs)
         },
         this.db
       ),
-      autonomy,
       reusedExisting: false
     }
   }
@@ -76,21 +68,15 @@ export class TaskRunScheduler {
     return implicitTaskRun?.status === 'paused' ? implicitTaskRun : null
   }
 
-  private resumeIfPaused(
-    taskRun: AgentTaskRun,
-    autonomy: TaskRunAutonomy,
-    leaseWindowMs?: number
-  ): AgentTaskRun {
+  private resumeIfPaused(taskRun: AgentTaskRun, leaseWindowMs?: number): AgentTaskRun {
     if (taskRun.status !== 'paused') return taskRun
 
-    const leaseExpiresAt =
-      taskRun.leaseExpiresAt ?? this.nextLeaseExpiresAt(autonomy, leaseWindowMs)
+    const leaseExpiresAt = taskRun.leaseExpiresAt ?? this.nextLeaseExpiresAt(leaseWindowMs)
     updateTaskRunStatus(taskRun.id, 'running', { leaseExpiresAt }, this.db)
     return { ...taskRun, status: 'running', leaseExpiresAt }
   }
 
-  private nextLeaseExpiresAt(autonomy: TaskRunAutonomy, leaseWindowMs?: number): string | null {
-    if (autonomy === 'short') return null
+  private nextLeaseExpiresAt(leaseWindowMs?: number): string | null {
     const windowMs = Number.isFinite(leaseWindowMs) ? leaseWindowMs! : DEFAULT_LEASE_WINDOW_MS
     return new Date(Date.now() + windowMs).toISOString()
   }

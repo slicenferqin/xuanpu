@@ -75,6 +75,12 @@ afterEach(() => {
 })
 
 describe('xuanpu-agent task-run repository', () => {
+  it('keeps agent_task_runs free of removed mode columns', () => {
+    const columns = db.getDb().pragma('table_info(agent_task_runs)') as Array<{ name: string }>
+
+    expect(columns.map((column) => column.name)).not.toContain('autonomy')
+  })
+
   it('creates a task run and finds it as active for the session', () => {
     const taskRun = createTaskRun(
       {
@@ -82,7 +88,6 @@ describe('xuanpu-agent task-run repository', () => {
         worktreeId,
         projectId,
         originMessageId: 'msg-user-1',
-        autonomy: 'long',
         objective: 'Implement the task-run runtime',
         leaseExpiresAt: '2026-06-05T01:00:00.000Z'
       },
@@ -96,7 +101,6 @@ describe('xuanpu-agent task-run repository', () => {
       projectId,
       originMessageId: 'msg-user-1',
       status: 'running',
-      autonomy: 'long',
       objective: 'Implement the task-run runtime',
       leaseExpiresAt: '2026-06-05T01:00:00.000Z',
       epochCount: 0
@@ -137,7 +141,7 @@ describe('xuanpu-agent task-run repository', () => {
   })
 
   it('accumulates usage and renews leases', () => {
-    const taskRun = createTaskRun({ sessionId, worktreeId, projectId, autonomy: 'long' }, db)
+    const taskRun = createTaskRun({ sessionId, worktreeId, projectId }, db)
 
     accumulateUsage(taskRun.id, { inputTokens: 10, outputTokens: 5, cost: 0.01 }, db)
     accumulateUsage(taskRun.id, { inputTokens: 20, outputTokens: 7, cost: 0.02 }, db)

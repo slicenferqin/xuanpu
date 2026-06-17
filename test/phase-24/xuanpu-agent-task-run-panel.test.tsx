@@ -54,7 +54,6 @@ describe('XuanpuAgentTaskRunPanel', () => {
         projectId: 'p-1',
         originMessageId: 'msg-1',
         status: 'running',
-        autonomy: 'long',
         objective: 'finish the runtime',
         leaseExpiresAt: '2026-06-05T01:00:00.000Z',
         totalInputTokens: 1200,
@@ -164,7 +163,7 @@ describe('XuanpuAgentTaskRunPanel', () => {
     )
 
     expect(await screen.findByText('running')).toBeInTheDocument()
-    expect(screen.getByText('/long')).toBeInTheDocument()
+    expect(screen.queryByText('/long')).not.toBeInTheDocument()
     expect(screen.getByText('calls')).toBeInTheDocument()
     expect(screen.getByText('15')).toBeInTheDocument()
     expect(screen.getByText('rounds')).toBeInTheDocument()
@@ -194,7 +193,6 @@ describe('XuanpuAgentTaskRunPanel', () => {
         projectId: 'p-1',
         originMessageId: 'msg-1',
         status: 'paused',
-        autonomy: 'long',
         objective: 'finish the runtime',
         leaseExpiresAt: '2026-06-05T01:00:00.000Z',
         totalInputTokens: 1200,

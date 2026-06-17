@@ -16,8 +16,7 @@ describe('xuanpu-agent task-run policy', () => {
         shouldCloseEpoch({
           fillRatio: 0.4,
           providerCallCount: 1,
-          elapsedMs: 1000,
-          autonomy: 'long'
+          elapsedMs: 1000
         })
       ).toEqual({ close: true, reason: 'compact' })
     })
@@ -27,51 +26,26 @@ describe('xuanpu-agent task-run policy', () => {
         shouldCloseEpoch({
           fillRatio: 0.1,
           providerCallCount: 12,
-          elapsedMs: 1000,
-          autonomy: 'overnight'
+          elapsedMs: 1000
         })
       ).toEqual({ close: true, reason: 'checkpoint' })
     })
 
-    it('closes short tasks at the turn boundary even without compaction pressure', () => {
+    it('keeps the epoch open when no boundary is reached', () => {
       expect(
         shouldCloseEpoch({
           fillRatio: 0.1,
           providerCallCount: 1,
-          elapsedMs: 1000,
-          autonomy: 'short'
-        })
-      ).toEqual({ close: true, reason: 'turn_end' })
-    })
-
-    it('keeps long tasks open when no epoch boundary is reached', () => {
-      expect(
-        shouldCloseEpoch({
-          fillRatio: 0.1,
-          providerCallCount: 1,
-          elapsedMs: 1000,
-          autonomy: 'long'
+          elapsedMs: 1000
         })
       ).toEqual({ close: false, reason: 'turn_end' })
     })
   })
 
   describe('evaluateLeaseAtBoundary', () => {
-    it('pauses short tasks at a lease boundary', () => {
+    it('pauses tasks that stop making progress', () => {
       expect(
         evaluateLeaseAtBoundary({
-          autonomy: 'short',
-          noProgressCalls: 0,
-          costSinceStart: 0,
-          hasPendingRiskyWrite: false
-        })
-      ).toEqual({ action: 'pause', reason: 'short task exceeded one lease window' })
-    })
-
-    it('pauses long tasks that stop making progress', () => {
-      expect(
-        evaluateLeaseAtBoundary({
-          autonomy: 'long',
           noProgressCalls: 4,
           costSinceStart: 0,
           hasPendingRiskyWrite: false
@@ -79,10 +53,9 @@ describe('xuanpu-agent task-run policy', () => {
       ).toEqual({ action: 'pause', reason: 'no progress' })
     })
 
-    it('asks before continuing when a long task reaches the cost ceiling', () => {
+    it('asks before continuing when a task reaches the cost ceiling', () => {
       expect(
         evaluateLeaseAtBoundary({
-          autonomy: 'long',
           noProgressCalls: 0,
           costSinceStart: 2,
           hasPendingRiskyWrite: false
@@ -90,12 +63,21 @@ describe('xuanpu-agent task-run policy', () => {
       ).toEqual({ action: 'ask', prompt: 'cost ceiling reached, continue?' })
     })
 
-    it('renews eligible long and overnight tasks', () => {
+    it('asks before continuing when a risky write is pending', () => {
+      expect(
+        evaluateLeaseAtBoundary({
+          noProgressCalls: 0,
+          costSinceStart: 0,
+          hasPendingRiskyWrite: true
+        })
+      ).toEqual({ action: 'ask', prompt: 'risky write pending approval' })
+    })
+
+    it('renews eligible tasks', () => {
       const nowMs = Date.UTC(2026, 5, 5, 0, 0, 0)
 
       expect(
         evaluateLeaseAtBoundary({
-          autonomy: 'long',
           noProgressCalls: 0,
           costSinceStart: 0,
           hasPendingRiskyWrite: false,
@@ -107,13 +89,12 @@ describe('xuanpu-agent task-run policy', () => {
       })
     })
 
-    it('renews eligible long tasks across successive lease windows', () => {
+    it('renews eligible tasks across successive lease windows', () => {
       const firstBoundaryMs = Date.UTC(2026, 5, 5, 0, 20, 0)
       const secondBoundaryMs = firstBoundaryMs + DEFAULT_LEASE_WINDOW_MS
 
       expect(
         evaluateLeaseAtBoundary({
-          autonomy: 'long',
           noProgressCalls: 0,
           costSinceStart: 0.1,
           hasPendingRiskyWrite: false,
@@ -126,7 +107,6 @@ describe('xuanpu-agent task-run policy', () => {
 
       expect(
         evaluateLeaseAtBoundary({
-          autonomy: 'long',
           noProgressCalls: 0,
           costSinceStart: 0.2,
           hasPendingRiskyWrite: false,

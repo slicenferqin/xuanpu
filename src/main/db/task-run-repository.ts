@@ -8,7 +8,6 @@ import type {
   AgentUserRound,
   EpochCloseReason,
   EpochStatus,
-  TaskRunAutonomy,
   TaskRunStatus,
   UserRoundOrigin,
   UserRoundStatus
@@ -19,7 +18,6 @@ export interface AgentTaskRunCreate {
   worktreeId?: string | null
   projectId: string
   originMessageId?: string | null
-  autonomy?: TaskRunAutonomy
   objective?: string | null
   leaseExpiresAt?: string | null
 }
@@ -57,7 +55,6 @@ function mapTaskRun(row: Record<string, unknown>): AgentTaskRun {
     projectId: row.projectId as string,
     originMessageId: (row.originMessageId as string | null) ?? null,
     status: row.status as TaskRunStatus,
-    autonomy: row.autonomy as TaskRunAutonomy,
     objective: (row.objective as string | null) ?? null,
     leaseExpiresAt: (row.leaseExpiresAt as string | null) ?? null,
     totalInputTokens: (row.totalInputTokens as number) ?? 0,
@@ -114,7 +111,6 @@ export function createTaskRun(data: AgentTaskRunCreate, db?: DatabaseService | n
     projectId: data.projectId,
     originMessageId: data.originMessageId ?? null,
     status: 'running',
-    autonomy: data.autonomy ?? 'short',
     objective: data.objective ?? null,
     leaseExpiresAt: data.leaseExpiresAt ?? null,
     totalInputTokens: 0,
@@ -130,10 +126,10 @@ export function createTaskRun(data: AgentTaskRunCreate, db?: DatabaseService | n
     .prepare(
       `INSERT INTO agent_task_runs (
         id, session_id, worktree_id, project_id, origin_message_id,
-        status, autonomy, objective, lease_expires_at,
+        status, objective, lease_expires_at,
         total_input_tokens, total_output_tokens, total_cost, epoch_count,
         started_at, completed_at, error_message
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       record.id,
@@ -142,7 +138,6 @@ export function createTaskRun(data: AgentTaskRunCreate, db?: DatabaseService | n
       record.projectId,
       record.originMessageId,
       record.status,
-      record.autonomy,
       record.objective,
       record.leaseExpiresAt,
       record.totalInputTokens,
@@ -166,7 +161,6 @@ export function getTaskRun(taskRunId: string, db?: DatabaseService | null): Agen
               project_id AS projectId,
               origin_message_id AS originMessageId,
               status,
-              autonomy,
               objective,
               lease_expires_at AS leaseExpiresAt,
               total_input_tokens AS totalInputTokens,
@@ -196,7 +190,6 @@ export function getActiveTaskRun(
               project_id AS projectId,
               origin_message_id AS originMessageId,
               status,
-              autonomy,
               objective,
               lease_expires_at AS leaseExpiresAt,
               total_input_tokens AS totalInputTokens,
@@ -231,7 +224,6 @@ export function listTaskRunsForSession(
               project_id AS projectId,
               origin_message_id AS originMessageId,
               status,
-              autonomy,
               objective,
               lease_expires_at AS leaseExpiresAt,
               total_input_tokens AS totalInputTokens,

@@ -117,7 +117,6 @@ function installXuanpuAgentOpsMock(): Window['xuanpuAgentOps'] {
         projectId: 'project-1',
         originMessageId: 'msg-1',
         status: 'running',
-        autonomy: 'long',
         objective: 'inspect requests',
         leaseExpiresAt: null,
         totalInputTokens: 0,

@@ -57,7 +57,6 @@ const taskRunRepoMock = vi.hoisted(() => ({
     projectId: 'p-1',
     originMessageId: 'origin-1',
     status: 'running',
-    autonomy: 'short',
     objective: 'test objective',
     leaseExpiresAt: null,
     totalInputTokens: 0,
@@ -358,7 +357,6 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
       projectId: 'p-1',
       originMessageId: 'origin-1',
       status: 'running',
-      autonomy: 'short',
       objective: 'test objective',
       leaseExpiresAt: null,
       totalInputTokens: 0,
@@ -1017,7 +1015,7 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     )
   })
 
-  it('queues an in-epoch follow-up for long task runs before yielding', async () => {
+  it('queues an in-epoch follow-up for task runs before yielding', async () => {
     mockPiSession.prompt.mockImplementationOnce(
       async (messages: unknown[], _modelRef: unknown, handlers?: Record<string, unknown>) => {
         capturedPromptMessages = messages as unknown[]
@@ -1065,9 +1063,7 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     } as unknown as DatabaseService)
 
     const { sessionId } = await implementer.connect('/repo', 'session-1')
-    await implementer.prompt('/repo', sessionId, 'continue for a while', undefined, {
-      taskRunAutonomy: 'long'
-    })
+    await implementer.prompt('/repo', sessionId, 'continue for a while')
 
     expect(mockPiSession.setFollowUpMode).toHaveBeenCalledWith('one-at-a-time')
     expect(mockPiSession.followUp).toHaveBeenCalledWith(
@@ -1078,7 +1074,7 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     )
   })
 
-  it('infers long task-run autonomy from prompt text when options omit it', async () => {
+  it('creates a leased task run without classifying explicit long-task prompt text', async () => {
     const { XuanpuAgentImplementer } =
       await import('../../src/main/services/xuanpu-agent-implementer')
     const implementer = new XuanpuAgentImplementer()
@@ -1102,14 +1098,14 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
 
     expect(taskRunRepoMock.createTaskRun).toHaveBeenCalledWith(
       expect.objectContaining({
-        autonomy: 'long',
         leaseExpiresAt: expect.any(String)
       }),
       expect.anything()
     )
+    expect(taskRunRepoMock.createTaskRun.mock.calls.at(-1)?.[0]).not.toHaveProperty('autonomy')
   })
 
-  it('infers long autonomy for a realistic multi-document package request', async () => {
+  it('creates a leased task run for realistic multi-document package requests', async () => {
     const { XuanpuAgentImplementer } =
       await import('../../src/main/services/xuanpu-agent-implementer')
     const implementer = new XuanpuAgentImplementer()
@@ -1141,11 +1137,11 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
 
     expect(taskRunRepoMock.createTaskRun).toHaveBeenCalledWith(
       expect.objectContaining({
-        autonomy: 'long',
         leaseExpiresAt: expect.any(String)
       }),
       expect.anything()
     )
+    expect(taskRunRepoMock.createTaskRun.mock.calls.at(-1)?.[0]).not.toHaveProperty('autonomy')
   })
 
   it('reuses a paused active task run when the user sends a continuation prompt', async () => {
@@ -1156,7 +1152,6 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
       projectId: 'p-1',
       originMessageId: 'origin-1',
       status: 'paused',
-      autonomy: 'long',
       objective: 'original long objective',
       leaseExpiresAt: null,
       totalInputTokens: 100,
@@ -1217,7 +1212,6 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
       projectId: 'p-1',
       originMessageId: 'origin-1',
       status: 'paused',
-      autonomy: 'long',
       objective: 'original long objective',
       leaseExpiresAt: null,
       totalInputTokens: 100,
@@ -1245,14 +1239,14 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     expect(taskRunRepoMock.getActiveTaskRun).not.toHaveBeenCalled()
     expect(taskRunRepoMock.createTaskRun).toHaveBeenCalledWith(
       expect.objectContaining({
-        autonomy: 'short',
         objective: '解释一下当前架构'
       }),
       expect.anything()
     )
+    expect(taskRunRepoMock.createTaskRun.mock.calls.at(-1)?.[0]).not.toHaveProperty('autonomy')
   })
 
-  it('renews an expired long task-run lease across multiple yield boundaries', async () => {
+  it('renews an expired task-run lease across multiple yield boundaries', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-06-09T00:21:00.000Z'))
     taskRunRepoMock.getTaskRun.mockReturnValue({
@@ -1262,7 +1256,6 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
       projectId: 'p-1',
       originMessageId: 'origin-1',
       status: 'running',
-      autonomy: 'long',
       objective: 'original long objective',
       leaseExpiresAt: '2026-06-09T00:20:00.000Z',
       totalInputTokens: 100,
@@ -1388,9 +1381,7 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     } as unknown as DatabaseService)
 
     const { sessionId } = await implementer.connect('/repo', 'session-1')
-    await implementer.prompt('/repo', sessionId, 'long implementation task', undefined, {
-      taskRunAutonomy: 'long'
-    })
+    await implementer.prompt('/repo', sessionId, 'long implementation task')
 
     expect(checkpointRuntimeMocks.insertCheckpoint).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1422,7 +1413,7 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     ).toBe(false)
   })
 
-  it('queues a next-turn continuation when a long response explicitly says it is incomplete', async () => {
+  it('queues a next-turn continuation when a response explicitly says it is incomplete', async () => {
     const createSessionPendingMessage = vi.fn()
     mockPiSession.prompt.mockResolvedValueOnce({
       messageId: 'resp-1',
@@ -1446,9 +1437,7 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     } as unknown as DatabaseService)
 
     const { sessionId } = await implementer.connect('/repo', 'session-1')
-    await implementer.prompt('/repo', sessionId, 'long staged audit', undefined, {
-      taskRunAutonomy: 'long'
-    })
+    await implementer.prompt('/repo', sessionId, 'long staged audit')
 
     expect(taskRunRepoMock.closeEpoch).toHaveBeenCalledWith(
       'epoch-test-1',
@@ -1463,13 +1452,11 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
         session_id: 'session-1',
         runtime_id: 'xuanpu-agent',
         content: expect.stringContaining('incomplete-response'),
-        prompt_options_json: expect.stringContaining('"taskRunAutonomy":"long"')
-      })
-    )
-    expect(createSessionPendingMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
         prompt_options_json: expect.stringContaining('"taskRunId":"task-run-test-1"')
       })
+    )
+    expect(createSessionPendingMessage.mock.calls[0][0].prompt_options_json).not.toContain(
+      'taskRunAutonomy'
     )
     expect(
       taskRunRepoMock.updateTaskRunStatus.mock.calls.some(
@@ -1545,9 +1532,7 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     } as unknown as DatabaseService)
 
     const { sessionId } = await implementer.connect('/repo', 'session-1')
-    await implementer.prompt('/repo', sessionId, 'long staged audit', undefined, {
-      taskRunAutonomy: 'long'
-    })
+    await implementer.prompt('/repo', sessionId, 'long staged audit')
 
     expect(taskRunRepoMock.closeEpoch).toHaveBeenCalledWith(
       'epoch-test-1',
@@ -1638,10 +1623,7 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
         'Objective: long staged audit',
         '</xuanpu-task-run-continuation>'
       ].join('\n'),
-      undefined,
-      {
-        taskRunAutonomy: 'long'
-      }
+      undefined
     )
 
     expect(taskRunRepoMock.closeEpoch).toHaveBeenCalledWith(
@@ -1712,10 +1694,7 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
         'Objective: long staged audit',
         '</xuanpu-task-run-continuation>'
       ].join('\n'),
-      undefined,
-      {
-        taskRunAutonomy: 'long'
-      }
+      undefined
     )
 
     expect(taskRunRepoMock.closeEpoch).toHaveBeenCalledWith(
@@ -1784,9 +1763,7 @@ describe('XuanpuAgentImplementer prompt path uses Context Packer', () => {
     } as unknown as DatabaseService)
 
     const { sessionId } = await implementer.connect('/repo', 'session-1')
-    await implementer.prompt('/repo', sessionId, 'long staged audit', undefined, {
-      taskRunAutonomy: 'long'
-    })
+    await implementer.prompt('/repo', sessionId, 'long staged audit')
 
     expect(
       taskRunRepoMock.updateTaskRunStatus.mock.calls.some((call) => call[1] === 'paused')

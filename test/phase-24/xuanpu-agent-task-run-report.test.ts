@@ -67,7 +67,6 @@ describe('xuanpu-agent task-run report export', () => {
         worktreeId,
         projectId,
         originMessageId: 'msg-user-1',
-        autonomy: 'long',
         objective: 'Ship task-run report export'
       },
       db

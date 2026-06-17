@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 37
+export const CURRENT_SCHEMA_VERSION = 38
 
 export const SCHEMA_SQL = `
 -- Projects table
@@ -1394,8 +1394,6 @@ export const MIGRATIONS: Migration[] = [
         project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
         origin_message_id TEXT,
         status TEXT NOT NULL CHECK (status IN ('running','paused','completed','failed','aborted')),
-        autonomy TEXT NOT NULL DEFAULT 'short'
-          CHECK (autonomy IN ('short','long','overnight')),
         objective TEXT,
         lease_expires_at TEXT,
         total_input_tokens INTEGER NOT NULL DEFAULT 0,
@@ -1504,5 +1502,74 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_agent_user_rounds_run_ordinal;
       DROP TABLE IF EXISTS agent_user_rounds;
     `
+  },
+  {
+    version: 38,
+    name: 'remove_agent_task_run_mode_column',
+    up: `
+      PRAGMA foreign_keys=OFF;
+
+      CREATE TABLE IF NOT EXISTS agent_task_runs (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        worktree_id TEXT REFERENCES worktrees(id) ON DELETE SET NULL,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        origin_message_id TEXT,
+        status TEXT NOT NULL CHECK (status IN ('running','paused','completed','failed','aborted')),
+        objective TEXT,
+        lease_expires_at TEXT,
+        total_input_tokens INTEGER NOT NULL DEFAULT 0,
+        total_output_tokens INTEGER NOT NULL DEFAULT 0,
+        total_cost REAL NOT NULL DEFAULT 0,
+        epoch_count INTEGER NOT NULL DEFAULT 0,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        error_message TEXT
+      );
+
+      DROP TABLE IF EXISTS agent_task_runs_new;
+      CREATE TABLE agent_task_runs_new (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        worktree_id TEXT REFERENCES worktrees(id) ON DELETE SET NULL,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        origin_message_id TEXT,
+        status TEXT NOT NULL CHECK (status IN ('running','paused','completed','failed','aborted')),
+        objective TEXT,
+        lease_expires_at TEXT,
+        total_input_tokens INTEGER NOT NULL DEFAULT 0,
+        total_output_tokens INTEGER NOT NULL DEFAULT 0,
+        total_cost REAL NOT NULL DEFAULT 0,
+        epoch_count INTEGER NOT NULL DEFAULT 0,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        error_message TEXT
+      );
+
+      INSERT INTO agent_task_runs_new (
+        id, session_id, worktree_id, project_id, origin_message_id,
+        status, objective, lease_expires_at,
+        total_input_tokens, total_output_tokens, total_cost, epoch_count,
+        started_at, completed_at, error_message
+      )
+      SELECT
+        id, session_id, worktree_id, project_id, origin_message_id,
+        status, objective, lease_expires_at,
+        total_input_tokens, total_output_tokens, total_cost, epoch_count,
+        started_at, completed_at, error_message
+      FROM agent_task_runs;
+
+      DROP INDEX IF EXISTS idx_agent_task_runs_status;
+      DROP INDEX IF EXISTS idx_agent_task_runs_session;
+      DROP TABLE agent_task_runs;
+      ALTER TABLE agent_task_runs_new RENAME TO agent_task_runs;
+      CREATE INDEX IF NOT EXISTS idx_agent_task_runs_session
+        ON agent_task_runs(session_id, started_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_agent_task_runs_status
+        ON agent_task_runs(status);
+
+      PRAGMA foreign_keys=ON;
+    `,
+    down: `-- Removed task-run mode column is not restored.`
   }
 ]

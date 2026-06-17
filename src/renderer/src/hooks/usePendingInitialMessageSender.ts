@@ -2,7 +2,6 @@ import { useEffect } from 'react'
 import { toast } from 'sonner'
 import { lastSendMode, messageSendTimes } from '@/lib/message-send-times'
 import { refreshSessionLastMessageAt } from '@/lib/session-last-message'
-import { mergeXuanpuAgentAutonomyDirective } from '@/lib/xuanpu-agent-autonomy-directive'
 import {
   createOptimisticUserMessage,
   type OptimisticTimelineMessagesController
@@ -24,7 +23,6 @@ interface UsePendingInitialMessageSenderOptions {
   sessionId: string
   worktreePath: string | null
   runtimeSessionId: string | null
-  agentSdk: string | null
   mode: SessionMode
   requestModel?: PendingMessageModelSnapshot | null
   buildPendingPromptOptions: (
@@ -38,7 +36,6 @@ export function usePendingInitialMessageSender({
   sessionId,
   worktreePath,
   runtimeSessionId,
-  agentSdk,
   mode,
   requestModel,
   buildPendingPromptOptions,
@@ -52,11 +49,7 @@ export function usePendingInitialMessageSender({
     if (!pending) return
 
     let cancelled = false
-    const effectivePromptOptions = mergeXuanpuAgentAutonomyDirective(
-      pending.message,
-      agentSdk,
-      buildPendingPromptOptions(pending.options)
-    )
+    const effectivePromptOptions = buildPendingPromptOptions(pending.options)
     const pendingMode = pending.options?.mode ?? mode
     const optimisticMessageId = `optimistic-${Date.now()}`
 
@@ -115,7 +108,6 @@ export function usePendingInitialMessageSender({
     sessionId,
     worktreePath,
     runtimeSessionId,
-    agentSdk,
     buildPendingPromptOptions,
     mode,
     requestModel,

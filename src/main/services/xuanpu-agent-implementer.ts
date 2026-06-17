@@ -50,8 +50,7 @@ import {
 import { extractUsageTokens } from '../../shared/usage/message'
 import type {
   EpochCloseReason,
-  EpochStatus,
-  TaskRunAutonomy
+  EpochStatus
 } from '../../shared/types/agent-task-run'
 import {
   evaluateGatewayBudget,
@@ -405,11 +404,9 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
       originMessageId: userMessageId,
       promptText: text,
       requestedTaskRunId: options?.taskRunId ?? null,
-      requestedAutonomy: options?.taskRunAutonomy,
       leaseWindowMs: LEASE_WINDOW_MS
     })
     const { taskRun } = taskRunSchedule
-    const taskRunAutonomy: TaskRunAutonomy = taskRunSchedule.autonomy
 
     let taskStateManager: TaskStateManager | null = null
     try {
@@ -890,7 +887,6 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         if (!Number.isFinite(leaseDeadlineMs) || Date.now() < leaseDeadlineMs) return true
 
         const decision = evaluateLeaseAtBoundary({
-          autonomy: taskRunAutonomy,
           noProgressCalls,
           costSinceStart: taskRunCost,
           hasPendingRiskyWrite: false
@@ -919,7 +915,7 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         return false
       }
       const queueContinuation = (content?: string): void => {
-        if (taskRunContinuationQueued || taskRunPaused || taskRunAutonomy === 'short') return
+        if (taskRunContinuationQueued || taskRunPaused) return
         if (!this.db) return
         try {
           this.db.createSessionPendingMessage({
@@ -929,7 +925,6 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
             content: content ?? buildEpochContinuationPrompt(taskRun.objective ?? text),
             prompt_options_json: JSON.stringify({
               mode: sessionMode,
-              taskRunAutonomy,
               taskRunId: taskRun.id
             }),
             model_json: JSON.stringify(modelRef)
@@ -1032,9 +1027,9 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         }
         lastProgressSignal = progressSignal
 
-        if (taskRunAutonomy !== 'short' && isCompleteLongTaskResponse(latestAssistantText)) return
+        if (isCompleteTaskResponse(latestAssistantText)) return
 
-        if (taskRunAutonomy !== 'short' && noProgressCalls >= NO_PROGRESS_LIMIT) {
+        if (noProgressCalls >= NO_PROGRESS_LIMIT) {
           const hasConcreteProgress = progressSignal > 0
           if (promptIsNoProgressRecovery && !hasConcreteProgress) {
             await pauseTaskRun('no progress after recovery')
@@ -1054,19 +1049,18 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         const boundary = shouldCloseEpoch({
           fillRatio: currentEpochFillRatio(),
           providerCallCount,
-          elapsedMs: Date.now() - epochStartedAt,
-          autonomy: taskRunAutonomy
+          elapsedMs: Date.now() - epochStartedAt
         })
 
         if (boundary.close) {
           await closeEpochOnce(boundary.reason)
-          if (taskRunAutonomy !== 'short' && boundary.reason !== 'turn_end') {
+          if (boundary.reason !== 'turn_end') {
             queueContinuation()
           }
           return
         }
 
-        if (taskRunAutonomy !== 'short' && !piSession.hasQueuedMessages()) {
+        if (!piSession.hasQueuedMessages()) {
           piSession.followUp({
             role: 'user',
             content: [
@@ -1500,12 +1494,10 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         })
       }
 
-      const shouldContinueIncompleteLongTask =
-        taskRunAutonomy !== 'short' && isIncompleteLongTaskResponse(content)
-      const completedLongTaskResponse =
-        taskRunAutonomy !== 'short' && isCompleteLongTaskResponse(content)
+      const shouldContinueIncompleteTask = isIncompleteTaskResponse(content)
+      const completedTaskResponse = isCompleteTaskResponse(content)
 
-      if (shouldContinueIncompleteLongTask && !epochClosed) {
+      if (shouldContinueIncompleteTask && !epochClosed) {
         await closeEpochOnce('turn_end')
         queueContinuation(
           buildIncompleteResponseContinuationPrompt({
@@ -1520,22 +1512,21 @@ export class XuanpuAgentImplementer implements AgentRuntimeAdapter {
         const boundary = shouldCloseEpoch({
           fillRatio: currentEpochFillRatio(),
           providerCallCount,
-          elapsedMs: Date.now() - epochStartedAt,
-          autonomy: taskRunAutonomy
+          elapsedMs: Date.now() - epochStartedAt
         })
         const reason: EpochCloseReason = softShrinkTriggered ? 'compact' : boundary.reason
-        if (softShrinkTriggered || boundary.close || taskRunAutonomy === 'short') {
+        if (softShrinkTriggered || boundary.close) {
           await closeEpochOnce(reason)
-          if (taskRunAutonomy !== 'short' && reason !== 'turn_end') {
+          if (reason !== 'turn_end') {
             queueContinuation()
           }
         }
       }
-      if (completedLongTaskResponse && !epochClosed) {
+      if (completedTaskResponse && !epochClosed) {
         await closeEpochOnce('turn_end')
       }
       if (
-        (!taskRunPaused || (taskRunPauseReason === 'no progress' && completedLongTaskResponse)) &&
+        (!taskRunPaused || (taskRunPauseReason === 'no progress' && completedTaskResponse)) &&
         !taskRunContinuationQueued
       ) {
         updateTaskRunStatus(taskRun.id, 'completed', undefined, this.db)
@@ -2882,7 +2873,7 @@ function buildInEpochFollowUpPrompt(objective: string): string {
   ].join('\n')
 }
 
-function isIncompleteLongTaskResponse(text: string): boolean {
+function isIncompleteTaskResponse(text: string): boolean {
   const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase()
   if (!normalized) return false
 
@@ -2901,9 +2892,9 @@ function isIncompleteLongTaskResponse(text: string): boolean {
   ].some((pattern) => pattern.test(normalized))
 }
 
-function isCompleteLongTaskResponse(text: string): boolean {
+function isCompleteTaskResponse(text: string): boolean {
   const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase()
-  if (!normalized || isIncompleteLongTaskResponse(normalized)) return false
+  if (!normalized || isIncompleteTaskResponse(normalized)) return false
 
   return [
     /任务.{0,12}(?:已|已经)完成/,

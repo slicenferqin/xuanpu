@@ -2,21 +2,25 @@
 
 Date: 2026-06-09
 
-Scope: validate xuanpu-agent task-run autonomy, pause/resume, continuation binding, and terminal
-completion behavior from a clean session. Do not use older sessions that already contain paused
-task runs, manual pending messages, or pre-fix rows.
+Updated: 2026-06-17
+
+Scope: validate the xuanpu-agent unified task-run lifecycle, pause/resume, continuation binding,
+lease renewal, and terminal completion behavior from a clean session. The runtime no longer exposes
+or honors `short` / `long` / `overnight` task-run modes; user text such as "长任务执行" is ordinary
+prompt content, not a control directive.
 
 ## Why A New Session
 
-The previous live session mixed several states:
+The previous live session mixed several historical states:
 
-- a pre-fix `long` task run paused with `error_message = no progress`
+- a pre-fix task run paused with `error_message = no progress`
 - a manual resume pending message
-- a later plain prompt that created a separate `short` task run
+- a later prompt that created a separate task run because old mode classification and continuation
+  binding interacted poorly
 
-That history is valid forensic evidence, but it is not a reliable acceptance fixture. It makes UI
-state hard to read because the task-run panel prefers active `running` / `paused` runs even if a
-newer short run completed.
+That history remains useful forensic evidence, but it is not a reliable acceptance fixture. It makes
+UI state hard to read because the task-run panel prefers active `running` / `paused` runs even if a
+newer run has completed.
 
 ## Test Layers
 
@@ -28,6 +32,7 @@ Run these before any manual check:
 pnpm vitest run \
   test/phase-24/xuanpu-agent-implementer-prompt-path.test.ts \
   test/phase-24/xuanpu-agent-task-run-policy.test.ts \
+  test/phase-24/xuanpu-agent-task-run-scheduler.test.ts \
   test/phase-24/xuanpu-agent-task-run-panel.test.tsx
 
 pnpm lint
@@ -49,16 +54,19 @@ Node-target rebuild. Otherwise app startup can fail with a `NODE_MODULE_VERSION`
 
 Required automated assertions:
 
-- `long` prompt creates one task run with `autonomy = long`.
+- task-run scheduling does not infer runtime policy from prompt text.
+- `createTaskRun()` payloads do not contain `autonomy`.
+- `agent_task_runs` schema does not contain an `autonomy` column after migration.
 - checkpoint or incomplete response queues continuation with the same `taskRunId`.
+- pending continuation `prompt_options_json` contains `taskRunId` and mode only; it does not contain
+  `taskRunAutonomy`.
 - final completion text does not become `paused / no progress`.
 - a continuation prompt such as `继续跑完剩下的` reuses a paused active task run.
 - unrelated prompts do not accidentally bind to a paused task run.
-- realistic multi-document package prompts infer `autonomy = long` without requiring the user to
-  explicitly say `long task run`.
-- eligible long task runs renew expired leases across multiple yield boundaries.
-- long task runs that exceed policy gates still pause / ask instead of renewing blindly.
-- task-run panel pause/resume buttons call the dedicated IPC operations.
+- eligible task runs renew expired leases across multiple yield boundaries.
+- task runs that exceed policy gates still pause / ask instead of renewing blindly.
+- task-run panel pause/resume buttons call the dedicated IPC operations and do not show `/long` or
+  any other mode suffix.
 
 ### 2. Realistic Manual Session
 
@@ -66,13 +74,12 @@ Create a new xuanpu-agent session from the schnauzer worktree after restarting t
 latest build. Record the new runtime session id and Hive session id before testing:
 
 ```bash
-rg -n "Connected xuanpu-agent session" ~/.xuanpu/logs/xuanpu-2026-06-09.log
+rg -n "Connected xuanpu-agent session" ~/.xuanpu/logs/xuanpu-2026-06-17.log
 ```
 
 If the date changed, use the current log file.
 
-Use a prompt that matches normal daily work. The user should not have to say "long task run"
-explicitly for a multi-document deliverable:
+Use a prompt that matches normal daily work. The user should not have to say any task-run mode:
 
 ```text
 帮我基于当前仓库代码，整理一套 xuanpu-agent task-run 机制的内部工程文档包。文档要求：
@@ -86,16 +93,18 @@ explicitly for a multi-document deliverable:
 
 Expected live behavior:
 
-- bottom task-run panel shows one `running /long` run while active
-- it does not create a second `short` task run
-- if the first response budget is reached before files are complete, it should queue or preserve
-  continuation under the same long task run instead of closing as a completed short task
+- bottom task-run panel shows one active `running` task run while work is active.
+- panel status does not include `/long`, `/short`, or `/overnight`.
+- the prompt does not need an intent directive, and adding text such as `长任务执行` must not change a
+  hidden runtime mode.
+- if the first response budget is reached before files are complete, the runtime should queue or
+  preserve continuation under the same task run instead of closing as completed.
 - completion should settle as `completed`, not `paused / no progress`, only after the README and
-  manifest indicate the package is complete
-- if it pauses, pressing the panel play button should resume the same task run
-- directly typing `继续跑完剩下的` should also resume the same task run
+  manifest indicate the package is complete.
+- if it pauses, pressing the panel play button should resume the same task run.
+- directly typing `继续跑完剩下的` should also resume the same task run.
 - expected files should appear under the target path chosen by the assistant, and `manifest.json`
-  should not claim `completed` for files that do not exist or are only partial
+  should not claim `completed` for files that do not exist or are only partial.
 
 Use the old four-stage prompt only as a small sanity fixture. It is not sufficient as the primary
 manual acceptance case because users do not naturally write prompts around artificial numbered
@@ -107,7 +116,9 @@ Replace `<SESSION_ID>` with the Hive session id.
 
 ```bash
 sqlite3 -header -column ~/.xuanpu/xuanpu.db "
-SELECT id, status, autonomy, epoch_count, completed_at, error_message,
+PRAGMA table_info(agent_task_runs);
+
+SELECT id, status, epoch_count, completed_at, error_message,
        substr(objective, 1, 80) AS objective
 FROM agent_task_runs
 WHERE session_id = '<SESSION_ID>'
@@ -132,12 +143,13 @@ ORDER BY enqueued_at ASC;
 
 Pass criteria:
 
-- exactly one `agent_task_runs` row for the clean scenario
-- that row has `autonomy = long`
-- latest task run status is `completed`, unless the run is genuinely still running
-- every `agent_turns.task_run_id` equals that single long task run id
-- no `short` row with objective `继续跑完剩下的`
-- pending continuation rows are either absent or `sent`; none remain `pending` after idle
+- `PRAGMA table_info(agent_task_runs)` has no `autonomy` column.
+- exactly one `agent_task_runs` row for the clean scenario.
+- latest task run status is `completed`, unless the run is genuinely still running.
+- every `agent_turns.task_run_id` equals that single task run id.
+- no additional task run is created for objective `继续跑完剩下的`.
+- pending continuation rows are either absent or `sent`; none remain `pending` after idle.
+- no pending row contains `taskRunAutonomy` inside `prompt_options_json`.
 
 ### 4. Lease Renewal Stress Case
 
@@ -148,14 +160,14 @@ testing can spend money.
 Preferred automated coverage:
 
 - `evaluateLeaseAtBoundary` renews at successive lease boundaries.
-- `XuanpuAgentImplementer` renews an expired running long task run on `onBeforeYield`, updates the
+- `XuanpuAgentImplementer` renews an expired running task run on `onBeforeYield`, updates the
   in-memory lease deadline, and can renew again at the next boundary.
 - the same path must not call `updateTaskRunStatus(..., 'paused')`.
 
 Manual lease stress, only when needed:
 
 ```text
-请按 long task run 执行一次长时续租测试。
+执行一次长时续租测试。
 保持任务打开，不要快速总结完成；每轮只做一个只读检查。
 如果你认为当前 lease 可以续期，请继续下一轮；不要修改文件。
 ```
@@ -168,10 +180,14 @@ real paused/resumed task run.
 
 Use these buckets before changing code:
 
-- `extra short run`: continuation binding failed; inspect prompt options and
+- `extra task run`: continuation binding failed; inspect `taskRunId` propagation and
   `shouldResumeActiveTaskRunFromPromptText`.
+- `mode suffix visible`: UI still exposes removed task-run mode state; inspect
+  `XuanpuAgentTaskRunPanel`.
+- `taskRunAutonomy in pending row`: renderer/main pending-message path is still carrying removed
+  prompt options.
 - `paused/no progress after completion text`: completion detection failed; inspect final assistant
-  text and `isCompleteLongTaskResponse`.
+  text and `isCompleteTaskResponse`.
 - `lease boundary paused unexpectedly`: inspect `evaluateLeaseAtBoundary` inputs for
   `noProgressCalls`, `costSinceStart`, and risky write flags before assuming renewal is broken.
 - `lease renews only once`: inspect the implementer-local `leaseExpiresAt` update after

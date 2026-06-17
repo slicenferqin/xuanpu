@@ -145,13 +145,6 @@ function parsePromptOptions(
       options.successCriteria = successCriteria
     }
   }
-  if (
-    rawOptions.taskRunAutonomy === 'short' ||
-    rawOptions.taskRunAutonomy === 'long' ||
-    rawOptions.taskRunAutonomy === 'overnight'
-  ) {
-    options.taskRunAutonomy = rawOptions.taskRunAutonomy
-  }
   if (typeof rawOptions.taskRunId === 'string') {
     const taskRunId = rawOptions.taskRunId.trim()
     if (taskRunId) {

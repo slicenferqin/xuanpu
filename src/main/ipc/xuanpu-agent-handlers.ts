@@ -180,11 +180,8 @@ export function registerXuanpuAgentHandlers(): void {
         return { success: false, error: `Task run cannot be resumed from ${taskRun.status}` }
       }
 
-      let leaseExpiresAt = taskRun.leaseExpiresAt
-      if (taskRun.autonomy !== 'short') {
-        leaseExpiresAt = new Date(Date.now() + DEFAULT_LEASE_WINDOW_MS).toISOString()
-        renewLease(taskRun.id, leaseExpiresAt)
-      }
+      const leaseExpiresAt = new Date(Date.now() + DEFAULT_LEASE_WINDOW_MS).toISOString()
+      renewLease(taskRun.id, leaseExpiresAt)
       updateTaskRunStatus(taskRun.id, 'running', { leaseExpiresAt })
       getDatabase().createSessionPendingMessage({
         session_id: taskRun.sessionId,
@@ -200,7 +197,6 @@ export function registerXuanpuAgentHandlers(): void {
         ].join('\n'),
         prompt_options_json: JSON.stringify({
           mode: 'build',
-          taskRunAutonomy: taskRun.autonomy,
           taskRunId: taskRun.id
         })
       })

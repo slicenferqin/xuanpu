@@ -6,7 +6,6 @@ import type { Attachment } from '@/components/sessions/AttachmentPreview'
 import { buildRuntimeMessagePayload } from '@/lib/file-attachment-utils'
 import { refreshSessionLastMessageAt } from '@/lib/session-last-message'
 import { executeSendAction, type ComposerAction } from '@/lib/session-send-actions'
-import { mergeXuanpuAgentAutonomyDirective } from '@/lib/xuanpu-agent-autonomy-directive'
 import {
   createOptimisticUserMessage,
   type OptimisticTimelineMessagesController
@@ -172,11 +171,7 @@ export function useSessionComposerActions({
       }
 
       try {
-        const effectivePromptOptions = mergeXuanpuAgentAutonomyDirective(
-          content,
-          agentSdk,
-          promptOptions
-        )
+        const effectivePromptOptions = promptOptions
 
         const consumed = await executeSendAction(action, contentToSend, attachments, {
           worktreePath,

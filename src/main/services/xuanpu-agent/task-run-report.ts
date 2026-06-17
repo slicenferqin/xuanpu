@@ -99,7 +99,7 @@ export function renderTaskRunReportMarkdown(report: AgentTaskRunReport): string 
     `Session: \`${taskRun.sessionId}\``,
     `Worktree: ${taskRun.worktreeId ? `\`${taskRun.worktreeId}\`` : '-'}`,
     `Project: \`${taskRun.projectId}\``,
-    `Status: ${taskRun.status} / ${taskRun.autonomy}`,
+    `Status: ${taskRun.status}`,
     `Objective: ${taskRun.objective ? escapeInline(taskRun.objective) : '-'}`,
     '',
     '## Totals',

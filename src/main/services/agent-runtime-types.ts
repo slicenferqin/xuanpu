@@ -1,5 +1,4 @@
 import type { BrowserWindow } from 'electron'
-import type { TaskRunAutonomy } from '@shared/types/agent-task-run'
 import type { XuanpuAgentModelRef } from './xuanpu-agent/model-config'
 
 export type AgentRuntimeId = 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
@@ -37,8 +36,6 @@ export interface PromptOptions {
   goalObjective?: string
   /** Main-process internal message before Field Context injection. */
   originalMessage?: AgentPromptMessage
-  /** xuanpu-agent task-run autonomy. Defaults to short when omitted. */
-  taskRunAutonomy?: TaskRunAutonomy
   /** xuanpu-agent internal continuation target. Renderer should only pass values from durable pending messages. */
   taskRunId?: string
 }

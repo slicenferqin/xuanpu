@@ -31,7 +31,6 @@ type XuanpuAgentTaskRun = {
   projectId: string
   originMessageId: string | null
   status: 'running' | 'paused' | 'completed' | 'failed' | 'aborted'
-  autonomy: 'short' | 'long' | 'overnight'
   objective: string | null
   leaseExpiresAt: string | null
   totalInputTokens: number
@@ -1387,7 +1386,6 @@ const agentOps = {
       mode?: 'build' | 'plan'
       goalMode?: boolean
       successCriteria?: string
-      taskRunAutonomy?: 'short' | 'long' | 'overnight'
       taskRunId?: string
     }
   ): Promise<{ success: boolean; error?: string }> => {

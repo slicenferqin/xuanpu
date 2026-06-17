@@ -142,7 +142,7 @@ export function XuanpuAgentTaskRunPanel({
       data-testid="xuanpu-agent-task-run-panel"
     >
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-        <StatusPill status={latestRun.status} autonomy={latestRun.autonomy} />
+        <StatusPill status={latestRun.status} />
         <Metric label="rounds" value={String(userRounds.length || 1)} />
         <Metric label="segments" value={String(latestRun.epochCount || contextSegments.length)} />
         <Metric
@@ -253,13 +253,7 @@ export function XuanpuAgentTaskRunPanel({
   )
 }
 
-function StatusPill({
-  status,
-  autonomy
-}: {
-  status: AgentTaskRun['status']
-  autonomy: AgentTaskRun['autonomy']
-}): React.JSX.Element {
+function StatusPill({ status }: { status: AgentTaskRun['status'] }): React.JSX.Element {
   const settled = status === 'completed' || status === 'failed' || status === 'aborted'
   const Icon = settled ? CheckCircle2 : CircleDot
   return (
@@ -273,7 +267,6 @@ function StatusPill({
         )}
       />
       <span className="capitalize">{status}</span>
-      <span className="text-muted-foreground">/{autonomy}</span>
     </span>
   )
 }

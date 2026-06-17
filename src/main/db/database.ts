@@ -242,8 +242,6 @@ export class DatabaseService {
         project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
         origin_message_id TEXT,
         status TEXT NOT NULL CHECK (status IN ('running','paused','completed','failed','aborted')),
-        autonomy TEXT NOT NULL DEFAULT 'short'
-          CHECK (autonomy IN ('short','long','overnight')),
         objective TEXT,
         lease_expires_at TEXT,
         total_input_tokens INTEGER NOT NULL DEFAULT 0,
