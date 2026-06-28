@@ -772,10 +772,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     const targetTurnId = turnId ?? context.session.activeTurnId
+    if (!targetTurnId) {
+      throw new Error(`interruptTurn: no active turn for threadId=${threadId}`)
+    }
 
     await this.sendRequest(context, 'turn/interrupt', {
       threadId: context.session.threadId,
-      ...(targetTurnId ? { turnId: targetTurnId } : {})
+      turnId: targetTurnId
     })
   }
 

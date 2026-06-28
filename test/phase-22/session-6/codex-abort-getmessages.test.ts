@@ -162,6 +162,19 @@ describe('Codex Abort & getMessages', () => {
       await interruptPromise
     })
 
+    it('rejects without sending a request when there is no turn to interrupt', async () => {
+      const { context, child } = createTestContext({ activeTurnId: null })
+      const sessionsMap = (manager as any).sessions as Map<string, CodexSessionContext>
+      sessionsMap.set('thread-abort-1', context)
+
+      const writeSpy = vi.spyOn(child.stdin, 'write')
+
+      await expect(manager.interruptTurn('thread-abort-1')).rejects.toThrow(
+        'no active turn for threadId'
+      )
+      expect(writeSpy).not.toHaveBeenCalled()
+    })
+
     it('keeps session running until provider confirms interruption', async () => {
       const { context, child } = createTestContext({
         status: 'running',
