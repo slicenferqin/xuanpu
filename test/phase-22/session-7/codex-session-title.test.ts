@@ -82,10 +82,15 @@ describe('generateCodexSessionTitle', () => {
     const title = await generateCodexSessionTitle('Fix auth refresh token bug', '/test')
 
     expect(title).toBe('Auth refresh fix')
+    expect(mockStartSession).toHaveBeenCalledWith({
+      cwd: '/test',
+      model: 'gpt-5.4',
+      developerInstructions: expect.stringContaining('You are a title generator'),
+      codexLaunchSpec: expect.anything()
+    })
     expect(mockSendTurn).toHaveBeenCalledWith('thread-title-1', {
       model: 'gpt-5.4',
       reasoningEffort: 'low',
-      developerInstructions: expect.stringContaining('You are a title generator'),
       input: [
         { type: 'text', text: 'Generate a title for this conversation:\n' },
         { type: 'text', text: 'Fix auth refresh token bug' }
@@ -111,7 +116,6 @@ xuanpu--akita
     expect(mockSendTurn).toHaveBeenCalledWith('thread-title-1', {
       model: 'gpt-5.4',
       reasoningEffort: 'low',
-      developerInstructions: expect.stringContaining('You are a title generator'),
       input: [
         { type: 'text', text: 'Generate a title for this conversation:\n' },
         { type: 'text', text: '推进 XFP 落地' }

@@ -1,10 +1,10 @@
 const FIELD_CONTEXT_HEADER_RE =
-  /^\s*\[(?:Field Context|Xuanpu Field Fallback)(?:\s+[^\]\r\n]*|[\u2013\u2014-][^\]\r\n]*)?\][ \t]*(?:\r?\n|$)/
+  /^\s*\[(?:Field Context|Xuanpu Field Fallback|Xuanpu Plan Mode)(?:\s+[^\]\r\n]*|[\u2013\u2014-][^\]\r\n]*)?\][ \t]*(?:\r?\n|$)/
 
 const USER_MESSAGE_MARKER_RE = /(?:^|\r?\n)[ \t]*\[User Message\][ \t]*(?:\r?\n|$)/
 
 /**
- * Extract the user-authored text from a Field Context prompt envelope.
+ * Extract the user-authored text from a Xuanpu-injected prompt envelope.
  *
  * Non-envelope input is returned byte-for-byte unchanged. For envelope input,
  * only the injected wrapper is removed; the message content after

@@ -80,7 +80,7 @@ function createTestContext(overrides?: Partial<CodexProviderSession>): {
 
 // ── Tests ───────────────────────────────────────────────────────────
 
-describe('CodexAppServerManager — collaborationMode in sendTurn', () => {
+describe('CodexAppServerManager — app-server payloads', () => {
   let manager: CodexAppServerManager
 
   beforeEach(() => {
@@ -107,73 +107,7 @@ describe('CodexAppServerManager — collaborationMode in sendTurn', () => {
     return msg?.params ?? null
   }
 
-  it('includes collaborationMode with mode: plan and plan developer instructions when interactionMode is plan', async () => {
-    const { context, stdin } = createTestContext()
-    seedSession(context)
-
-    // Start the sendTurn call — it will await a response
-    const turnPromise = manager.sendTurn('thread-123', {
-      text: 'plan my task',
-      model: 'gpt-5.4',
-      interactionMode: 'plan'
-    })
-
-    // Resolve the pending request by simulating a turn/start response
-    const messages = getWrittenMessages(stdin)
-    const turnStartMsg = messages.find((m: any) => m.method === 'turn/start')
-    expect(turnStartMsg).toBeDefined()
-
-    manager.handleStdoutLine(
-      context,
-      JSON.stringify({ id: turnStartMsg.id, result: { turn: { id: 'turn-abc' } } })
-    )
-
-    await turnPromise
-
-    const params = getTurnStartParams(messages)
-    expect(params).not.toBeNull()
-    expect(params.collaborationMode).toBeDefined()
-    expect(params.collaborationMode.mode).toBe('plan')
-    expect(params.collaborationMode.settings).toBeDefined()
-    expect(params.collaborationMode.settings.developer_instructions).toContain('plan')
-    expect(params.collaborationMode.settings.developer_instructions).toContain(
-      'Writing, editing, or deleting files'
-    )
-    expect(params.collaborationMode.settings.developer_instructions).toContain(
-      'Stop after producing the plan block'
-    )
-  })
-
-  it('includes collaborationMode with mode: default and default developer instructions when interactionMode is default', async () => {
-    const { context, stdin } = createTestContext()
-    seedSession(context)
-
-    const turnPromise = manager.sendTurn('thread-123', {
-      text: 'do the thing',
-      model: 'gpt-5.4',
-      interactionMode: 'default'
-    })
-
-    const messages = getWrittenMessages(stdin)
-    const turnStartMsg = messages.find((m: any) => m.method === 'turn/start')
-    expect(turnStartMsg).toBeDefined()
-
-    manager.handleStdoutLine(
-      context,
-      JSON.stringify({ id: turnStartMsg.id, result: { turn: { id: 'turn-def' } } })
-    )
-
-    await turnPromise
-
-    const params = getTurnStartParams(messages)
-    expect(params).not.toBeNull()
-    expect(params.collaborationMode).toBeDefined()
-    expect(params.collaborationMode.mode).toBe('default')
-    expect(params.collaborationMode.settings).toBeDefined()
-    expect(params.collaborationMode.settings.developer_instructions).toContain('default')
-  })
-
-  it('does not include collaborationMode when interactionMode is not provided', async () => {
+  it('normalizes plain text input to Codex UserInput text_elements shape', async () => {
     const { context, stdin } = createTestContext()
     seedSession(context)
 
@@ -195,7 +129,9 @@ describe('CodexAppServerManager — collaborationMode in sendTurn', () => {
 
     const params = getTurnStartParams(messages)
     expect(params).not.toBeNull()
+    expect(params.input).toEqual([{ type: 'text', text: 'hello', text_elements: [] }])
     expect(params.collaborationMode).toBeUndefined()
+    expect(params.settings).toBeUndefined()
   })
 
   it('sends skills/list for the requested cwd', async () => {
@@ -225,14 +161,47 @@ describe('CodexAppServerManager — collaborationMode in sendTurn', () => {
     })
   })
 
-  it('preserves structured skill input arrays in turn/start', async () => {
+  it('prepends plan-mode instructions without unsupported collaborationMode payload', async () => {
+    const { context, stdin } = createTestContext()
+    seedSession(context)
+
+    const turnPromise = manager.sendTurn('thread-123', {
+      text: 'plan my task',
+      interactionMode: 'plan',
+      model: 'gpt-5.4'
+    })
+
+    const messages = getWrittenMessages(stdin)
+    const turnStartMsg = messages.find((message: any) => message.method === 'turn/start')
+    expect(turnStartMsg).toBeDefined()
+
+    const params = getTurnStartParams(messages)
+    expect(params.collaborationMode).toBeUndefined()
+    expect(params.settings).toBeUndefined()
+    expect(params.input[0]).toEqual({
+      type: 'text',
+      text: expect.stringContaining('[Xuanpu Plan Mode]'),
+      text_elements: []
+    })
+    expect(params.input[0].text).toContain('<proposed_plan>')
+    expect(params.input[1]).toEqual({ type: 'text', text: 'plan my task', text_elements: [] })
+
+    manager.handleStdoutLine(
+      context,
+      JSON.stringify({ id: turnStartMsg.id, result: { turn: { id: 'turn-plan' } } })
+    )
+
+    await turnPromise
+  })
+
+  it('preserves structured skill input arrays in turn/start and normalizes text parts', async () => {
     const { context, stdin } = createTestContext()
     seedSession(context)
 
     const turnPromise = manager.sendTurn('thread-123', {
       input: [
         { type: 'skill', name: 'imagegen', path: '/skills/imagegen/SKILL.md' },
-        { type: 'text', text: 'make it crisp', text_elements: [] }
+        { type: 'text', text: 'make it crisp' }
       ],
       model: 'gpt-5.4'
     })
@@ -255,38 +224,14 @@ describe('CodexAppServerManager — collaborationMode in sendTurn', () => {
     await turnPromise
   })
 
-  it('collaborationMode.settings.model matches the provided model', async () => {
-    const { context, stdin } = createTestContext({ model: 'gpt-5.4' })
-    seedSession(context)
-
-    const turnPromise = manager.sendTurn('thread-123', {
-      text: 'plan it',
-      model: 'o4-mini',
-      interactionMode: 'plan'
-    })
-
-    const messages = getWrittenMessages(stdin)
-    const turnStartMsg = messages.find((m: any) => m.method === 'turn/start')
-
-    manager.handleStdoutLine(
-      context,
-      JSON.stringify({ id: turnStartMsg.id, result: { turn: { id: 'turn-model' } } })
-    )
-
-    await turnPromise
-
-    const params = getTurnStartParams(messages)
-    expect(params.collaborationMode.settings.model).toBe('o4-mini')
-  })
-
-  it('collaborationMode.settings.reasoning_effort defaults to medium when not provided', async () => {
+  it('sends reasoning effort as top-level effort and omits legacy settings', async () => {
     const { context, stdin } = createTestContext()
     seedSession(context)
 
     const turnPromise = manager.sendTurn('thread-123', {
-      text: 'plan it',
+      text: 'think lightly',
       model: 'gpt-5.4',
-      interactionMode: 'plan'
+      reasoningEffort: 'low'
     })
 
     const messages = getWrittenMessages(stdin)
@@ -300,10 +245,11 @@ describe('CodexAppServerManager — collaborationMode in sendTurn', () => {
     await turnPromise
 
     const params = getTurnStartParams(messages)
-    expect(params.collaborationMode.settings.reasoning_effort).toBe('medium')
+    expect(params.effort).toBe('low')
+    expect(params.settings).toBeUndefined()
   })
 
-  it('includes custom developer instructions and multi-part input for title generation', async () => {
+  it('passes serviceTier as a top-level turn/start field', async () => {
     const { context, stdin } = createTestContext()
     seedSession(context)
 
@@ -327,14 +273,13 @@ describe('CodexAppServerManager — collaborationMode in sendTurn', () => {
     expect(params.serviceTier).toBe('fast')
   })
 
-  it('includes custom developer instructions and multi-part input for title generation', async () => {
+  it('normalizes multi-part input for title generation style turns', async () => {
     const { context, stdin } = createTestContext()
     seedSession(context)
 
     const turnPromise = manager.sendTurn('thread-123', {
       model: 'gpt-5.4',
       reasoningEffort: 'low',
-      developerInstructions: 'Title only instructions',
       input: [
         { type: 'text', text: 'Generate a title for this conversation:\n' },
         { type: 'text', text: 'Fix auth refresh token bug' }
@@ -353,13 +298,12 @@ describe('CodexAppServerManager — collaborationMode in sendTurn', () => {
 
     const params = getTurnStartParams(messages)
     expect(params.input).toEqual([
-      { type: 'text', text: 'Generate a title for this conversation:\n' },
-      { type: 'text', text: 'Fix auth refresh token bug' }
+      { type: 'text', text: 'Generate a title for this conversation:\n', text_elements: [] },
+      { type: 'text', text: 'Fix auth refresh token bug', text_elements: [] }
     ])
-    expect(params.settings.reasoningEffort).toBe('low')
-    expect(params.collaborationMode.mode).toBe('default')
-    expect(params.collaborationMode.settings.developer_instructions).toBe('Title only instructions')
-    expect(params.collaborationMode.settings.reasoning_effort).toBe('low')
+    expect(params.effort).toBe('low')
+    expect(params.settings).toBeUndefined()
+    expect(params.collaborationMode).toBeUndefined()
   })
 })
 
@@ -398,8 +342,8 @@ describe('CodexAppServerManager.steerTurn', () => {
     expect(steerMsg).toBeDefined()
     expect(steerMsg.params).toEqual({
       threadId: 'thread-123',
-      turnId: 'turn-active-1',
-      input: [{ type: 'text', text: 'course correct' }]
+      expectedTurnId: 'turn-active-1',
+      input: [{ type: 'text', text: 'course correct', text_elements: [] }]
     })
 
     manager.handleStdoutLine(context, JSON.stringify({ id: steerMsg.id, result: { ok: true } }))
@@ -419,7 +363,8 @@ describe('CodexAppServerManager.steerTurn', () => {
 
     const messages = getWrittenMessages(stdin)
     const steerMsg = messages.find((message: any) => message.method === 'turn/steer')
-    expect(steerMsg?.params.turnId).toBe('turn-override-9')
+    expect(steerMsg?.params.expectedTurnId).toBe('turn-override-9')
+    expect(steerMsg?.params.turnId).toBeUndefined()
 
     manager.handleStdoutLine(context, JSON.stringify({ id: steerMsg.id, result: { ok: true } }))
 

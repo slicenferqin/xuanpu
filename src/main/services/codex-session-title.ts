@@ -175,6 +175,7 @@ export async function generateCodexSessionTitle(
       const session = await manager.startSession({
         cwd: worktreePath || homedir(),
         model: TITLE_MODEL,
+        developerInstructions: TITLE_DEVELOPER_INSTRUCTIONS,
         codexLaunchSpec: await ensureCodexAppServerLaunchSpec()
       })
 
@@ -186,7 +187,6 @@ export async function generateCodexSessionTitle(
       await manager.sendTurn(threadId, {
         model: TITLE_MODEL,
         reasoningEffort: 'low',
-        developerInstructions: TITLE_DEVELOPER_INSTRUCTIONS,
         input: [
           { type: 'text', text: TITLE_PROMPT_PREFIX },
           { type: 'text', text: truncatedMessage }

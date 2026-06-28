@@ -37,6 +37,16 @@ Observed context
     expect(stripFieldContextEnvelope(input)).toBe('这里为什么挂？')
   })
 
+  it('extracts the real user message from a Xuanpu plan mode envelope', () => {
+    const input = `[Xuanpu Plan Mode]
+For this turn, work in planning mode.
+
+[User Message]
+Plan the migration`
+
+    expect(stripFieldContextEnvelope(input)).toBe('Plan the migration')
+  })
+
   it('returns non-envelope input unchanged', () => {
     const input = '普通消息\n[User Message]\n也只是用户自己输入的文本'
 

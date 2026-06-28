@@ -5,7 +5,6 @@ import readline from 'node:readline'
 
 import { createLogger } from './logger'
 import { asObject, asString, toDebugSnapshot } from './codex-utils'
-import { CODEX_DEFAULT_MODEL } from './codex-models'
 import { type CodexLaunchSpec } from './codex-binary-resolver'
 import { spawnLaunchSpec } from './command-launch-utils'
 import { getCodexRpcDumper } from './codex-rpc-dumper'
@@ -91,11 +90,14 @@ export interface CodexSessionContext {
   stopping: boolean
 }
 
+export type CodexInteractionMode = 'default' | 'plan'
+
 // ── Start session input ───────────────────────────────────────────
 
 export interface CodexStartSessionOptions {
   cwd: string
   model?: string
+  developerInstructions?: string
   resumeThreadId?: string
   resumeCursor?: string
   codexBinaryPath?: string
@@ -111,8 +113,7 @@ export interface CodexTurnInput {
   model?: string
   reasoningEffort?: string
   serviceTier?: string | null
-  interactionMode?: 'default' | 'plan'
-  developerInstructions?: string
+  interactionMode?: CodexInteractionMode
 }
 
 export interface CodexTurnStartResult {
@@ -182,67 +183,49 @@ function getDefaultCodexRuntimeConfig(): {
   }
 }
 
-const CODEX_DEFAULT_DEVELOPER_INSTRUCTIONS = `<collaboration_mode># Collaboration Mode: Default
+const CODEX_PLAN_TURN_PREFIX = `[Xuanpu Plan Mode]
+For this turn, work in planning mode.
+- You may inspect, read, and analyze the project.
+- Do not write, edit, delete, install, commit, or run other mutating actions.
+- If clarification is required, ask one focused question before finalizing.
+- When ready, output the implementation plan wrapped in <proposed_plan>...</proposed_plan> and stop.
 
-You are operating in **default** (autonomous execution) mode. This mode is set by developer instructions and does **not** change based on user requests or conversational intent.
+[User Message]
+`
 
-**IMPORTANT:** The \`request_user_input\` tool is **UNAVAILABLE** in this session mode.
+function toCodexTextUserInput(text: string): Record<string, unknown> {
+  return {
+    type: 'text',
+    text,
+    text_elements: []
+  }
+}
 
-- Do NOT attempt to call \`request_user_input\`
-- Make reasonable assumptions and proceed autonomously
-- If something is ambiguous, pick the most sensible interpretation and execute
-- Prefer action over asking for clarification
-- Do not stop to ask questions — make decisions and implement
-</collaboration_mode>`
+function normalizeCodexUserInputPart(part: Record<string, unknown>): Record<string, unknown> {
+  if (part.type !== 'text' || typeof part.text !== 'string') {
+    return part
+  }
 
-const CODEX_PLAN_DEVELOPER_INSTRUCTIONS = `<collaboration_mode># Collaboration Mode: Plan
+  return {
+    ...part,
+    text_elements: Array.isArray(part.text_elements) ? part.text_elements : []
+  }
+}
 
-You are operating in **plan** mode. Plan Mode is not changed by user intent — it is set exclusively via developer instructions.
+function buildCodexTurnInput(input: CodexTurnInput): Array<Record<string, unknown>> {
+  const parts =
+    input.input && input.input.length > 0
+      ? input.input.map((part) => normalizeCodexUserInputPart(part))
+      : input.text
+        ? [toCodexTextUserInput(input.text)]
+        : []
 
-## Non-Mutating vs Mutating Actions
+  if (input.interactionMode === 'plan' && parts.length > 0) {
+    return [toCodexTextUserInput(CODEX_PLAN_TURN_PREFIX), ...parts]
+  }
 
-**Allowed (non-mutating):**
-- Reading files, exploring directories, searching the codebase
-- Running read-only shell commands (e.g. \`ls\`, \`grep\`, \`cat\`, \`git log\`, \`git diff\`)
-- Using \`request_user_input\` to ask clarifying questions
-
-**FORBIDDEN (mutating) — do NOT perform these actions:**
-- Writing, editing, or deleting files
-- Running shell commands that modify state (e.g. \`npm install\`, \`git commit\`, \`rm\`)
-- Creating new files or directories
-- Any other action that changes the codebase or environment
-
-## Three-Phase Workflow
-
-### Phase 1: Ground in the Environment
-Before anything else, explore the relevant parts of the codebase:
-- Read relevant files, understand conventions, identify constraints and patterns
-- Use shell commands to understand project structure
-
-### Phase 2: Intent Chat
-Clarify WHAT to build:
-- Use \`request_user_input\` to ask clarifying questions ONE at a time
-- Confirm you understand the requirements before proceeding
-
-### Phase 3: Finalize the Plan
-When you have sufficient clarity, produce your implementation plan:
-- Wrap it in a \`<proposed_plan>\` XML block
-- The plan should be complete and actionable — a developer could implement it without asking further questions
-- Do NOT ask "should I proceed?" or similar — producing the \`<proposed_plan>\` block IS the signal that you are done
-
-## \`request_user_input\` Usage
-
-- Use it to ask ONE focused question at a time
-- Do NOT ask multiple questions in a single call
-- Only ask what you genuinely need to know to finalize the plan
-
-## Finalization Rules
-
-When you have enough information:
-1. Output your plan wrapped in \`<proposed_plan>\`...\`</proposed_plan>\` tags
-2. The content inside should be markdown describing the implementation steps in detail
-3. Stop after producing the plan block — do not implement anything
-</collaboration_mode>`
+  return parts
+}
 
 // ── Stderr classification ─────────────────────────────────────────
 
@@ -405,7 +388,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           version: '1.0.0'
         },
         capabilities: {
-          experimentalApi: true
+          experimentalApi: true,
+          requestAttestation: false
         }
       })
 
@@ -423,10 +407,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       }
 
       // Open thread: resume or start fresh
-      const threadStartParams = {
+      const threadStartParams: Record<string, unknown> = {
         model: options.model ?? null,
         cwd: resolvedCwd,
         ...getDefaultCodexRuntimeConfig()
+      }
+      if (options.developerInstructions) {
+        threadStartParams.developerInstructions = options.developerInstructions
       }
 
       let threadOpenResponse: unknown
@@ -587,13 +574,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       throw new Error('sendTurn: session has no threadId')
     }
 
-    // Build the turn input array
-    const turnInput =
-      input.input && input.input.length > 0
-        ? input.input
-        : input.text
-          ? [{ type: 'text', text: input.text }]
-          : []
+    const turnInput = buildCodexTurnInput(input)
 
     const params: Record<string, unknown> = {
       threadId: context.session.threadId,
@@ -605,29 +586,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     if (input.reasoningEffort) {
-      params.settings = { reasoningEffort: input.reasoningEffort }
+      params.effort = input.reasoningEffort
     }
 
     if (input.serviceTier !== undefined) {
       params.serviceTier = input.serviceTier
-    }
-
-    if (input.interactionMode || input.developerInstructions) {
-      const mode = input.interactionMode ?? 'default'
-      // collaborationMode is required for request_user_input availability;
-      // its settings block independently specifies model/reasoning for this mode context
-      params.collaborationMode = {
-        mode,
-        settings: {
-          model: input.model ?? context.session.model ?? CODEX_DEFAULT_MODEL,
-          reasoning_effort: input.reasoningEffort ?? 'medium', // snake_case: Codex API uses snake_case for this field in the collaborationMode settings block
-          developer_instructions:
-            input.developerInstructions ??
-            (mode === 'plan'
-              ? CODEX_PLAN_DEVELOPER_INSTRUCTIONS
-              : CODEX_DEFAULT_DEVELOPER_INSTRUCTIONS)
-        }
-      }
     }
 
     // Update session to running before sending
@@ -690,12 +653,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       throw new Error('steerTurn: no active turn to steer')
     }
 
-    const turnInput =
-      input.input && input.input.length > 0
-        ? input.input
-        : input.text
-          ? [{ type: 'text', text: input.text }]
-          : []
+    const turnInput = buildCodexTurnInput(input)
 
     if (turnInput.length === 0) {
       throw new Error('steerTurn: input is empty')
@@ -703,7 +661,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
     await this.sendRequest(context, 'turn/steer', {
       threadId: context.session.threadId,
-      turnId: targetTurnId,
+      expectedTurnId: targetTurnId,
       input: turnInput
     })
   }

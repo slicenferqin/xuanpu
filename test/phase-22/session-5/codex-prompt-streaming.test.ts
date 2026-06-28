@@ -1680,6 +1680,41 @@ describe('normalizeCodexMessageTimestamps', () => {
 })
 
 describe('CodexImplementer.parseThreadSnapshot()', () => {
+  it('strips Xuanpu plan-mode envelopes from user messages', () => {
+    const impl = new CodexImplementer()
+    const messages = (impl as any).parseThreadSnapshot(
+      {
+        thread: {
+          turns: [
+            {
+              id: 'turn-plan',
+              startedAt: 1779530400,
+              items: [
+                {
+                  type: 'userMessage',
+                  content: [
+                    {
+                      type: 'text',
+                      text: `[Xuanpu Plan Mode]
+For this turn, work in planning mode.
+
+[User Message]
+Plan the migration`
+                    }
+                  ]
+                },
+                { type: 'agentMessage', id: 'item-2', text: '<proposed_plan>Steps</proposed_plan>' }
+              ]
+            }
+          ]
+        }
+      },
+      new Map()
+    )
+
+    expect((messages[0] as any).parts[0].text).toBe('Plan the migration')
+  })
+
   it('uses Codex JSONL response-item timestamps to keep tools and text in turn order', () => {
     const impl = new CodexImplementer()
     const dir = mkdtempSync(join(tmpdir(), 'xuanpu-codex-jsonl-'))
