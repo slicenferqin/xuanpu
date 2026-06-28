@@ -2,6 +2,26 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { EventEmitter } from 'node:events'
 
+vi.mock('electron', () => ({
+  BrowserWindow: vi.fn(),
+  Notification: vi.fn().mockImplementation(() => ({
+    show: vi.fn(),
+    on: vi.fn()
+  })),
+  app: {
+    getName: vi.fn(() => 'Xuanpu'),
+    getPath: vi.fn(() => '/tmp'),
+    getAppPath: vi.fn(() => '/tmp'),
+    dock: { setBadge: vi.fn() }
+  },
+  nativeImage: {
+    createFromPath: vi.fn(() => ({
+      isEmpty: vi.fn(() => false),
+      resize: vi.fn()
+    }))
+  }
+}))
+
 // Mock logger
 vi.mock('../../../src/main/services/logger', () => ({
   createLogger: () => ({
@@ -17,7 +37,11 @@ vi.mock('../../../src/main/services/codex-config', () => ({
   getCodexConfiguredContextWindow: vi.fn(() => undefined)
 }))
 
-import { CodexImplementer } from '../../../src/main/services/codex-implementer'
+import {
+  CodexImplementer,
+  type CodexSessionState
+} from '../../../src/main/services/codex-implementer'
+import { createCodexMapperState } from '../../../src/main/services/codex-event-mapper'
 import { CODEX_CAPABILITIES } from '../../../src/main/services/agent-runtime-types'
 import { CODEX_DEFAULT_MODEL } from '../../../src/main/services/codex-models'
 
@@ -47,8 +71,8 @@ describe('CodexImplementer skeleton', () => {
       expect(impl.capabilities.supportsRedo).toBe(false)
     })
 
-    it('supportsCommands is false', () => {
-      expect(impl.capabilities.supportsCommands).toBe(false)
+    it('supportsCommands is true', () => {
+      expect(impl.capabilities.supportsCommands).toBe(true)
     })
 
     it('supportsModelSelection is true', () => {
@@ -451,18 +475,319 @@ describe('CodexImplementer skeleton', () => {
     })
   })
 
-  // ── Unimplemented command methods throw ─────────────────────────
+  // ── Codex skill commands ───────────────────────────────────────
 
-  describe('unimplemented command methods throw descriptive errors', () => {
-    it('listCommands throws', async () => {
-      await expect(impl.listCommands('/path')).rejects.toThrow(
-        'CodexImplementer.listCommands() not yet implemented'
+  describe('Codex skill commands', () => {
+    function seedCodexSession(overrides: Partial<CodexSessionState> = {}): CodexSessionState {
+      const session: CodexSessionState = {
+        threadId: 'thread-1',
+        hiveSessionId: 'hive-1',
+        worktreePath: '/path',
+        status: 'ready',
+        messages: [],
+        liveAssistantDraft: null,
+        activeRun: null,
+        settledRunIds: new Set(),
+        revertMessageID: null,
+        revertDiff: null,
+        titleGenerated: false,
+        titleGenerationStarted: false,
+        tokenUsageCostByEvent: new Map(),
+        mapperState: createCodexMapperState(),
+        itemTimestampsByTurn: new Map(),
+        recordedItemIdsByTurn: new Map(),
+        ...overrides
+      }
+      impl.getSessions().set(`${session.worktreePath}::${session.threadId}`, session)
+      return session
+    }
+
+    it('returns no commands when no Codex session is active for the worktree', async () => {
+      await expect(impl.listCommands('/path')).resolves.toEqual([])
+    })
+
+    it('maps enabled skills/list metadata to slash commands and caches paths', async () => {
+      seedCodexSession()
+      const manager = {
+        listSkills: vi.fn().mockResolvedValue({
+          data: [
+            {
+              cwd: '/path',
+              skills: [
+                {
+                  name: 'brainstorming',
+                  description: 'Full description',
+                  interface: {
+                    shortDescription: 'Explore requirements',
+                    defaultPrompt: '  design this  '
+                  },
+                  path: '/skills/brainstorming/SKILL.md',
+                  scope: 'user',
+                  enabled: true
+                },
+                {
+                  name: 'disabled-skill',
+                  description: 'Disabled',
+                  path: '/skills/disabled/SKILL.md',
+                  enabled: false
+                },
+                {
+                  name: 'missing-path',
+                  enabled: true
+                }
+              ],
+              errors: [{ message: 'bad repo skill' }]
+            }
+          ]
+        })
+      }
+      ;(impl as any).manager = manager
+
+      const commands = (await impl.listCommands('/path')) as any[]
+
+      expect(manager.listSkills).toHaveBeenCalledWith('thread-1', '/path')
+      expect(commands).toEqual([
+        expect.objectContaining({
+          name: 'brainstorming',
+          description: 'Explore requirements',
+          template: '/brainstorming design this ',
+          source: 'skill',
+          path: '/skills/brainstorming/SKILL.md',
+          scope: 'user',
+          enabled: true
+        })
+      ])
+    })
+
+    it('prefers exact skills/list cwd matches over fallback flattening', async () => {
+      seedCodexSession()
+      const manager = {
+        listSkills: vi.fn().mockResolvedValue({
+          data: [
+            {
+              cwd: '/other',
+              skills: [
+                {
+                  name: 'other-skill',
+                  path: '/skills/other/SKILL.md',
+                  enabled: true
+                }
+              ]
+            },
+            {
+              cwd: '/path',
+              skills: [
+                {
+                  name: 'exact-skill',
+                  path: '/skills/exact/SKILL.md',
+                  enabled: true
+                }
+              ]
+            }
+          ]
+        })
+      }
+      ;(impl as any).manager = manager
+
+      const commands = (await impl.listCommands('/path')) as any[]
+
+      expect(commands.find((command) => command.name === 'exact-skill')).toBeDefined()
+      expect(commands.find((command) => command.name === 'other-skill')).toBeUndefined()
+    })
+
+    it('clears cached skills when skills/list fails after a previous successful fetch', async () => {
+      seedCodexSession()
+      const manager = {
+        listSkills: vi
+          .fn()
+          .mockResolvedValueOnce({
+            data: [
+              {
+                cwd: '/path',
+                skills: [
+                  {
+                    name: 'imagegen',
+                    path: '/skills/imagegen/SKILL.md',
+                    enabled: true
+                  }
+                ]
+              }
+            ]
+          })
+          .mockRejectedValueOnce(new Error('protocol unavailable'))
+      }
+      ;(impl as any).manager = manager
+
+      await expect(impl.listCommands('/path')).resolves.toEqual([
+        expect.objectContaining({ name: 'imagegen' })
+      ])
+      await expect(impl.listCommands('/path')).resolves.toEqual([])
+
+      await expect(impl.sendCommand('/path', 'thread-1', 'imagegen', 'a poster')).rejects.toThrow(
+        'Unsupported Codex command: /imagegen'
       )
     })
 
-    it('sendCommand throws', async () => {
-      await expect(impl.sendCommand('/path', 'session-1', '/help')).rejects.toThrow(
-        'CodexImplementer.sendCommand() not yet implemented'
+    it('emits commands_available and refreshes cached skills before dispatch after skills/changed', async () => {
+      const session = seedCodexSession()
+      const manager = new EventEmitter() as any
+      manager.listSkills = vi.fn().mockResolvedValue({
+        data: [
+          {
+            cwd: '/path',
+            skills: [{ name: 'imagegen', path: '/skills/imagegen/SKILL.md', enabled: true }]
+          }
+        ]
+      })
+      manager.sendTurn = vi.fn(async () => {
+        setTimeout(() => {
+          manager.emit('event', {
+            id: 'event-1',
+            kind: 'notification',
+            provider: 'codex',
+            threadId: 'thread-1',
+            turnId: 'turn-skill',
+            createdAt: new Date().toISOString(),
+            method: 'turn/completed',
+            payload: { turn: { id: 'turn-skill', status: 'completed' } }
+          })
+        }, 0)
+        return { turnId: 'turn-skill', threadId: 'thread-1' }
+      })
+      manager.readThread = vi.fn().mockResolvedValue({
+        thread: {
+          id: 'thread-1',
+          turns: [
+            {
+              id: 'turn-skill',
+              items: [
+                {
+                  type: 'userMessage',
+                  content: [{ type: 'text', text: '/imagegen a poster' }]
+                },
+                { type: 'agentMessage', text: 'done' }
+              ]
+            }
+          ]
+        }
+      })
+      manager.getSession = vi.fn().mockReturnValue({ activeTurnId: 'turn-skill' })
+      manager.removeListener = manager.off.bind(manager)
+      ;(impl as any).manager = manager
+      const mockWindow = {
+        isDestroyed: () => false,
+        webContents: { send: vi.fn() }
+      }
+      impl.setMainWindow(mockWindow as any)
+
+      await impl.listCommands('/path')
+      ;(impl as any).handleManagerEvent({
+        id: 'skills-changed-1',
+        kind: 'notification',
+        provider: 'codex',
+        threadId: 'thread-1',
+        createdAt: new Date().toISOString(),
+        method: 'skills/changed',
+        payload: {}
+      })
+
+      await impl.sendCommand('/path', 'thread-1', 'imagegen', 'a poster')
+
+      expect(manager.listSkills).toHaveBeenCalledTimes(2)
+      expect(manager.sendTurn).toHaveBeenCalledWith(
+        'thread-1',
+        expect.objectContaining({
+          input: [
+            { type: 'skill', name: 'imagegen', path: '/skills/imagegen/SKILL.md' },
+            { type: 'text', text: 'a poster', text_elements: [] }
+          ]
+        })
+      )
+      expect(session.status).toBe('ready')
+      expect(mockWindow.webContents.send).toHaveBeenCalledWith(
+        'agent:stream',
+        expect.objectContaining({
+          type: 'session.commands_available',
+          sessionId: 'hive-1'
+        })
+      )
+    })
+
+    it('sends cached skill commands as structured Codex input through the turn lifecycle', async () => {
+      const session = seedCodexSession()
+      const manager = new EventEmitter() as any
+      manager.listSkills = vi.fn().mockResolvedValue({
+        data: [
+          {
+            cwd: '/path',
+            skills: [
+              {
+                name: 'imagegen',
+                description: 'Generate an image',
+                path: '/skills/imagegen/SKILL.md',
+                scope: 'system',
+                enabled: true
+              }
+            ]
+          }
+        ]
+      })
+      manager.sendTurn = vi.fn(async () => {
+        setTimeout(() => {
+          manager.emit('event', {
+            id: 'event-1',
+            kind: 'notification',
+            provider: 'codex',
+            threadId: 'thread-1',
+            turnId: 'turn-skill',
+            createdAt: new Date().toISOString(),
+            method: 'turn/completed',
+            payload: { turn: { id: 'turn-skill', status: 'completed' } }
+          })
+        }, 0)
+        return { turnId: 'turn-skill', threadId: 'thread-1' }
+      })
+      manager.readThread = vi.fn().mockResolvedValue({
+        thread: {
+          id: 'thread-1',
+          turns: [
+            {
+              id: 'turn-skill',
+              items: [
+                {
+                  type: 'userMessage',
+                  content: [{ type: 'text', text: '/imagegen a clean product mockup' }]
+                },
+                { type: 'agentMessage', text: 'done' }
+              ]
+            }
+          ]
+        }
+      })
+      manager.getSession = vi.fn().mockReturnValue({ activeTurnId: 'turn-skill' })
+      manager.removeListener = manager.off.bind(manager)
+      ;(impl as any).manager = manager
+
+      await impl.listCommands('/path')
+      await impl.sendCommand('/path', 'thread-1', 'imagegen', 'a clean product mockup')
+
+      expect(manager.sendTurn).toHaveBeenCalledWith(
+        'thread-1',
+        expect.objectContaining({
+          input: [
+            { type: 'skill', name: 'imagegen', path: '/skills/imagegen/SKILL.md' },
+            { type: 'text', text: 'a clean product mockup', text_elements: [] }
+          ],
+          model: expect.any(String)
+        })
+      )
+      expect(session.status).toBe('ready')
+      expect(session.activeRun).toBeNull()
+      expect(session.messages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ role: 'user' }),
+          expect.objectContaining({ role: 'assistant' })
+        ])
       )
     })
   })

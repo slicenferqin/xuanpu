@@ -107,7 +107,7 @@ export interface CodexStartSessionOptions {
 
 export interface CodexTurnInput {
   text?: string
-  input?: Array<{ type: string; text: string }>
+  input?: Array<Record<string, unknown>>
   model?: string
   reasoningEffort?: string
   serviceTier?: string | null
@@ -560,6 +560,21 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
   listSessions(): CodexProviderSession[] {
     return Array.from(this.sessions.values(), ({ session }) => ({ ...session }))
+  }
+
+  async listSkills(threadId: string, worktreePath?: string, forceReload = false): Promise<unknown> {
+    const context = this.sessions.get(threadId)
+    if (!context) {
+      throw new Error(`listSkills: no session found for threadId=${threadId}`)
+    }
+
+    const params: Record<string, unknown> = {}
+    if (worktreePath) {
+      params.cwds = [worktreePath]
+      params.forceReload = forceReload
+    }
+
+    return this.sendRequest<unknown>(context, 'skills/list', params)
   }
 
   async sendTurn(threadId: string, input: CodexTurnInput): Promise<CodexTurnStartResult> {

@@ -100,6 +100,7 @@ interface SlashCommandInfo {
   template: string
   agent?: string
   builtIn?: boolean
+  source?: 'command' | 'mcp' | 'skill'
 }
 
 export const BUILT_IN_SLASH_COMMANDS: SlashCommandInfo[] = [
@@ -4118,7 +4119,7 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
 
             if (matchedCommand && !matchedCommand.builtIn) {
               // Auto-switch mode based on command's agent field
-              if (matchedCommand.agent) {
+              if (matchedCommand.agent && matchedCommand.source !== 'skill') {
                 const currentMode = useSessionStore.getState().getSessionMode(sessionId)
                 const targetMode = matchedCommand.agent === 'plan' ? 'plan' : 'build'
                 if (currentMode !== targetMode) {
@@ -4809,8 +4810,11 @@ export function SessionView({ sessionId }: SessionViewProps): React.JSX.Element 
   )
 
   const handleCommandSelect = useCallback((cmd: { name: string; template: string }) => {
-    setInputValue(`/${cmd.name} `)
+    const nextValue = /\s$/.test(cmd.template) ? cmd.template : `${cmd.template} `
+    setInputValue(nextValue)
+    inputValueRef.current = nextValue
     setShowSlashCommands(false)
+    showSlashCommandsRef.current = false
     textareaRef.current?.focus()
   }, [])
 

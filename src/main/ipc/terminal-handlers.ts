@@ -19,6 +19,23 @@ import { getDatabase } from '../db'
 
 const log = createLogger({ component: 'TerminalHandlers' })
 
+interface TerminalDiagnosticsPayload {
+  terminalId?: string
+  backend?: string
+  renderer?: string
+  cols?: number
+  rows?: number
+  proposedCols?: number
+  proposedRows?: number
+  fontFamily?: string
+  fontSize?: number
+  devicePixelRatio?: number
+  containerWidth?: number
+  containerHeight?: number
+  webgl?: boolean
+  reason?: string
+}
+
 // Track listener cleanup functions per worktreeId to prevent duplicate registrations
 const listenerCleanups = new Map<string, { removeData: () => void; removeExit: () => void }>()
 
@@ -255,6 +272,10 @@ export function registerTerminalHandlers(mainWindow: BrowserWindow): void {
       )
       return {}
     }
+  })
+
+  ipcMain.handle('terminal:logDiagnostics', (_event, payload: TerminalDiagnosticsPayload) => {
+    log.info('Terminal renderer diagnostics', { ...payload })
   })
 
   // -----------------------------------------------------------------------

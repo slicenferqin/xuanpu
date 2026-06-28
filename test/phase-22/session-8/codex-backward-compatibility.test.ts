@@ -222,8 +222,8 @@ describe('Capability contracts are stable', () => {
       expect(CODEX_CAPABILITIES.supportsRedo).toBe(false)
     })
 
-    it('does NOT support commands (slash commands)', () => {
-      expect(CODEX_CAPABILITIES.supportsCommands).toBe(false)
+    it('supports skill-backed commands (slash commands)', () => {
+      expect(CODEX_CAPABILITIES.supportsCommands).toBe(true)
     })
 
     it('supports human-in-the-loop features', () => {

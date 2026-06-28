@@ -1,4 +1,9 @@
-export type SharedAgentRuntimeId = 'opencode' | 'claude-code' | 'codex' | 'terminal' | 'xuanpu-agent'
+export type SharedAgentRuntimeId =
+  | 'opencode'
+  | 'claude-code'
+  | 'codex'
+  | 'terminal'
+  | 'xuanpu-agent'
 export type SharedAgentRuntimeAvailability = Record<SharedAgentRuntimeId, boolean>
 
 export interface AgentStatusPayload {
@@ -455,6 +460,9 @@ export interface AgentCommand {
   agent?: string
   model?: string
   source?: 'command' | 'mcp' | 'skill'
+  path?: string
+  scope?: 'user' | 'repo' | 'system' | 'admin'
+  enabled?: boolean
   subtask?: boolean
   hints?: string[]
 }

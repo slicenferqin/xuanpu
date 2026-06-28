@@ -36,6 +36,26 @@ export interface PtyCreateOpts {
   backend?: TerminalBackend
 }
 
+export function buildPtyEnv(
+  baseEnv: NodeJS.ProcessEnv = process.env,
+  overrideEnv?: Record<string, string>
+): Record<string, string> {
+  const env: Record<string, string> = { ...(baseEnv as Record<string, string>) }
+
+  // Login shells and parent processes can carry stale dimensions. node-pty
+  // owns the real size through cols/rows and resize(), so inherited values can
+  // make TUIs render against the wrong width/height.
+  delete env.COLUMNS
+  delete env.LINES
+
+  return {
+    ...env,
+    TERM: 'xterm-256color',
+    COLORTERM: 'truecolor',
+    ...overrideEnv
+  }
+}
+
 class PtyService {
   private ptys: Map<string, PtyInstance> = new Map()
 
@@ -64,14 +84,18 @@ class PtyService {
     const cols = opts.cols || 80
     const rows = opts.rows || 24
 
-    const env: Record<string, string> = {
-      ...process.env,
-      TERM: 'xterm-256color',
-      COLORTERM: 'truecolor',
-      ...opts.env
-    } as Record<string, string>
+    const env = buildPtyEnv(process.env, opts.env)
 
-    log.info('Creating PTY', { id, shell, cwd: opts.cwd, cols, rows })
+    log.info('Creating PTY', {
+      id,
+      shell,
+      cwd: opts.cwd,
+      cols,
+      rows,
+      term: env.TERM,
+      colorterm: env.COLORTERM,
+      removedInheritedSize: 'COLUMNS' in process.env || 'LINES' in process.env
+    })
 
     const ptyProcess = pty.spawn(shell, [], {
       name: 'xterm-256color',

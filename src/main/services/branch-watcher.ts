@@ -11,8 +11,9 @@ const log = createLogger({ component: 'BranchWatcher' })
  * BranchWatcher — lightweight HEAD-only watcher for sidebar branch display.
  *
  * Unlike the full WorktreeWatcher (which watches the entire working tree + all
- * .git metadata), this only watches .git/HEAD per worktree. This is sufficient
- * to detect branch switches and uses negligible resources.
+ * .git metadata), this only watches the worktree's gitdir for branch metadata.
+ * Watching the directory instead of HEAD itself keeps the watcher alive when Git
+ * rewrites HEAD atomically and replaces the file inode.
  *
  * Emits 'git:branchChanged' events to the renderer.
  */
@@ -22,10 +23,17 @@ const DEBOUNCE_MS = 300
 interface BranchWatcherEntry {
   watcher: chokidar.FSWatcher
   debounceTimer: ReturnType<typeof setTimeout> | null
+  gitDir: string
 }
 
 const watchers = new Map<string, BranchWatcherEntry>()
 let mainWindow: BrowserWindow | null = null
+
+export function isGitHeadPath(eventPath: string, gitDir: string): boolean {
+  const normalizedEventPath = eventPath.replace(/\\/g, '/')
+  const normalizedGitDir = gitDir.replace(/\\/g, '/').replace(/\/$/, '')
+  return normalizedEventPath === 'HEAD' || normalizedEventPath === `${normalizedGitDir}/HEAD`
+}
 
 /**
  * Resolve the git dir for a worktree path.
@@ -76,33 +84,33 @@ export async function watchBranch(worktreePath: string): Promise<void> {
     return
   }
 
-  const headPath = join(gitDir, 'HEAD')
-  if (!existsSync(headPath)) {
-    log.warn('Cannot watch branch — HEAD not found', { worktreePath, headPath })
-    return
-  }
-
-  const watcher = chokidar.watch(headPath, {
+  const watcher = chokidar.watch(gitDir, {
     persistent: true,
-    ignoreInitial: true
+    ignoreInitial: true,
+    depth: 1
   })
 
-  const entry: BranchWatcherEntry = { watcher, debounceTimer: null }
+  const entry: BranchWatcherEntry = { watcher, debounceTimer: null, gitDir }
 
-  watcher.on('change', () => {
+  const scheduleBranchRefresh = (path: string): void => {
+    if (!isGitHeadPath(path, gitDir)) return
     if (entry.debounceTimer) clearTimeout(entry.debounceTimer)
     entry.debounceTimer = setTimeout(() => {
       entry.debounceTimer = null
       emitBranchChanged(worktreePath)
     }, DEBOUNCE_MS)
-  })
+  }
+
+  watcher.on('change', scheduleBranchRefresh)
+  watcher.on('add', scheduleBranchRefresh)
+  watcher.on('unlink', scheduleBranchRefresh)
 
   watcher.on('error', (error) => {
     log.error('Branch watcher error', error, { worktreePath })
   })
 
   watchers.set(worktreePath, entry)
-  log.info('Branch watcher started', { worktreePath, headPath })
+  log.info('Branch watcher started', { worktreePath, gitDir })
 }
 
 export async function unwatchBranch(worktreePath: string): Promise<void> {

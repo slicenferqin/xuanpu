@@ -1052,7 +1052,8 @@ declare global {
       create: (
         worktreeId: string,
         cwd: string,
-        shell?: string
+        shell?: string,
+        resolvedWorktreeId?: string
       ) => Promise<{ success: boolean; cols?: number; rows?: number; error?: string }>
       write: (worktreeId: string, data: string) => void
       resize: (worktreeId: string, cols: number, rows: number) => Promise<void>
@@ -1061,6 +1062,22 @@ declare global {
       onData: (worktreeId: string, callback: (data: string) => void) => () => void
       onExit: (worktreeId: string, callback: (code: number) => void) => () => void
       getConfig: () => Promise<GhosttyTerminalConfig>
+      logDiagnostics: (payload: {
+        terminalId?: string
+        backend?: string
+        renderer?: string
+        cols?: number
+        rows?: number
+        proposedCols?: number
+        proposedRows?: number
+        fontFamily?: string
+        fontSize?: number
+        devicePixelRatio?: number
+        containerWidth?: number
+        containerHeight?: number
+        webgl?: boolean
+        reason?: string
+      }) => Promise<void>
 
       // Native Ghostty backend methods
       ghosttyInit: () => Promise<{ success: boolean; version?: string; error?: string }>
@@ -1807,6 +1824,9 @@ declare global {
     agent?: string
     model?: string
     source?: 'command' | 'mcp' | 'skill'
+    path?: string
+    scope?: 'user' | 'repo' | 'system' | 'admin'
+    enabled?: boolean
     subtask?: boolean
     hints?: string[]
   }

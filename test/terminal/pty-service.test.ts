@@ -68,7 +68,7 @@ class MockPty extends EventEmitter {
 }
 
 // Must import after mocks are set up
-import { ptyService } from '../../src/main/services/pty-service'
+import { buildPtyEnv, ptyService } from '../../src/main/services/pty-service'
 
 describe('PtyService', () => {
   let mockPty: MockPty
@@ -141,6 +141,32 @@ describe('PtyService', () => {
       expect(callArgs.env.MY_VAR).toBe('hello')
       // Should still have TERM set
       expect(callArgs.env.TERM).toBe('xterm-256color')
+    })
+
+    test('does not inherit stale terminal dimensions from process env', () => {
+      const env = buildPtyEnv(
+        {
+          PATH: '/bin',
+          COLUMNS: '10',
+          LINES: '5',
+          TERM: 'screen'
+        },
+        { MY_VAR: 'hello' }
+      )
+
+      expect(env.COLUMNS).toBeUndefined()
+      expect(env.LINES).toBeUndefined()
+      expect(env.TERM).toBe('xterm-256color')
+      expect(env.COLORTERM).toBe('truecolor')
+      expect(env.MY_VAR).toBe('hello')
+    })
+
+    test('allows explicit env overrides after normalizing defaults', () => {
+      const env = buildPtyEnv({ PATH: '/bin', COLUMNS: '10', LINES: '5' }, { TERM: 'vt100' })
+
+      expect(env.COLUMNS).toBeUndefined()
+      expect(env.LINES).toBeUndefined()
+      expect(env.TERM).toBe('vt100')
     })
   })
 

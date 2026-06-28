@@ -29,7 +29,7 @@ import { asNumber, asObject, asString, toDebugSnapshot } from './codex-utils'
 import { generateCodexSessionTitle } from './codex-session-title'
 import { getCodexConfiguredContextWindow, getCodexConfiguredModel } from './codex-config'
 import type { DatabaseService } from '../db/database'
-import type { SessionActivityCreate } from '../db'
+import type { SessionActivityCreate, SessionMessageCreate } from '../db'
 import { autoRenameWorktreeBranch } from './git-service'
 import { beginSessionRun, emitAgentEvent } from '@shared/lib/normalize-agent-event'
 import { stripFieldContextEnvelope } from '@shared/lib/field-context-envelope'
@@ -38,6 +38,7 @@ import { notificationService } from './notification-service'
 import { buildXfpFallbackContext } from '../xfp/fallback-context'
 import { xfpProvider } from '../xfp/provider'
 import { recordXfpAuditEvent, recordXfpPromptObservation } from '../xfp/audit'
+import type { AgentCommand, AgentStatusPayload, RawAgentEvent } from '@shared/types/agent-protocol'
 
 const log = createLogger({ component: 'CodexImplementer' })
 
@@ -115,6 +116,19 @@ interface CodexPreparedPrompt {
   runtimeText: string
   displayText: string
   displayParts: CodexPromptPart[]
+}
+
+interface CodexSkillInputPart extends Record<string, unknown> {
+  type: 'skill'
+  name: string
+  path: string
+}
+
+interface CodexSkillCommand extends AgentCommand {
+  source: 'skill'
+  path: string
+  scope?: 'user' | 'repo' | 'system' | 'admin'
+  enabled: true
 }
 
 interface CodexLiveAssistantDraft {
@@ -644,6 +658,10 @@ function eventTimestampFromPayload(payload: Record<string, unknown> | null): str
   )
 }
 
+function asRawAgentEvent(event: unknown): RawAgentEvent {
+  return event as RawAgentEvent
+}
+
 export function hasCollapsedCodexMessageTimeline(
   messages: unknown[],
   activities: Array<{ turn_id?: string | null; kind?: string; created_at?: string }>
@@ -715,6 +733,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
   private sessions = new Map<string, CodexSessionState>()
   private pendingQuestions = new Map<string, PendingHitlEntry>()
   private pendingApprovalSessions = new Map<string, PendingHitlEntry>()
+  private skillCommandsBySessionKey = new Map<string, CodexSkillCommand[]>()
 
   private resolveContextWindow(runtimeValue: number | undefined, modelID: string): number {
     return (
@@ -756,13 +775,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
           totals.totalOutputTokens,
           totals.totalReasoningTokens
         ].join(':')
-      : [
-          turnId,
-          tokens.input,
-          tokens.cacheRead,
-          tokens.cacheWrite,
-          tokens.output
-        ].join(':')
+      : [turnId, tokens.input, tokens.cacheRead, tokens.cacheWrite, tokens.output].join(':')
 
     const totalCost = calculateUsageCost(modelID, tokens, 'codex')
 
@@ -775,10 +788,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
 
     return {
       cost: totalCost,
-      requestId: [
-        'codex-context-usage',
-        eventKey
-      ].join(':')
+      requestId: ['codex-context-usage', eventKey].join(':')
     }
   }
 
@@ -798,7 +808,13 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     session: CodexSessionState,
     turnId: string | undefined,
     modelID: string,
-    lastTokens: { input: number; cacheRead: number; cacheWrite: number; output: number; reasoning: number },
+    lastTokens: {
+      input: number
+      cacheRead: number
+      cacheWrite: number
+      output: number
+      reasoning: number
+    },
     totals: {
       totalInputTokens: number
       totalCachedInputTokens: number
@@ -1178,6 +1194,21 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       return
     }
 
+    if (event.kind === 'notification' && event.method === 'skills/changed') {
+      if (targetSession) {
+        this.skillCommandsBySessionKey.delete(
+          this.getSessionKey(targetSession.worktreePath, targetSession.threadId)
+        )
+        this.sendCommandsAvailable(targetSession)
+      } else {
+        this.skillCommandsBySessionKey.clear()
+        for (const session of this.sessions.values()) {
+          this.sendCommandsAvailable(session)
+        }
+      }
+      return
+    }
+
     // Only handle request events (approvals + user inputs)
     if (event.kind !== 'request') return
 
@@ -1533,6 +1564,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
 
     // Clean up local state
     this.sessions.delete(key)
+    this.skillCommandsBySessionKey.delete(key)
     this.cleanupPendingForThread(agentSessionId)
 
     log.info('Disconnected', { worktreePath, agentSessionId })
@@ -1546,6 +1578,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
 
     // Clear local state
     this.sessions.clear()
+    this.skillCommandsBySessionKey.clear()
     this.pendingQuestions.clear()
     this.pendingApprovalSessions.clear()
     this.managerListenerAttached = false
@@ -1607,7 +1640,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     // Inject synthetic user message so getMessages() returns it
     const syntheticTimestamp = new Date().toISOString()
     session.messages.push({
-      id: `client:${session.runId ?? Date.now()}:user`,
+      id: `client:${runId}:user`,
       role: 'user',
       parts: displayParts.map((part) => withCodexPartTimestamp(part, syntheticTimestamp)),
       timestamp: syntheticTimestamp
@@ -1664,7 +1697,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         ) {
           continue
         }
-        emitAgentEvent(this.mainWindow, streamEvent)
+        emitAgentEvent(this.mainWindow, asRawAgentEvent(streamEvent))
         this.updateLiveAssistantDraftFromStreamEvent(session, streamEvent)
       }
 
@@ -2735,17 +2768,373 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
 
   // ── Commands ─────────────────────────────────────────────────────
 
-  async listCommands(_worktreePath: string): Promise<unknown[]> {
-    throw new Error('CodexImplementer.listCommands() not yet implemented')
+  async listCommands(worktreePath: string): Promise<unknown[]> {
+    const session = this.findSessionByWorktreePath(worktreePath)
+    if (!session) return []
+
+    try {
+      const response = await this.manager.listSkills(session.threadId, worktreePath)
+      const skillCommands = this.mapSkillsListResponseToCommands(response, worktreePath)
+      this.cacheSkillCommandsForWorktree(worktreePath, skillCommands)
+      return skillCommands
+    } catch (error) {
+      log.warn('Codex skills/list failed; slash command picker will omit skills', {
+        worktreePath,
+        error: error instanceof Error ? error.message : String(error)
+      })
+      this.clearSkillCommandsForWorktree(worktreePath)
+      return []
+    }
   }
 
   async sendCommand(
-    _worktreePath: string,
-    _agentSessionId: string,
-    _command: string,
-    _args?: string
+    worktreePath: string,
+    agentSessionId: string,
+    command: string,
+    args?: string
   ): Promise<void> {
-    throw new Error('CodexImplementer.sendCommand() not yet implemented')
+    const session = this.getSession(worktreePath, agentSessionId)
+    if (!session) {
+      throw new Error(`No Codex session found for ${agentSessionId}`)
+    }
+
+    const normalizedCommand = command.trim().replace(/^\//, '').toLowerCase()
+    const skill =
+      this.findCachedSkillCommand(worktreePath, agentSessionId, normalizedCommand) ??
+      (await this.refreshAndFindSkillCommand(worktreePath, agentSessionId, normalizedCommand))
+    if (!skill) {
+      throw new Error(`Unsupported Codex command: /${normalizedCommand || command}`)
+    }
+
+    const trimmedArgs = (args ?? '').trim()
+    const turnInput: Array<Record<string, unknown>> = [this.createCodexSkillInput(skill)]
+    if (trimmedArgs) {
+      turnInput.push({ type: 'text', text: trimmedArgs, text_elements: [] })
+    }
+    const displayText = `/${skill.name}${trimmedArgs ? ` ${trimmedArgs}` : ''}`
+    const model = resolveCodexModelSlug(this.selectedModel)
+    const activeRun = this.beginCodexRun(session)
+    const runId = activeRun.runId
+    let turnCompleted = false
+
+    beginSessionRun(session.hiveSessionId)
+
+    const syntheticTimestamp = new Date().toISOString()
+    session.messages.push({
+      id: `client:${runId}:user`,
+      role: 'user',
+      parts: [{ type: 'text', text: displayText, timestamp: syntheticTimestamp }],
+      timestamp: syntheticTimestamp
+    })
+    this.persistCanonicalMessages(session)
+    this.resetLiveAssistantDraft(session)
+
+    session.status = 'running'
+    this.emitStatus(session.hiveSessionId, 'busy')
+
+    const handleEvent = (event: CodexManagerEvent) => {
+      if (!this.eventMatchesActiveRun(session, runId, event)) return
+      this.bindActiveRunTurnId(session, runId, event)
+
+      const streamEvents = mapCodexEventToStreamEvents(
+        event,
+        session.hiveSessionId,
+        session.mapperState
+      )
+      for (const streamEvent of streamEvents) {
+        if (
+          (event.method === 'turn/completed' || event.method === 'thread/status/changed') &&
+          streamEvent.type === 'session.status' &&
+          streamEvent.statusPayload?.type === 'idle'
+        ) {
+          continue
+        }
+        emitAgentEvent(this.mainWindow, asRawAgentEvent(streamEvent))
+        this.updateLiveAssistantDraftFromStreamEvent(session, streamEvent)
+      }
+
+      if (event.method === 'turn/completed' || event.method === 'turn/interrupted') {
+        turnCompleted = true
+      }
+    }
+
+    this.manager.on('event', handleEvent)
+
+    try {
+      const turnStart = await this.manager.sendTurn(session.threadId, {
+        input: turnInput,
+        model
+      })
+
+      if (!this.isRunCurrent(session, runId)) {
+        log.info('sendCommand: stale run finished after a newer run started', {
+          worktreePath,
+          agentSessionId,
+          runId,
+          activeRunId: session.activeRun?.runId ?? null
+        })
+        return
+      }
+
+      activeRun.expectedTurnId = turnStart.turnId || activeRun.expectedTurnId || null
+      if (activeRun.state !== 'aborting') {
+        activeRun.state = 'running'
+      }
+
+      const completionState = await this.waitForTurnCompletion(session, {
+        runId,
+        expectedTurnId: activeRun.expectedTurnId,
+        isComplete: () => turnCompleted,
+        signal: activeRun.abortController.signal
+      })
+
+      if (!this.isRunCurrent(session, runId)) {
+        log.info('sendCommand: stale run finished after wait', {
+          worktreePath,
+          agentSessionId,
+          runId,
+          activeRunId: session.activeRun?.runId ?? null
+        })
+        return
+      }
+
+      if (completionState === 'interrupted') {
+        activeRun.state = 'finalizing'
+        this.materializeLiveAssistantDraft(session, {
+          aborted: true,
+          terminalizeRunningTools: true,
+          emitTerminalTools: true
+        })
+        this.persistCanonicalMessages(session)
+        session.liveAssistantDraft = null
+        session.status = 'ready'
+        this.settleRun(session, runId)
+        this.emitStatus(session.hiveSessionId, 'idle')
+        return
+      }
+
+      try {
+        activeRun.state = 'finalizing'
+        const threadSnapshot = await this.manager.readThread(session.threadId)
+        if (!this.isRunCurrent(session, runId)) return
+
+        const parsed = this.parseThreadSnapshot(threadSnapshot, session.itemTimestampsByTurn)
+        this.persistJsonlSupplementalActivities(session, threadSnapshot)
+        if (parsed.length > 0 && this.parsedMessagesContainUserText(parsed, [displayText])) {
+          session.messages = parsed
+          session.liveAssistantDraft = null
+        } else {
+          this.materializeLiveAssistantDraft(session)
+        }
+      } catch (readError) {
+        log.warn('sendCommand: readThread after skill turn failed, falling back to live draft', {
+          agentSessionId,
+          error: readError instanceof Error ? readError.message : String(readError)
+        })
+        this.materializeLiveAssistantDraft(session)
+      }
+
+      this.persistCanonicalMessages(session)
+      session.liveAssistantDraft = null
+      session.status = 'ready'
+      this.settleRun(session, runId)
+      this.emitStatus(session.hiveSessionId, 'idle')
+    } catch (error) {
+      if (!this.isRunCurrent(session, runId)) {
+        log.info('sendCommand: stale run failed after newer run started, ignoring error', {
+          worktreePath,
+          agentSessionId,
+          runId,
+          error: error instanceof Error ? error.message : String(error)
+        })
+        return
+      }
+
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      log.error(
+        'Codex skill command error',
+        error instanceof Error ? error : new Error(errorMessage),
+        { worktreePath, agentSessionId, command, error: errorMessage }
+      )
+      session.status = 'error'
+      session.liveAssistantDraft = null
+      this.settleRun(session, runId)
+      emitAgentEvent(this.mainWindow, {
+        type: 'session.error',
+        sessionId: session.hiveSessionId,
+        data: { error: errorMessage }
+      })
+      this.emitStatus(session.hiveSessionId, 'idle')
+    } finally {
+      this.manager.removeListener('event', handleEvent)
+    }
+  }
+
+  private findCachedSkillCommand(
+    worktreePath: string,
+    agentSessionId: string,
+    commandName: string
+  ): CodexSkillCommand | undefined {
+    return this.skillCommandsBySessionKey
+      .get(this.getSessionKey(worktreePath, agentSessionId))
+      ?.find((skill) => skill.name.toLowerCase() === commandName.toLowerCase())
+  }
+
+  private async refreshAndFindSkillCommand(
+    worktreePath: string,
+    agentSessionId: string,
+    commandName: string
+  ): Promise<CodexSkillCommand | undefined> {
+    try {
+      const response = await this.manager.listSkills(agentSessionId, worktreePath)
+      const skillCommands = this.mapSkillsListResponseToCommands(response, worktreePath)
+      this.cacheSkillCommandsForWorktree(worktreePath, skillCommands)
+      return this.findCachedSkillCommand(worktreePath, agentSessionId, commandName)
+    } catch (error) {
+      log.warn('Codex skills/list refresh failed before command dispatch', {
+        worktreePath,
+        agentSessionId,
+        commandName,
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return undefined
+    }
+  }
+
+  private cacheSkillCommandsForWorktree(
+    worktreePath: string,
+    skillCommands: CodexSkillCommand[]
+  ): void {
+    let matched = false
+    for (const session of this.sessions.values()) {
+      if (session.worktreePath !== worktreePath) continue
+      this.skillCommandsBySessionKey.set(
+        this.getSessionKey(worktreePath, session.threadId),
+        skillCommands
+      )
+      matched = true
+    }
+
+    if (!matched) {
+      this.skillCommandsBySessionKey.set(
+        this.getSessionKey(worktreePath, worktreePath),
+        skillCommands
+      )
+    }
+  }
+
+  private clearSkillCommandsForWorktree(worktreePath: string): void {
+    for (const key of this.skillCommandsBySessionKey.keys()) {
+      if (key.startsWith(`${worktreePath}::`)) {
+        this.skillCommandsBySessionKey.delete(key)
+      }
+    }
+  }
+
+  private mapSkillsListResponseToCommands(
+    response: unknown,
+    worktreePath: string
+  ): CodexSkillCommand[] {
+    const responseObj = asObject(response)
+    const dataEntries = Array.isArray(responseObj?.data) ? responseObj.data : []
+
+    if (dataEntries.length > 0) {
+      for (const entry of dataEntries) {
+        const entryObj = asObject(entry)
+        const errors = Array.isArray(entryObj?.errors) ? entryObj.errors : []
+        for (const error of errors) {
+          log.warn('skills/list returned cwd error', {
+            cwd: asString(entryObj?.cwd),
+            error: toDebugSnapshot(error, 500)
+          })
+        }
+      }
+
+      const exactEntry = dataEntries.find(
+        (entry) => asString(asObject(entry)?.cwd) === worktreePath
+      )
+      const skills = exactEntry
+        ? (asObject(exactEntry)?.skills as unknown)
+        : dataEntries.flatMap((entry) => {
+            const skillsForEntry = asObject(entry)?.skills
+            return Array.isArray(skillsForEntry) ? skillsForEntry : []
+          })
+
+      if (!exactEntry) {
+        log.warn('skills/list did not return exact cwd match; flattening all skills', {
+          worktreePath,
+          returnedCwds: dataEntries.map((entry) => asString(asObject(entry)?.cwd)).filter(Boolean)
+        })
+      }
+
+      return (Array.isArray(skills) ? skills : []).flatMap((skill) => {
+        const command = this.mapSkillMetadataToCommand(skill)
+        return command ? [command] : []
+      })
+    }
+
+    const legacySkills = Array.isArray(responseObj?.skills)
+      ? responseObj.skills
+      : Array.isArray(response)
+        ? response
+        : []
+
+    return legacySkills.flatMap((skill) => {
+      const command = this.mapSkillMetadataToCommand(skill)
+      return command ? [command] : []
+    })
+  }
+
+  private mapSkillMetadataToCommand(skill: unknown): CodexSkillCommand | null {
+    const obj = asObject(skill)
+    if (!obj) return null
+
+    const enabled = obj.enabled
+    if (enabled === false) return null
+
+    const name =
+      asString(obj.name)?.trim() ??
+      asString(obj.id)?.trim() ??
+      asString(obj.skill)?.trim() ??
+      asString(obj.title)?.trim().replace(/\s+/g, '-').toLowerCase()
+    const path = asString(obj.path)?.trim() ?? asString(obj.file)?.trim()
+    if (!name || !path) {
+      log.debug('Skipping invalid Codex skill metadata', {
+        name,
+        hasPath: Boolean(path)
+      })
+      return null
+    }
+
+    const interfaceObj = asObject(obj.interface)
+    const defaultPrompt = asString(interfaceObj?.defaultPrompt)?.trim()
+    const scope = asString(obj.scope)
+    const command: CodexSkillCommand = {
+      name,
+      description:
+        asString(interfaceObj?.shortDescription) ??
+        asString(obj.shortDescription) ??
+        asString(obj.description) ??
+        asString(obj.summary) ??
+        'Codex skill',
+      template: defaultPrompt ? `/${name} ${defaultPrompt} ` : `/${name} `,
+      source: 'skill',
+      agent: 'codex',
+      path,
+      enabled: true
+    }
+    if (scope === 'user' || scope === 'repo' || scope === 'system' || scope === 'admin') {
+      command.scope = scope
+    }
+    return command
+  }
+
+  private createCodexSkillInput(skill: CodexSkillCommand): CodexSkillInputPart {
+    return {
+      type: 'skill',
+      name: skill.name,
+      path: skill.path
+    }
   }
 
   // ── Session management ───────────────────────────────────────────
@@ -2944,8 +3333,29 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     return undefined
   }
 
+  private findSessionByWorktreePath(worktreePath: string): CodexSessionState | undefined {
+    for (const session of this.sessions.values()) {
+      if (session.worktreePath === worktreePath) {
+        return session
+      }
+    }
+    return undefined
+  }
+
+  private getSession(worktreePath: string, agentSessionId: string): CodexSessionState | undefined {
+    return this.sessions.get(this.getSessionKey(worktreePath, agentSessionId))
+  }
+
   private getSessionKey(worktreePath: string, agentSessionId: string): string {
     return `${worktreePath}::${agentSessionId}`
+  }
+
+  private sendCommandsAvailable(session: CodexSessionState): void {
+    emitAgentEvent(this.mainWindow, {
+      type: 'session.commands_available',
+      sessionId: session.hiveSessionId,
+      data: {}
+    })
   }
 
   private sendToRenderer(channel: string, data: unknown): void {
@@ -3019,34 +3429,36 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     if (!this.dbService) return
 
     try {
-      const rows = session.messages.flatMap((message) => {
-        const sanitizedMessage = sanitizeCodexUserMessageForPersistence(message)
-        const record = asObject(sanitizedMessage)
-        if (!record) return []
+      const rows: Array<SessionMessageCreate & { created_at: string }> = session.messages.flatMap(
+        (message) => {
+          const sanitizedMessage = sanitizeCodexUserMessageForPersistence(message)
+          const record = asObject(sanitizedMessage)
+          if (!record) return []
 
-        const role = asString(record.role)
-        const timestamp = asString(record.timestamp) ?? new Date().toISOString()
-        if (role !== 'user' && role !== 'assistant' && role !== 'system') return []
+          const role = asString(record.role)
+          const timestamp = asString(record.timestamp) ?? new Date().toISOString()
+          if (role !== 'user' && role !== 'assistant' && role !== 'system') return []
 
-        const parts = Array.isArray(record.parts) ? record.parts : []
-        const textContent = parts
-          .map((part) => asObject(part))
-          .filter((part) => part?.type === 'text' || part?.type === 'reasoning')
-          .map((part) => asString(part?.text) ?? '')
-          .join('')
+          const parts = Array.isArray(record.parts) ? record.parts : []
+          const textContent = parts
+            .map((part) => asObject(part))
+            .filter((part) => part?.type === 'text' || part?.type === 'reasoning')
+            .map((part) => asString(part?.text) ?? '')
+            .join('')
 
-        return [
-          {
-            session_id: session.hiveSessionId,
-            role,
-            content: textContent,
-            opencode_message_id: asString(record.id) ?? null,
-            opencode_message_json: JSON.stringify(sanitizedMessage),
-            opencode_parts_json: JSON.stringify(parts),
-            created_at: timestamp
-          }
-        ]
-      })
+          return [
+            {
+              session_id: session.hiveSessionId,
+              role,
+              content: textContent,
+              opencode_message_id: asString(record.id) ?? null,
+              opencode_message_json: JSON.stringify(sanitizedMessage),
+              opencode_parts_json: JSON.stringify(parts),
+              created_at: timestamp
+            }
+          ]
+        }
+      )
 
       this.dbService.replaceSessionMessages(
         session.hiveSessionId,
@@ -3076,13 +3488,13 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     status: 'idle' | 'busy' | 'retry',
     extra?: { attempt?: number; message?: string; next?: number }
   ): void {
-    const statusPayload = { type: status, ...extra }
+    const statusPayload: AgentStatusPayload = { type: status, ...extra }
     emitAgentEvent(this.mainWindow, {
       type: 'session.status',
       sessionId: hiveSessionId,
       data: { status: statusPayload },
       statusPayload
-    })
+    } as RawAgentEvent)
   }
 
   private beginCodexRun(session: CodexSessionState): CodexActiveRun {
@@ -3163,7 +3575,9 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     const list =
       session.itemTimestampsByTurn.get(turnId) ??
       (session.itemTimestampsByTurn.set(turnId, []), session.itemTimestampsByTurn.get(turnId)!)
-    list.push(eventTimestampFromPayload(payload) ?? event.createdAt ?? new Date().toISOString())
+    list.push(
+      eventTimestampFromPayload(payload ?? null) ?? event.createdAt ?? new Date().toISOString()
+    )
     seen.add(itemId)
     seenByTurn.set(turnId, seen)
   }
@@ -3981,7 +4395,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
           pushText('userMessages', extractCodexJsonlContentText(payload?.content), timestamp)
         } else if (itemType === 'reasoning') {
           pushPositional(timestamp)
-          pushText('reasoningMessages', extractCodexJsonlReasoningText(payload), timestamp)
+          pushText('reasoningMessages', extractCodexJsonlReasoningText(payload ?? {}), timestamp)
         } else if (
           itemType === 'function_call' ||
           itemType === 'custom_tool_call' ||
@@ -4117,10 +4531,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
 
         // Recover reasoning content from JSONL when thread/read hasn't returned it yet.
         // Same structure as the reasoning items in parseThreadSnapshot.
-        if (
-          entryType === 'response_item' &&
-          asString(payload?.type) === 'reasoning'
-        ) {
+        if (entryType === 'response_item' && asString(payload?.type) === 'reasoning') {
           const summary = Array.isArray(payload?.summary)
             ? (payload.summary as string[]).filter((s): s is string => typeof s === 'string')
             : []
@@ -4129,12 +4540,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
             : []
           const reasoningText = [...summary, ...content].join('\n').trim()
           if (reasoningText) {
-            pushSupplementalMessage(
-              responseMessages,
-              'assistant',
-              reasoningText,
-              timestamp
-            )
+            pushSupplementalMessage(responseMessages, 'assistant', reasoningText, timestamp)
           }
         }
       }

@@ -490,7 +490,9 @@ describe('Session 10: Integration & Polish', () => {
       fireEvent.keyDown(window, { key: 'ArrowDown' })
       fireEvent.keyDown(window, { key: 'Enter' })
 
-      expect(onSelect).toHaveBeenCalledWith({ name: 'commit', template: '/commit' })
+      expect(onSelect).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'commit', template: '/commit' })
+      )
     })
 
     test('Escape closes without selection', () => {

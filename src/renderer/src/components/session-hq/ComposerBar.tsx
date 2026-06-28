@@ -495,7 +495,14 @@ export function ComposerBar({
   }, [sessionId])
   // --- Slash commands ---
   const [slashCommands, setSlashCommands] = useState<
-    { name: string; description?: string; template: string; agent?: string; builtIn?: boolean }[]
+    {
+      name: string
+      description?: string
+      template: string
+      agent?: string
+      builtIn?: boolean
+      source?: 'command' | 'mcp' | 'skill'
+    }[]
   >([])
   const [showSlashCommands, setShowSlashCommands] = useState(false)
   const showSlashCommandsRef = useRef(false)
@@ -818,7 +825,7 @@ export function ComposerBar({
   }, [containerRef, isDisabled, voiceInputEnabled])
 
   const handleCommandSelect = useCallback((cmd: { name: string; template: string }) => {
-    const nextContent = `/${cmd.name} `
+    const nextContent = /\s$/.test(cmd.template) ? cmd.template : `${cmd.template} `
     contentRef.current = nextContent
     setContent(nextContent)
     setShowSlashCommands(false)

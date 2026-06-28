@@ -8,12 +8,13 @@ interface SlashCommand {
   template: string
   agent?: string
   builtIn?: boolean
+  source?: 'command' | 'mcp' | 'skill'
 }
 
 interface SlashCommandPopoverProps {
   commands: SlashCommand[]
   filter: string
-  onSelect: (command: { name: string; template: string }) => void
+  onSelect: (command: SlashCommand) => void
   onClose: () => void
   visible: boolean
 }
@@ -87,7 +88,7 @@ export function SlashCommandPopover({
         e.stopPropagation()
         const cmd = filtered[selectedIndex]
         if (cmd) {
-          onSelect({ name: cmd.name, template: cmd.template })
+          onSelect(cmd)
         }
       } else if (e.key === 'Escape') {
         e.preventDefault()
@@ -130,23 +131,27 @@ export function SlashCommandPopover({
                 index === selectedIndex && 'bg-accent text-accent-foreground'
               )}
               onMouseEnter={() => setSelectedIndex(index)}
-              onClick={() => onSelect({ name: cmd.name, template: cmd.template })}
+              onClick={() => onSelect(cmd)}
             >
               <span className="font-mono text-xs text-muted-foreground">/{cmd.name}</span>
               {cmd.agent && (
                 <span
                   className={cn(
                     'text-[10px] px-1 rounded',
-                    cmd.agent === 'plan'
-                      ? 'bg-violet-500/20 text-violet-400'
-                      : 'bg-blue-500/20 text-blue-400'
+                    cmd.source === 'skill'
+                      ? 'bg-amber-500/20 text-amber-500'
+                      : cmd.agent === 'plan'
+                        ? 'bg-violet-500/20 text-violet-400'
+                        : 'bg-blue-500/20 text-blue-400'
                   )}
                 >
-                  {cmd.agent === 'plan'
-                    ? t('slashCommandPopover.badges.plan')
-                    : cmd.agent === 'build'
-                      ? t('slashCommandPopover.badges.build')
-                      : cmd.agent}
+                  {cmd.source === 'skill'
+                    ? 'skill'
+                    : cmd.agent === 'plan'
+                      ? t('slashCommandPopover.badges.plan')
+                      : cmd.agent === 'build'
+                        ? t('slashCommandPopover.badges.build')
+                        : cmd.agent}
                 </span>
               )}
               {cmd.builtIn && (

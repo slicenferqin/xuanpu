@@ -259,6 +259,8 @@ export class XtermBackend implements TerminalBackend {
 
     terminal.open(container)
 
+    let webglEnabled = false
+
     // Try WebGL renderer, fall back to canvas
     try {
       const webglAddon = new WebglAddon()
@@ -266,6 +268,7 @@ export class XtermBackend implements TerminalBackend {
         webglAddon.dispose()
       })
       terminal.loadAddon(webglAddon)
+      webglEnabled = true
     } catch {
       // WebGL not available, canvas renderer is the default
     }
@@ -297,6 +300,34 @@ export class XtermBackend implements TerminalBackend {
 
     this.terminal = terminal
     this.fitAddon = fitAddon
+
+    const logDiagnostics = (reason: string): void => {
+      try {
+        const dims = fitAddon.proposeDimensions()
+        window.terminalOps.logDiagnostics?.({
+          terminalId: this.terminalId,
+          backend: 'xterm',
+          renderer: webglEnabled ? 'webgl' : 'dom',
+          proposedCols: dims?.cols,
+          proposedRows: dims?.rows,
+          cols: terminal.cols,
+          rows: terminal.rows,
+          fontFamily:
+            typeof terminal.options.fontFamily === 'string'
+              ? terminal.options.fontFamily
+              : undefined,
+          fontSize:
+            typeof terminal.options.fontSize === 'number' ? terminal.options.fontSize : undefined,
+          devicePixelRatio: window.devicePixelRatio,
+          containerWidth: container.clientWidth,
+          containerHeight: container.clientHeight,
+          webgl: webglEnabled,
+          reason
+        })
+      } catch {
+        // Diagnostics should never affect terminal startup.
+      }
+    }
 
     // Wire user input -> PTY
     this.inputDisposable = terminal.onData((data) => {
@@ -340,9 +371,11 @@ export class XtermBackend implements TerminalBackend {
         } catch {
           // Ignore fit errors during setup
         }
+        logDiagnostics('created')
       } else {
         terminal.write(`\x1b[31mFailed to create terminal: ${result.error}\x1b[0m\r\n`)
         callbacks.onStatusChange('exited')
+        logDiagnostics('create-failed')
       }
     })
 
@@ -354,6 +387,7 @@ export class XtermBackend implements TerminalBackend {
           const dims = this.fitAddon.proposeDimensions()
           if (dims) {
             window.terminalOps.resize(this.terminalId, dims.cols, dims.rows)
+            logDiagnostics('resize')
           }
         }
       } catch {

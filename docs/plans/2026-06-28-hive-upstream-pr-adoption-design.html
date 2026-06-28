@@ -1,0 +1,705 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>玄圃借鉴 Hive 近期高价值 PR 的需求与技术设计</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f7f7f4;
+        --fg: #18181b;
+        --muted: #5f626b;
+        --panel: #ffffff;
+        --panel-soft: #f0f1ee;
+        --border: #d7d8d2;
+        --accent: #145c5a;
+        --accent-soft: #dcebe8;
+        --danger: #9f2936;
+        --warn: #8a5a00;
+        --ok: #28724f;
+        --code: #eef0ec;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #151615;
+          --fg: #eeeeea;
+          --muted: #a7aaa3;
+          --panel: #1d1f1d;
+          --panel-soft: #242723;
+          --border: #383c36;
+          --accent: #7bc9c3;
+          --accent-soft: #173331;
+          --danger: #ff8f9d;
+          --warn: #e2bb67;
+          --ok: #8ed5ae;
+          --code: #252923;
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        line-height: 1.68;
+      }
+
+      main {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 48px 28px 72px;
+      }
+
+      header {
+        border-bottom: 1px solid var(--border);
+        padding-bottom: 28px;
+        margin-bottom: 28px;
+      }
+
+      h1,
+      h2,
+      h3 {
+        line-height: 1.28;
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 34px;
+        letter-spacing: 0;
+      }
+
+      h2 {
+        font-size: 24px;
+        margin-top: 42px;
+        padding-top: 8px;
+      }
+
+      h3 {
+        font-size: 18px;
+        margin-top: 26px;
+      }
+
+      p {
+        margin: 10px 0;
+      }
+
+      a {
+        color: var(--accent);
+        text-decoration-thickness: 1px;
+        text-underline-offset: 3px;
+      }
+
+      ul,
+      ol {
+        padding-left: 22px;
+      }
+
+      li {
+        margin: 6px 0;
+      }
+
+      code {
+        background: var(--code);
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        padding: 1px 5px;
+        font-family:
+          ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          Consolas,
+          monospace;
+        font-size: 0.92em;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 16px 0 24px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+      }
+
+      th,
+      td {
+        border-bottom: 1px solid var(--border);
+        padding: 10px 12px;
+        vertical-align: top;
+        text-align: left;
+      }
+
+      th {
+        background: var(--panel-soft);
+        font-weight: 650;
+      }
+
+      tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .meta {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 10px;
+        margin-top: 22px;
+      }
+
+      .meta div,
+      .callout,
+      .track,
+      .decision {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+      }
+
+      .meta div {
+        padding: 10px 12px;
+      }
+
+      .label {
+        color: var(--muted);
+        display: block;
+        font-size: 12px;
+        margin-bottom: 2px;
+      }
+
+      .summary {
+        font-size: 18px;
+        color: var(--muted);
+        margin-top: 14px;
+        max-width: 900px;
+      }
+
+      .callout {
+        padding: 14px 16px;
+        margin: 18px 0;
+      }
+
+      .callout strong {
+        color: var(--accent);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 14px;
+        margin: 18px 0;
+      }
+
+      .track,
+      .decision {
+        padding: 16px;
+      }
+
+      .track h3,
+      .decision h3 {
+        margin-top: 0;
+      }
+
+      .badge {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 2px 8px;
+        font-size: 12px;
+        border: 1px solid var(--border);
+        background: var(--panel-soft);
+        color: var(--muted);
+        margin-right: 6px;
+      }
+
+      .p0 {
+        color: var(--danger);
+      }
+
+      .p1 {
+        color: var(--warn);
+      }
+
+      .p2,
+      .ok {
+        color: var(--ok);
+      }
+
+      .toc {
+        background: var(--panel-soft);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 16px 18px;
+        margin-top: 22px;
+      }
+
+      .toc ol {
+        margin-bottom: 0;
+      }
+
+      .small {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .nowrap {
+        white-space: nowrap;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>玄圃借鉴 Hive 近期高价值 PR 的需求与技术设计</h1>
+        <p class="summary">
+          本文档基于 Hive 在 2026-05-28 至 2026-06-28 合入的 PR，筛选出适合玄圃吸收的
+          稳定性、Codex 能力和本地数据维护方案，并给出可落地的分阶段技术设计。
+        </p>
+        <div class="meta">
+          <div>
+            <span class="label">文档日期</span>
+            2026-06-28
+          </div>
+          <div>
+            <span class="label">当前分支</span>
+            <code>opz_0628</code>
+          </div>
+          <div>
+            <span class="label">目标目录</span>
+            <code>docs/plans</code>
+          </div>
+          <div>
+            <span class="label">上游参考</span>
+            <a href="https://github.com/morapelker/hive/releases">morapelker/hive releases</a>
+          </div>
+        </div>
+        <nav class="toc" aria-label="目录">
+          <strong>目录</strong>
+          <ol>
+            <li><a href="#conclusion">结论与建议</a></li>
+            <li><a href="#background">背景与上游 PR 评估</a></li>
+            <li><a href="#requirements">产品需求</a></li>
+            <li><a href="#architecture">技术架构设计</a></li>
+            <li><a href="#implementation">实施计划</a></li>
+            <li><a href="#testing">测试与验收</a></li>
+            <li><a href="#risks">风险与决策点</a></li>
+          </ol>
+        </nav>
+      </header>
+
+      <section id="conclusion">
+        <h2>1. 结论与建议</h2>
+        <div class="callout">
+          <strong>建议采用“局部吸收，不整块搬运”的策略。</strong>
+          Hive 最近一个月的高价值改动集中在 Kanban、Claude CLI、Codex skills、SQLite 维护和终端稳定性。
+          玄圃当前已经形成 Field Context、Session HQ、Hub、XFP 和多 runtime 管理自己的主线，直接搬 Hive 大块功能会造成架构回退。
+          更合适的路径是把低耦合、高收益的稳定性修复和 Codex 能力拆出来，按玄圃现有 IPC、preload、Zustand、Field 体系重写。
+        </div>
+
+        <div class="grid">
+          <article class="track">
+            <h3><span class="badge p0">P0</span>Git/终端稳定性补丁</h3>
+            <p>
+              吸收 Hive
+              <a href="https://github.com/morapelker/hive/pull/514">#514</a>
+              和
+              <a href="https://github.com/morapelker/hive/pull/516">#516</a>
+              的核心思想：branch watcher 改为 watch gitdir，PTY 去除继承的
+              <code>COLUMNS</code>/<code>LINES</code>，并补充终端诊断日志。
+            </p>
+            <p class="small">价值：减少 branch 状态错乱、TUI 尺寸异常、终端字体/渲染疑难问题。</p>
+          </article>
+
+          <article class="track">
+            <h3><span class="badge p1">P1</span>Codex Skills Slash Picker</h3>
+            <p>
+              吸收 Hive
+              <a href="https://github.com/morapelker/hive/pull/502">#502</a>
+              的产品能力：Codex session 输入 <code>/</code> 时展示 enabled skills，并以结构化 Codex
+              <code>UserInput</code> 调用，而不是发送普通文本。
+            </p>
+            <p class="small">价值：让玄圃内 Codex 能直接使用本机技能生态，降低“知道有技能但不好调用”的摩擦。</p>
+          </article>
+
+          <article class="track">
+            <h3><span class="badge p1">P1</span>SQLite 存储管理</h3>
+            <p>
+              借鉴 Hive
+              <a href="https://github.com/morapelker/hive/pull/505">#505</a>
+              的 Settings Storage 面板：展示 DB/WAL 大小、预估可回收空间、执行安全压缩。
+            </p>
+            <p class="small">价值：玄圃 Field events、timeline、usage 长期累积后需要可见、可控的本地数据维护能力。</p>
+          </article>
+
+          <article class="track">
+            <h3><span class="badge p2">P2</span>Markdown Task/Kanban 思路调研</h3>
+            <p>
+              Hive
+              <a href="https://github.com/morapelker/hive/pull/508">#508</a>
+              和
+              <a href="https://github.com/morapelker/hive/pull/541">#541</a>
+              很大，不建议直接迁移。可以保留“任务卡文件化、diagnostics、watcher”的设计经验，后续用于玄圃自己的 Field Tasks。
+            </p>
+            <p class="small">价值：作为未来任务实体外部化的设计输入，不进入本轮实现。</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="background">
+        <h2>2. 背景与上游 PR 评估</h2>
+        <p>
+          最近一个月 Hive 发布了 <code>v1.1.14</code> 到 <code>v1.2.4</code>，最新 release 为
+          <code>v1.2.4</code>，发布时间为 2026-06-22。合入 PR 中，和玄圃关系最密切的是多 agent
+          运行时、终端、Codex、Git watcher、本地数据维护和 Kanban/Ticket 工作流。
+        </p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>PR</th>
+              <th>主题</th>
+              <th>对玄圃价值</th>
+              <th>建议</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><a href="https://github.com/morapelker/hive/pull/502">#502</a></td>
+              <td>Codex skills to slash command picker</td>
+              <td>玄圃已有 Codex app-server 和 slash command UI，但缺少 skills/list 接入。</td>
+              <td><strong>采纳</strong>，按玄圃 Codex runtime 重写。</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/morapelker/hive/pull/505">#505</a></td>
+              <td>Database compression tools</td>
+              <td>玄圃 SQLite 数据量更可能增长，尤其是 Field event、timeline、usage。</td>
+              <td><strong>采纳</strong>，但 orphan 规则必须按玄圃 schema 重新定义。</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/morapelker/hive/pull/514">#514</a></td>
+              <td>Branch update propagation</td>
+              <td>玄圃当前 <code>branch-watcher.ts</code> 仍 watch <code>HEAD</code> 文件，存在同类问题。</td>
+              <td><strong>优先采纳</strong>，低成本高收益。</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/morapelker/hive/pull/516">#516</a></td>
+              <td>Terminal rendering stabilization</td>
+              <td>玄圃 <code>pty-service.ts</code> 继承 <code>process.env</code>，可能继承错误尺寸变量。</td>
+              <td><strong>优先采纳</strong>，先做 env 与 diagnostics，字体增强可分期。</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/morapelker/hive/pull/525">#525</a></td>
+              <td>Codex startup model validation</td>
+              <td>提醒玄圃检查 renderer-only 字段不要穿透到严格 RPC schema，错误要 toast。</td>
+              <td><strong>对照审计</strong>，若存在同类问题则修。</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/morapelker/hive/pull/508">#508</a></td>
+              <td>Markdown Kanban Mode</td>
+              <td>方向有价值，但依赖 Hive Kanban/RPC 架构，和玄圃当前主线不贴合。</td>
+              <td><strong>只吸收设计思想</strong>，本轮不实现。</td>
+            </tr>
+            <tr>
+              <td><a href="https://github.com/morapelker/hive/pull/535">#535</a> /
+                <a href="https://github.com/morapelker/hive/pull/542">#542</a></td>
+              <td><code>pnpm dev</code> 数据隔离及 revert</td>
+              <td>已被 Hive 回滚，说明方案或体验不稳定。</td>
+              <td><strong>不采纳</strong>。</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>本地现状对照</h3>
+        <ul>
+          <li><code>src/main/services/branch-watcher.ts</code> 当前 watch <code>HEAD</code> 文件，不是 gitdir。</li>
+          <li><code>src/main/services/worktree-watcher.ts</code> 只在特殊文件存在时 watch <code>MERGE_HEAD</code> 等文件。</li>
+          <li><code>src/main/services/pty-service.ts</code> 创建 PTY 时合并完整 <code>process.env</code>。</li>
+          <li><code>src/renderer/src/components/sessions/SlashCommandPopover.tsx</code> 支持 slash commands，但没有 skill badge 或 structured skill select。</li>
+          <li><code>tsconfig.node.json</code> 和 <code>tsconfig.web.json</code> 尚未设置 <code>noEmit: true</code>。</li>
+        </ul>
+      </section>
+
+      <section id="requirements">
+        <h2>3. 产品需求</h2>
+
+        <h3>3.1 Git/终端稳定性</h3>
+        <ol>
+          <li>当用户在外部终端、agent 或 IDE 中切换/重命名分支时，玄圃侧栏应在 1 秒内刷新对应 worktree 的 live branch。</li>
+          <li>当 Git 通过原子写入替换 <code>HEAD</code> 文件时，watcher 不能因 inode 变化失效。</li>
+          <li>当进入 merge/rebase/cherry-pick 冲突态时，即使特殊文件启动时不存在，也应触发状态刷新。</li>
+          <li>内置终端和 agent terminal 不应继承父进程错误的 <code>COLUMNS</code>/<code>LINES</code>。</li>
+          <li>终端渲染问题需要能在主进程日志里看到关键诊断信息：backend、cols/rows、font stack、renderer fallback、TERM/COLORTERM。</li>
+        </ol>
+
+        <h3>3.2 Codex Skills Slash Picker</h3>
+        <ol>
+          <li>在 Codex session 中输入 <code>/</code> 后，slash picker 同时展示内置命令、agent slash commands 和 enabled Codex skills。</li>
+          <li>当 skill 名称和内置命令冲突时，内置命令优先，skill 保留但不覆盖已有行为。</li>
+          <li>选择 skill 后，玄圃应通过 Codex app-server 发送结构化 skill input，附带用户在 slash 后输入的参数。</li>
+          <li>当 Codex app-server 发出 skills 变化事件或 session 初始化完成后，picker 应刷新 skill 列表。</li>
+          <li>当 skills/list 失败时，UI 降级为现有 slash command 体验，不阻断普通 prompt。</li>
+        </ol>
+
+        <h3>3.3 SQLite 存储管理</h3>
+        <ol>
+          <li>Settings 增加 Storage 区域，展示主 DB、WAL、SHM 和总占用。</li>
+          <li>用户可以点击 Analyze，看到可回收空间预估和主要来源：free pages、orphan rows、可清理临时/缓存记录。</li>
+          <li>用户点击 Compress 前必须二次确认，并展示风险提示：压缩期间会短暂阻塞本地数据库访问。</li>
+          <li>压缩必须保留有效项目、worktree、session、timeline、field memory、usage 数据。</li>
+          <li>失败时不得损坏现有 DB，必须保留原文件并给出可读错误。</li>
+        </ol>
+
+        <h3>3.4 非目标</h3>
+        <ul>
+          <li>本轮不实现 Hive 的完整 Kanban/Ticket 系统，也不新增 Markdown Kanban 模式。</li>
+          <li>本轮不把 Claude CLI terminal/handoff 作为整套 runtime 引入玄圃。</li>
+          <li>本轮不改变玄圃既有 Field Context 注入协议和 Session HQ 信息架构。</li>
+          <li>本轮不做远端同步或云端压缩，所有能力保持本地优先。</li>
+        </ul>
+      </section>
+
+      <section id="architecture">
+        <h2>4. 技术架构设计</h2>
+
+        <h3>4.1 Track A: Git Watcher Hardening</h3>
+        <p>
+          修改 <code>src/main/services/branch-watcher.ts</code>：从 watch <code>HEAD</code> 文件调整为 watch
+          worktree gitdir 目录，并监听 <code>change</code>、<code>add</code>、<code>unlink</code>。事件触发后依旧通过
+          <code>git:branchChanged</code> 发送 <code>{ worktreePath }</code>，保持 renderer API 不破坏。
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>模块</th>
+              <th>改动</th>
+              <th>兼容性</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>branch-watcher.ts</code></td>
+              <td>watch 目标从 <code>HEAD</code> 改为 <code>gitDir</code>，仅对 <code>HEAD</code> 及 refs 相关事件触发 debounce。</td>
+              <td>IPC payload 不变。</td>
+            </tr>
+            <tr>
+              <td><code>worktree-watcher.ts</code></td>
+              <td>始终把 <code>MERGE_HEAD</code>、<code>REBASE_HEAD</code>、<code>CHERRY_PICK_HEAD</code> 加入 watch 列表。</td>
+              <td>只增加状态刷新灵敏度。</td>
+            </tr>
+            <tr>
+              <td>renderer listener</td>
+              <td>收到 branch change 后强制刷新 live branch，并在 DB branch 与 live branch 不一致时触发 worktree sync。</td>
+              <td>需要检查现有 <code>useWorktreeStatusStore</code> 和 worktree list 监听逻辑。</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>4.2 Track B: Terminal Environment and Diagnostics</h3>
+        <p>
+          修改 <code>src/main/services/pty-service.ts</code> 的 env 构造：先复制 <code>process.env</code>，删除
+          <code>COLUMNS</code>、<code>LINES</code>，再应用 <code>TERM</code>、<code>COLORTERM</code> 和 <code>opts.env</code>。
+          这样 TUI 使用 node-pty 实际尺寸，而不是父 shell 的历史尺寸。
+        </p>
+        <ul>
+          <li>新增 helper：<code>buildPtyEnv(baseEnv, overrideEnv)</code>，便于单测。</li>
+          <li>新增 main log：PTY 创建时记录 <code>TERM</code>、<code>COLORTERM</code>、是否移除尺寸变量、cols/rows。</li>
+          <li>新增 preload API：<code>window.terminalOps.logDiagnostics(payload)</code>，renderer 可把字体与 fit 信息写入主进程日志。</li>
+          <li>字体增强分两期：第一期仅记录诊断，第二期再考虑 JetBrains Mono bundled fallback 和 Ghostty font-family 列表解析。</li>
+        </ul>
+
+        <h3>4.3 Track C: Codex Skills Slash Picker</h3>
+        <p>
+          玄圃已经有 <code>codex-app-server-manager.ts</code>、<code>codex-implementer.ts</code> 和
+          <code>SlashCommandPopover</code>。新增能力应放在 Codex runtime 层，不让 renderer 直接关心 app-server
+          RPC 细节。
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>层级</th>
+              <th>新增能力</th>
+              <th>说明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Main service</td>
+              <td><code>CodexImplementer.listSkills(sessionId)</code></td>
+              <td>定位 live Codex session/thread，调用 app-server <code>skills/list</code>。</td>
+            </tr>
+            <tr>
+              <td>Main service</td>
+              <td><code>CodexImplementer.invokeSkill(sessionId, skillName, args, options)</code></td>
+              <td>构造 Codex structured <code>UserInput[]</code>，复用现有 prompt routing。</td>
+            </tr>
+            <tr>
+              <td>IPC/preload</td>
+              <td><code>agentOps.listCodexSkills</code>、<code>agentOps.invokeCodexSkill</code></td>
+              <td>类型定义放入 <code>src/preload/index.d.ts</code>。</td>
+            </tr>
+            <tr>
+              <td>Renderer</td>
+              <td>Slash command item 支持 <code>kind: "command" | "skill"</code></td>
+              <td>skill 使用独立 badge，键盘导航沿用现有 popover。</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          推荐把现有 <code>SlashCommand</code> 类型扩展为 discriminated union：
+          <code>SlashCommandItem</code>。内置命令、agent slash command、Codex skill 在 UI 层统一排序和过滤，在执行层分发。
+        </p>
+
+        <h3>4.4 Track D: SQLite Storage Management</h3>
+        <p>
+          新增 <code>src/main/ipc/storage-handlers.ts</code> 和数据库服务方法。压缩流程必须以“原 DB
+          不被破坏”为第一原则。
+        </p>
+        <ol>
+          <li><code>getStorageStats()</code>：返回 DB/WAL/SHM 文件大小、page count、free list、最近 checkpoint 时间。</li>
+          <li><code>previewCompaction()</code>：只读扫描 orphan rows，返回可回收估算，不修改数据库。</li>
+          <li><code>compactDatabase()</code>：暂停写入入口，checkpoint WAL，关闭连接，复制 DB 到临时文件，在临时文件执行 prune/VACUUM，校验后原子替换。</li>
+          <li>完成后重新打开 DB，恢复 WAL/foreign keys，发出 renderer toast 和 telemetry 事件。</li>
+        </ol>
+        <p>
+          orphan 规则首版只处理低风险对象：没有父 session 的 <code>session_messages</code> /
+          <code>session_activities</code>，以及已经明确标记可清理的临时表。Field memory、pinned facts、usage entries
+          不进入自动删除范围。
+        </p>
+      </section>
+
+      <section id="implementation">
+        <h2>5. 实施计划</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>阶段</th>
+              <th>范围</th>
+              <th>产出</th>
+              <th>建议测试</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="nowrap">M1</td>
+              <td>Git watcher hardening</td>
+              <td>修复 branch watcher、特殊 Git 文件 watch、branch refresh。</td>
+              <td><code>branch-watcher</code>、<code>worktree-watcher</code>、worktree store focused tests。</td>
+            </tr>
+            <tr>
+              <td class="nowrap">M2</td>
+              <td>PTY env 与 terminal diagnostics</td>
+              <td>移除继承尺寸变量，增加诊断 IPC 和日志。</td>
+              <td><code>pty-service</code> 单测、TerminalView smoke、手动打开 vim/top/claude/codex TUI。</td>
+            </tr>
+            <tr>
+              <td class="nowrap">M3</td>
+              <td>Codex skills slash picker</td>
+              <td>skills/list、skill item UI、structured invocation、skills changed refresh。</td>
+              <td>Codex implementer、IPC routing、SlashCommandPopover、SessionView focused tests。</td>
+            </tr>
+            <tr>
+              <td class="nowrap">M4</td>
+              <td>Storage settings</td>
+              <td>storage IPC、DB stats/preview/compact、Settings UI。</td>
+              <td>database compaction tests、preload type tests、Settings UI tests、手动备份恢复验证。</td>
+            </tr>
+            <tr>
+              <td class="nowrap">M5</td>
+              <td>Codex payload/error audit</td>
+              <td>确保 renderer-only model fields 不穿透严格 RPC，connect/prompt failure toast。</td>
+              <td>Codex startup regression tests。</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>推荐提交拆分</h3>
+        <ol>
+          <li><code>fix: harden branch watcher against git head rewrites</code></li>
+          <li><code>fix: normalize pty environment and add terminal diagnostics</code></li>
+          <li><code>feat: surface codex skills in slash command picker</code></li>
+          <li><code>feat: add sqlite storage stats and compaction settings</code></li>
+          <li><code>test: cover codex payload validation and startup errors</code></li>
+        </ol>
+      </section>
+
+      <section id="testing">
+        <h2>6. 测试与验收</h2>
+
+        <h3>6.1 自动化测试</h3>
+        <ul>
+          <li><code>pnpm vitest run test/path/to/branch-watcher.test.ts</code>：模拟 <code>HEAD</code> 原子替换、unlink/add/change。</li>
+          <li><code>pnpm vitest run test/path/to/pty-service.test.ts</code>：验证 <code>COLUMNS</code>/<code>LINES</code> 被移除，override env 仍能生效。</li>
+          <li><code>pnpm vitest run test/phase-6/session-7/slash-commands.test.tsx</code>：扩展 skill item 过滤、badge、优先级。</li>
+          <li><code>pnpm vitest run test/path/to/codex-skills.test.ts</code>：覆盖 <code>skills/list</code>、structured skill invoke、失败降级。</li>
+          <li><code>pnpm vitest run test/path/to/database-compaction.test.ts</code>：覆盖 preview、临时 DB VACUUM、失败不替换原 DB。</li>
+        </ul>
+
+        <h3>6.2 手动验收</h3>
+        <ol>
+          <li>在外部终端执行 <code>git switch -c test-branch</code>，玄圃侧栏应刷新当前 branch。</li>
+          <li>在外部终端执行 branch rename，玄圃 worktree 名称或 branch 展示不应停留在旧值。</li>
+          <li>在玄圃内置终端启动 <code>vim</code>、<code>top</code> 或 Codex/Claude TUI，首次布局不应出现明显错位。</li>
+          <li>在 Codex session 输入 <code>/</code>，能看到 skill badge；选择 skill 后 Codex 收到 structured input。</li>
+          <li>关闭 app 前后执行 Storage Analyze/Compress，数据仍可正常读取，session history 不丢失。</li>
+        </ol>
+
+        <h3>6.3 不可接受结果</h3>
+        <ul>
+          <li>压缩失败导致 DB 无法打开。</li>
+          <li>Codex skills/list 失败阻断普通 prompt 发送。</li>
+          <li>watcher 增强导致大量重复刷新或 CPU 持续升高。</li>
+          <li>终端 env 改动导致用户显式传入的尺寸变量被覆盖。</li>
+        </ul>
+      </section>
+
+      <section id="risks">
+        <h2>7. 风险与决策点</h2>
+
+        <div class="decision">
+          <h3>决策 1：是否立即做 Storage Compact？</h3>
+          <p>
+            建议先做 <code>getStorageStats</code> 和 <code>previewCompaction</code>，压缩按钮放到 feature flag 或实验区。
+            原因是玄圃 DB 语义比 Hive 更复杂，Field memory 和 usage 数据不能被误删。
+          </p>
+        </div>
+
+        <div class="decision">
+          <h3>决策 2：Codex skill 是否进入统一 slash command 模型？</h3>
+          <p>
+            建议进入统一模型，但执行路径必须区分。UI 层统一展示和过滤，执行层按 <code>kind</code> 分发，避免把 skill
+            当普通 slash text 发送。
+          </p>
+        </div>
+
+        <div class="decision">
+          <h3>决策 3：Markdown Kanban 是否进入路线图？</h3>
+          <p>
+            本轮不做。若未来要做，应以玄圃自己的 Field Task 或 XFP 任务实体为中心，而不是引入 Hive Kanban 的内部模型。
+          </p>
+        </div>
+
+        <h3>开放问题</h3>
+        <ul>
+          <li>Codex app-server 的 <code>skills/list</code> 响应结构在当前玄圃锁定版本中是否稳定，需要用真实 Codex 版本验证。</li>
+          <li>Storage Compact 是否需要自动备份一份 <code>xuanpu-before-compact-YYYYMMDD.db</code>，还是只依赖临时文件原子替换。</li>
+          <li>终端字体增强是否要引入 bundled font 文件，还是先只做 diagnostics 与环境修复。</li>
+          <li>branch watcher 修复是否需要同步影响 Hub/mobile 的 live branch 订阅语义。</li>
+        </ul>
+
+        <h3>最终推荐</h3>
+        <p>
+          第一批实施只做 M1、M2、M3。M4 Storage Compact 先落 stats/preview，压缩动作经过一次手动 DB 备份验证后再开放。
+          这条路径能快速吸收 Hive 最近一个月最确定的收益，同时不把玄圃拖回 Hive 的 Kanban/Claude CLI 架构分支。
+        </p>
+      </section>
+    </main>
+  </body>
+</html>

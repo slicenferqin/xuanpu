@@ -133,9 +133,9 @@ describe('Regression: provider selection across all SDKs', () => {
     expect(caps['claude-code'].supportsRedo).toBe(false)
     expect(caps['claude-code'].supportsCommands).toBe(true)
 
-    // Codex doesn't support redo or commands
+    // Codex supports skill-backed commands, but still does not support redo.
     expect(caps.codex.supportsRedo).toBe(false)
-    expect(caps.codex.supportsCommands).toBe(false)
+    expect(caps.codex.supportsCommands).toBe(true)
 
     // Terminal supports nothing
     expect(caps.terminal.supportsUndo).toBe(false)
@@ -167,12 +167,7 @@ describe('Regression: connect dispatch for all providers', () => {
       const opencodeFn = vi.fn().mockResolvedValue({ sessionId: 'oc-1' })
       const sdkFn = vi.fn().mockResolvedValue({ sessionId: `${sdk}-1` })
 
-      const result = await withSdkDispatchByHiveSession(
-        ctx,
-        'hive-session-1',
-        opencodeFn,
-        sdkFn
-      )
+      const result = await withSdkDispatchByHiveSession(ctx, 'hive-session-1', opencodeFn, sdkFn)
 
       if (sdk === 'opencode') {
         expect(opencodeFn).toHaveBeenCalled()
@@ -299,10 +294,10 @@ describe('Regression: capability lookup for all providers', () => {
     expect(caps.supportsSteer).toBe(false)
   })
 
-  it('Codex lacks redo and commands', () => {
+  it('Codex lacks redo but supports skill-backed commands', () => {
     const caps = sdkManager.getCapabilities('codex')
     expect(caps.supportsRedo).toBe(false)
-    expect(caps.supportsCommands).toBe(false)
+    expect(caps.supportsCommands).toBe(true)
     expect(caps.supportsUndo).toBe(true)
     expect(caps.supportsPermissionRequests).toBe(true)
     expect(caps.supportsQuestionPrompts).toBe(true)

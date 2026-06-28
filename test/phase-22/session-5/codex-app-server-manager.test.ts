@@ -198,6 +198,63 @@ describe('CodexAppServerManager — collaborationMode in sendTurn', () => {
     expect(params.collaborationMode).toBeUndefined()
   })
 
+  it('sends skills/list for the requested cwd', async () => {
+    const { context, stdin } = createTestContext()
+    seedSession(context)
+
+    const skillsPromise = manager.listSkills('thread-123', '/test/project', true)
+
+    const messages = getWrittenMessages(stdin)
+    const listMsg = messages.find((message: any) => message.method === 'skills/list')
+    expect(listMsg).toBeDefined()
+    expect(listMsg.params).toEqual({
+      cwds: ['/test/project'],
+      forceReload: true
+    })
+
+    manager.handleStdoutLine(
+      context,
+      JSON.stringify({
+        id: listMsg.id,
+        result: { data: [{ cwd: '/test/project', skills: [], errors: [] }] }
+      })
+    )
+
+    await expect(skillsPromise).resolves.toEqual({
+      data: [{ cwd: '/test/project', skills: [], errors: [] }]
+    })
+  })
+
+  it('preserves structured skill input arrays in turn/start', async () => {
+    const { context, stdin } = createTestContext()
+    seedSession(context)
+
+    const turnPromise = manager.sendTurn('thread-123', {
+      input: [
+        { type: 'skill', name: 'imagegen', path: '/skills/imagegen/SKILL.md' },
+        { type: 'text', text: 'make it crisp', text_elements: [] }
+      ],
+      model: 'gpt-5.4'
+    })
+
+    const messages = getWrittenMessages(stdin)
+    const turnStartMsg = messages.find((message: any) => message.method === 'turn/start')
+    expect(turnStartMsg).toBeDefined()
+
+    const params = getTurnStartParams(messages)
+    expect(params.input).toEqual([
+      { type: 'skill', name: 'imagegen', path: '/skills/imagegen/SKILL.md' },
+      { type: 'text', text: 'make it crisp', text_elements: [] }
+    ])
+
+    manager.handleStdoutLine(
+      context,
+      JSON.stringify({ id: turnStartMsg.id, result: { turn: { id: 'turn-skill' } } })
+    )
+
+    await turnPromise
+  })
+
   it('collaborationMode.settings.model matches the provided model', async () => {
     const { context, stdin } = createTestContext({ model: 'gpt-5.4' })
     seedSession(context)

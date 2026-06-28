@@ -186,7 +186,7 @@ export const CODEX_CAPABILITIES: AgentRuntimeCapabilities = {
   supportsUndo: true,
   supportsRedo: false,
   supportsSteer: true,
-  supportsCommands: false,
+  supportsCommands: true,
   supportsPermissionRequests: true,
   supportsQuestionPrompts: true,
   supportsModelSelection: true,

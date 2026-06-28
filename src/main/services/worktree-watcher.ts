@@ -173,12 +173,12 @@ export async function watchWorktree(worktreePath: string): Promise<void> {
       gitPaths.push(refsPath)
     }
 
-    // Optionally watch MERGE_HEAD, REBASE_HEAD (in worktree gitdir)
+    // Watch merge/rebase/cherry-pick sentinel files even if they do not exist
+    // yet. Git creates and removes these during conflict flows, and chokidar
+    // can report add/unlink for missing paths as long as their parent exists.
     for (const specialFile of ['MERGE_HEAD', 'REBASE_HEAD', 'CHERRY_PICK_HEAD']) {
       const path = join(gitDir, specialFile)
-      if (existsSync(path)) {
-        gitPaths.push(path)
-      }
+      gitPaths.push(path)
     }
 
     if (gitPaths.length > 0) {

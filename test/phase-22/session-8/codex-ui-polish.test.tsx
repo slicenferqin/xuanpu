@@ -30,12 +30,7 @@ vi.mock('@/stores', () => ({
   useWorktreeStore: Object.assign(
     (selector?: (s: unknown) => unknown) => {
       const state = {
-        worktreesByProject: new Map([
-          [
-            'proj-1',
-            [{ id: 'wt-1', last_model_id: mockLastModelId }]
-          ]
-        ])
+        worktreesByProject: new Map([['proj-1', [{ id: 'wt-1', last_model_id: mockLastModelId }]]])
       }
       return selector ? selector(state) : state
     },
@@ -45,12 +40,7 @@ vi.mock('@/stores', () => ({
     (selector?: (s: unknown) => unknown) => {
       const state = {
         sessionsByWorktree: new Map([
-          [
-            'wt-1',
-            mockLatestAgentSdk
-              ? [{ id: 's-1', agent_sdk: mockLatestAgentSdk }]
-              : []
-          ]
+          ['wt-1', mockLatestAgentSdk ? [{ id: 's-1', agent_sdk: mockLatestAgentSdk }] : []]
         ])
       }
       return selector ? selector(state) : state
@@ -77,9 +67,7 @@ describe('ModelIcon: Codex awareness', () => {
   it('shows OpenAI icon when agent_sdk is codex', async () => {
     mockLatestAgentSdk = 'codex'
 
-    const { ModelIcon } = await import(
-      '@/components/worktrees/ModelIcon'
-    )
+    const { ModelIcon } = await import('@/components/worktrees/ModelIcon')
     render(<ModelIcon worktreeId="wt-1" />)
 
     const img = screen.getByAltText('OpenAI')
@@ -90,9 +78,7 @@ describe('ModelIcon: Codex awareness', () => {
   it('shows Claude icon when agent_sdk is claude-code (no regression)', async () => {
     mockLatestAgentSdk = 'claude-code'
 
-    const { ModelIcon } = await import(
-      '@/components/worktrees/ModelIcon'
-    )
+    const { ModelIcon } = await import('@/components/worktrees/ModelIcon')
     render(<ModelIcon worktreeId="wt-1" />)
 
     const img = screen.getByAltText('Claude')
@@ -104,9 +90,7 @@ describe('ModelIcon: Codex awareness', () => {
     mockLatestAgentSdk = 'opencode'
     mockLastModelId = 'gpt-4o'
 
-    const { ModelIcon } = await import(
-      '@/components/worktrees/ModelIcon'
-    )
+    const { ModelIcon } = await import('@/components/worktrees/ModelIcon')
     render(<ModelIcon worktreeId="wt-1" />)
 
     const img = screen.getByAltText('OpenAI')
@@ -117,9 +101,7 @@ describe('ModelIcon: Codex awareness', () => {
     mockShowModelIcons = false
     mockLatestAgentSdk = 'codex'
 
-    const { ModelIcon } = await import(
-      '@/components/worktrees/ModelIcon'
-    )
+    const { ModelIcon } = await import('@/components/worktrees/ModelIcon')
     const { container } = render(<ModelIcon worktreeId="wt-1" />)
 
     expect(container.innerHTML).toBe('')
@@ -129,9 +111,7 @@ describe('ModelIcon: Codex awareness', () => {
     mockLatestAgentSdk = 'some-future-sdk'
     mockLastModelId = 'claude-3-opus'
 
-    const { ModelIcon } = await import(
-      '@/components/worktrees/ModelIcon'
-    )
+    const { ModelIcon } = await import('@/components/worktrees/ModelIcon')
     render(<ModelIcon worktreeId="wt-1" />)
 
     const img = screen.getByAltText('Claude')
@@ -142,9 +122,7 @@ describe('ModelIcon: Codex awareness', () => {
     mockLatestAgentSdk = 'some-future-sdk'
     mockLastModelId = 'unknown-model-xyz'
 
-    const { ModelIcon } = await import(
-      '@/components/worktrees/ModelIcon'
-    )
+    const { ModelIcon } = await import('@/components/worktrees/ModelIcon')
     const { container } = render(<ModelIcon worktreeId="wt-1" />)
 
     expect(container.innerHTML).toBe('')
@@ -191,9 +169,9 @@ describe('Capability-gated commands for Codex', () => {
     expect(CODEX_CAPABILITIES.supportsRedo).toBe(false)
   })
 
-  it('Codex does not support slash commands', () => {
-    // Codex sessions should not show the command palette or process slash commands
-    expect(CODEX_CAPABILITIES.supportsCommands).toBe(false)
+  it('Codex supports skill-backed slash commands', () => {
+    // Codex exposes enabled skills through the shared command palette.
+    expect(CODEX_CAPABILITIES.supportsCommands).toBe(true)
   })
 
   it('OpenCode supports both undo and redo (contrast with Codex)', () => {
