@@ -372,7 +372,7 @@ export function registerTerminalHandlers(mainWindow: BrowserWindow): void {
   log.info('Terminal IPC handlers registered')
 }
 
-export function cleanupTerminals(): void {
+export async function cleanupTerminals(): Promise<void> {
   log.info('Cleaning up all terminals')
   // Clean up all listener tracking
   for (const [, cleanup] of listenerCleanups) {
@@ -383,6 +383,6 @@ export function cleanupTerminals(): void {
   // Discard all pending buffered data
   dataBuffers.clear()
   flushScheduled.clear()
-  ptyService.destroyAll()
+  await ptyService.destroyAllAndReap()
   ghosttyService.shutdown()
 }

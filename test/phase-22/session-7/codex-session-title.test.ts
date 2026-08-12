@@ -41,7 +41,7 @@ describe('generateCodexSessionTitle', () => {
       status: 'ready',
       threadId: 'thread-title-1',
       cwd: '/test',
-      model: 'gpt-5.4',
+      model: 'gpt-5.6-luna',
       activeTurnId: null,
       resumeCursor: null,
       createdAt: new Date().toISOString(),
@@ -75,7 +75,7 @@ describe('generateCodexSessionTitle', () => {
     })
   })
 
-  it('uses gpt-5.4 with low effort and opencode-style prompt shape', async () => {
+  it('uses gpt-5.6-luna with low effort and opencode-style prompt shape', async () => {
     const { generateCodexSessionTitle } =
       await import('../../../src/main/services/codex-session-title')
 
@@ -83,7 +83,7 @@ describe('generateCodexSessionTitle', () => {
 
     expect(title).toBe('Auth refresh fix')
     expect(mockSendTurn).toHaveBeenCalledWith('thread-title-1', {
-      model: 'gpt-5.4',
+      model: 'gpt-5.6-luna',
       reasoningEffort: 'low',
       developerInstructions: expect.stringContaining('You are a title generator'),
       input: [
@@ -109,7 +109,7 @@ xuanpu--akita
     )
 
     expect(mockSendTurn).toHaveBeenCalledWith('thread-title-1', {
-      model: 'gpt-5.4',
+      model: 'gpt-5.6-luna',
       reasoningEffort: 'low',
       developerInstructions: expect.stringContaining('You are a title generator'),
       input: [

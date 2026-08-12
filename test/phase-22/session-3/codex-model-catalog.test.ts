@@ -5,15 +5,22 @@ import {
   CODEX_DEFAULT_MODEL,
   CODEX_REASONING_EFFORTS,
   getAvailableCodexModels,
-  getCodexModelInfo
+  getCodexModelInfo,
+  parseCodexRuntimeModelCatalog
 } from '../../../src/main/services/codex-models'
 
 describe('codex-models', () => {
   // ── CODEX_MODELS constant ──────────────────────────────────────
 
   describe('CODEX_MODELS', () => {
-    it('contains exactly 5 models', () => {
-      expect(CODEX_MODELS).toHaveLength(5)
+    it('contains exactly 8 models', () => {
+      expect(CODEX_MODELS).toHaveLength(8)
+    })
+
+    it('includes the GPT-5.6 family', () => {
+      expect(CODEX_MODELS.find((model) => model.id === 'gpt-5.6-sol')?.name).toBe('GPT-5.6-Sol')
+      expect(CODEX_MODELS.find((model) => model.id === 'gpt-5.6-terra')?.name).toBe('GPT-5.6-Terra')
+      expect(CODEX_MODELS.find((model) => model.id === 'gpt-5.6-luna')?.name).toBe('GPT-5.6-Luna')
     })
 
     it('includes gpt-5.5', () => {
@@ -73,8 +80,8 @@ describe('codex-models', () => {
   // ── CODEX_DEFAULT_MODEL ────────────────────────────────────────
 
   describe('CODEX_DEFAULT_MODEL', () => {
-    it('is gpt-5.4', () => {
-      expect(CODEX_DEFAULT_MODEL).toBe('gpt-5.4')
+    it('is gpt-5.6-sol', () => {
+      expect(CODEX_DEFAULT_MODEL).toBe('gpt-5.6-sol')
     })
 
     it('exists in the model catalog', () => {
@@ -86,8 +93,8 @@ describe('codex-models', () => {
   // ── CODEX_REASONING_EFFORTS ────────────────────────────────────
 
   describe('CODEX_REASONING_EFFORTS', () => {
-    it('contains xhigh, high, medium, low', () => {
-      expect(CODEX_REASONING_EFFORTS).toEqual(['xhigh', 'high', 'medium', 'low'])
+    it('contains all current reasoning levels', () => {
+      expect(CODEX_REASONING_EFFORTS).toEqual(['ultra', 'max', 'xhigh', 'high', 'medium', 'low'])
     })
   })
 
@@ -101,10 +108,13 @@ describe('codex-models', () => {
       expect(result[0].name).toBe('Codex')
     })
 
-    it('provider entry contains all 5 models keyed by id', () => {
+    it('provider entry contains all 8 models keyed by id', () => {
       const result = getAvailableCodexModels()
       const models = result[0].models
-      expect(Object.keys(models)).toHaveLength(5)
+      expect(Object.keys(models)).toHaveLength(8)
+      expect(models['gpt-5.6-sol']).toBeDefined()
+      expect(models['gpt-5.6-terra']).toBeDefined()
+      expect(models['gpt-5.6-luna']).toBeDefined()
       expect(models['gpt-5.5']).toBeDefined()
       expect(models['gpt-5.4']).toBeDefined()
       expect(models['gpt-5.3-codex']).toBeDefined()
@@ -132,6 +142,44 @@ describe('codex-models', () => {
       expect(typeof provider.id).toBe('string')
       expect(typeof provider.name).toBe('string')
       expect(typeof provider.models).toBe('object')
+    })
+  })
+
+  describe('parseCodexRuntimeModelCatalog', () => {
+    it('parses model/list metadata and filters hidden models', () => {
+      const catalog = parseCodexRuntimeModelCatalog({
+        data: [
+          {
+            id: 'sol-id',
+            model: 'gpt-5.6-sol',
+            displayName: 'GPT-5.6-Sol',
+            description: 'Latest frontier model',
+            hidden: false,
+            isDefault: true,
+            defaultReasoningEffort: 'low',
+            supportedReasoningEfforts: [
+              { reasoningEffort: 'low', description: 'Fast' },
+              { reasoningEffort: 'ultra', description: 'Delegated' }
+            ]
+          },
+          {
+            id: 'hidden-id',
+            model: 'hidden-model',
+            displayName: 'Hidden',
+            hidden: true,
+            isDefault: false,
+            defaultReasoningEffort: 'medium',
+            supportedReasoningEfforts: []
+          }
+        ],
+        nextCursor: 'page-2'
+      })
+
+      expect(catalog?.defaultModelId).toBe('gpt-5.6-sol')
+      expect(catalog?.nextCursor).toBe('page-2')
+      expect(catalog?.models).toHaveLength(1)
+      expect(Object.keys(catalog!.models[0].variants)).toEqual(['ultra', 'low'])
+      expect(catalog!.models[0].limit.context).toBe(272000)
     })
   })
 

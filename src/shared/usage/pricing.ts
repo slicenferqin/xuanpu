@@ -87,6 +87,9 @@ export function resolvePricingModelKey(model: string, providerID?: string | null
   }
 
   const knownCodexModels = [
+    'gpt-5.6-sol',
+    'gpt-5.6-terra',
+    'gpt-5.6-luna',
     'gpt-5.5',
     'gpt-5.4',
     'gpt-5.3-codex',
@@ -104,6 +107,10 @@ export function resolvePricingModelKey(model: string, providerID?: string | null
   if (codexMatch) return codexMatch
 
   return normalized
+}
+
+export function hasUsagePricing(model: string, providerID?: string | null): boolean {
+  return MODEL_PRICING[resolvePricingModelKey(model, providerID)] !== undefined
 }
 
 export function getUsagePricing(model: string, providerID?: string | null): UsagePricing {

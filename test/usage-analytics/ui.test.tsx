@@ -111,6 +111,37 @@ describe('usage analytics UI', () => {
     expect(screen.getByText('37.7K')).toBeTruthy()
   })
 
+  it('does not present an unpriced model as zero dollars', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <SessionCostPill
+        summary={{
+          session_id: 'session-5.6',
+          engine: 'codex',
+          total_cost: 0,
+          total_tokens: 1200,
+          input_tokens: 1000,
+          output_tokens: 200,
+          cache_write_tokens: 0,
+          cache_read_tokens: 0,
+          duration_seconds: 30,
+          last_used_at: '2026-08-12T00:00:00.000Z',
+          model_labels: ['GPT-5.6-Sol'],
+          latest_model_label: 'GPT-5.6-Sol',
+          partial: false
+        }}
+        fallbackCost={0}
+        fallbackTokens={null}
+      />
+    )
+
+    expect(screen.getByTestId('session-cost-pill')).toHaveTextContent('—')
+    expect(screen.getByTestId('session-cost-pill')).not.toHaveTextContent('$0.0000')
+    await user.click(screen.getByTestId('session-cost-pill'))
+    expect(screen.getByText('GPT-5.6-Sol')).toBeTruthy()
+  })
+
   it('uses live tokens when a persisted summary has cost but missing token counters', async () => {
     const user = userEvent.setup()
 

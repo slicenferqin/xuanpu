@@ -1130,7 +1130,7 @@ describe('CodexImplementer.prompt()', () => {
 
     expect(mockManager.sendTurn).toHaveBeenCalledWith('thread-1', {
       text: 'test',
-      model: 'gpt-5.4',
+      model: 'gpt-5.6-sol',
       serviceTier: 'fast',
       interactionMode: 'default'
     })
@@ -1165,7 +1165,7 @@ describe('CodexImplementer.prompt()', () => {
     })
     expect(mockManager.sendTurn).toHaveBeenCalledWith('thread-1', {
       text: 'Ship the migration',
-      model: 'gpt-5.4',
+      model: 'gpt-5.6-sol',
       interactionMode: 'default'
     })
     expect(mockManager.setThreadGoal.mock.invocationCallOrder[0]).toBeLessThan(

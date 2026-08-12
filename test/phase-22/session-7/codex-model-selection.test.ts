@@ -33,7 +33,8 @@ import {
   CODEX_MODEL_ALIASES,
   CODEX_MODELS,
   getCodexModelInfo,
-  getAvailableCodexModels
+  getAvailableCodexModels,
+  parseCodexRuntimeModelCatalog
 } from '../../../src/main/services/codex-models'
 
 // ── Tests ───────────────────────────────────────────────────────────
@@ -54,6 +55,9 @@ describe('Codex Model Selection', () => {
     })
 
     it('resolves all known aliases', () => {
+      expect(normalizeCodexModelSlug('5.6')).toBe('gpt-5.6-sol')
+      expect(normalizeCodexModelSlug('5.6-terra')).toBe('gpt-5.6-terra')
+      expect(normalizeCodexModelSlug('5.6-luna')).toBe('gpt-5.6-luna')
       expect(normalizeCodexModelSlug('5.4')).toBe('gpt-5.4')
       expect(normalizeCodexModelSlug('5.3')).toBe('gpt-5.3-codex')
       expect(normalizeCodexModelSlug('gpt-5.3')).toBe('gpt-5.3-codex')
@@ -98,6 +102,21 @@ describe('Codex Model Selection', () => {
     it('falls back to default for unknown/invalid models', () => {
       expect(resolveCodexModelSlug('gpt-99')).toBe(CODEX_DEFAULT_MODEL)
       expect(resolveCodexModelSlug('custom-model')).toBe(CODEX_DEFAULT_MODEL)
+    })
+
+    it('uses the runtime catalog default when the bundled default is unavailable', () => {
+      expect(
+        resolveCodexModelSlug('gpt-5.6-sol', [
+          {
+            id: 'server-default',
+            name: 'Server Default',
+            limit: { context: 1000, output: 100 },
+            variants: { medium: {} },
+            defaultVariant: 'medium',
+            isDefault: true
+          }
+        ])
+      ).toBe('server-default')
     })
 
     it('returns canonical IDs unchanged', () => {
@@ -149,10 +168,42 @@ describe('Codex Model Selection', () => {
     it('includes all expected models', () => {
       const providers = getAvailableCodexModels()
       const modelIds = Object.keys(providers[0].models)
+      expect(modelIds).toContain('gpt-5.6-sol')
+      expect(modelIds).toContain('gpt-5.6-terra')
+      expect(modelIds).toContain('gpt-5.6-luna')
       expect(modelIds).toContain('gpt-5.4')
       expect(modelIds).toContain('gpt-5.3-codex')
       expect(modelIds).toContain('gpt-5.3-codex-spark')
       expect(modelIds).toContain('gpt-5.2-codex')
+    })
+  })
+
+  describe('runtime model catalog', () => {
+    it('keeps dynamic model metadata from app-server', () => {
+      const catalog = parseCodexRuntimeModelCatalog({
+        data: [
+          {
+            id: 'new-id',
+            model: 'gpt-next-codex',
+            displayName: 'GPT Next Codex',
+            description: 'Server supplied',
+            hidden: false,
+            isDefault: true,
+            defaultReasoningEffort: 'high',
+            supportedReasoningEfforts: [
+              { reasoningEffort: 'medium', description: 'Balanced' },
+              { reasoningEffort: 'high', description: 'Deep' }
+            ]
+          }
+        ]
+      })
+
+      expect(catalog?.models[0]).toMatchObject({
+        id: 'gpt-next-codex',
+        name: 'GPT Next Codex',
+        defaultVariant: 'high'
+      })
+      expect(Object.keys(catalog!.models[0].variants)).toEqual(['high', 'medium'])
     })
   })
 

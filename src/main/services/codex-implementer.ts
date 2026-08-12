@@ -10,9 +10,11 @@ import type {
 import type { AgentRuntimeAdapter } from './agent-runtime-types'
 import { CODEX_CAPABILITIES } from './agent-runtime-types'
 import {
+  CODEX_MODELS,
   getAvailableCodexModels,
   getCodexModelInfo,
   CODEX_DEFAULT_MODEL,
+  type CodexModelInfo,
   resolveCodexModelSlug
 } from './codex-models'
 import { createLogger } from './logger'
@@ -712,6 +714,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
   )
   private selectedVariant: string | undefined
   private manager: CodexAppServerManager = new CodexAppServerManager()
+  private runtimeModels: CodexModelInfo[] | null = null
   private sessions = new Map<string, CodexSessionState>()
   private pendingQuestions = new Map<string, PendingHitlEntry>()
   private pendingApprovalSessions = new Map<string, PendingHitlEntry>()
@@ -720,9 +723,22 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     return (
       getCodexConfiguredContextWindow() ??
       runtimeValue ??
-      getCodexModelInfo(modelID)?.limit.context ??
+      getCodexModelInfo(modelID, this.runtimeModels ?? CODEX_MODELS)?.limit.context ??
       0
     )
+  }
+
+  private async refreshRuntimeModels(threadId: string): Promise<void> {
+    try {
+      const catalog = await this.manager.listModels(threadId)
+      if (!catalog?.models.length) return
+      this.runtimeModels = catalog.models
+    } catch (error) {
+      log.warn('Failed to refresh Codex model catalog, using bundled fallback', {
+        threadId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
   }
 
   private calculateTurnTokenUsageCostDelta(
@@ -1091,7 +1107,10 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       const totalOutputTokens = asNumber(total?.outputTokens) ?? lastOutputTokens
       const totalReasoningTokens = asNumber(total?.reasoningOutputTokens) ?? lastReasoningTokens
 
-      const modelID = resolveCodexModelSlug(asString(payload?.model) ?? this.selectedModel)
+      const modelID = resolveCodexModelSlug(
+        asString(payload?.model) ?? this.selectedModel,
+        this.runtimeModels ?? CODEX_MODELS
+      )
       const contextWindow = this.resolveContextWindow(
         asNumber(tokenUsage?.modelContextWindow),
         modelID
@@ -1399,6 +1418,8 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       throw new Error('Codex session started but no thread ID was returned.')
     }
 
+    await this.refreshRuntimeModels(threadId)
+
     const key = this.getSessionKey(worktreePath, threadId)
     const state: CodexSessionState = {
       threadId,
@@ -1477,6 +1498,8 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         throw new Error('Codex session started but no thread ID was returned.')
       }
 
+      await this.refreshRuntimeModels(threadId)
+
       const newKey = this.getSessionKey(worktreePath, threadId)
       const state: CodexSessionState = {
         threadId,
@@ -1550,6 +1573,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     this.pendingApprovalSessions.clear()
     this.managerListenerAttached = false
     this.mainWindow = null
+    this.runtimeModels = null
     this.selectedModel = CODEX_DEFAULT_MODEL
     this.selectedVariant = undefined
   }
@@ -1744,7 +1768,10 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     this.manager.on('event', handleEvent)
 
     try {
-      const model = resolveCodexModelSlug(modelOverride?.modelID ?? this.selectedModel)
+      const model = resolveCodexModelSlug(
+        modelOverride?.modelID ?? this.selectedModel,
+        this.runtimeModels ?? CODEX_MODELS
+      )
 
       // Determine interaction mode from DB session mode (same pattern as claude-code-implementer)
       if (this.dbService) {
@@ -2334,8 +2361,10 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
   // ── Models ───────────────────────────────────────────────────────
 
   async getAvailableModels(): Promise<unknown> {
+    const activeThreadId = this.manager.listSessions().find((session) => session.threadId)?.threadId
+    if (activeThreadId) await this.refreshRuntimeModels(activeThreadId)
     const configuredContextWindow = getCodexConfiguredContextWindow()
-    const providers = getAvailableCodexModels()
+    const providers = getAvailableCodexModels(this.runtimeModels ?? CODEX_MODELS)
     if (!configuredContextWindow) return providers
 
     return providers.map((provider) => ({
@@ -2360,7 +2389,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
     name: string
     limit: { context: number; input?: number; output: number }
   } | null> {
-    const info = getCodexModelInfo(modelId)
+    const info = getCodexModelInfo(modelId, this.runtimeModels ?? CODEX_MODELS)
     const configuredContextWindow = getCodexConfiguredContextWindow()
     if (!info || !configuredContextWindow) return info
     return {
@@ -2370,7 +2399,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
   }
 
   setSelectedModel(model: { providerID: string; modelID: string; variant?: string }): void {
-    this.selectedModel = resolveCodexModelSlug(model.modelID)
+    this.selectedModel = resolveCodexModelSlug(model.modelID, this.runtimeModels ?? CODEX_MODELS)
     this.selectedVariant = model.variant
     log.info('Selected model set', {
       raw: model.modelID,
@@ -2380,7 +2409,10 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
   }
 
   clearSelectedModel(): void {
-    this.selectedModel = resolveCodexModelSlug(getCodexConfiguredModel() ?? CODEX_DEFAULT_MODEL)
+    this.selectedModel = resolveCodexModelSlug(
+      getCodexConfiguredModel() ?? CODEX_DEFAULT_MODEL,
+      this.runtimeModels ?? CODEX_MODELS
+    )
     this.selectedVariant = undefined
     log.info('Selected model cleared, reset to default', { model: this.selectedModel })
   }
@@ -2895,7 +2927,7 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
         0
       if (totalInputTokens === 0 && totalOutputTokens === 0) return
 
-      const modelID = resolveCodexModelSlug(this.selectedModel)
+      const modelID = resolveCodexModelSlug(this.selectedModel, this.runtimeModels ?? CODEX_MODELS)
       const contextWindow = this.resolveContextWindow(
         asNumber(lastTokenCount.model_context_window),
         modelID
@@ -3727,6 +3759,8 @@ export class CodexImplementer implements AgentSdkImplementer, AgentRuntimeAdapte
       if (!threadId) {
         throw new Error('Codex session resumed for read but no thread ID was returned.')
       }
+
+      await this.refreshRuntimeModels(threadId)
 
       const recovered: CodexSessionState = {
         threadId,

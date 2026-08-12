@@ -1,5 +1,6 @@
 import { DollarSign, Clock3, Layers3, TriangleAlert } from 'lucide-react'
 import type { UsageAnalyticsSessionSummary } from '@shared/types/usage-analytics'
+import { hasUsagePricing } from '@shared/usage/pricing'
 import { Button } from '@/components/ui/button'
 import {
   Popover,
@@ -59,6 +60,9 @@ export function SessionCostPill({
 }: SessionCostPillProps): React.JSX.Element | null {
   const { t } = useI18n()
   const modelSummary = formatModelLabelSummary(getSessionSummaryModelLabels(summary))
+  const pricingModels = summary?.model_labels ?? []
+  const hasKnownPricing =
+    pricingModels.length === 0 || pricingModels.every((model) => hasUsagePricing(model))
   const totalCost = Math.max(summary?.total_cost ?? 0, fallbackCost ?? 0)
   const resolvedTokens = resolveUsageTokenTotals(summary, fallbackTokens)
   const totalTokens = resolvedTokens.totalTokens
@@ -67,6 +71,7 @@ export function SessionCostPill({
   const outputTokens = resolvedTokens.outputTokens
   const cacheWriteTokens = resolvedTokens.cacheWriteTokens
   const cacheReadTokens = resolvedTokens.cacheReadTokens
+  const showUnavailableCost = hasAnyTokens && totalCost <= 0 && !hasKnownPricing
 
   const cacheHitRate =
     cacheReadTokens > 0 || inputTokens > 0
@@ -88,7 +93,7 @@ export function SessionCostPill({
           data-testid="session-cost-pill"
         >
           <DollarSign className="h-3.5 w-3.5" />
-          <span className="font-mono">{formatCurrency(totalCost)}</span>
+          <span className="font-mono">{showUnavailableCost ? '—' : formatCurrency(totalCost)}</span>
           {summary?.partial && <TriangleAlert className="h-3.5 w-3.5 text-amber-500" />}
         </Button>
       </PopoverTrigger>
@@ -102,7 +107,9 @@ export function SessionCostPill({
         <div className="mt-3 space-y-2 text-xs">
           <div className="flex items-center justify-between gap-3">
             <span className="text-muted-foreground">{t('sessionView.costPill.totalCost')}</span>
-            <span className="font-mono font-medium">{formatCurrency(totalCost)}</span>
+            <span className="font-mono font-medium">
+              {showUnavailableCost ? '—' : formatCurrency(totalCost)}
+            </span>
           </div>
           <div className="flex items-center justify-between gap-3">
             <span className="text-muted-foreground">{t('sessionView.costPill.totalTokens')}</span>

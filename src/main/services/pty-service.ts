@@ -7,6 +7,18 @@ import { createLogger } from './logger'
 const execFileAsync = promisify(execFile)
 
 const log = createLogger({ component: 'PtyService' })
+const KILL_ESCALATION_GRACE_MS = 1500
+const EXITED_PID_RETENTION_MS = 60_000
+const exitedPtyPids = new Map<number, number>()
+
+function recordPtyExit(pid: number | undefined): void {
+  if (!pid) return
+  const now = Date.now()
+  exitedPtyPids.set(pid, now)
+  for (const [oldPid, exitedAt] of exitedPtyPids) {
+    if (now - exitedAt > EXITED_PID_RETENTION_MS) exitedPtyPids.delete(oldPid)
+  }
+}
 
 /**
  * Terminal backend type.
@@ -81,6 +93,8 @@ class PtyService {
       env
     })
 
+    if (ptyProcess.pid) exitedPtyPids.delete(ptyProcess.pid)
+
     const instance: PtyInstance = {
       pty: ptyProcess,
       cwd: opts.cwd,
@@ -109,6 +123,7 @@ class PtyService {
       const code = exitCode ?? -1
       const sig = signal ?? 0
       log.info('PTY exited', { id, exitCode: code, signal: sig })
+      recordPtyExit(ptyProcess.pid)
       for (const listener of instance.exitListeners) {
         try {
           listener(code, sig)
@@ -161,18 +176,148 @@ class PtyService {
       return
     }
     log.info('Destroying PTY', { id })
+    const pid = instance.pty.pid
+    const groupSnapshot =
+      pid && process.platform !== 'win32'
+        ? this.listGroupMembers(pid)
+        : Promise.resolve(new Set<number>())
     try {
       instance.pty.kill()
     } catch (err) {
       log.error('Error killing PTY', err instanceof Error ? err : new Error(String(err)), { id })
     }
     this.ptys.delete(id)
+    this.scheduleKillEscalation(id, pid, groupSnapshot)
+  }
+
+  private listGroupMembers(pgid: number): Promise<Set<number>> {
+    return new Promise((resolve) => {
+      execFile('pgrep', ['-g', String(pgid)], { timeout: 2000 }, (error, stdout) => {
+        if (error) {
+          resolve(new Set())
+          return
+        }
+        const pids = stdout
+          .split('\n')
+          .map((line) => Number(line.trim()))
+          .filter((pid) => Number.isInteger(pid) && pid > 0)
+        resolve(new Set(pids))
+      })
+    })
+  }
+
+  private scheduleKillEscalation(
+    id: string,
+    pid: number | undefined,
+    groupSnapshot: Promise<Set<number>>
+  ): void {
+    if (!pid || process.platform === 'win32') return
+    const timer = setTimeout(() => {
+      void groupSnapshot.then((members) => this.reapSurvivors(id, pid, members))
+    }, KILL_ESCALATION_GRACE_MS)
+    timer.unref?.()
+  }
+
+  private isCurrentPtyPid(pid: number): boolean {
+    for (const instance of this.ptys.values()) {
+      if (instance.pty.pid === pid) return true
+    }
+    return false
+  }
+
+  private async reapSurvivors(id: string, pid: number, groupSnapshot: Set<number>): Promise<void> {
+    if (this.isCurrentPtyPid(pid)) return
+
+    const exitedAt = exitedPtyPids.get(pid)
+    if (exitedAt !== undefined && Date.now() - exitedAt > EXITED_PID_RETENTION_MS) {
+      exitedPtyPids.delete(pid)
+    }
+    const directPidValid = !exitedPtyPids.has(pid)
+
+    let leaderAlive = false
+    if (directPidValid) {
+      try {
+        process.kill(pid, 0)
+        leaderAlive = true
+      } catch {
+        // 直属进程已经退出。
+      }
+    }
+
+    let groupAlive = false
+    try {
+      process.kill(-pid, 0)
+      groupAlive = true
+    } catch {
+      // 进程组已经退出。
+    }
+    if (!leaderAlive && !groupAlive) return
+
+    if (!leaderAlive && groupAlive) {
+      if (groupSnapshot.size > 0) {
+        const currentMembers = await this.listGroupMembers(pid)
+        const stillOwned = [...currentMembers].some(
+          (member) => member !== pid && groupSnapshot.has(member)
+        )
+        if (!stillOwned) {
+          log.warn('Skipping SIGKILL because the process group no longer belongs to the PTY', {
+            id,
+            pid
+          })
+          return
+        }
+      } else if (!directPidValid) {
+        log.warn('Skipping SIGKILL because the exited PTY has no ownership evidence', { id, pid })
+        return
+      }
+    }
+
+    log.warn('PTY process survived graceful shutdown, escalating to SIGKILL', { id, pid })
+    try {
+      process.kill(-pid, 'SIGKILL')
+    } catch (groupError) {
+      if (!leaderAlive) {
+        log.warn('Failed to kill surviving PTY process group', {
+          id,
+          pid,
+          error: groupError instanceof Error ? groupError.message : String(groupError)
+        })
+        return
+      }
+      try {
+        process.kill(pid, 'SIGKILL')
+      } catch (processError) {
+        log.warn('Failed to kill surviving PTY process', {
+          id,
+          pid,
+          error: processError instanceof Error ? processError.message : String(processError)
+        })
+      }
+    }
   }
 
   destroyAll(): void {
     log.info('Destroying all PTYs', { count: this.ptys.size })
     for (const [id] of this.ptys) {
       this.destroy(id)
+    }
+  }
+
+  async destroyAllAndReap(graceMs = 300): Promise<void> {
+    const targets: Array<{ id: string; pid: number; snapshot: Promise<Set<number>> }> = []
+    if (process.platform !== 'win32') {
+      for (const [id, instance] of this.ptys) {
+        const pid = instance.pty.pid
+        if (pid) targets.push({ id, pid, snapshot: this.listGroupMembers(pid) })
+      }
+    }
+
+    this.destroyAll()
+    if (targets.length === 0) return
+
+    await new Promise((resolve) => setTimeout(resolve, graceMs))
+    for (const { id, pid, snapshot } of targets) {
+      await this.reapSurvivors(id, pid, await snapshot)
     }
   }
 

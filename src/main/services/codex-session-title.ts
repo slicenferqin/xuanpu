@@ -57,7 +57,7 @@ const MAX_MESSAGE_LENGTH = 2000
 const MAX_TITLE_LENGTH = 100
 const TITLE_TRUNCATE_LENGTH = 97
 const MAX_RETRIES = 2
-const TITLE_MODEL = 'gpt-5.4'
+const TITLE_MODEL = 'gpt-5.6-luna'
 const TITLE_PROMPT_PREFIX = 'Generate a title for this conversation:\n'
 
 function postProcessTitle(raw: string): string | null {

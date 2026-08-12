@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { EventEmitter } from 'events'
 
 // Mock node-pty
@@ -80,6 +80,11 @@ describe('PtyService', () => {
 
     mockPty = new MockPty(80, 24)
     spawnMock.mockReturnValue(mockPty)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
   })
 
   describe('create', () => {
@@ -202,6 +207,38 @@ describe('PtyService', () => {
 
       expect(() => ptyService.destroy('wt-kill-err')).not.toThrow()
       expect(ptyService.has('wt-kill-err')).toBe(false)
+    })
+
+    test('escalates to SIGKILL when the PTY process group survives', async () => {
+      vi.useFakeTimers()
+      const killSpy = vi.spyOn(process, 'kill').mockReturnValue(true)
+      vi.spyOn(
+        ptyService as unknown as { listGroupMembers(pgid: number): Promise<Set<number>> },
+        'listGroupMembers'
+      ).mockResolvedValue(new Set())
+
+      ptyService.create('wt-survivor', { cwd: '/tmp' })
+      ptyService.destroy('wt-survivor')
+      await vi.advanceTimersByTimeAsync(1500)
+
+      expect(killSpy).toHaveBeenCalledWith(12345, 0)
+      expect(killSpy).toHaveBeenCalledWith(-12345, 'SIGKILL')
+    })
+
+    test('reaps surviving process groups during bounded quit cleanup', async () => {
+      vi.useFakeTimers()
+      const killSpy = vi.spyOn(process, 'kill').mockReturnValue(true)
+      vi.spyOn(
+        ptyService as unknown as { listGroupMembers(pgid: number): Promise<Set<number>> },
+        'listGroupMembers'
+      ).mockResolvedValue(new Set())
+
+      ptyService.create('wt-quit-survivor', { cwd: '/tmp' })
+      const cleanup = ptyService.destroyAllAndReap(300)
+      await vi.advanceTimersByTimeAsync(300)
+      await cleanup
+
+      expect(killSpy).toHaveBeenCalledWith(-12345, 'SIGKILL')
     })
   })
 

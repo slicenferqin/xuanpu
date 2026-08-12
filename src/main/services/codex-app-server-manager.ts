@@ -5,7 +5,11 @@ import readline from 'node:readline'
 
 import { createLogger } from './logger'
 import { asObject, asString, toDebugSnapshot } from './codex-utils'
-import { CODEX_DEFAULT_MODEL } from './codex-models'
+import {
+  CODEX_DEFAULT_MODEL,
+  parseCodexRuntimeModelCatalog,
+  type CodexRuntimeModelCatalog
+} from './codex-models'
 import { type CodexLaunchSpec } from './codex-binary-resolver'
 import { spawnLaunchSpec } from './command-launch-utils'
 import { getCodexRpcDumper } from './codex-rpc-dumper'
@@ -171,6 +175,7 @@ const RECOVERABLE_THREAD_RESUME_ERROR_SNIPPETS = [
   'unknown thread',
   'does not exist'
 ]
+const PROCESS_KILL_GRACE_MS = 1500
 
 function getDefaultCodexRuntimeConfig(): {
   approvalPolicy: 'never'
@@ -320,11 +325,35 @@ export function killChildTree(child: ChildProcess): void {
     try {
       spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
       return
-    } catch {
-      // fallback to direct kill
+    } catch (error) {
+      log.warn('taskkill failed, falling back to direct process termination', {
+        pid: child.pid,
+        error: error instanceof Error ? error.message : String(error)
+      })
     }
   }
-  child.kill()
+
+  const pid = child.pid
+  child.kill('SIGTERM')
+  if (!pid || process.platform === 'win32') return
+
+  const timer = setTimeout(() => {
+    if (child.exitCode !== null || child.signalCode !== null) return
+    try {
+      process.kill(-pid, 'SIGKILL')
+    } catch (groupError) {
+      try {
+        process.kill(pid, 'SIGKILL')
+      } catch (processError) {
+        log.warn('Failed to terminate surviving Codex app-server process', {
+          pid,
+          groupError: groupError instanceof Error ? groupError.message : String(groupError),
+          processError: processError instanceof Error ? processError.message : String(processError)
+        })
+      }
+    }
+  }, PROCESS_KILL_GRACE_MS)
+  timer.unref?.()
 }
 
 // ── User input answer format ──────────────────────────────────────
@@ -374,6 +403,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           ...(options.codexHomePath ? { CODEX_HOME: options.codexHomePath } : {})
         },
         stdio: ['pipe', 'pipe', 'pipe'],
+        detached: process.platform !== 'win32',
         windowsHide: true
       })
       const output = readline.createInterface({ input: child.stdout! })
@@ -818,6 +848,37 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     })
   }
 
+  async listModels(threadId: string): Promise<CodexRuntimeModelCatalog | null> {
+    const context = this.sessions.get(threadId)
+    if (!context) {
+      throw new Error(`listModels: no session found for threadId=${threadId}`)
+    }
+
+    const models: CodexRuntimeModelCatalog['models'] = []
+    let cursor: string | null = null
+
+    do {
+      const response = await this.sendRequest(context, 'model/list', {
+        includeHidden: false,
+        limit: 100,
+        ...(cursor ? { cursor } : {})
+      })
+      const catalog = parseCodexRuntimeModelCatalog(response)
+      if (!catalog) {
+        return models.length > 0 ? { models, defaultModelId: null, nextCursor: null } : null
+      }
+
+      models.push(...catalog.models)
+      cursor = catalog.nextCursor
+    } while (cursor)
+
+    return {
+      models,
+      defaultModelId: models.find((model) => model.isDefault)?.id ?? null,
+      nextCursor: null
+    }
+  }
+
   async rollbackThread(threadId: string, numTurns: number): Promise<unknown> {
     const context = this.sessions.get(threadId)
     if (!context) {
@@ -992,7 +1053,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     const route = this.readRouteFields(notification.params)
-    const effectiveTurnId = route.turnId ?? context.session.activeTurnId ?? undefined
+    const eventThreadId = route.threadId ?? context.session.threadId ?? ''
+    const belongsToSession = !route.threadId || route.threadId === context.session.threadId
+    const effectiveTurnId =
+      route.turnId ?? (belongsToSession ? (context.session.activeTurnId ?? undefined) : undefined)
 
     // Extract textDelta for streaming text notifications (matches t3code pattern)
     const textDelta =
@@ -1004,7 +1068,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       id: randomUUID(),
       kind: 'notification',
       provider: 'codex',
-      threadId: context.session.threadId ?? route.threadId ?? '',
+      threadId: eventThreadId,
       createdAt: new Date().toISOString(),
       method: notification.method,
       turnId: effectiveTurnId,
@@ -1015,8 +1079,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
     // Handle session lifecycle notifications
     if (notification.method === 'turn/started') {
+      if (!belongsToSession) return
       const turnObj = asObject(asObject(notification.params)?.turn)
-      const turnId = asString(turnObj?.id)
+      const turnId = asString(turnObj?.id) ?? route.turnId
       this.updateSession(context, {
         status: 'running',
         activeTurnId: turnId ?? null
@@ -1025,7 +1090,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     if (notification.method === 'turn/completed') {
+      if (!belongsToSession) return
       const turnObj = asObject(asObject(notification.params)?.turn)
+      const turnId = asString(turnObj?.id) ?? route.turnId
+      if (context.session.activeTurnId && turnId && context.session.activeTurnId !== turnId) return
       const status = asString(turnObj?.status)
       this.updateSession(context, {
         status: status === 'failed' ? 'error' : 'ready',
@@ -1035,6 +1103,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     if (notification.method === 'thread/status/changed') {
+      if (!belongsToSession) return
       const params = asObject(notification.params)
       const statusObj = asObject(params?.status) ?? params
       const statusType = asString(statusObj?.type)
@@ -1066,7 +1135,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
   private handleServerRequest(context: CodexSessionContext, request: JsonRpcRequest): void {
     const route = this.readRouteFields(request.params)
-    const effectiveTurnId = route.turnId ?? context.session.activeTurnId ?? undefined
+    const requestThreadId = route.threadId ?? context.session.threadId ?? ''
+    const belongsToSession = !route.threadId || route.threadId === context.session.threadId
+    const effectiveTurnId =
+      route.turnId ?? (belongsToSession ? (context.session.activeTurnId ?? undefined) : undefined)
     const requestId = randomUUID()
 
     // Track approval requests
@@ -1079,7 +1151,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         requestId,
         jsonRpcId: request.id,
         method: request.method,
-        threadId: context.session.threadId ?? route.threadId ?? '',
+        threadId: requestThreadId,
         payload: request.params,
         ...(effectiveTurnId ? { turnId: effectiveTurnId } : {}),
         ...(route.itemId ? { itemId: route.itemId } : {})
@@ -1091,7 +1163,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       context.pendingUserInputs.set(requestId, {
         requestId,
         jsonRpcId: request.id,
-        threadId: context.session.threadId ?? route.threadId ?? '',
+        threadId: requestThreadId,
         ...(effectiveTurnId ? { turnId: effectiveTurnId } : {}),
         ...(route.itemId ? { itemId: route.itemId } : {})
       })
@@ -1101,7 +1173,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       id: randomUUID(),
       kind: 'request',
       provider: 'codex',
-      threadId: context.session.threadId ?? route.threadId ?? '',
+      threadId: requestThreadId,
       createdAt: new Date().toISOString(),
       method: request.method,
       turnId: effectiveTurnId,

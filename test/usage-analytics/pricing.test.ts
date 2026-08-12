@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   calculateUsageCost,
   getUsagePricing,
+  hasUsagePricing,
   normalizePricingModelKey,
   resolvePricingModelKey
 } from '../../src/shared/usage/pricing'
@@ -45,6 +46,9 @@ describe('usage pricing resolver', () => {
   })
 
   it('falls back to zero pricing for unknown models', () => {
+    expect(resolvePricingModelKey('codex/gpt-5.6-sol')).toBe('gpt-5.6-sol')
+    expect(hasUsagePricing('gpt-5.6-sol', 'codex')).toBe(false)
+    expect(hasUsagePricing('gpt-5.4', 'codex')).toBe(true)
     expect(getUsagePricing('mystery-model', 'codex')).toEqual({
       input: 0,
       output: 0,

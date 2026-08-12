@@ -1000,7 +1000,7 @@ app.on('will-quit', async () => {
     // Cleanup updater timers
     updaterService.cleanup()
     // Cleanup terminal PTYs
-    cleanupTerminals()
+    await cleanupTerminals()
     // Cleanup running scripts
     cleanupScripts()
     // Cleanup file tree watchers

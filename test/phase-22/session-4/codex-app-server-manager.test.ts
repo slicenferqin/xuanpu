@@ -552,6 +552,114 @@ describe('CodexAppServerManager', () => {
       expect(context.session.status).toBe('error')
     })
 
+    it('does not let a child thread completion clear the parent active turn', () => {
+      const { context } = createTestContext({ status: 'running', activeTurnId: 'turn-parent' })
+      const events: any[] = []
+      manager.on('event', (event) => events.push(event))
+
+      manager.handleStdoutLine(
+        context,
+        JSON.stringify({
+          method: 'turn/completed',
+          params: {
+            threadId: 'thread-child',
+            turn: { id: 'turn-child', status: 'completed' }
+          }
+        })
+      )
+
+      expect(context.session.status).toBe('running')
+      expect(context.session.activeTurnId).toBe('turn-parent')
+      expect(events[0]).toMatchObject({ threadId: 'thread-child', turnId: 'turn-child' })
+    })
+
+    it('does not let a stale parent turn completion clear the active turn', () => {
+      const { context } = createTestContext({ status: 'running', activeTurnId: 'turn-current' })
+
+      manager.handleStdoutLine(
+        context,
+        JSON.stringify({
+          method: 'turn/completed',
+          params: {
+            threadId: 'thread-123',
+            turn: { id: 'turn-stale', status: 'completed' }
+          }
+        })
+      )
+
+      expect(context.session.status).toBe('running')
+      expect(context.session.activeTurnId).toBe('turn-current')
+    })
+
+    it('routes child thread requests without borrowing the parent active turn', () => {
+      const { context } = createTestContext({ status: 'running', activeTurnId: 'turn-parent' })
+      const events: any[] = []
+      manager.on('event', (event) => events.push(event))
+
+      manager.handleStdoutLine(
+        context,
+        JSON.stringify({
+          id: 91,
+          method: 'item/commandExecution/requestApproval',
+          params: { threadId: 'thread-child', itemId: 'item-child' }
+        })
+      )
+
+      expect(events[0]).toMatchObject({
+        threadId: 'thread-child',
+        itemId: 'item-child',
+        turnId: undefined
+      })
+    })
+
+    it('lists all visible app-server models across pages', async () => {
+      const { context } = createTestContext()
+      const sessionsMap = (manager as any).sessions as Map<string, CodexSessionContext>
+      sessionsMap.set('thread-123', context)
+      const request = vi
+        .spyOn(manager, 'sendRequest')
+        .mockResolvedValueOnce({
+          data: [
+            {
+              id: 'sol-id',
+              model: 'gpt-5.6-sol',
+              displayName: 'GPT-5.6-Sol',
+              description: 'Sol',
+              hidden: false,
+              isDefault: true,
+              defaultReasoningEffort: 'low',
+              supportedReasoningEfforts: [{ reasoningEffort: 'low', description: 'Fast' }]
+            }
+          ],
+          nextCursor: 'next-page'
+        } as never)
+        .mockResolvedValueOnce({
+          data: [
+            {
+              id: 'luna-id',
+              model: 'gpt-5.6-luna',
+              displayName: 'GPT-5.6-Luna',
+              description: 'Luna',
+              hidden: false,
+              isDefault: false,
+              defaultReasoningEffort: 'medium',
+              supportedReasoningEfforts: [{ reasoningEffort: 'medium', description: 'Balanced' }]
+            }
+          ],
+          nextCursor: null
+        } as never)
+
+      const catalog = await manager.listModels('thread-123')
+
+      expect(catalog?.models.map((model) => model.id)).toEqual(['gpt-5.6-sol', 'gpt-5.6-luna'])
+      expect(request).toHaveBeenNthCalledWith(
+        2,
+        context,
+        'model/list',
+        expect.objectContaining({ cursor: 'next-page' })
+      )
+    })
+
     it('updates session status on thread/status/changed idle notification', () => {
       const { context } = createTestContext({ status: 'running', activeTurnId: 'turn-1' })
 
